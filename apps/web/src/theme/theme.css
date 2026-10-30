@@ -437,8 +437,8 @@ button[aria-pressed='true'] .cb-icon {
 .cb-prompt-go {
   display: inline-grid;
   place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 1.875rem;
+  height: 1.875rem;
   flex: none;
   border-radius: 999px;
   background: var(--prompt-go);
