@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Issues a node token on the Airship host and restarts the hub so it takes effect.
+# Issues a node token on the Airship host. The hub reads the file on each connection, so it needs no restart.
 # Usage: scripts/airship-node-add.sh <ssh-host> <node-id>
 # The token is printed once: set it as CRYSTAL_TOKEN on that node.
 set -euo pipefail
@@ -9,5 +9,4 @@ ssh "$host" bash -s -- "$node" <<'REMOTE'
 set -euo pipefail
 cd /opt/crystal-bridge/current/apps/airship
 sudo -u airship env AIRSHIP_NODES=/var/lib/airship/nodes.json /opt/crystal-bridge/current/node_modules/.bin/tsx src/nodes-cli.ts add "$1"
-sudo systemctl restart airship.service
 REMOTE

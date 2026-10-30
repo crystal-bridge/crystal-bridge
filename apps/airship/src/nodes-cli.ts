@@ -7,7 +7,7 @@ const [command, node] = process.argv.slice(2);
 if (command === 'add' && node) {
   const token = addNode(path, node);
   console.log(`Token for node "${node}" (shown once; set it as CRYSTAL_TOKEN on that node):\n\n${token}\n`);
-  console.log(`Stored its hash in ${path}. Restart the Airship to pick it up.`);
+  console.log(`Stored its hash in ${path}. The Airship picks it up at once.`);
 } else if (command === 'list') {
   for (const id of loadNodes(path).ids()) console.log(id);
 } else {

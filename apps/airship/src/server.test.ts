@@ -986,9 +986,14 @@ describe('airship server without Web Push', () => {
 });
 
 describe('airship server with node tokens', () => {
+  let tokens: Map<string, string>;
   const registry: NodeRegistry = {
-    verify: (token) => ({ 'token-a': 'node-a', 'token-b': 'node-b' })[token ?? ''],
-    ids: () => ['node-a', 'node-b'],
+    verify: (token) => tokens.get(token ?? ''),
+    ids: () => [...tokens.values()].sort(),
+    revoke(node) {
+      const token = [...tokens].find(([, id]) => id === node)?.[0];
+      return token !== undefined && tokens.delete(token);
+    },
   };
   let store: Store;
   let app: import('fastify').FastifyInstance;
@@ -996,6 +1001,10 @@ describe('airship server with node tokens', () => {
   const sockets: WebSocket[] = [];
 
   beforeEach(async () => {
+    tokens = new Map([
+      ['token-a', 'node-a'],
+      ['token-b', 'node-b'],
+    ]);
     store = openStore(':memory:');
     app = await buildServer({ store, nodes: registry });
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -1043,6 +1052,28 @@ describe('airship server with node tokens', () => {
     send(socket!, { kind: 'hello', node: 'node-b' });
     expect(await closed).toBe(4003);
     expect(await connectedNodes()).toEqual([]);
+  });
+
+  it('DELETE /api/nodes/:node revokes the token, cuts the live connection and refuses it from then on', async () => {
+    const { socket } = await dial('token-a');
+    send(socket!, { kind: 'hello', node: 'node-a' });
+    const start = Date.now();
+    while (!(await connectedNodes()).includes('node-a') && Date.now() - start < 2000)
+      await new Promise((r) => setTimeout(r, 10));
+    const closed = new Promise<number>((resolve) => socket!.once('close', (code) => resolve(code)));
+
+    const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/node-a`, { method: 'DELETE' });
+
+    expect(response.status).toBe(204);
+    expect(await closed).toBe(4007);
+    expect(await connectedNodes()).toEqual([]);
+    expect((await dial('token-a')).status).toBe(401);
+    expect((await dial('token-b')).socket).toBeDefined();
+  });
+
+  it('DELETE /api/nodes/:node answers 404 for a node with no token', async () => {
+    const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/node-z`, { method: 'DELETE' });
+    expect(response.status).toBe(404);
   });
 });
 

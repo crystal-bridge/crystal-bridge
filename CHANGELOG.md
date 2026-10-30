@@ -19,5 +19,6 @@ then, everything is in Unreleased.
 
 ### Security
 
+- Node tokens take effect without a hub restart, and revoking one cuts that Kingdom's connection at once.
 - The hub refuses to start without an allow list and node tokens, unless it is a development hub.
 - `docs/SECURITY-MODEL.md` documents the trust boundaries and the identity header's limits.

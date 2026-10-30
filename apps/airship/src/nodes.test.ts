@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -38,6 +38,41 @@ describe('node tokens', () => {
     expect(nodes.verify(rotated)).toBe('node-b');
     expect(nodes.verify(other)).toBe('node-a');
     expect(nodes.ids()).toEqual(['node-a', 'node-b']);
+  });
+
+  it('sees a token issued after it was loaded, without a restart', () => {
+    const nodes = loadNodes(file);
+    expect(nodes.ids()).toEqual([]);
+    const token = addNode(file, 'node-b');
+    expect(nodes.verify(token)).toBe('node-b');
+    expect(nodes.ids()).toEqual(['node-b']);
+  });
+
+  it('revokes a node at once, for good, and leaves the others', () => {
+    const token = addNode(file, 'node-b');
+    const other = addNode(file, 'node-a');
+    const nodes = loadNodes(file);
+    expect(nodes.revoke('node-b')).toBe(true);
+    expect(nodes.verify(token)).toBeUndefined();
+    expect(loadNodes(file).verify(token)).toBeUndefined();
+    expect(nodes.verify(other)).toBe('node-a');
+    expect(nodes.ids()).toEqual(['node-a']);
+  });
+
+  it('reports revoking a node it does not know', () => {
+    addNode(file, 'node-b');
+    const nodes = loadNodes(file);
+    expect(nodes.revoke('node-a')).toBe(false);
+    expect(nodes.revoke('__proto__')).toBe(false);
+    expect(nodes.ids()).toEqual(['node-b']);
+  });
+
+  it('keeps the file owner-only and leaves nothing else beside it after a revoke', () => {
+    addNode(file, 'node-b');
+    addNode(file, 'node-a');
+    loadNodes(file).revoke('node-b');
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readdirSync(dir)).toEqual(['nodes.json']);
   });
 
   it('writes the file readable by its owner only', () => {
