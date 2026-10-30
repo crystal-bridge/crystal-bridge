@@ -113,6 +113,16 @@ A Crystal restart stops only Crystal's own process (`KillMode=process`): Crystal
 SIGTERM, and anything a Quest deliberately left running in the background (detached workers, long jobs) keeps
 running. Before this, a deploy killed every process in the service's cgroup, detached or not.
 
+## Logging in
+
+`AIRSHIP_AUTH` picks how the hub knows who a request is from. `tailscale-serve` trusts the identity header, so put nothing else in front of the hub. `token` is the hub's own login and works behind any HTTPS proxy. Add a token per person or device on the hub:
+
+```sh
+AIRSHIP_TOKENS=/var/lib/airship/access-tokens.json pnpm --filter @crystal-bridge/airship token:add laptop
+```
+
+It's shown once, and the login page takes it. `token:list` shows the names, and `token:remove <name>` revokes one at once. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
+
 ## Joining and leaving
 
 A machine can join without SSH or a checkout. Add Kingdom in Config makes a one-time code and shows the command to run

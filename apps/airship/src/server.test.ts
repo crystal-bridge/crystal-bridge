@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
-import { tailscaleServe } from './auth.js';
+import { accessTokens, tailscaleServe } from './auth.js';
 import { buildServer } from './server.js';
 import type { NodeRegistry } from './nodes.js';
 import { openStore, type SessionRow, type Store } from './store.js';
@@ -1174,6 +1174,116 @@ describe('airship server with node tokens', () => {
   it('DELETE /api/nodes/:node answers 404 for a node with no token', async () => {
     const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/node-z`, { method: 'DELETE' });
     expect(response.status).toBe(404);
+  });
+});
+
+describe('airship server with token login', () => {
+  let store: Store;
+  let app: import('fastify').FastifyInstance;
+  let base: string;
+  const sockets: WebSocket[] = [];
+  const auth = accessTokens({ verify: (token) => (token === 'good' ? 'laptop' : undefined) });
+
+  beforeEach(async () => {
+    store = openStore(':memory:');
+    app = await buildServer({ store, auth });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) socket.terminate();
+    await app.close();
+    store.close();
+  });
+
+  const login = (token: string) =>
+    fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+
+  it('keeps the API from anyone not logged in, spoofed header or not', async () => {
+    expect((await fetch(`${base}/api/sessions`)).status).toBe(403);
+    const spoofed = await fetch(`${base}/api/sessions`, { headers: { 'tailscale-user-login': 'me@example.com' } });
+    expect(spoofed.status).toBe(403);
+  });
+
+  it('keeps the live client socket from anyone not logged in', async () => {
+    const socket = new WebSocket(`${base.replace('http:', 'ws:')}/client`);
+    sockets.push(socket);
+    socket.on('error', () => undefined); // the refused connection closing
+    const status = await new Promise<number>((resolve) =>
+      socket.once('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0)),
+    );
+    expect(status).toBe(403);
+  });
+
+  it('trades a good token for a session cookie that opens the API', async () => {
+    const response = await login('good');
+    expect(response.status).toBe(200);
+    const cookie = response.headers.get('set-cookie')!;
+    expect(cookie).toContain('HttpOnly');
+    const session = cookie.split(';')[0]!;
+    expect((await fetch(`${base}/api/sessions`, { headers: { cookie: session } })).status).toBe(200);
+    expect(await (await fetch(`${base}/api/me`, { headers: { cookie: session } })).json()).toEqual({
+      login: 'laptop',
+      canLogIn: true,
+    });
+  });
+
+  it('refuses a bad token and sets no cookie', async () => {
+    const response = await login('bad');
+    expect(response.status).toBe(401);
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('says who is asking, so the app knows to show its login page', async () => {
+    expect(await (await fetch(`${base}/api/me`)).json()).toEqual({ login: null, canLogIn: true });
+  });
+
+  it('clears the cookie on logging out', async () => {
+    const response = await fetch(`${base}/api/logout`, { method: 'POST' });
+    expect(response.status).toBe(204);
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+
+  it('marks the cookie Secure when the hub is reached over HTTPS', async () => {
+    const response = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
+      body: JSON.stringify({ token: 'good' }),
+    });
+    expect(response.headers.get('set-cookie')).toContain('Secure');
+  });
+
+  it('keeps each login-s appearance apart', async () => {
+    const session = (await login('good')).headers.get('set-cookie')!.split(';')[0]!;
+    const put = await fetch(`${base}/api/appearance`, {
+      method: 'PUT',
+      headers: { cookie: session, 'content-type': 'application/json' },
+      body: JSON.stringify({ tabStyle: 'tinted' }),
+    });
+    expect(put.status).toBe(204);
+    expect(store.getAppearance('laptop')).toEqual({ tabStyle: 'tinted' });
+  });
+});
+
+describe('airship server without a login method to use', () => {
+  it('answers /api/me for pnpm dev, and has no login route', async () => {
+    const store = openStore(':memory:');
+    const app = await buildServer({ store });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    expect(await (await fetch(`${base}/api/me`)).json()).toEqual({ login: 'default', canLogIn: false });
+    const response = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'x' }),
+    });
+    expect(response.status).toBe(404);
+    await app.close();
+    store.close();
   });
 });
 

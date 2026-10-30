@@ -6,6 +6,10 @@ export interface Authenticator {
   identify(request: FastifyRequest): string | undefined;
   /** What a refused request is told. */
   refusal: string;
+  /** The app shell loads for anyone, for a login page to show in. */
+  publicApp?: boolean;
+  /** Checks a token for logging in, and says whose it is; without it, the hub has no login page. */
+  login?(token: string): string | undefined;
 }
 
 /**
@@ -22,5 +26,40 @@ export function tailscaleServe(allowedUsers: readonly string[]): Authenticator {
       const lowered = login.toLowerCase();
       return allowed.has(lowered) ? lowered : undefined;
     },
+  };
+}
+
+const COOKIE = 'cb_session';
+const COOKIE_DAYS = 30;
+
+/** The hub's session cookie, readable by no script and sent to no other site. */
+export function cookieHeader(token: string, { secure, clear = false }: { secure: boolean; clear?: boolean }): string {
+  const age = clear ? 0 : COOKIE_DAYS * 24 * 60 * 60;
+  return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
+}
+
+function sessionCookie(header: string | undefined): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const [name, value] = part.trim().split('=');
+    if (name === COOKIE) return value;
+  }
+  return undefined;
+}
+
+/**
+ * The hub's own login: long-lived access tokens, as a bearer header or traded for a session cookie. It reads no identity
+ * header, so any proxy can sit in front of it. The app shell loads without a login, to show the login page; it holds no
+ * data, and `/api` and `/client` stay closed.
+ */
+export function accessTokens(tokens: { verify(token: string | undefined): string | undefined }): Authenticator {
+  return {
+    refusal: 'log in first',
+    publicApp: true,
+    identify(request) {
+      const header = request.headers.authorization;
+      const bearer = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
+      return tokens.verify(bearer ?? sessionCookie(request.headers.cookie));
+    },
+    login: (token) => tokens.verify(token),
   };
 }

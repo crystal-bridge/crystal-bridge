@@ -14,6 +14,9 @@
     "typecheck": "tsc --noEmit",
     "node:add": "tsx src/nodes-cli.ts add",
     "node:list": "tsx src/nodes-cli.ts list",
+    "token:add": "tsx src/tokens-cli.ts add",
+    "token:list": "tsx src/tokens-cli.ts list",
+    "token:remove": "tsx src/tokens-cli.ts remove",
     "backup": "tsx src/backup-cli.ts"
   },
   "dependencies": {

@@ -14,7 +14,7 @@ export interface AccessConfig {
 
 const DEV_HINT = 'For a local development hub only, pnpm dev (or AIRSHIP_DEV=1) starts it open.';
 
-const AUTH_MODES = ['tailscale-serve'] as const;
+const AUTH_MODES = ['tailscale-serve', 'token'] as const;
 export type AuthMode = (typeof AUTH_MODES)[number];
 
 /**
@@ -34,10 +34,10 @@ export function accessRefusals({ auth, allowedUsers, nodesPath, dev }: AccessCon
   }
   if (dev) return [];
   const refusals: string[] = [];
-  if (allowedUsers.length === 0) {
+  if (auth !== 'token' && allowedUsers.length === 0) {
     refusals.push(
       'AIRSHIP_ALLOWED_USERS is not set, so the web app and API would be open to anyone who can reach this hub. ' +
-        `Set it to the logins allowed in (comma-separated). ${DEV_HINT}`,
+        `Set it to the logins allowed in (comma-separated), or use AIRSHIP_AUTH=token. ${DEV_HINT}`,
     );
   }
   if (!nodesPath) {
