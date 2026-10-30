@@ -185,6 +185,36 @@ describe('SessionPanel', () => {
     expect(party.textContent).not.toContain('Old helper');
   });
 
+  it('brings a companion along on each running Side Quest: the Owl on a Monitor', () => {
+    const manifest: HeroManifest = {
+      leader: 'paladin',
+      fallback: 'paladin',
+      classes: { paladin: { name: 'Paladin', match: [], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} } },
+    };
+    render(
+      <SessionPanel
+        info={{
+          ...info,
+          tasks: [
+            { id: 'm1', kind: 'monitor', description: 'Watch the deploy log', running: true },
+            { id: 'b1', kind: 'background', description: 'Start the dev server', running: true },
+            { id: 'b2', kind: 'background', description: 'Old build', running: false },
+          ],
+        }}
+        kingdom="k"
+        party={{ manifest, leaderState: 'working' }}
+      />,
+    );
+    const party = screen.getByRole('region', { name: 'Party' });
+    const companions = party.querySelectorAll('canvas[data-companion]');
+    expect(companions).toHaveLength(2);
+    expect(companions[0]!.getAttribute('data-companion')).toBe('owl');
+    expect(screen.getByRole('img', { name: 'Owl, keeping watch' })).toBeTruthy();
+    expect(party.textContent).toContain('Watch the deploy log');
+    expect(party.textContent).toContain('Start the dev server');
+    expect(party.textContent).not.toContain('Old build');
+  });
+
   it('says in theme words what the party leader is doing, not its fixed Class verb', () => {
     const manifest = {
       leader: 'paladin',
