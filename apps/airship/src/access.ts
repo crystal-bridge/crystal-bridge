@@ -8,6 +8,8 @@ export interface AccessConfig {
   auth?: string | undefined;
   allowedUsers: readonly string[];
   nodesPath: string | undefined;
+  /** AIRSHIP_HOST: the address the hub listens on. */
+  host?: string;
   /** A local development hub (`pnpm dev`, or `AIRSHIP_DEV=1`), open on purpose. */
   dev?: boolean;
 }
@@ -26,11 +28,20 @@ export function authMode({ auth, allowedUsers }: Pick<AccessConfig, 'auth' | 'al
   return allowedUsers.length > 0 ? 'tailscale-serve' : undefined;
 }
 
+const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
+
 /** Why the hub must not start as configured; empty when it may. */
-export function accessRefusals({ auth, allowedUsers, nodesPath, dev }: AccessConfig): string[] {
+export function accessRefusals({ auth, allowedUsers, nodesPath, host, dev }: AccessConfig): string[] {
   // Even on a development hub: a typo here must not quietly mean something else.
   if (auth !== undefined && !authMode({ auth, allowedUsers })) {
     return [`AIRSHIP_AUTH is "${auth}", which isn't a login method. Use one of: ${AUTH_MODES.join(', ')}.`];
+  }
+  // Anyone who could reach this hub directly could send the identity header themselves, or find it open.
+  if (host !== undefined && !LOOPBACK.has(host) && authMode({ auth, allowedUsers }) !== 'token') {
+    return [
+      `AIRSHIP_HOST is ${host}, but only AIRSHIP_AUTH=token is safe on an address others can reach: ` +
+        'tailscale-serve trusts an identity header anyone could send directly, and a development hub has no login.',
+    ];
   }
   if (dev) return [];
   const refusals: string[] = [];

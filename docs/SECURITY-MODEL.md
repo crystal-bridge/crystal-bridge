@@ -26,6 +26,8 @@ browser ──HTTPS──▶ tailscale serve ──▶ Airship (hub) on 127.0.0.
 | Hub at rest | SQLite on the hub's disk holds every event: prompts, replies, tool inputs and outputs, anything pasted. Nightly backups copy it. |
 | Hub → phone | Web Push payloads are encrypted end to end to each browser; Discreet and Off levels keep titles and text out of them. |
 
+It also refuses `AIRSHIP_HOST` on anything but loopback unless `AIRSHIP_AUTH=token`, because anyone who could reach it directly could send the identity header themselves.
+
 The hub refuses to start without both an allow list and a node token file, unless it is a development hub
 (`pnpm dev`, or `AIRSHIP_DEV=1`), which stays on 127.0.0.1.
 

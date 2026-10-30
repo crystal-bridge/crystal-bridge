@@ -149,6 +149,8 @@ scripts/deploy-crystal-macos.sh my-mac hub-host        # the Mac you run it on
 | `CRYSTAL_ENGINES` | `stream` | Crystal: `stream,interactive` enables the interactive engine |
 | `CLAUDE_BIN` | `claude` | Crystal: the CLI it runs |
 | `AIRSHIP_PORT` | `7700` | Airship: its HTTP/WebSocket port |
+| `AIRSHIP_HOST` | `127.0.0.1` | Airship: the address it listens on; anything but loopback needs `AIRSHIP_AUTH=token` |
+| `AIRSHIP_DATA` | unset | Airship: one folder for the database, tokens, keys and backups |
 | `AIRSHIP_DB` | `./airship.db` | Airship: the SQLite file |
 | `AIRSHIP_AUTH` | `tailscale-serve` when `AIRSHIP_ALLOWED_USERS` is set | Airship: how it knows who a request is from: `tailscale-serve` or `token` |
 | `AIRSHIP_TOKENS` | next to the database | Airship: the access-token file for `AIRSHIP_AUTH=token` |

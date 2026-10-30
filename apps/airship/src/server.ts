@@ -48,6 +48,8 @@ export interface BuildServerOptions {
   auth?: Authenticator;
   /** This release's id (the deployed commit), reported by /api/health so open tabs can tell they're outdated. */
   release?: string;
+  /** The built web app; by default where a checkout builds it. */
+  webRoot?: string;
   /** Finds the latest agent CLI version, for "update available". Unset: the hub doesn't check. */
   latestCli?: () => Promise<string | undefined>;
   /** How often relayed-byte counts are written to the store (default 30 s); they're also written on close. */
@@ -155,6 +157,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     auth,
     release = 'dev',
     latestCli,
+    webRoot,
     push,
     relayFlushMs = 30_000,
   } = options;
@@ -374,7 +377,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await app.register(fastifyWebsocket);
 
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const webDist = path.resolve(here, '../../web/dist');
+  const webDist = webRoot ?? path.resolve(here, '../../web/dist');
   if (existsSync(webDist)) {
     await app.register(fastifyStatic, { root: webDist });
   }

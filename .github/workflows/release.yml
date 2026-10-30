@@ -1,4 +1,4 @@
-# A `v*` tag builds the Kingdom package and publishes its tarball to a GitHub Release, with build provenance a machine
+# A `v*` tag builds the Kingdom and hub packages and publishes their tarballs to a GitHub Release, with build provenance a machine
 # can verify before running it.
 name: Release
 
@@ -29,12 +29,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: The tag matches the package version
         run: test "v$(node -p "require('./apps/crystal/package.json').version")" = "$GITHUB_REF_NAME"
-      - name: Package installs and runs
+      - name: The hub carries the same version
+        run: test "v$(node -p "require('./apps/airship/package.json').version")" = "$GITHUB_REF_NAME"
+      - name: Kingdom package installs and runs
         run: bash scripts/check-kingdom-package.sh
+      - name: Hub package installs and runs
+        run: bash scripts/check-hub-package.sh
       - name: Pack
         run: |
           mkdir -p "$RUNNER_TEMP/release"
           pnpm --filter @crystal-bridge/kingdom pack --pack-destination "$RUNNER_TEMP/release"
+          pnpm --filter @crystal-bridge/airship pack --pack-destination "$RUNNER_TEMP/release"
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ runner.temp }}/release/*.tgz
