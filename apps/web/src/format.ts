@@ -27,3 +27,10 @@ export function bytes(n: number): string {
 export function money(usd: number): string {
   return usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
+
+/** Gold: one coin per US cent, grouped by locale (1.18 -> "118", 100.82 -> "10,082"); under a cent reads "<1". */
+export function goldText(usd: number, locale?: string): string {
+  const coins = Math.round(usd * 100);
+  if (usd > 0 && coins === 0) return '<1';
+  return new Intl.NumberFormat(locale).format(coins);
+}

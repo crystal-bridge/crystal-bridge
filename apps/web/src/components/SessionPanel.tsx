@@ -9,6 +9,7 @@ import { type Concept, gameLook, hint, stepWord, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { bytes, duration, tokens } from '../format.js';
 import { formatUntil } from './NodeUsage.js';
+import { Gold } from './Gold.js';
 
 /** A Stats row: the theme's label, with the plain term on hover. */
 function Stat({ concept, children }: { concept: Concept; children: ReactNode }) {
@@ -260,7 +261,9 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
           )}
         </Stat>
         {left !== undefined && <Meter label="Context left" left={left} />}
-        <Stat concept="gold">${info.costUsd.toFixed(2)}</Stat>
+        <Stat concept="gold">
+          <Gold usd={info.costUsd} />
+        </Stat>
         <Stat concept="tokens">
           {tokens(stats.tokens.input)} in · {tokens(stats.tokens.output)} out
           <span className="block text-neutral-500">

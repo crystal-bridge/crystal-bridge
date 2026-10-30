@@ -49,7 +49,7 @@ describe('SessionPanel', () => {
     expect(within(stats).getByRole('meter', { name: 'Context left' }).getAttribute('aria-valuenow')).toBe('38');
     expect(value('MP')).toContain('38% left');
     expect(value('MP')).toContain('124k of 200k');
-    expect(value('Gold')).toContain('$1.23');
+    expect(value('Gold')).toMatch(/^Gold123/);
     expect(value('Tokens')).toContain('1.2k in');
     expect(value('Tokens')).toContain('57k out');
     expect(value('Tokens')).toContain('2.4M cache read');

@@ -22,7 +22,7 @@ describe('BattleCard', () => {
     const summary = screen.getByText(/Battle won/).closest('summary')!;
     expect(summary.closest('details')!.open).toBe(false);
     expect(summary.textContent).toContain('4s');
-    expect(summary.textContent).toContain('$0.25');
+    expect(summary.textContent).toContain('25 Gold');
     expect(summary.textContent).toContain('2 files');
     fireEvent.click(summary);
     expect(screen.getByText('src/a.ts')).toBeTruthy();
