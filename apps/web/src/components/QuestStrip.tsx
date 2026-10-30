@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
-import { questTitle } from '../quests.js';
+import { projectName, questTitle } from '../quests.js';
 import { reorderHandlers } from '../tabOrder.js';
 import { hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
@@ -35,7 +35,7 @@ const OFF =
 
 /**
  * The Kingdom's tab strip: its Castle (home), one tab per active Quest, and New Quest. Each Quest tab shows its party
- * leader (docs/THEME.md) when the Heroes are loaded, or a status dot.
+ * leader (docs/THEME.md) when the Heroes are loaded, or a status dot, and the project under its title.
  */
 export function QuestStrip({
   castleName,
@@ -95,7 +95,13 @@ export function QuestStrip({
               ) : (
                 <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[quest.status]}`} />
               )}
-              <span className="truncate">{label}</span>
+              <span className="flex min-w-0 flex-col items-start text-left leading-tight">
+                <span className="max-w-full truncate">{label}</span>
+                {/* Hidden from screen readers, which get it from the tab's title: the tab's name stays the label. */}
+                <span data-project aria-hidden className="max-w-full truncate font-mono text-xs text-neutral-500">
+                  {projectName(quest.cwd)}
+                </span>
+              </span>
               {waiting.has(quest.id) && (
                 <span
                   data-waiting
