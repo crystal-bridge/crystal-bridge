@@ -93,6 +93,8 @@ export interface Store {
   waiting(): { session: string; node: string }[];
   /** Adds bytes relayed to clients, per session, in one transaction. */
   addRelayed(bytes: ReadonlyMap<string, number>): void;
+  /** Deletes everything held for a node, in one transaction, and returns the ids of the sessions that went. */
+  forgetNode(node: string): string[];
   /** One more than the highest stored seq of a session, or 0 when it has none. */
   nextSeq(session: string): number;
   /**
@@ -226,6 +228,17 @@ export function openStore(path: string): Store {
   const addRelayedAll = db.transaction((bytes: ReadonlyMap<string, number>) => {
     for (const [session, n] of bytes) if (n > 0) addRelayedStmt.run(session, n);
   });
+  const nodeSessionsStmt = db.prepare(`SELECT id FROM sessions WHERE node = ?`);
+  const forgetRelayStmt = db.prepare(`DELETE FROM relay WHERE session IN (SELECT id FROM sessions WHERE node = ?)`);
+  const forgetEventsStmt = db.prepare(`DELETE FROM events WHERE node = ?`);
+  const forgetSessionsStmt = db.prepare(`DELETE FROM sessions WHERE node = ?`);
+  const forgetNodeTxn = db.transaction((node: string): string[] => {
+    const ids = (nodeSessionsStmt.all(node) as { id: string }[]).map((row) => row.id);
+    forgetRelayStmt.run(node);
+    forgetEventsStmt.run(node);
+    forgetSessionsStmt.run(node);
+    return ids;
+  });
   const startedPayloadStmt = db.prepare(
     `SELECT payload FROM events WHERE session = ? AND type = 'session.started' ORDER BY seq LIMIT 1`,
   );
@@ -337,6 +350,11 @@ export function openStore(path: string): Store {
     },
     addRelayed(bytes) {
       addRelayedAll(bytes);
+    },
+    forgetNode(node) {
+      const ids = forgetNodeTxn(node);
+      usage.delete(node);
+      return ids;
     },
     turnStats(since) {
       type Row = {

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.js';
 import type { HubClient } from './hub.js';
@@ -73,6 +73,29 @@ describe('App Kingdom tabs', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it('forgets a removed Kingdom: asks the hub, and its tab goes', async () => {
+    let held = sessions;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        held = held.filter((session) => session.node !== 'node-a');
+        return new Response(null, { status: 204 });
+      }
+      const body = url === '/api/sessions' ? held : url === '/api/nodes' ? ['node-b'] : [];
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await renderApp();
+    const tabs = screen.getByRole('tablist', { name: 'Kingdoms' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: /node-a/ }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Forget node-a' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /to confirm/ }), { target: { value: 'node-a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, forget it' }));
+
+    await waitFor(() => expect(within(tabs).queryByRole('tab', { name: /node-a/ })).toBeNull());
+    expect(fetchMock).toHaveBeenCalledWith('/api/nodes/node-a/quests', { method: 'DELETE' });
   });
 
   it('knows what is waiting on load, without having seen it happen', async () => {

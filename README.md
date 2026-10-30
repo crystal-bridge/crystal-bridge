@@ -122,7 +122,8 @@ scripts/deploy-airship.sh hub-host you@example.com    # first run sets the allow
 Then add each machine from the app: open **Config**, name the new Kingdom under **Add Kingdom**, and run the command it
 gives you on that machine. It needs Node 22+ and Claude Code signed in, and only outbound HTTPS: no SSH or inbound
 ports. On Linux it asks for sudo once, so the Kingdom keeps running after you log out. To remove a Kingdom, use **Remove**
-on its Castle, then run the command it shows on that machine. Linux and macOS are supported.
+on its Castle, then run the command it shows on that machine. Its Quests stay as history unless you then choose
+**Forget** there. Linux and macOS are supported.
 
 #### Without Tailscale
 

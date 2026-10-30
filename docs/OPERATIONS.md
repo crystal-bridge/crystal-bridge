@@ -152,7 +152,12 @@ so the service survives logging out.
 `leave` (`LEAVE_COMMAND` in `packages/protocol`) gives up the token and removes the service, the env file and the
 install. It works even if the hub can't be reached, and then says to remove the Kingdom from the app as well. Remove on
 a Castle does the hub's half: it revokes the token and cuts the connection, and shows that command to run on the
-machine. A removed Kingdom's Quests stay as history, so its tab stays until you hide it in Config.
+machine. A removed Kingdom's Quests stay as history, so its tab stays until you hide it in Config or forget it.
+
+Forget, on a removed Kingdom's Castle, is optional and can't be undone: once you type the Kingdom's name it deletes
+that Kingdom's Quests from the hub (sessions, events and relay counts), and the tab goes with them. The hub refuses
+while the Kingdom holds a token or a connection. It deletes only the hub's copy: transcripts stay on the machine, and
+existing backups keep the Quests until they age out.
 
 ## Rolling back
 

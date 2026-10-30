@@ -29,6 +29,49 @@ describe('store', () => {
     store.close();
   });
 
+  it('forgets a node: its sessions, events, relay counts and usage go, and other nodes are untouched', () => {
+    const gone = randomUUID();
+    const kept = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        node: 'gone',
+        session: gone,
+        type: 'session.started',
+        payload: { cwd: '/a', prompt: 'a', label: 'a' },
+      }),
+    );
+    store.appendEvent(makeEnvelope({ node: 'gone', session: gone, seq: 1 }));
+    store.appendEvent(
+      makeEnvelope({
+        node: 'kept',
+        session: kept,
+        type: 'session.started',
+        payload: { cwd: '/b', prompt: 'b', label: 'b' },
+      }),
+    );
+    store.addRelayed(
+      new Map([
+        [gone, 10],
+        [kept, 20],
+      ]),
+    );
+    store.appendEvent(makeEnvelope({ node: 'gone', session: gone, seq: 2, type: 'usage', payload: { windows: [] } }));
+
+    expect(store.forgetNode('gone')).toEqual([gone]);
+
+    expect(store.listSessions().map((s) => s.id)).toEqual([kept]);
+    expect(store.getSession(gone)).toBeUndefined();
+    expect(store.eventsSince(gone, -1)).toEqual([]);
+    expect(store.search('gone', 'a', 10)).toEqual([]);
+    expect(store.latestUsage().map((u) => u.node)).not.toContain('gone');
+    expect(store.eventsSince(kept, -1)).toHaveLength(1);
+    expect(store.listSessions()[0]?.relayedBytes).toBe(20);
+  });
+
+  it('forgetting a node it has never heard of changes nothing', () => {
+    expect(store.forgetNode('nobody')).toEqual([]);
+  });
+
   it('returns an appended event with its payload deserialized', () => {
     const session = randomUUID();
     const event = makeEnvelope({ session, seq: 0, payload: { foo: 'bar' } });
