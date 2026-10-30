@@ -12,6 +12,8 @@ export type ViewItem =
       isError: boolean;
       denied: boolean;
       done: boolean;
+      /** A Skill's text, which the CLI sends after the tool as a synthetic user message. */
+      body?: string;
     }
   | {
       kind: 'permission';
@@ -70,6 +72,8 @@ function contentText(content: unknown): string {
 export class ViewBuilder {
   readonly items: ViewItem[] = [];
   private readonly tools = new Map<string, Extract<ViewItem, { kind: 'tool' }>>();
+  /** The latest Skill tool, until the skill's text arrives. */
+  private pendingSkill: Extract<ViewItem, { kind: 'tool' }> | undefined;
   private readonly permissions = new Map<string, Extract<ViewItem, { kind: 'permission' }>>();
   /** Text blocks still streaming, keyed by `${messageId}:${blockIndex}`, in arrival order. */
   private readonly streaming = new Map<string, Extract<ViewItem, { kind: 'assistant' }>>();
@@ -241,6 +245,7 @@ export class ViewBuilder {
     if (existing) {
       if (input !== undefined) existing.input = input;
       if (name) existing.name = name;
+      if (existing.name === 'Skill' && existing.body === undefined) this.pendingSkill = existing;
       return;
     }
     const item: Extract<ViewItem, { kind: 'tool' }> = {
@@ -255,6 +260,7 @@ export class ViewBuilder {
     };
     this.tools.set(toolUseId, item);
     this.items.push(item);
+    if (item.name === 'Skill') this.pendingSkill = item;
   }
 
   private user(raw: Obj, id: string): void {
@@ -270,7 +276,15 @@ export class ViewBuilder {
       if (!isObj(block)) return;
       if (block.type === 'text') {
         const text = str(block.text);
-        if (text) this.items.push({ kind: 'notice', id: `${id}.${i}`, text });
+        if (!text) return;
+        // A skill's text belongs to the Skill tool that loaded it, not the chat.
+        const skill = raw.isSynthetic === true ? this.pendingSkill : undefined;
+        if (skill) {
+          skill.body = text;
+          this.pendingSkill = undefined;
+          return;
+        }
+        this.items.push({ kind: 'notice', id: `${id}.${i}`, text });
         return;
       }
       if (block.type !== 'tool_result') return;

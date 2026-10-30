@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLASSIC, CRYSTAL, hint, stepWord, w } from './words.js';
+import { CLASSIC, CRYSTAL, hint, stepWord, useLine, w } from './words.js';
 
 describe('theme words', () => {
   it('gives the themed word, and a hint with the plain term when they differ', () => {
@@ -29,5 +29,20 @@ describe('theme words', () => {
     const seen = new Set([0, 1, 2, 3, 4, 5, 6, 7].map((seed) => stepWord('write', seed, CRYSTAL).themed));
     expect(seen.size).toBeGreaterThan(1);
     expect(stepWord('write', 1_234, CLASSIC).themed).toBe('Editing');
+  });
+});
+
+describe('useLine', () => {
+  it('names the Hero and what it used, with a verb per Inventory category', () => {
+    expect(useLine('spells', 'Paladin', 'deploy', CRYSTAL)).toEqual({
+      themed: 'Paladin casts deploy!',
+      plain: 'Used skill: deploy',
+    });
+    expect(useLine('items', 'Rogue', '/compact', CRYSTAL).themed).toBe('Rogue uses /compact!');
+    expect(useLine('equipment', 'Sage', 'github', CRYSTAL).themed).toBe('Sage wields github!');
+  });
+
+  it('reads plainly in the Classic theme', () => {
+    expect(useLine('spells', 'Paladin', 'deploy', CLASSIC).themed).toBe('Used skill: deploy');
   });
 });
