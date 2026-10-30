@@ -75,6 +75,25 @@ describe('App Kingdom tabs', () => {
     vi.unstubAllGlobals();
   });
 
+  it('knows what is waiting on load, without having seen it happen', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/waiting'
+                ? [{ session: sessions[0]!.id, node: sessions[0]!.node }]
+                : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    await renderApp();
+    expect(await screen.findByTitle(/waiting on you/)).toBeTruthy();
+  });
+
   it('keeps showing what it knew when the hub stops answering, and says it is reconnecting', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {

@@ -89,6 +89,8 @@ export interface Store {
   questXp(): QuestXp[];
   /** The newest Quest starts, closes and finished turns across all nodes. */
   activity(limit: number): ActivityItem[];
+  /** Quests with a permission request nobody has answered, and that can still be answered. */
+  waiting(): { session: string; node: string }[];
   /** Adds bytes relayed to clients, per session, in one transaction. */
   addRelayed(bytes: ReadonlyMap<string, number>): void;
   /** One more than the highest stored seq of a session, or 0 when it has none. */
@@ -166,6 +168,16 @@ export function openStore(path: string): Store {
   const insertSessionStmt = db.prepare(
     `INSERT INTO sessions (id, node, cwd, label, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
   );
+  const waitingStmt = db.prepare(`
+    SELECT DISTINCT asked.session AS session, asked.node AS node
+      FROM events asked
+     WHERE asked.type = 'permission.request'
+       AND NOT EXISTS (
+         SELECT 1 FROM events later
+          WHERE later.session = asked.session AND later.seq > asked.seq
+            AND (later.type IN ('session.ended', 'session.closed')
+              OR (later.type = 'permission.resolved'
+                  AND json_extract(later.payload, '$.requestId') = json_extract(asked.payload, '$.requestId'))))`);
   const setStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`);
   // A closed Quest is done for good: its process ending (or a stray resume) arrives after the close and mustn't reopen it.
   const setOpenStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ? AND status != 'closed'`);
@@ -356,6 +368,9 @@ export function openStore(path: string): Store {
         kos: row.kos,
         completed: row.completed === 1,
       }));
+    },
+    waiting() {
+      return waitingStmt.all() as { session: string; node: string }[];
     },
     activity(limit) {
       type Row = { session: string; node: string; label: string; ts: number; type: string; outcome: unknown };

@@ -451,6 +451,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     return reply.code(204).send();
   });
+  app.get('/api/waiting', async () => store.waiting());
   app.get('/api/cli-latest', async () => {
     const latest = await latestCli?.();
     return latest ? { latest } : {};

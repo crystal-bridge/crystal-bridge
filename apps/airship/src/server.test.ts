@@ -587,6 +587,20 @@ describe('airship server', () => {
     ]);
   });
 
+  it('GET /api/waiting lists Quests with an unanswered request', async () => {
+    const session = randomUUID();
+    store.appendEvent(sessionStartedEnvelope(session, 'node-a'));
+    store.appendEvent(
+      makeEnvelope({
+        session,
+        seq: 1,
+        type: 'permission.request',
+        payload: { requestId: 'r', toolName: 'Bash', input: {} },
+      }),
+    );
+    expect(await (await fetch(`${baseUrl}/api/waiting`)).json()).toEqual([{ session, node: 'node-a' }]);
+  });
+
   it('reports the agent CLI version a node sent, until it disconnects', async () => {
     const socket = await openSocket(`${wsUrl}/node`);
     sockets.push(socket);
