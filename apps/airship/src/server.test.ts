@@ -1350,6 +1350,7 @@ describe('airship server with token login', () => {
     expect(await (await fetch(`${base}/api/me`, { headers: { cookie: session } })).json()).toEqual({
       login: 'laptop',
       canLogIn: true,
+      setup: false,
     });
   });
 
