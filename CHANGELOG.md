@@ -15,6 +15,9 @@ then, everything is in Unreleased.
 - The Kingdom agent builds into one installable package, `@crystal-bridge/kingdom`, and a `v*` tag publishes its
   tarball to a GitHub Release with build provenance.
 
+- The Castle warns when a Kingdom's version is older than the hub's, and a refused Kingdom logs why.
+- `docs/OPERATIONS.md` states which hub and Kingdom releases work together.
+
 ### Changed
 
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".

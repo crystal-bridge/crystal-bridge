@@ -119,6 +119,9 @@ export interface CrystalNode {
 /** Within systemd's TimeoutStopSec (15 s): the engines' own grace periods (5 s) fit inside it. */
 const CLOSE_WAIT_MS = 10_000;
 
+/** Close code from a hub that doesn't speak this node's protocol version. */
+const CLOSE_WRONG_PROTOCOL = 4006;
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 
@@ -627,8 +630,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
     ws.on('message', (data) => handleMessage(data));
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
       if (socket === ws) socket = null;
+      // Still retried: updating the hub can end the refusal.
+      if (code === CLOSE_WRONG_PROTOCOL) log(`the hub refused this node: ${reason.toString()}`);
       scheduleReconnect();
     });
 

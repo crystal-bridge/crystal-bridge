@@ -1011,6 +1011,7 @@ export function App({ hub }: { hub: HubClient }) {
                 found={kingdomFound}
                 engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
                 release={engineLists.find((row) => row.node === kingdom.id)?.release}
+                hubRelease={servedRelease}
                 today={statsToday.find((row) => row.node === kingdom.id) ?? null}
                 week={statsWeek.find((row) => row.node === kingdom.id) ?? null}
                 heroes={heroManifest}
