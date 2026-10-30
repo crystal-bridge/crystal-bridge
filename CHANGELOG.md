@@ -26,6 +26,7 @@ then, everything is in Unreleased.
 
 - Choose the colour of your own prompts in Config. The default is a muted purple, so blue only ever means "look here".
 
+- `pnpm demo` runs the app with a scripted world in it, with no `claude` and nothing kept.
 - The Tavern knows what's waiting after a reload or on a new device.
 
 ### Changed
