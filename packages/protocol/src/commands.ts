@@ -1,0 +1,230 @@
+import { z } from 'zod';
+import { Appearance } from './appearance.js';
+import { Envelope } from './envelope.js';
+
+/**
+ * The CLI's permission modes a client may pick. `manual` asks for every action, `auto` lets the CLI's own
+ * classifier decide and ask only when unsure. Modes that turn approvals off (bypassPermissions, dontAsk) are left
+ * out on purpose: a click in the hub must never remove them.
+ */
+export const PermissionMode = z.enum(['manual', 'acceptEdits', 'auto', 'plan']);
+export type PermissionMode = z.infer<typeof PermissionMode>;
+
+/**
+ * How a node runs a session's engine. `stream` drives `claude -p` over stream-json (the default); `interactive` runs
+ * the real interactive `claude` in a pseudo-terminal, for the tools only an interactive session gets (e.g. artifacts).
+ */
+export const Engine = z.enum(['stream', 'interactive']);
+export type Engine = z.infer<typeof Engine>;
+
+/**
+ * Filled in by the hub from its store, never by clients: lets a node that restarted and no longer holds a session
+ * rebuild it, on the same engine, numbering its events after the ones the hub already has.
+ */
+const Resume = z.object({
+  cwd: z.string(),
+  nextSeq: z.number().int().nonnegative(),
+  /** The engine the session started on; unset is `stream`. */
+  engine: Engine.optional(),
+});
+
+// client -> hub -> node
+export const NodeCommand = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('session.start'),
+    node: z.string(),
+    session: z.uuid(),
+    cwd: z.string(),
+    prompt: z.string().min(1),
+    /** Unset: the node's default (CRYSTAL_DEFAULT_MODE). */
+    mode: PermissionMode.optional(),
+    /** Run in a new git worktree of `cwd`'s repository, on its own branch, so sessions don't collide. */
+    worktree: z.boolean().optional(),
+    /**
+     * Start as a fork of this session: a copy of its conversation so far that continues separately. Same node, and
+     * the same `cwd` as the source, since the engine finds a conversation by its folder; so never with `worktree`.
+     */
+    forkFrom: z.uuid().optional(),
+    /** Unset: `stream`. A node runs only the engines its hello lists. */
+    engine: Engine.optional(),
+  }),
+  z.object({
+    /** Closes a session for good: its process stops, its history stays, and it takes no more follow-ups. */
+    type: z.literal('session.close'),
+    session: z.uuid(),
+    /** Also remove the session's worktree, if it has one and nothing in it is uncommitted. */
+    removeWorktree: z.boolean().optional(),
+    /** Filled in by the hub, as for session.send, so a node that no longer holds the session can still close it. */
+    resume: Resume.optional(),
+  }),
+  z.object({
+    /** Switches a session's permission mode; a running process changes at once, otherwise on its next start. */
+    type: z.literal('session.mode'),
+    session: z.uuid(),
+    mode: PermissionMode,
+  }),
+  z.object({
+    type: z.literal('session.send'),
+    session: z.uuid(),
+    text: z.string().min(1),
+    /** Filled in by the hub from its store, never by clients; see `Resume`. */
+    resume: Resume.optional(),
+  }),
+  z.object({
+    /** Take over a session the node found outside the bridge: replay its history, resume it on the next send. */
+    type: z.literal('session.adopt'),
+    node: z.string(),
+    session: z.uuid(),
+    /** The engine its follow-ups resume on; unset is `stream`. A node adopts only on engines its hello lists. */
+    engine: Engine.optional(),
+  }),
+  z.object({
+    type: z.literal('session.interrupt'),
+    session: z.uuid(),
+  }),
+  z.object({
+    /**
+     * Reads one file inside a session's folder for the read-only viewer; the node answers with a `file` frame the hub
+     * relays to the requesting client only. Relative paths resolve against the session's folder.
+     */
+    type: z.literal('file.read'),
+    session: z.uuid(),
+    requestId: z.uuid(),
+    path: z.string().min(1).max(4096),
+    /** Filled in by the hub from its store, never by clients: the session's folder, for a node that restarted since. */
+    cwd: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('permission.answer'),
+    session: z.uuid(),
+    requestId: z.string(),
+    behavior: z.enum(['allow', 'deny']),
+    message: z.string().optional(),
+    /** Answers to an AskUserQuestion request, keyed by question text; sent with `allow`. */
+    answers: z.record(z.string(), z.string()).optional(),
+  }),
+]);
+export type NodeCommand = z.infer<typeof NodeCommand>;
+
+// node -> hub control frames
+/**
+ * The node link's protocol version. Bump it only for a change an older peer can't handle; additive changes
+ * (new optional fields, new event types old code ignores) keep it. The hub refuses a node on another version.
+ */
+export const PROTOCOL_VERSION = 1;
+
+export const NodeHello = z.object({
+  kind: z.literal('hello'),
+  node: z.string().min(1),
+  /** Unset means 1: nodes from before the field existed. */
+  protocol: z.number().int().positive().optional(),
+  /** Sessions the node still holds. The hub marks the node's other running sessions idle. */
+  sessions: z.array(z.uuid()).optional(),
+  /** Engines this node can run sessions on; unset means just `stream`. */
+  engines: z.array(z.string()).optional(),
+  /** The node agent's release (e.g. the deployed commit), for display. */
+  release: z.string().max(64).optional(),
+});
+export type NodeHello = z.infer<typeof NodeHello>;
+
+/**
+ * A problem the node can't report as a session envelope, e.g. a command for a session it doesn't have
+ * (after a restart). Never stored: the hub relays it as `{ kind: 'error' }` to the session's subscribers,
+ * or to every client when there is no session.
+ */
+export const NodeError = z.object({
+  kind: z.literal('node-error'),
+  session: z.uuid().optional(),
+  message: z.string(),
+});
+export type NodeError = z.infer<typeof NodeError>;
+
+/** A session the node's engine ran outside the bridge, e.g. in a terminal. */
+export const ExternalSession = z.object({
+  id: z.uuid(),
+  cwd: z.string(),
+  title: z.string(),
+  updatedAt: z.number().int(), // epoch ms of its last change
+  messages: z.number().int().nonnegative(),
+});
+export type ExternalSession = z.infer<typeof ExternalSession>;
+
+/** A folder on the node a session can start in, for the New session picker. */
+export const Project = z.object({
+  path: z.string(),
+  name: z.string(),
+  lastUsed: z.number().int().optional(), // epoch ms, from the node's session transcripts
+});
+export type Project = z.infer<typeof Project>;
+
+/** Node -> hub: the node's project folders, replacing the previous list. */
+export const NodeProjects = z.object({ kind: z.literal('projects'), projects: z.array(Project) });
+export type NodeProjects = z.infer<typeof NodeProjects>;
+
+/** Node -> hub: the node's current list of external sessions, replacing the previous one. */
+export const NodeExternal = z.object({ kind: z.literal('external'), sessions: z.array(ExternalSession) });
+export type NodeExternal = z.infer<typeof NodeExternal>;
+
+/**
+ * Node -> hub -> the client that asked: a `file.read` answered. `path` is relative to the session's folder; a text file
+ * over the node's size cap comes back cut, with `truncated`. When `ok` is false, `reason` says why, in plain words.
+ */
+export const FileReply = z.object({
+  kind: z.literal('file'),
+  requestId: z.uuid(),
+  ok: z.boolean(),
+  path: z.string().optional(),
+  content: z.string().optional(),
+  size: z.number().int().nonnegative().optional(),
+  truncated: z.boolean().optional(),
+  reason: z.string().optional(),
+});
+export type FileReply = z.infer<typeof FileReply>;
+
+export const HubAck = z.object({ kind: z.literal('ack'), session: z.uuid(), seq: z.number().int() });
+export type HubAck = z.infer<typeof HubAck>;
+
+// client -> hub
+export const ClientMessage = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('subscribe'), session: z.uuid(), fromSeq: z.number().int().nonnegative() }),
+  z.object({ kind: z.literal('command'), command: NodeCommand }),
+]);
+export type ClientMessage = z.infer<typeof ClientMessage>;
+
+// hub -> client
+/**
+ * Hub -> every client, whatever it subscribed to: a session needs the user (a permission or question request), finished
+ * a turn, or failed. `detail` is the tool name or a short summary; clients decide what to show, per Kingdom and device.
+ */
+export const Attention = z.object({
+  kind: z.literal('attention'),
+  node: z.string(),
+  session: z.uuid(),
+  label: z.string(),
+  reason: z.enum(['needs-you', 'done', 'failed']),
+  detail: z.string().optional(),
+});
+export type Attention = z.infer<typeof Attention>;
+
+export const HubToClient = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('event'), event: Envelope }),
+  /**
+   * A subscription's replay of stored events, in batches; `total` is how many the whole replay holds, for progress.
+   * Streaming fragments of finished turns are left out (the full messages carry the same text).
+   */
+  z.object({
+    kind: z.literal('events'),
+    session: z.uuid(),
+    events: z.array(Envelope),
+    total: z.number().int().nonnegative(),
+  }),
+  /** The replay is complete; `seq` is the session's last stored seq (-1 for none), even if that event was left out. */
+  z.object({ kind: z.literal('synced'), session: z.uuid(), seq: z.number().int().min(-1) }),
+  z.object({ kind: z.literal('error'), message: z.string() }),
+  Attention,
+  /** The user's appearance changed on another device; clients that don't know this frame ignore it. */
+  z.object({ kind: z.literal('appearance'), appearance: Appearance }),
+  /** The answer to this client's `file.read`; clients that don't know this frame ignore it. */
+  FileReply,
+]);
+export type HubToClient = z.infer<typeof HubToClient>;

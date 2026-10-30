@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+/* The theme's fonts, colours and component looks; swap this one file to restyle. */
+@import './theme/theme.css';
+
+/* Tailwind's preflight gives buttons the default arrow; anything clickable shows a pointer instead. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  summary {
+    cursor: pointer;
+  }
+}

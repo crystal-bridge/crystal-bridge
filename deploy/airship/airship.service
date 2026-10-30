@@ -1,0 +1,30 @@
+[Unit]
+Description=Crystal Bridge Airship (hub)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=airship
+Group=airship
+EnvironmentFile=/etc/crystal-bridge/airship.env
+WorkingDirectory=/opt/crystal-bridge/current/apps/airship
+ExecStart=/opt/crystal-bridge/current/node_modules/.bin/tsx src/main.ts
+Restart=on-failure
+RestartSec=5
+
+# The hub only needs its data directory; everything else is read-only.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/airship
+
+[Install]
+WantedBy=multi-user.target

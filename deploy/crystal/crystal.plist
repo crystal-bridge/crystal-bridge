@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd user agent for Crystal on macOS: ~/Library/LaunchAgents/dev.crystal-bridge.crystal.plist, written by
+     scripts/deploy-crystal-macos.sh, which fills in HOME. Runs at login under the user's own account, so `claude`
+     uses that login; restarts if it exits. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.crystal-bridge.crystal</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HOME__/.local/share/crystal-bridge/current/deploy/crystal/run-crystal.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <!-- Crystal closes its claude sessions on SIGTERM; give it time before launchd kills the rest. -->
+  <key>ExitTimeOut</key>
+  <integer>15</integer>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/crystal-bridge/crystal.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/crystal-bridge/crystal.log</string>
+</dict>
+</plist>

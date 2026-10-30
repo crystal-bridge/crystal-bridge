@@ -1,0 +1,160 @@
+{
+  "leader": "paladin",
+  "fallback": "wizard",
+  "classes": {
+    "paladin": {
+      "name": "Paladin",
+      "match": ["security", "guard"],
+      "work": "slash",
+      "verb": "Smite",
+      "victory": "emote",
+      "anims": {
+        "emote": {
+          "frames": 3,
+          "size": 64
+        },
+        "hurt": {
+          "frames": 6,
+          "size": 64
+        },
+        "idle": {
+          "frames": 2,
+          "size": 64
+        },
+        "slash": {
+          "frames": 6,
+          "size": 128
+        },
+        "spellcast": {
+          "frames": 7,
+          "size": 64
+        }
+      }
+    },
+    "wizard": {
+      "name": "Wizard",
+      "match": ["general-purpose", "worker", "build"],
+      "work": "spellcast",
+      "verb": "Cast",
+      "victory": "spellcast",
+      "anims": {
+        "hurt": {
+          "frames": 6,
+          "size": 64
+        },
+        "idle": {
+          "frames": 2,
+          "size": 64
+        },
+        "spellcast": {
+          "frames": 7,
+          "size": 64
+        }
+      }
+    },
+    "cleric": {
+      "name": "Cleric",
+      "match": ["review", "verif", "test", "debug", "fix"],
+      "work": "spellcast",
+      "verb": "Heal",
+      "victory": "spellcast",
+      "anims": {
+        "hurt": {
+          "frames": 6,
+          "size": 64
+        },
+        "idle": {
+          "frames": 2,
+          "size": 64
+        },
+        "spellcast": {
+          "frames": 7,
+          "size": 64
+        }
+      }
+    },
+    "ranger": {
+      "name": "Ranger",
+      "match": ["research", "web", "docs", "guide"],
+      "work": "shoot",
+      "verb": "Shoot",
+      "victory": "emote",
+      "anims": {
+        "emote": {
+          "frames": 3,
+          "size": 64
+        },
+        "hurt": {
+          "frames": 6,
+          "size": 64
+        },
+        "idle": {
+          "frames": 2,
+          "size": 64
+        },
+        "shoot": {
+          "frames": 13,
+          "size": 64
+        },
+        "spellcast": {
+          "frames": 7,
+          "size": 64
+        }
+      }
+    },
+    "rogue": {
+      "name": "Rogue",
+      "match": ["explore", "search", "find", "inventory"],
+      "work": "slash",
+      "verb": "Sneak",
+      "victory": "emote",
+      "anims": {
+        "emote": {
+          "frames": 3,
+          "size": 64
+        },
+        "hurt": {
+          "frames": 6,
+          "size": 64
+        },
+        "idle": {
+          "frames": 2,
+          "size": 64
+        },
+        "slash": {
+          "frames": 6,
+          "size": 64
+        },
+        "spellcast": {
+          "frames": 7,
+          "size": 64
+        }
+      }
+    },
+    "sage": {
+      "name": "Sage",
+      "match": ["plan", "architect", "design"],
+      "work": "spellcast",
+      "verb": "Scan",
+      "victory": "emote",
+      "anims": {
+        "emote": {
+          "frames": 3,
+          "size": 64
+        },
+        "hurt": {
+          "frames": 6,
+          "size": 64
+        },
+        "idle": {
+          "frames": 2,
+          "size": 64
+        },
+        "spellcast": {
+          "frames": 7,
+          "size": 64
+        }
+      }
+    }
+  }
+}

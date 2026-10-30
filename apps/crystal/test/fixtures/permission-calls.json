@@ -1,0 +1,402 @@
+{
+  "onRequest": [
+    {
+      "session": "dcb8d761-a605-43b4-9b52-d16443a73519",
+      "requestId": "98c7d9d3-d5e1-4ad2-b109-4f84b1b25994",
+      "toolName": "Bash",
+      "input": {
+        "command": "touch crystal.txt",
+        "description": "Create empty crystal.txt file"
+      },
+      "toolUseId": "toolu_01AQMN5ZMEjwoXhwWZR58Pjx",
+      "scenario": "allow",
+      "at": "2026-10-28T23:39:52.804Z",
+      "answeredAt": "2026-10-28T23:39:52.804Z",
+      "decision": {
+        "behavior": "allow"
+      }
+    },
+    {
+      "session": "a9c612ac-6421-4c56-b5e6-34ec7a5cbfea",
+      "requestId": "2a84cb8d-4b8a-4317-b3ad-c6144da2faf4",
+      "toolName": "Bash",
+      "input": {
+        "command": "touch crystal.txt",
+        "description": "Update crystal.txt timestamp"
+      },
+      "toolUseId": "toolu_01WrCfsc9ShNey9KKcmZ9DWr",
+      "scenario": "deny",
+      "at": "2026-10-28T23:40:00.185Z",
+      "answeredAt": "2026-10-28T23:40:00.186Z",
+      "decision": {
+        "behavior": "deny",
+        "message": "denied in capture"
+      }
+    },
+    {
+      "session": "aabed6df-3022-4145-81cb-0ca2a2844068",
+      "requestId": "a6f4f5a4-58a1-4d7d-983c-5d6fbdfee5e2",
+      "toolName": "Bash",
+      "input": {
+        "command": "touch crystal.txt",
+        "description": "Update crystal.txt timestamp"
+      },
+      "toolUseId": "toolu_01DbozQf28xFHbyVRvsRALpF",
+      "scenario": "followup",
+      "at": "2026-10-28T23:40:08.840Z",
+      "answeredAt": "2026-10-28T23:40:08.840Z",
+      "decision": {
+        "behavior": "allow"
+      }
+    },
+    {
+      "session": "1c48d65c-5e2c-4ecb-a579-0321770b628c",
+      "requestId": "2b5a58ee-2db5-491c-965e-12e563bca636",
+      "toolName": "Bash",
+      "input": {
+        "command": "touch crystal.txt",
+        "description": "Update crystal.txt timestamp"
+      },
+      "toolUseId": "toolu_01VuJu4PrudHitvMeQ2cHQ2S",
+      "scenario": "slow-allow",
+      "at": "2026-10-28T23:40:31.141Z",
+      "answeredAt": "2026-10-28T23:41:31.154Z",
+      "decision": {
+        "behavior": "allow"
+      }
+    },
+    {
+      "session": "7d0229d6-9186-406e-8da8-f4a77d6a3eee",
+      "requestId": "cb4306cf-6533-40a1-8b83-fed9c77b5e1d",
+      "toolName": "Bash",
+      "input": {
+        "command": "python3 -c 'import time; time.sleep(30)'",
+        "description": "Sleep for 30 seconds via Python"
+      },
+      "toolUseId": "toolu_01W7GAzniLRPc9BPwdm8kuYp",
+      "scenario": "interrupt",
+      "at": "2026-10-28T23:43:11.918Z",
+      "answeredAt": "2026-10-28T23:43:11.918Z",
+      "decision": {
+        "behavior": "allow"
+      }
+    }
+  ],
+  "wire": [
+    {
+      "scenario": "allow",
+      "session": "dcb8d761-a605-43b4-9b52-d16443a73519",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.312",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-10-28T23:39:49.684Z"
+    },
+    {
+      "scenario": "allow",
+      "session": "dcb8d761-a605-43b4-9b52-d16443a73519",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-10-28T23:39:49.756Z"
+    },
+    {
+      "scenario": "allow",
+      "session": "dcb8d761-a605-43b4-9b52-d16443a73519",
+      "method": "tools/call",
+      "params": {
+        "name": "approve",
+        "arguments": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "touch crystal.txt",
+            "description": "Create empty crystal.txt file"
+          },
+          "tool_use_id": "toolu_01AQMN5ZMEjwoXhwWZR58Pjx"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01AQMN5ZMEjwoXhwWZR58Pjx",
+          "progressToken": 2
+        }
+      },
+      "at": "2026-10-28T23:39:52.792Z"
+    },
+    {
+      "scenario": "deny",
+      "session": "a9c612ac-6421-4c56-b5e6-34ec7a5cbfea",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.312",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-10-28T23:39:57.808Z"
+    },
+    {
+      "scenario": "deny",
+      "session": "a9c612ac-6421-4c56-b5e6-34ec7a5cbfea",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-10-28T23:39:57.952Z"
+    },
+    {
+      "scenario": "deny",
+      "session": "a9c612ac-6421-4c56-b5e6-34ec7a5cbfea",
+      "method": "tools/call",
+      "params": {
+        "name": "approve",
+        "arguments": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "touch crystal.txt",
+            "description": "Update crystal.txt timestamp"
+          },
+          "tool_use_id": "toolu_01WrCfsc9ShNey9KKcmZ9DWr"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01WrCfsc9ShNey9KKcmZ9DWr",
+          "progressToken": 2
+        }
+      },
+      "at": "2026-10-28T23:40:00.180Z"
+    },
+    {
+      "scenario": "followup",
+      "session": "aabed6df-3022-4145-81cb-0ca2a2844068",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.312",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-10-28T23:40:06.341Z"
+    },
+    {
+      "scenario": "followup",
+      "session": "aabed6df-3022-4145-81cb-0ca2a2844068",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-10-28T23:40:06.489Z"
+    },
+    {
+      "scenario": "followup",
+      "session": "aabed6df-3022-4145-81cb-0ca2a2844068",
+      "method": "tools/call",
+      "params": {
+        "name": "approve",
+        "arguments": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "touch crystal.txt",
+            "description": "Update crystal.txt timestamp"
+          },
+          "tool_use_id": "toolu_01DbozQf28xFHbyVRvsRALpF"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01DbozQf28xFHbyVRvsRALpF",
+          "progressToken": 2
+        }
+      },
+      "at": "2026-10-28T23:40:08.833Z"
+    },
+    {
+      "scenario": "slow-allow",
+      "session": "1c48d65c-5e2c-4ecb-a579-0321770b628c",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.312",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-10-28T23:40:28.498Z"
+    },
+    {
+      "scenario": "slow-allow",
+      "session": "1c48d65c-5e2c-4ecb-a579-0321770b628c",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-10-28T23:40:28.617Z"
+    },
+    {
+      "scenario": "slow-allow",
+      "session": "1c48d65c-5e2c-4ecb-a579-0321770b628c",
+      "method": "tools/call",
+      "params": {
+        "name": "approve",
+        "arguments": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "touch crystal.txt",
+            "description": "Update crystal.txt timestamp"
+          },
+          "tool_use_id": "toolu_01VuJu4PrudHitvMeQ2cHQ2S"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01VuJu4PrudHitvMeQ2cHQ2S",
+          "progressToken": 2
+        }
+      },
+      "at": "2026-10-28T23:40:31.135Z"
+    },
+    {
+      "scenario": "interrupt",
+      "session": "7d0229d6-9186-406e-8da8-f4a77d6a3eee",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.312",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-10-28T23:43:09.602Z"
+    },
+    {
+      "scenario": "interrupt",
+      "session": "7d0229d6-9186-406e-8da8-f4a77d6a3eee",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-10-28T23:43:09.655Z"
+    },
+    {
+      "scenario": "interrupt",
+      "session": "7d0229d6-9186-406e-8da8-f4a77d6a3eee",
+      "method": "tools/call",
+      "params": {
+        "name": "approve",
+        "arguments": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "python3 -c 'import time; time.sleep(30)'",
+            "description": "Sleep for 30 seconds via Python"
+          },
+          "tool_use_id": "toolu_01W7GAzniLRPc9BPwdm8kuYp"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01W7GAzniLRPc9BPwdm8kuYp",
+          "progressToken": 2
+        }
+      },
+      "at": "2026-10-28T23:43:11.911Z"
+    },
+    {
+      "scenario": "interrupt",
+      "session": "7d0229d6-9186-406e-8da8-f4a77d6a3eee",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.312",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-10-28T23:43:15.119Z"
+    },
+    {
+      "scenario": "interrupt",
+      "session": "7d0229d6-9186-406e-8da8-f4a77d6a3eee",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-10-28T23:43:15.152Z"
+    }
+  ]
+}

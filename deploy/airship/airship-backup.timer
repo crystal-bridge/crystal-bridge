@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the Crystal Bridge Airship database nightly
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

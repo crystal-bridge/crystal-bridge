@@ -1,0 +1,12 @@
+# gitleaks: the default rules, plus one narrow exception.
+[extend]
+useDefault = true
+
+# Recorded CLI output (test fixtures) carries `api_message_id`, a random per-request id the generic API-key rule
+# mistakes for a key. Only that field, only in the fixture files, wherever the scan starts (`--source ../snapshot`).
+[[allowlists]]
+description = "api_message_id in recorded CLI fixtures"
+condition = "AND"
+paths = ['''(^|/)(apps/crystal/test/fixtures|apps/web/src/__fixtures__)/[^/]+\.ndjson$''']
+regexTarget = "line"
+regexes = ['''"api_message_id":"[A-Za-z0-9_-]+"''']

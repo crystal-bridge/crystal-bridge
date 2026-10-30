@@ -1,0 +1,16 @@
+[Unit]
+Description=Crystal Bridge Airship database backup
+
+[Service]
+Type=oneshot
+User=airship
+Group=airship
+EnvironmentFile=/etc/crystal-bridge/airship.env
+WorkingDirectory=/opt/crystal-bridge/current/apps/airship
+ExecStart=/opt/crystal-bridge/current/node_modules/.bin/tsx src/backup-cli.ts
+ExecStartPost=/opt/crystal-bridge/current/deploy/airship/push-backups.sh
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/airship

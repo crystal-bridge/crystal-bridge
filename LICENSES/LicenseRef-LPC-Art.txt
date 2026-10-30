@@ -1,0 +1,5 @@
+The Hero art in apps/web/public/heroes is composited from layers of the Universal LPC Spritesheet Character
+Generator (https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator). Each layer's authors
+and licences are listed per file in apps/web/public/heroes/CREDITS.csv. Every layer is used under an attribution-only
+licence it offers (OGA-BY 3.0, CC-BY 3.0/4.0 or CC0), never CC-BY-SA or the GPL; the terms in practice are in
+apps/web/public/heroes/LICENSE-ART.md.

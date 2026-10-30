@@ -1,0 +1,156 @@
+import type { Envelope } from '@crystal-bridge/protocol';
+import { describe, expect, it } from 'vitest';
+import { sessionInfo } from './info.js';
+
+const SESSION = '11111111-1111-4111-8111-111111111111';
+let seq = 0;
+const env = (type: Envelope['type'], payload: unknown): Envelope => ({
+  node: 'n',
+  session: SESSION,
+  seq: seq++,
+  ts: 0,
+  type,
+  payload,
+});
+const raw = (r: unknown) => env('claude.event', { engine: 'claude', raw: r });
+const toolUse = (id: string, name: string, input: unknown) => ({
+  type: 'assistant',
+  message: {
+    id: `m-${id}`,
+    content: [{ type: 'tool_use', id, name, input }],
+    usage: { input_tokens: 2, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500, output_tokens: 10 },
+  },
+});
+const toolResult = (id: string) => ({
+  type: 'user',
+  message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
+});
+const result = (cost: number, window = 200000) => ({
+  type: 'result',
+  subtype: 'success',
+  total_cost_usd: cost,
+  modelUsage: { 'model-x': { contextWindow: window } },
+});
+
+describe('sessionInfo', () => {
+  it('reports the model, mode, project and branch', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', {
+        cwd: '/r/.worktrees/ab',
+        prompt: 'p',
+        label: 'p',
+        worktree: { root: '/r', branch: 'cb/ab' },
+      }),
+      raw({ type: 'system', subtype: 'init', model: 'model-x', permissionMode: 'auto', cwd: '/r/.worktrees/ab' }),
+    ]);
+    expect(info).toMatchObject({ cwd: '/r/.worktrees/ab', branch: 'cb/ab', model: 'model-x', mode: 'auto' });
+  });
+
+  it('measures context from the latest assistant message against the model-s window', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw({ type: 'system', subtype: 'init', model: 'model-x' }),
+      raw(toolUse('t1', 'Bash', { command: 'ls' })),
+      raw(result(0.1, 200000)),
+    ]);
+    expect(info.context).toEqual({ used: 1502, window: 200000 });
+  });
+
+  it('adds up cost across processes, since each one reports its own running total', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(result(0.1)),
+      raw(result(0.25)),
+      env('session.ended', { exitCode: 0, signal: null, reason: 'idle' }),
+      env('session.resumed', {}),
+      raw(result(0.05)),
+    ]);
+    expect(info.costUsd).toBeCloseTo(0.3);
+  });
+
+  it('adds up tokens, turns and working time from each turn-s result, across resumes', () => {
+    seq = 0;
+    const turn = (input: number, output: number, read: number, write: number, ms: number) => ({
+      type: 'result',
+      subtype: 'success',
+      duration_ms: ms,
+      usage: {
+        input_tokens: input,
+        output_tokens: output,
+        cache_read_input_tokens: read,
+        cache_creation_input_tokens: write,
+      },
+    });
+    const info = sessionInfo([
+      env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      raw(turn(4, 90, 40000, 14000, 6000)),
+      raw(turn(2, 7, 27000, 50, 3000)),
+      env('session.resumed', {}),
+      raw(turn(1, 3, 1000, 0, 1000)),
+      raw({ type: 'result', subtype: 'error_during_execution' }),
+    ]);
+    expect(info.stats).toEqual({
+      tokens: { input: 7, output: 100, cacheRead: 68000, cacheWrite: 14050 },
+      turns: 4,
+      workingMs: 10000,
+    });
+  });
+
+  it('starts its stats at zero before any turn finishes', () => {
+    seq = 0;
+    expect(sessionInfo([env('session.started', { cwd: '/w', prompt: 'p', label: 'p' })]).stats).toEqual({
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      turns: 0,
+      workingMs: 0,
+    });
+  });
+
+  it('lists the files the session created or edited, relative to its folder, most recent first', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(toolUse('a', 'Write', { file_path: '/r/src/new.ts', content: 'x' })),
+      raw(toolUse('b', 'Edit', { file_path: '/r/src/app.ts', old_string: 'a', new_string: 'b' })),
+      raw(toolUse('c', 'Edit', { file_path: '/r/src/app.ts', old_string: 'b', new_string: 'c' })),
+      raw(toolUse('d', 'Read', { file_path: '/r/README.md' })),
+      raw(toolUse('e', 'NotebookEdit', { notebook_path: '/elsewhere/n.ipynb', new_source: '' })),
+    ]);
+    expect(info.outputs).toEqual([
+      { path: '/elsewhere/n.ipynb', display: '/elsewhere/n.ipynb', kind: 'edited', changes: 1 },
+      { path: '/r/src/app.ts', display: 'src/app.ts', kind: 'edited', changes: 2 },
+      { path: '/r/src/new.ts', display: 'src/new.ts', kind: 'created', changes: 1 },
+    ]);
+  });
+
+  it('tracks subagents and background commands, running until their result comes back', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(toolUse('a1', 'Task', { description: 'Review the diff', subagent_type: 'general-purpose' })),
+      raw(toolUse('a2', 'Agent', { description: 'Find the flaky test' })),
+      raw(toolResult('a1')),
+      raw(
+        toolUse('b1', 'Bash', { command: 'npm run dev', description: 'Start the dev server', run_in_background: true }),
+      ),
+      raw(toolUse('b2', 'Bash', { command: 'ls' })),
+    ]);
+    expect(info.tasks).toEqual([
+      { id: 'a1', kind: 'agent', description: 'Review the diff', running: false, agentType: 'general-purpose' },
+      { id: 'a2', kind: 'agent', description: 'Find the flaky test', running: true },
+      { id: 'b1', kind: 'background', description: 'Start the dev server', running: true },
+    ]);
+  });
+
+  it('marks everything still running as stopped once the process ends', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(toolUse('a2', 'Agent', { description: 'Find the flaky test' })),
+      env('session.ended', { exitCode: 0, signal: null, reason: 'exit' }),
+    ]);
+    expect(info.tasks[0]?.running).toBe(false);
+  });
+});

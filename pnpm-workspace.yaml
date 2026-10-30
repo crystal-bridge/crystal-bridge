@@ -1,0 +1,8 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+allowBuilds:
+  better-sqlite3: true
+  esbuild: false # its postinstall only re-checks the platform binary, which ships as an optional dep
+  simple-git-hooks: false # its postinstall installs the hooks; the root `prepare` script does that instead

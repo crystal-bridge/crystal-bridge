@@ -1,0 +1,121 @@
+{
+  "leader": "paladin",
+  "fallback": "wizard",
+  "classes": {
+    "paladin": {
+      "name": "Paladin",
+      "match": ["security", "guard"],
+      "look": {
+        "body": "male",
+        "work": "slash",
+        "verb": "Smite",
+        "sword": "steel",
+        "layers": [
+          ["body/body.json", null],
+          ["head/heads/human/heads_human_male.json", null],
+          ["hair/short/hair_plain.json", null, 20, 1.2],
+          ["legs/pants/legs_pants.json", null],
+          ["feet/boots/feet_boots_basic.json", null],
+          ["torso/armour/torso_armour_plate.json", null],
+          ["torso/cape/cape_solid.json", null, 0, 1, "#3550c8"],
+          ["weapons/shields/heater/shield_heater_revised_wood.json", null],
+          ["weapons/shields/heater/shield_heater_revised_trim.json", null],
+          ["weapons/sword/weapon_sword_arming.json", "steel"]
+        ]
+      }
+    },
+    "wizard": {
+      "name": "Wizard",
+      "match": ["general-purpose", "worker", "build"],
+      "look": {
+        "body": "female",
+        "work": "spellcast",
+        "verb": "Cast",
+        "layers": [
+          ["body/body.json", null],
+          ["head/heads/human/heads_human_female.json", null, 0, 1, "shadow"],
+          ["feet/shoes/feet_shoes_basic.json", null, 0, 0.5],
+          ["torso/dresses/kimono/dress_kimono.json", "navy"],
+          ["torso/dresses/kimono/dress_kimono_longsleeve.json", "navy"],
+          ["headwear/hats/magic/hat_magic_celestial.json", "black"],
+          ["weapons/magic/weapon_magic_simple.json", "simple"]
+        ],
+        "victory": "spellcast"
+      }
+    },
+    "cleric": {
+      "name": "Cleric",
+      "match": ["review", "verif", "test", "debug", "fix"],
+      "look": {
+        "body": "female",
+        "work": "spellcast",
+        "verb": "Heal",
+        "layers": [
+          ["body/body.json", null],
+          ["head/heads/human/heads_human_female.json", null],
+          ["feet/shoes/feet_shoes_basic.json", null],
+          ["torso/dresses/kimono/dress_kimono.json", "white"],
+          ["torso/dresses/kimono/dress_kimono_longsleeve.json", "white"],
+          ["headwear/coverings/hoods/hat_hood_cloth.json", null, 0, 1, "#ffffff"],
+          ["weapons/magic/weapon_magic_simple.json", "simple"]
+        ],
+        "victory": "spellcast"
+      }
+    },
+    "ranger": {
+      "name": "Ranger",
+      "match": ["research", "web", "docs", "guide"],
+      "look": {
+        "body": "male",
+        "work": "shoot",
+        "verb": "Shoot",
+        "layers": [
+          ["body/body.json", null],
+          ["head/heads/human/heads_human_male.json", null],
+          ["legs/pants/legs_pants.json", null, 0, 1, "#6b5a3a"],
+          ["feet/boots/feet_boots_basic.json", null],
+          ["torso/armour/torso_armour_leather.json", null],
+          ["headwear/coverings/hoods/hat_hood_cloth.json", null, 0, 1, "#4f8a3c"],
+          ["weapons/ranged/bow/weapon_ranged_bow_normal.json", "medium"]
+        ]
+      }
+    },
+    "rogue": {
+      "name": "Rogue",
+      "match": ["explore", "search", "find", "inventory"],
+      "look": {
+        "body": "male",
+        "work": "slash",
+        "verb": "Sneak",
+        "layers": [
+          ["body/body.json", null],
+          ["head/heads/human/heads_human_male.json", null],
+          ["legs/pants/legs_pants.json", null, 0, 1, "#3a3a4a"],
+          ["feet/boots/feet_boots_basic.json", null, 0, 0.6],
+          ["torso/armour/torso_armour_leather.json", null, 0, 0.7],
+          ["torso/cape/cape_tattered.json", null, 0, 1, "#4a3c5c"],
+          ["headwear/coverings/hoods/hat_hood_cloth.json", null, 0, 1, "#55486a"],
+          ["weapons/sword/weapon_sword_dagger.json", "dagger"]
+        ]
+      }
+    },
+    "sage": {
+      "name": "Sage",
+      "match": ["plan", "architect", "design"],
+      "look": {
+        "body": "male",
+        "work": "spellcast",
+        "verb": "Scan",
+        "layers": [
+          ["body/body.json", null],
+          ["head/heads/human/heads_human_male_elderly.json", null],
+          ["legs/skirts/legs_skirts_plain.json", null, 0, 1, "#7a4fa0"],
+          ["feet/shoes/feet_shoes_basic.json", null],
+          ["torso/shirts/longsleeve/torso_clothes_longsleeve.json", null, 0, 1, "#7a4fa0"],
+          ["headwear/hats/magic/hat_magic_celestial.json", "lavender"],
+          ["weapons/magic/weapon_magic_simple.json", "simple"]
+        ]
+      }
+    }
+  }
+}

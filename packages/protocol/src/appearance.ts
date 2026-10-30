@@ -1,0 +1,21 @@
+import { z } from 'zod';
+
+/**
+ * How a user's Kingdoms look, shared across all their devices (unlike names, hidden Kingdoms and notification
+ * levels, which stay per device): each Kingdom's icon and banner colour, and how tabs show the colour. Ids are the
+ * client's own lists (theme data), so the hub stores them without knowing what they mean.
+ */
+export const KingdomLookChoice = z.object({
+  icon: z.string().max(64).optional(),
+  colour: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+});
+export type KingdomLookChoice = z.infer<typeof KingdomLookChoice>;
+
+export const Appearance = z.object({
+  looks: z.record(z.string().max(200), KingdomLookChoice).optional(),
+  tabStyle: z.string().max(32).optional(),
+});
+export type Appearance = z.infer<typeof Appearance>;

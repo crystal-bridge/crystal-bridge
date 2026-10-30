@@ -1,0 +1,11 @@
+node_modules
+dist
+*.db
+.env
+*.db-shm
+*.db-wal
+nodes.json
+RELEASE
+vapid.json
+.claude/worktrees/
+.private/

@@ -1,0 +1,348 @@
+/*
+ * Theme tokens: the one stylesheet a fork edits to restyle Crystal Bridge without touching components. Fonts and
+ * accent colours are CSS variables (Tailwind v4 theme vars, so `font-display`, `text-gold-bright` and the like
+ * work as classes); the `cb-*` component classes below are the theme's look. The words live in `words.ts`.
+ *
+ * Crystal Bridge's theme (docs/THEME.md): a modern neutral base with retro touches. The display font is for the
+ * wordmark, tabs and headers only; everything people read at length uses the UI font, and code the monospace one.
+ */
+
+/* Self-hosted fonts (no requests to a font CDN): latin subsets only, the weights we use. */
+@import '@fontsource/jersey-15/latin-400.css';
+@import '@fontsource/atkinson-hyperlegible/latin-400.css';
+@import '@fontsource/atkinson-hyperlegible/latin-400-italic.css';
+@import '@fontsource/atkinson-hyperlegible/latin-700.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-700.css';
+
+@theme {
+  --font-display: 'Jersey 15', ui-monospace, monospace;
+  --font-sans: 'Atkinson Hyperlegible', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The classic menu-window blue, used as an accent for things that need the user (cards, dialogs). */
+  --color-window-top: #3446b4;
+  --color-window-bottom: #111a62;
+  --color-window-border: #eef1ff;
+  --color-window-edge: #050820;
+  --color-window-ink: #f4f6ff;
+  --color-gold: #e0a800;
+  --color-gold-bright: #ffd75e;
+}
+
+@layer components {
+  /* Kingdom icons have a dark pixel outline; on dark backgrounds a soft light halo keeps their shape readable. */
+  @media (prefers-color-scheme: dark) {
+    .cb-kingdom-icon {
+      filter: drop-shadow(0 0 1px rgb(255 255 255 / 0.55));
+    }
+  }
+
+  /* A JRPG menu window: blue gradient, light border, dark outer edge. Text inside is light. */
+  .cb-window {
+    background: linear-gradient(180deg, var(--color-window-top), var(--color-window-bottom));
+    border: 2px solid var(--color-window-border);
+    border-radius: 6px;
+    box-shadow:
+      0 0 0 2px var(--color-window-edge),
+      inset 0 0 0 1px rgb(255 255 255 / 0.2);
+    color: var(--color-window-ink);
+  }
+
+  /* Display-font headings: the pixel face reads best a little larger and slightly tracked. */
+  .cb-display {
+    font-family: var(--font-display);
+    letter-spacing: 0.03em;
+  }
+}
+
+/* Scrollbars: thin and quiet in the theme's neutrals, instead of the platform's default bars. */
+:root {
+  --scrollbar-thumb: rgb(115 115 115 / 0.45);
+  --scrollbar-thumb-hover: rgb(115 115 115 / 0.75);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --scrollbar-thumb: rgb(163 163 163 / 0.35);
+    --scrollbar-thumb-hover: rgb(163 163 163 / 0.6);
+  }
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+*:hover {
+  scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+}
+
+/*
+ * Kingdom tabs in the Kingdom's banner colour (`--kingdom-colour`, set per tab), in the device's chosen style. Kept
+ * outside the layers so they win over the tab's base utility classes.
+ */
+.cb-kingdom-tabs[data-tab-style='underline'] .cb-kingdom-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 0.6rem;
+  right: 0.6rem;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--kingdom-colour, transparent);
+}
+.cb-kingdom-tabs[data-tab-style='tinted'] .cb-kingdom-tab {
+  --tab-base: #ffffff;
+  background: color-mix(in srgb, var(--kingdom-colour, transparent) 10%, transparent);
+}
+.cb-kingdom-tabs[data-tab-style='tinted'] .cb-kingdom-tab[aria-selected='true'] {
+  background: color-mix(in srgb, var(--kingdom-colour, transparent) 22%, var(--tab-base));
+}
+@media (prefers-color-scheme: dark) {
+  .cb-kingdom-tabs[data-tab-style='tinted'] .cb-kingdom-tab {
+    --tab-base: #0a0a0a;
+  }
+}
+.cb-kingdom-tabs[data-tab-style='pennant'] .cb-kingdom-tab::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 0;
+  height: 5px;
+  background: var(--kingdom-colour, transparent);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 55%, 0 100%);
+  opacity: 0.55;
+}
+.cb-kingdom-tabs[data-tab-style='pennant'] .cb-kingdom-tab[aria-selected='true']::before {
+  height: 7px;
+  opacity: 1;
+}
+
+/* Code blocks: the copy button turns the theme's blue once it has copied. */
+.cb-copy[data-copied='true'] {
+  background: var(--color-window-top);
+  color: var(--color-window-ink);
+}
+
+/* Split View: the pane the shared side panels follow gets a thin bar in its Kingdom's colour along the top. */
+.cb-pane[data-focused='true'] {
+  box-shadow: inset 0 2px 0 var(--k, var(--color-window-top));
+}
+
+/*
+ * Reply text: markdown with a readable rhythm. Headings stay in the UI font (the pixel face is for chrome only),
+ * lists and tables get their structure back after Tailwind's reset, and links look like links.
+ */
+.cb-prose > * + * {
+  margin-top: 0.5rem;
+}
+.cb-prose p {
+  margin-block: 0.25rem;
+}
+.cb-prose h1,
+.cb-prose h2,
+.cb-prose h3,
+.cb-prose h4 {
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 0.75rem;
+}
+.cb-prose h1 {
+  font-size: 1.25rem;
+}
+.cb-prose h2 {
+  font-size: 1.125rem;
+}
+.cb-prose h3,
+.cb-prose h4 {
+  font-size: 1rem;
+}
+.cb-prose ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.cb-prose ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.cb-prose li + li {
+  margin-top: 0.125rem;
+}
+.cb-prose a {
+  color: var(--color-window-top);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cb-prose blockquote {
+  border-left: 3px solid rgb(163 163 163 / 0.6);
+  padding-left: 0.75rem;
+  color: rgb(115 115 115);
+}
+.cb-prose hr {
+  border-color: rgb(163 163 163 / 0.4);
+}
+.cb-prose table {
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.cb-prose th,
+.cb-prose td {
+  border: 1px solid rgb(163 163 163 / 0.4);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+.cb-prose th {
+  font-weight: 700;
+}
+.cb-prose :not(pre) > code {
+  background: rgb(163 163 163 / 0.18);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+  font-size: 0.9em;
+}
+@media (prefers-color-scheme: dark) {
+  .cb-prose a {
+    color: #9fb0ff;
+  }
+}
+
+/* A file name that opens in the viewer: reads as code or a link, with the link colour and a pointer. */
+.cb-file-link {
+  color: var(--color-window-top);
+  cursor: pointer;
+  text-align: inherit;
+  text-underline-offset: 2px;
+}
+.cb-file-link:hover code,
+.cb-file-link:hover {
+  text-decoration: underline;
+}
+@media (prefers-color-scheme: dark) {
+  .cb-file-link {
+    color: #9fb0ff;
+  }
+}
+
+/*
+ * Icon colours (icons.tsx): one per icon, so the toolbar and the Inventory aren't a row of grey. Toolbar icons are
+ * calm until hovered; the dark-scheme values are lighter so they hold their contrast.
+ */
+.cb-icon {
+  --icon-colour: currentColor;
+  color: var(--icon-colour);
+}
+.cb-icon-fork {
+  --icon-colour: #0f8a5f;
+}
+.cb-icon-split,
+.cb-icon-exitSplit,
+.cb-icon-details {
+  --icon-colour: #3446b4;
+}
+.cb-icon-inventory {
+  --icon-colour: #a8630f;
+}
+.cb-icon-close {
+  --icon-colour: #c0392b;
+}
+.cb-icon-spells {
+  --icon-colour: #7c3aed;
+}
+.cb-icon-items {
+  --icon-colour: #c0267a;
+}
+.cb-icon-equipment {
+  --icon-colour: #2a74b8;
+}
+.cb-icon-abilities {
+  --icon-colour: #b88a00;
+}
+@media (prefers-color-scheme: dark) {
+  .cb-icon-fork {
+    --icon-colour: #4fd1a1;
+  }
+  .cb-icon-split,
+  .cb-icon-exitSplit,
+  .cb-icon-details {
+    --icon-colour: #9fb0ff;
+  }
+  .cb-icon-inventory {
+    --icon-colour: #f0b25a;
+  }
+  .cb-icon-close {
+    --icon-colour: #ff8a7a;
+  }
+  .cb-icon-spells {
+    --icon-colour: #b99cff;
+  }
+  .cb-icon-items {
+    --icon-colour: #ff8fc8;
+  }
+  .cb-icon-equipment {
+    --icon-colour: #7ec3ff;
+  }
+  .cb-icon-abilities {
+    --icon-colour: var(--color-gold-bright);
+  }
+}
+button .cb-icon {
+  opacity: 0.8;
+  transition: opacity 0.12s;
+}
+button:hover .cb-icon,
+button:focus-visible .cb-icon,
+button[aria-pressed='true'] .cb-icon {
+  opacity: 1;
+}
+
+/*
+ * Tooltips (components/Tip.tsx): a small menu window under the thing it explains, after a short hover or on keyboard
+ * focus. Hidden ones use visibility, so they leave the accessibility tree but still describe their anchor.
+ */
+.cb-tip-anchor {
+  position: relative;
+}
+.cb-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 50;
+  width: max-content;
+  max-width: 18rem;
+  padding: 0.25rem 0.5rem;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, var(--color-window-top), var(--color-window-bottom));
+  border: 1px solid var(--color-window-border);
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 1px var(--color-window-edge),
+    0 4px 12px rgb(0 0 0 / 0.25);
+  color: var(--color-window-ink);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.12s,
+    visibility 0.12s;
+}
+.cb-tip[data-align='start'] {
+  left: 0;
+  transform: none;
+}
+.cb-tip[data-align='end'] {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.cb-tip-anchor:hover > .cb-tip,
+.cb-tip-anchor:has(:focus-visible) > .cb-tip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0.35s;
+}

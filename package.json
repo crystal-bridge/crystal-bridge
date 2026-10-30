@@ -1,0 +1,38 @@
+{
+  "name": "crystal-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crystal-bridge/crystal-bridge.git"
+  },
+  "type": "module",
+  "scripts": {
+    "preflight": "bash scripts/preflight.sh",
+    "dev": "pnpm preflight && concurrently -n airship,crystal,web \"pnpm --filter @crystal-bridge/airship dev\" \"pnpm --filter @crystal-bridge/crystal dev\" \"pnpm --filter @crystal-bridge/web dev\"",
+    "smoke": "tsx scripts/smoke.ts",
+    "notices": "tsx scripts/third-party-notices.ts",
+    "notices:check": "tsx scripts/third-party-notices.ts --check",
+    "test": "pnpm -r test && pnpm test:scripts",
+    "test:scripts": "tsx --test scripts/*.test.ts",
+    "checks": "tsx scripts/repo-checks.ts all",
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && simple-git-hooks || true",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec tsx scripts/repo-checks.ts staged",
+    "commit-msg": "pnpm exec tsx scripts/repo-checks.ts msg \"$1\"",
+    "pre-push": "pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "prettier": "3.9.10",
+    "simple-git-hooks": "2.14.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

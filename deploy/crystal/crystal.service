@@ -1,0 +1,21 @@
+# systemd user unit: ~/.config/systemd/user/crystal.service (installed by scripts/deploy-crystal.sh).
+# Runs under the node user's own login so `claude` uses that account; it can't be sandboxed like the
+# Airship, because sessions need the user's home, repos and Claude setup.
+[Unit]
+Description=Crystal Bridge Crystal (node agent)
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/crystal-bridge/crystal.env
+WorkingDirectory=%h/.local/share/crystal-bridge/current/apps/crystal
+ExecStart=%h/.local/share/crystal-bridge/current/node_modules/.bin/tsx src/main.ts
+Restart=on-failure
+RestartSec=5
+# Stop only Crystal itself: it closes its claude sessions on SIGTERM, and anything a Quest deliberately left running in
+# the background (detached workers, long jobs) must survive a deploy instead of being killed with the cgroup.
+KillMode=process
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

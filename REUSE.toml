@@ -1,0 +1,15 @@
+# Which licence covers which paths, machine-readable (https://reuse.software). Code is MIT; the Hero art keeps the
+# licences of the community layers it is built from.
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The Crystal Bridge contributors"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["apps/web/public/heroes/**/*.png", "apps/web/public/heroes/CREDITS.csv"]
+precedence = "override"
+SPDX-FileCopyrightText = "The LPC artists listed in apps/web/public/heroes/CREDITS.csv"
+SPDX-License-Identifier = "LicenseRef-LPC-Art"

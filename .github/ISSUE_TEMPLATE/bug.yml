@@ -1,0 +1,26 @@
+name: Bug report
+description: Something doesn't work the way it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      placeholder: 1. Start a Quest on ... 2. ...
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: The release (Airship health check or the app's footer), your OS, Node and Claude Code versions.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from the hub or Crystal logs. Remove anything private (host names, paths, prompts).
+      render: text
