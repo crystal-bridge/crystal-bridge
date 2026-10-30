@@ -21,6 +21,8 @@ then, everything is in Unreleased.
 
 - The hub makes one-time join codes that trade for a new Kingdom's token, and a Kingdom can give up its own token.
 
+- `crystal-bridge-kingdom join` and `leave` turn a Linux or macOS machine into a Kingdom and back, with one command.
+
 ### Changed
 
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".
