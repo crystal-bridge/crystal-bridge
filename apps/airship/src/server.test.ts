@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
 import { accessTokens, tailscaleServe } from './auth.js';
+import { createFirstRun, type FirstRun } from './first-run.js';
 import { buildServer } from './server.js';
 import type { NodeRegistry } from './nodes.js';
 import { openStore, type SessionRow, type Store } from './store.js';
@@ -1219,6 +1220,73 @@ describe('airship server with node tokens', () => {
   });
 });
 
+describe('airship server on first run', () => {
+  let store: Store;
+  let app: import('fastify').FastifyInstance;
+  let base: string;
+  let firstRun: FirstRun;
+  let logins: Map<string, string>;
+
+  beforeEach(async () => {
+    store = openStore(':memory:');
+    logins = new Map();
+    const tokens: NodeRegistry = {
+      verify: (token) => logins.get(token ?? ''),
+      ids: () => [...logins.values()],
+      revoke: () => false,
+      issue(name) {
+        logins.set(`token-of-${name}`, name);
+        return `token-of-${name}`;
+      },
+    };
+    firstRun = createFirstRun(tokens);
+    app = await buildServer({ store, auth: accessTokens(tokens), firstRun });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    await app.close();
+    store.close();
+  });
+
+  const setup = (body: unknown) =>
+    fetch(`${base}/api/setup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const me = async () => (await (await fetch(`${base}/api/me`)).json()) as Record<string, unknown>;
+
+  it('says setup is pending, and stays locked meanwhile', async () => {
+    expect(await me()).toEqual({ login: null, canLogIn: true, setup: true });
+    expect((await fetch(`${base}/api/sessions`)).status).toBe(403);
+    expect((await fetch(`${base}/api/join-codes`, { method: 'POST' })).status).toBe(403);
+  });
+
+  it('refuses a wrong code, a missing code and a bad name', async () => {
+    expect((await setup({ code: 'nope', name: 'me' })).status).toBe(401);
+    expect((await setup({ name: 'me' })).status).toBe(401);
+    expect((await setup({ code: firstRun.code, name: 'not a name!' })).status).toBe(400);
+    expect(logins.size).toBe(0);
+    expect((await me()).setup).toBe(true);
+  });
+
+  it('trades the code for the first login once, logging that browser in', async () => {
+    const response = await setup({ code: firstRun.code, name: 'me' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ login: 'me', token: 'token-of-me' });
+    const cookie = response.headers.get('set-cookie')!.split(';')[0]!;
+    expect((await fetch(`${base}/api/sessions`, { headers: { cookie } })).status).toBe(200);
+
+    expect((await setup({ code: firstRun.code, name: 'them' })).status).toBe(409);
+    expect((await me()).setup).toBe(false);
+  });
+
+  it('never tells anyone the code', async () => {
+    expect(JSON.stringify(await me())).not.toContain(firstRun.code);
+  });
+});
+
 describe('airship server with token login', () => {
   let store: Store;
   let app: import('fastify').FastifyInstance;
@@ -1244,6 +1312,17 @@ describe('airship server with token login', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token }),
     });
+
+  it('has no setup to offer: the route is gone and /api/me says so', async () => {
+    const me = (await (await fetch(`${base}/api/me`)).json()) as { setup: boolean };
+    expect(me.setup).toBe(false);
+    const response = await fetch(`${base}/api/setup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'x', name: 'me' }),
+    });
+    expect(response.status).toBe(409);
+  });
 
   it('keeps the API from anyone not logged in, spoofed header or not', async () => {
     expect((await fetch(`${base}/api/sessions`)).status).toBe(403);
@@ -1290,7 +1369,7 @@ describe('airship server with token login', () => {
   });
 
   it('says who is asking, so the app knows to show its login page', async () => {
-    expect(await (await fetch(`${base}/api/me`)).json()).toEqual({ login: null, canLogIn: true });
+    expect(await (await fetch(`${base}/api/me`)).json()).toEqual({ login: null, canLogIn: true, setup: false });
   });
 
   it('clears the cookie on logging out', async () => {
@@ -1326,7 +1405,7 @@ describe('airship server without a login method to use', () => {
     const app = await buildServer({ store });
     await app.listen({ port: 0, host: '127.0.0.1' });
     const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
-    expect(await (await fetch(`${base}/api/me`)).json()).toEqual({ login: 'default', canLogIn: false });
+    expect(await (await fetch(`${base}/api/me`)).json()).toEqual({ login: 'default', canLogIn: false, setup: false });
     const response = await fetch(`${base}/api/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

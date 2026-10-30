@@ -121,7 +121,6 @@ and runs as a non-root user. Without Docker:
 
 ```sh
 export AIRSHIP_AUTH=token AIRSHIP_DATA=~/crystal-bridge-hub
-npx --yes --package=<tarball-url> crystal-bridge-airship token add me
 npx --yes --package=<tarball-url> crystal-bridge-airship
 ```
 
@@ -137,6 +136,15 @@ AIRSHIP_TOKENS=/var/lib/airship/access-tokens.json pnpm --filter @crystal-bridge
 ```
 
 It's shown once, and the login page takes it. `token:list` shows the names, and `token:remove <name>` revokes one at once. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
+
+### First run
+
+A hub on token login with no logins starts locked and prints a one-time setup code to its logs. Open the hub, enter
+the code and a name, and it makes your login, logs that browser in and shows the token once. Nothing else opens
+while it waits: `/api` and `/client` stay closed. The code is kept in memory and a restart makes a new one. It works
+once, and stops working as soon as any login exists, so `token add` still works for a scripted setup.
+
+Log out in Config ends that browser's login. It doesn't revoke the token: use `token:remove` for that.
 
 ## Joining and leaving
 

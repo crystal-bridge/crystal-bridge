@@ -135,7 +135,8 @@ docker exec crystal-bridge crystal-bridge-airship token add me   # shows your lo
 ```
 
 Put HTTPS in front of it (Caddy, nginx or a tunnel), because tokens travel in the clear without it. Then log in and add
-Kingdoms from the app as above. The same hub runs without Docker from the release's tarball, with `AIRSHIP_AUTH=token`
+Kingdoms from the app as above. Releases after `v0.2.0-alpha.1` can skip `token add`: the hub prints a one-time setup
+code to its logs, and you make your login in the browser (`docs/OPERATIONS.md`, "First run"). The same hub runs without Docker from the release's tarball, with `AIRSHIP_AUTH=token`
 and `AIRSHIP_DATA` set; see `docs/OPERATIONS.md`.
 
 #### Pushing Crystal over SSH

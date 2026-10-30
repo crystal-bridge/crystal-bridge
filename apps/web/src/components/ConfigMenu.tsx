@@ -41,6 +41,8 @@ export interface ConfigMenuProps {
   onPromptColour?: (id: string) => void;
   /** Makes a join code for a new Kingdom; without it, no Add Kingdom. */
   onCreateJoinCode?: (node: string) => Promise<{ code: string; expiresAt: number }>;
+  /** Ends this browser's login; without it, no Log out. */
+  onLogOut?: () => void;
 }
 
 /** One Kingdom's look: an icon grid and banner swatches, both data lists in theme/kingdomIcons.ts. */
@@ -154,6 +156,7 @@ export function ConfigMenu({
   onTabStyle,
   leaders,
   onCreateJoinCode,
+  onLogOut,
   promptColour = DEFAULT_PROMPT_COLOUR,
   onPromptColour,
 }: ConfigMenuProps) {
@@ -315,6 +318,16 @@ export function ConfigMenu({
           <p className="text-xs text-neutral-500">
             Hub: <span className={status === 'open' ? 'text-green-600' : 'text-amber-600'}>{status}</span>
           </p>
+
+          {onLogOut && (
+            <button
+              type="button"
+              onClick={onLogOut}
+              className="rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-200 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            >
+              Log out
+            </button>
+          )}
 
           <Credits />
         </div>

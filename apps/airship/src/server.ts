@@ -27,6 +27,7 @@ import {
   Engine,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
+import type { FirstRun } from './first-run.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
@@ -46,6 +47,8 @@ export interface BuildServerOptions {
    * stays open. Unset, the client side is open, for `pnpm dev`.
    */
   auth?: Authenticator;
+  /** On a token-login hub that started with no logins: what lets the first one be made. */
+  firstRun?: FirstRun;
   /** This release's id (the deployed commit), reported by /api/health so open tabs can tell they're outdated. */
   release?: string;
   /** The built web app; by default where a checkout builds it. */
@@ -84,10 +87,19 @@ async function refuse(request: FastifyRequest, reply: FastifyReply, code: number
 }
 
 /**
- * Paths that don't need a logged-in user: node links and leaving use a node's token, joining uses a one-time code,
- * logging in is how you become one, and health checks carry no data.
+ * Paths that don't need a logged-in user: node links and leaving use a node's token, joining and first-run setup use
+ * a one-time code, logging in is how you become one, and health checks carry no data.
  */
-const OPEN_PATHS = new Set(['/node', '/api/health', '/api/join', '/api/leave', '/api/me', '/api/login', '/api/logout']);
+const OPEN_PATHS = new Set([
+  '/node',
+  '/api/health',
+  '/api/join',
+  '/api/leave',
+  '/api/me',
+  '/api/login',
+  '/api/logout',
+  '/api/setup',
+]);
 
 /** Close code for a node whose hello names a different node than its token. */
 const CLOSE_WRONG_NODE = 4003;
@@ -155,6 +167,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     logger = false,
     nodes: registry,
     auth,
+    firstRun,
     release = 'dev',
     latestCli,
     webRoot,
@@ -396,7 +409,20 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   app.get('/api/me', async (request) => ({
     login: auth ? (auth.identify(request) ?? null) : 'default',
     canLogIn: auth?.login !== undefined,
+    setup: firstRun?.pending() ?? false,
   }));
+  // First-run setup: the code from the logs makes the first login, which also logs this browser in.
+  app.post('/api/setup', { config: { rateLimit: GUESSES } }, async (request, reply) => {
+    if (!firstRun?.pending()) return reply.code(409).send({ error: 'this hub is already set up' });
+    const { code, name } = (request.body ?? {}) as { code?: unknown; name?: unknown };
+    if (typeof name !== 'string' || !isNodeId(name)) {
+      return reply.code(400).send({ error: 'use letters, digits and dashes for the name' });
+    }
+    const token = typeof code === 'string' ? firstRun.claim(code, name) : undefined;
+    if (!token) return reply.code(401).send({ error: 'that setup code is wrong' });
+    void reply.header('set-cookie', cookieHeader(token, { secure: secure(request) }));
+    return { login: name, token };
+  });
   app.post('/api/login', { config: { rateLimit: GUESSES } }, async (request, reply) => {
     if (!auth?.login) return reply.code(404).send({ error: 'this hub has no login page' });
     const { token } = (request.body ?? {}) as { token?: unknown };
