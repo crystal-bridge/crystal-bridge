@@ -413,6 +413,42 @@ describe('store', () => {
     expect(store.getAppearance('b@example.com')).toEqual({ looks: { n: { icon: 'ship' } } });
   });
 
+  describe('what is waiting on the user', () => {
+    const ask = (session: string, seq: number, requestId: string): Envelope =>
+      makeEnvelope({ session, seq, type: 'permission.request', payload: { requestId, toolName: 'Bash', input: {} } });
+    const started = (session: string): Envelope =>
+      makeEnvelope({ session, seq: 0, type: 'session.started', payload: { cwd: '/w', prompt: 'p', label: 'p' } });
+
+    it('lists a Quest with a request nobody has answered, once', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(ask(session, 1, 'a'));
+      store.appendEvent(ask(session, 2, 'b'));
+      expect(store.waiting()).toEqual([{ session, node: 'local' }]);
+    });
+
+    it('drops it once every request is answered, even out of order', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(ask(session, 1, 'a'));
+      store.appendEvent(ask(session, 2, 'b'));
+      const resolved = (seq: number, requestId: string) =>
+        makeEnvelope({ session, seq, type: 'permission.resolved', payload: { requestId, behavior: 'allow' } });
+      store.appendEvent(resolved(3, 'b'));
+      expect(store.waiting()).toHaveLength(1);
+      store.appendEvent(resolved(4, 'a'));
+      expect(store.waiting()).toEqual([]);
+    });
+
+    it.each(['session.ended', 'session.closed'] as const)('drops it after %s: nobody can answer now', (type) => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(ask(session, 1, 'a'));
+      store.appendEvent(makeEnvelope({ session, seq: 2, type, payload: {} }));
+      expect(store.waiting()).toEqual([]);
+    });
+  });
+
   describe('home page data', () => {
     const start = (session: string, node: string, label: string, ts: number) =>
       store.appendEvent(

@@ -26,6 +26,8 @@ then, everything is in Unreleased.
 
 - Choose the colour of your own prompts in Config. The default is a muted purple, so blue only ever means "look here".
 
+- The Tavern knows what's waiting after a reload or on a new device.
+
 ### Changed
 
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".

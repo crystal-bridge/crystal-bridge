@@ -506,7 +506,7 @@ export function App({ hub }: { hub: HubClient }) {
 
   const refresh = useCallback(async () => {
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
-    const [s, n, u, x, h, p, e, l] = await Promise.all([
+    const [s, n, u, x, h, p, e, l, a] = await Promise.all([
       tryJson<SessionSummary[]>('/api/sessions'),
       tryJson<string[]>('/api/nodes'),
       tryJson<NodeUsageRow[]>('/api/usage'),
@@ -515,6 +515,7 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<{ node: string; projects: Project[] }[]>('/api/projects'),
       tryJson<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>('/api/engines'),
       tryJson<{ latest?: string }>('/api/cli-latest'),
+      tryJson<{ session: string; node: string }[]>('/api/waiting'),
     ]);
     keep(setSessions, s);
     keep(setNodes, n);
@@ -524,6 +525,20 @@ export function App({ hub }: { hub: HubClient }) {
     keep(setProjectLists, p);
     keep(setEngineLists, e);
     if (l) setLatestCli(l.latest);
+    // The hub's word, so a reload or a new device knows too. Not for a Quest in view, or on a hidden Kingdom.
+    if (a) {
+      const hidden = loadPrefs().hidden;
+      const { shown: open, splitShown: beside } = current.current;
+      setWaiting(
+        Object.fromEntries(
+          a
+            .filter(
+              ({ session, node }) => !hidden.includes(node) && !isLooking(open, session) && !isLooking(beside, session),
+            )
+            .map(({ session, node }) => [session, node]),
+        ),
+      );
+    }
   }, []);
 
   useEffect(() => {
