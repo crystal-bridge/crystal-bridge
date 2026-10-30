@@ -7,6 +7,13 @@ describe('the demo world', () => {
   const world = demoWorld();
   const events = world.stories.flatMap((story) => story.events);
 
+  it('keeps a background agent in the Party: launched, with nothing yet to say it finished', () => {
+    const payloads = events.flatMap((event) => (event.type === 'claude.event' ? [event.payload] : []));
+    const raws = payloads.map((payload) => (payload as { raw: Record<string, unknown> }).raw);
+    assert.ok(raws.some((raw) => (raw.tool_use_result as { isAsync?: boolean } | undefined)?.isAsync));
+    assert.ok(!raws.some((raw) => raw.subtype === 'task_notification'));
+  });
+
   it('is made of valid envelopes, in order, one stream per Quest', () => {
     assert.equal(PROTOCOL_VERSION, 1);
     for (const story of world.stories) {

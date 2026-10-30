@@ -108,6 +108,42 @@ describe('liveTranscriptEvent', () => {
     expect(liveTranscriptEvent(result)).toEqual({ engine: 'claude', raw: { type: 'user', message: result.message } });
   });
 
+  it('keeps the mark of a background launch on its tool result, and nothing else the transcript adds', () => {
+    const message = { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'launched' }] };
+    const toolUseResult = { isAsync: true, status: 'async_launched', agentId: 'a1', prompt: 'a long prompt' };
+    expect(liveTranscriptEvent({ type: 'user', message, toolUseResult })).toEqual({
+      engine: 'claude',
+      raw: { type: 'user', message, tool_use_result: { isAsync: true } },
+    });
+  });
+
+  const notification = (id: string, status: string) =>
+    `<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n</task-notification>`;
+  const finished = (id: string, status: string) => ({
+    engine: 'claude',
+    raw: { type: 'system', subtype: 'task_notification', tool_use_id: id, status },
+  });
+
+  it('turns a finished task into the system line stream-json reports, however the transcript recorded it', () => {
+    const content = notification('t1', 'completed');
+    expect(liveTranscriptEvent({ type: 'queue-operation', operation: 'enqueue', content })).toEqual(
+      finished('t1', 'completed'),
+    );
+    const delivered = {
+      type: 'user',
+      origin: { kind: 'task-notification' },
+      message: { role: 'user', content: notification('t2', 'failed') },
+    };
+    expect(liveTranscriptEvent(delivered)).toEqual(finished('t2', 'failed'));
+  });
+
+  it('reads no finished task from other queue lines, or from a prompt quoting one', () => {
+    const content = notification('t1', 'completed');
+    expect(liveTranscriptEvent({ type: 'queue-operation', operation: 'remove', content })).toBeUndefined();
+    expect(liveTranscriptEvent({ type: 'queue-operation', operation: 'enqueue', content: 'hi' })).toBeUndefined();
+    expect(liveTranscriptEvent({ type: 'user', message: { role: 'user', content } })).toBeUndefined();
+  });
+
   it('skips typed prompts (Crystal records those itself), sidechains and bookkeeping lines', () => {
     expect(liveTranscriptEvent({ type: 'user', message: { role: 'user', content: 'do it' } })).toBeUndefined();
     expect(liveTranscriptEvent({ ...assistant('m2', []), isSidechain: true })).toBeUndefined();

@@ -1,6 +1,6 @@
 import type { TurnChanges } from './changes.js';
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
@@ -689,6 +689,27 @@ describe('ClaudeSession idle stop', () => {
       expect(session.busy).toBe(true);
     });
   }
+
+  it('keeps the capture machine out of recorded fixtures', () => {
+    for (const name of readdirSync(FIXTURES).filter((file) => file.endsWith('.ndjson'))) {
+      expect(readFileSync(join(FIXTURES, name), 'utf8')).not.toMatch(/var-folders|\/tmp\/claude-/);
+    }
+  });
+
+  it('never idles out once the CLI reports a backgrounded task, even when the call never asked for one', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: IDLE_MS });
+
+    session.start('hello');
+    const child = children[0]!;
+    const started = { type: 'system', subtype: 'task_started', tool_use_id: 't1', is_backgrounded: true };
+    child.stdout.write(`${JSON.stringify(started)}\n`);
+    await finishTurn(child);
+    vi.advanceTimersByTime(IDLE_MS * 10);
+
+    expect(child.stdin.writableEnded).toBe(false);
+    expect(session.busy).toBe(true);
+  });
 
   it('cancels the idle timer on send, and starts it again after the next result', async () => {
     const { spawnFn, children } = createSpawnMock();

@@ -168,10 +168,31 @@ export function isConversationLine(line: unknown): boolean {
 }
 
 export function liveTranscriptEvent(line: unknown): ClaudeEventPayload | undefined {
-  if (!isObj(line) || !isMain(line)) return undefined;
+  if (!isObj(line)) return undefined;
+  const finished = taskNotification(line);
+  if (finished) return { engine: 'claude', raw: finished };
+  if (!isMain(line)) return undefined;
   const message = line.message as Obj;
   if (line.type === 'user' && promptText(message) !== undefined) return undefined;
-  return { engine: 'claude', raw: { type: line.type, message } };
+  const raw: Obj = { type: line.type, message };
+  if (isObj(line.toolUseResult) && line.toolUseResult.isAsync === true) raw.tool_use_result = { isAsync: true };
+  return { engine: 'claude', raw };
+}
+
+const TASK_NOTIFICATION = /^<task-notification>[\s\S]*?<tool-use-id>([^<]+)<[\s\S]*?<status>([^<]+)</;
+
+/**
+ * The `system/task_notification` a live stream-json process reports when a background task ends. A transcript has
+ * only the text handed to the model: queued as soon as the task ends, then delivered as a user line, or absorbed into
+ * a running turn with no user line at all.
+ */
+function taskNotification(line: Obj): Obj | undefined {
+  const queued = line.type === 'queue-operation' && line.operation === 'enqueue';
+  const delivered = line.type === 'user' && isObj(line.origin) && line.origin.kind === 'task-notification';
+  const text = queued ? line.content : delivered && isObj(line.message) ? line.message.content : undefined;
+  const match = typeof text === 'string' ? TASK_NOTIFICATION.exec(text) : null;
+  if (!match) return undefined;
+  return { type: 'system', subtype: 'task_notification', tool_use_id: match[1], status: match[2] };
 }
 
 /**

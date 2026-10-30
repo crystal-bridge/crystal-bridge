@@ -22,6 +22,25 @@ const result = (extra: Record<string, unknown>) =>
   });
 
 describe('battleResults', () => {
+  it('counts a background agent as one Side Quest, whether or not its call asked for the background', () => {
+    seq = 0;
+    const launched = (id: string) =>
+      claude({
+        type: 'user',
+        tool_use_result: { isAsync: true },
+        message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'launched' }] },
+      });
+    const { quest } = battleResults([
+      env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      toolUse('t1', 'Agent', { subagent_type: 'Explore', description: 'unset' }),
+      launched('t1'),
+      toolUse('t2', 'Agent', { subagent_type: 'Explore', description: 'asked', run_in_background: true }),
+      launched('t2'),
+      result({ total_cost_usd: 0.1, duration_ms: 1000 }),
+    ]);
+    expect(quest).toMatchObject({ sideQuests: 2 });
+  });
+
   it('sums each turn on its own: cost as the change in the running total, files, Heroes and Side Quests', () => {
     seq = 0;
     const envelopes = [

@@ -60,6 +60,11 @@ const WRITE_TOOLS: Record<string, string> = {
 };
 const AGENT_TOOLS = new Set(['Task', 'Agent']);
 
+/** A tool result that only reports its call moved to the background. */
+export function launchedInBackground(raw: Record<string, unknown>): boolean {
+  return isObj(raw.tool_use_result) && raw.tool_use_result.isAsync === true;
+}
+
 /** What MP is measured against: where the session compacts, else the window's end. */
 export function contextRoom(context: SessionInfo['context']): number | undefined {
   return context?.limit ?? context?.window;
@@ -173,14 +178,19 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
           tasks.set(block.id, { id: block.id, kind: 'monitor', description, running: true });
       }
     }
-    // A subagent is done when its result comes back; a background command's first result only means it started.
-    if (raw.type === 'user' && message && Array.isArray(message.content)) {
+    // A subagent is done when its result comes back, unless that result only says it went to the background (as a
+    // background command's first result always does): then it's done when the CLI reports the task finished.
+    if (raw.type === 'user' && message && Array.isArray(message.content) && !launchedInBackground(raw)) {
       for (const block of message.content) {
         if (isObj(block) && block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
           const task = tasks.get(block.tool_use_id);
           if (task?.kind === 'agent') task.running = false;
         }
       }
+    }
+    if (raw.type === 'system' && raw.subtype === 'task_notification' && typeof raw.tool_use_id === 'string') {
+      const task = tasks.get(raw.tool_use_id);
+      if (task?.kind === 'agent') task.running = false;
     }
   }
 

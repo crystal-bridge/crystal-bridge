@@ -158,6 +158,9 @@ Hero per Quest* (a stable pick from the Quest's id), chosen in Config with the K
 synced the same way (#20). Every view of a Quest (its tab, card, Party, skill lines, Battle cards) shows the same
 leader; subagents still take their Class from their name.
 
+**Heroes on Side Quests:** a subagent stays in the Party for as long as it works. A background one stays after its
+launch and leaves when the CLI reports it finished, however that ends: done, failed or stopped.
+
 **Side Quest companions** (#20, "Quest UI Audition" 2026-10-30): while a background command or a Monitor runs, a
 companion joins the Party card with its description: the Owl keeps watch on a Monitor; a background command gets one
 of Wisp, Fox, Cat, Bat or Slime, the same one each time for a given task. They are original 16×16 pixel familiars
