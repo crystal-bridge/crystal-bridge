@@ -26,6 +26,14 @@ The Castle shows each Kingdom's release. A packaged Kingdom reports its version,
 The Castle warns when a Kingdom's version is older than the hub's. Commits can't be ordered, so it never warns about a
 Kingdom or hub deployed from git. `GET /api/health` reports the hub's release and protocol version.
 
+## Claude Code versions
+
+Each Kingdom reports the version of its `claude` CLI on connecting, then within about an hour of a change. The Castle
+shows it and says when a newer one is out. To know that, the hub asks npm's public registry for the latest version at
+most every six hours, sending nothing about you or your sessions. If the registry can't be reached it keeps the last
+answer. `AIRSHIP_CLI_CHECK=off` stops the check. Updating stays yours to do on that machine, as Claude Code's own docs
+describe.
+
 ## Deploying
 
 The simplest way is one command, driven by a config file outside the repo (so your host names are never committed,

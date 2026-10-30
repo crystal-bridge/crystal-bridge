@@ -189,6 +189,10 @@ export const Project = z.object({
 export type Project = z.infer<typeof Project>;
 
 /** Node -> hub: the node's project folders, replacing the previous list. */
+/** The agent CLI's version on this node, sent on connecting and whenever it changes. */
+export const NodeCli = z.object({ kind: z.literal('cli'), version: z.string().max(64) });
+export type NodeCli = z.infer<typeof NodeCli>;
+
 export const NodeProjects = z.object({ kind: z.literal('projects'), projects: z.array(Project) });
 export type NodeProjects = z.infer<typeof NodeProjects>;
 

@@ -12,6 +12,7 @@ import {
   HubAck,
   type HubToClient,
   NodeCommand,
+  NodeCli,
   NodeError,
   NodeExternal,
   NodeProjects,
@@ -45,6 +46,8 @@ export interface BuildServerOptions {
   allowedUsers?: readonly string[];
   /** This release's id (the deployed commit), reported by /api/health so open tabs can tell they're outdated. */
   release?: string;
+  /** Finds the latest agent CLI version, for "update available". Unset: the hub doesn't check. */
+  latestCli?: () => Promise<string | undefined>;
   /** How often relayed-byte counts are written to the store (default 30 s); they're also written on close. */
   relayFlushMs?: number;
   /** Web Push: the VAPID public key browsers subscribe with, and what sends each attention to subscribed devices. */
@@ -149,6 +152,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     nodes: registry,
     allowedUsers,
     release = 'dev',
+    latestCli,
     push,
     relayFlushMs = 30_000,
   } = options;
@@ -177,6 +181,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const engines = new Map<string, Engine[]>();
   // The release each node said in hello, for the Castle.
   const releases = new Map<string, string>();
+  // The agent CLI version each node last reported, for the Castle.
+  const cliVersions = new Map<string, string>();
   // Every connected client, for errors that aren't about one session.
   const clients = new Set<WebSocket>();
   // Each client's tailnet login, so a user's appearance change reaches only their own other tabs.
@@ -416,6 +422,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     return reply.code(204).send();
   });
+  app.get('/api/cli-latest', async () => {
+    const latest = await latestCli?.();
+    return latest ? { latest } : {};
+  });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>
     [...engines]
@@ -423,7 +433,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([node, list]) => {
         const nodeRelease = releases.get(node);
-        return { node, engines: list, ...(nodeRelease ? { release: nodeRelease } : {}) };
+        const cli = cliVersions.get(node);
+        return { node, engines: list, ...(nodeRelease ? { release: nodeRelease } : {}), ...(cli ? { cli } : {}) };
       }),
   );
   // Home-page data: turn totals per node since a time the client picks (its own midnight, its week), and recent
@@ -503,6 +514,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
             const released = store.releaseOrphans(helloNode, hello.data.sessions);
             if (released.length > 0) app.log.info({ node: helloNode, released }, 'marked orphaned sessions idle');
           }
+          return;
+        }
+
+        const cli = NodeCli.safeParse(parsed);
+        if (cli.success) {
+          cliVersions.set(helloNode, cli.data.version);
           return;
         }
 
@@ -590,6 +607,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           external.delete(helloNode);
           projects.delete(helloNode);
           releases.delete(helloNode);
+          cliVersions.delete(helloNode);
         }
       });
     },

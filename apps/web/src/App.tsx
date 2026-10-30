@@ -104,7 +104,10 @@ export function App({ hub }: { hub: HubClient }) {
   const [servedRelease, setServedRelease] = useState<string | undefined>(undefined);
   const [external, setExternal] = useState<{ node: string; sessions: ExternalSession[] }[]>([]);
   const [projectLists, setProjectLists] = useState<{ node: string; projects: Project[] }[]>([]);
-  const [engineLists, setEngineLists] = useState<{ node: string; engines: Engine[]; release?: string }[]>([]);
+  const [latestCli, setLatestCli] = useState<string | undefined>(undefined);
+  const [engineLists, setEngineLists] = useState<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>(
+    [],
+  );
   // Where the address says the user was (a reload, or a link on this device); a hidden Kingdom's is ignored.
   const [startRoute] = useState(() => {
     const route = parseRoute(window.location.hash);
@@ -472,14 +475,15 @@ export function App({ hub }: { hub: HubClient }) {
 
   const refresh = useCallback(async () => {
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
-    const [s, n, u, x, h, p, e] = await Promise.all([
+    const [s, n, u, x, h, p, e, l] = await Promise.all([
       tryJson<SessionSummary[]>('/api/sessions'),
       tryJson<string[]>('/api/nodes'),
       tryJson<NodeUsageRow[]>('/api/usage'),
       tryJson<{ node: string; sessions: ExternalSession[] }[]>('/api/external'),
       tryJson<{ release?: string }>('/api/health'),
       tryJson<{ node: string; projects: Project[] }[]>('/api/projects'),
-      tryJson<{ node: string; engines: Engine[]; release?: string }[]>('/api/engines'),
+      tryJson<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>('/api/engines'),
+      tryJson<{ latest?: string }>('/api/cli-latest'),
     ]);
     keep(setSessions, s);
     keep(setNodes, n);
@@ -488,6 +492,7 @@ export function App({ hub }: { hub: HubClient }) {
     if (h) setServedRelease(h.release);
     keep(setProjectLists, p);
     keep(setEngineLists, e);
+    if (l) setLatestCli(l.latest);
   }, []);
 
   useEffect(() => {
@@ -1012,6 +1017,8 @@ export function App({ hub }: { hub: HubClient }) {
                 engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
                 release={engineLists.find((row) => row.node === kingdom.id)?.release}
                 hubRelease={servedRelease}
+                cli={engineLists.find((row) => row.node === kingdom.id)?.cli}
+                latestCli={latestCli}
                 today={statsToday.find((row) => row.node === kingdom.id) ?? null}
                 week={statsWeek.find((row) => row.node === kingdom.id) ?? null}
                 heroes={heroManifest}

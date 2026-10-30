@@ -587,6 +587,22 @@ describe('airship server', () => {
     ]);
   });
 
+  it('reports the agent CLI version a node sent, until it disconnects', async () => {
+    const socket = await openSocket(`${wsUrl}/node`);
+    sockets.push(socket);
+    send(socket, { kind: 'hello', node: 'node-a' });
+    send(socket, { kind: 'cli', version: '2.1.314' });
+    const cliOf = async () =>
+      ((await (await fetch(`${baseUrl}/api/engines`)).json()) as { node: string; cli?: string }[])[0]?.cli;
+    const start = Date.now();
+    while ((await cliOf()) !== '2.1.314' && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 10));
+    expect(await cliOf()).toBe('2.1.314');
+  });
+
+  it('GET /api/cli-latest is empty when the hub does not check', async () => {
+    expect(await (await fetch(`${baseUrl}/api/cli-latest`)).json()).toEqual({});
+  });
+
   it('reports the release a node said in hello alongside its engines', async () => {
     const socket = await openSocket(`${wsUrl}/node`);
     sockets.push(socket);
@@ -980,6 +996,18 @@ describe('airship server without Web Push', () => {
     const app = await buildServer({ store });
     const response = await app.inject({ method: 'GET', url: '/api/push/key' });
     expect(response.statusCode).toBe(404);
+    await app.close();
+    store.close();
+  });
+});
+
+describe('airship server checking the latest agent CLI', () => {
+  it('GET /api/cli-latest answers with what the checker found', async () => {
+    const store = openStore(':memory:');
+    const app = await buildServer({ store, latestCli: async () => '2.1.320' });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const url = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/cli-latest`;
+    expect(await (await fetch(url)).json()).toEqual({ latest: '2.1.320' });
     await app.close();
     store.close();
   });

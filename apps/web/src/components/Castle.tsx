@@ -38,6 +38,9 @@ export interface CastleProps {
   release?: string;
   /** The hub's own release, to tell when this Kingdom is behind it. */
   hubRelease?: string;
+  /** The agent CLI version this Kingdom runs, and the latest published one when the hub checks. */
+  cli?: string;
+  latestCli?: string;
   /** This Kingdom's finished turns since local midnight and since Monday. */
   today?: TurnStats | null;
   week?: TurnStats | null;
@@ -114,6 +117,8 @@ export function Castle({
   look,
   release,
   hubRelease,
+  cli,
+  latestCli,
   today = null,
   week = null,
   heroes,
@@ -156,6 +161,15 @@ export function Castle({
               <p className="text-sm text-neutral-500">
                 {kingdom.connected ? 'Connected' : 'Offline: Quests start once it reconnects'}
                 {release && <span title="Crystal release"> · {releaseLabel(release)}</span>}
+                {cli && (
+                  <span title="agent CLI version">
+                    {' '}
+                    · Claude Code {cli}
+                    {isBehind(cli, latestCli) && (
+                      <span className="text-amber-700 dark:text-amber-400"> (update available: {latestCli})</span>
+                    )}
+                  </span>
+                )}
                 {engines && engines.length > 0 && (
                   <span title="engines this Kingdom runs"> · {engines.join(', ')}</span>
                 )}

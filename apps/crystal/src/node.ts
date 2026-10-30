@@ -9,6 +9,7 @@ import {
   type EventType,
   type NodeError,
   type NodeExternal,
+  NodeCli,
   type NodeProjects,
   type Project,
   type PermissionMode,
@@ -78,6 +79,8 @@ export interface StartNodeOptions {
   permissionServer: PermissionServerLike;
   /** Sessions the engine ran outside the bridge, reported to the hub and adoptable from it. */
   transcripts?: TranscriptSource;
+  /** The agent CLI's version, reported to the hub; asked often, so it should cache. */
+  cliVersion?: () => Promise<string | undefined>;
   /** Mode for sessions started without one, and for ones rebuilt after a restart. Default: manual. */
   defaultMode?: PermissionMode;
   /** Engines this node runs sessions on, advertised in hello; unset means just `stream` (and hello omits it). */
@@ -190,6 +193,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   let reconnectTimer: NodeJS.Timeout | null = null;
   let lastExternal: string | null = null;
   let lastProjects: string | null = null;
+  let lastCli: string | undefined;
 
   function log(message: string, detail?: unknown): void {
     if (detail !== undefined) {
@@ -387,6 +391,13 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   }
 
   /** Sends the hub the node's project folders; unless `force`, only when the list changed. */
+  async function reportCli(force: boolean): Promise<void> {
+    const version = await options.cliVersion?.();
+    if (!version || (!force && version === lastCli)) return;
+    lastCli = version;
+    wsSend(NodeCli.parse({ kind: 'cli', version }));
+  }
+
   async function reportProjects(force: boolean): Promise<void> {
     if (!projects) return;
     let list: Project[];
@@ -626,6 +637,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       resendUnacked();
       void reportExternal(true);
       void reportProjects(true);
+      void reportCli(true);
     });
 
     ws.on('message', (data) => handleMessage(data));
@@ -680,6 +692,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       ? setInterval(() => {
           void reportExternal(false);
           void reportProjects(false);
+          void reportCli(false);
         }, options.scanMs ?? DEFAULT_SCAN_MS)
       : null;
   scanTimer?.unref();

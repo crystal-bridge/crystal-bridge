@@ -81,8 +81,9 @@ If you need API-key billing or want to offer it to others, read those terms firs
 - **The interactive engine is experimental.** It drives Claude Code's terminal UI and reads its session files, which
   the CLI documents as internal, so a CLI update can break it. The default stream engine uses the documented
   `stream-json` output.
-- **No telemetry.** The web app talks only to your hub, and the hub only to your machines and, if you turn on Web
-  Push, your browsers' push services. Fonts and art are bundled.
+- **No telemetry.** The web app talks only to your hub. The hub talks to your machines, to npm's public registry to
+  see the latest Claude Code version (`AIRSHIP_CLI_CHECK=off` stops that), and, if you turn on Web Push, to your
+  browsers' push services. Nothing about you or your sessions is sent. Fonts and art are bundled.
 - **Where it runs:** the hub and Kingdoms on Linux and macOS, with Node 22 or newer; the web app in current Chrome,
   Firefox and Safari, including as an installed app on a phone. Windows is untested.
 - **A personal project.** Pull requests are welcome (see `CONTRIBUTING.md`); there are no support promises.
@@ -147,6 +148,7 @@ hub's settings.
 | `AIRSHIP_NODES` | unset | Airship: the node-token file; required unless `AIRSHIP_DEV=1` |
 | `AIRSHIP_DEV` | unset | Airship: `1` starts a development hub open (no allow list or node tokens); `pnpm dev` does this itself |
 | `AIRSHIP_VAPID_PATH` | next to the database | Airship: Web Push keys |
+| `AIRSHIP_CLI_CHECK` | on | Airship: `off` stops it asking npm for the latest Claude Code version |
 
 ## Development
 

@@ -7,6 +7,7 @@ import { listProjects } from './projects.js';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { ClaudeSession } from './session.js';
 import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
+import { cachedCliVersion, execCliVersion } from './cli-version.js';
 import { releaseId } from './release.js';
 import { homedir } from 'node:os';
 import { realpathSync } from 'node:fs';
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
         return summary ? { summary, events: await transcriptEvents(file) } : undefined;
       },
     },
+    cliVersion: cachedCliVersion({ exec: execCliVersion(process.env.CLAUDE_BIN ?? 'claude', sessionEnv) }),
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) =>
