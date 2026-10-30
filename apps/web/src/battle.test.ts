@@ -135,6 +135,20 @@ describe('battleResults', () => {
     expect(quest.prs).toEqual(['https://github.com/o/r/pull/12', 'https://gitlab.example/g/r/-/merge_requests/7']);
   });
 
+  it('reports MP used against where the Quest compacts', () => {
+    seq = 0;
+    const { quest } = battleResults([
+      env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      claude({ type: 'system', subtype: 'context_window', contextWindow: 1000000, compactWindow: 800000 }),
+      claude({
+        type: 'assistant',
+        message: { id: 'm', content: [], usage: { input_tokens: 400000 } },
+      }),
+      result({}),
+    ]);
+    expect(quest.mpUsedPct).toBe(50);
+  });
+
   it('reports how much of the context window the Quest last used', () => {
     seq = 0;
     const envelopes = [

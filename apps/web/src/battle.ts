@@ -1,5 +1,5 @@
 import type { Envelope } from '@crystal-bridge/protocol';
-import { costStep, sessionInfo } from './info.js';
+import { contextRoom, costStep, sessionInfo } from './info.js';
 
 /** How a turn ended: finished, stopped by the user, or failed. */
 export type BattleOutcome = 'victory' | 'retreat' | 'ko';
@@ -172,6 +172,7 @@ export function battleResults(envelopes: readonly Envelope[]): {
   quest.heroes = [...questHeroes];
   quest.prs = [...questPrs];
   const { context } = sessionInfo(envelopes);
-  if (context?.window) quest.mpUsedPct = Math.round((context.used / context.window) * 100);
+  const room = contextRoom(context);
+  if (context && room) quest.mpUsedPct = Math.round((context.used / room) * 100);
   return { turns, quest };
 }

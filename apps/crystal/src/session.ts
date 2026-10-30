@@ -123,6 +123,8 @@ export interface ClaudeSessionOptions {
   addDirs?: readonly string[];
   /** Works out what each turn changed; unset, no `system/turn_changes` lines are sent. */
   changes?: TurnChanges;
+  /** The size the model's context is held to, when one is configured. */
+  compactWindow?: (model: string | undefined) => number | undefined;
 }
 
 type ClaudeChild = ChildProcessByStdio<Writable, Readable, Readable>;
@@ -224,6 +226,9 @@ export class ClaudeSession extends EventEmitter {
   private readonly spawnFn: typeof nodeSpawn;
   private readonly claudeBin: string;
   private readonly changes: TurnChanges | undefined;
+  private readonly compactWindow: ClaudeSessionOptions['compactWindow'];
+  /** The size last announced, so the init line each turn repeats sends it once. */
+  private announcedCompact: number | undefined;
   private readonly idleMs: number;
   private readonly env: Record<string, string | undefined>;
   private mode: PermissionMode;
@@ -269,6 +274,7 @@ export class ClaudeSession extends EventEmitter {
     this.effort = opts.effort;
     this.addDirs = opts.addDirs ?? [];
     this.changes = opts.changes;
+    this.compactWindow = opts.compactWindow;
   }
 
   /** Spawns the first `claude` process (with `--session-id`) and sends the opening prompt. */
@@ -464,6 +470,17 @@ export class ClaudeSession extends EventEmitter {
     }
     this.emitEvent({ type: 'claude.event', payload: { engine: 'claude', raw } });
     if (startsBackgroundWork(raw)) rec.background = true;
+    const init = raw as { type?: unknown; subtype?: unknown; model?: unknown };
+    if (init?.type === 'system' && init.subtype === 'init' && typeof init.model === 'string') {
+      const compactWindow = this.compactWindow?.(init.model);
+      if (compactWindow !== undefined && compactWindow !== this.announcedCompact) {
+        this.announcedCompact = compactWindow;
+        this.emitEvent({
+          type: 'claude.event',
+          payload: { engine: 'claude', raw: { type: 'system', subtype: 'context_window', compactWindow } },
+        });
+      }
+    }
     const usage = usageFromRaw(raw);
     if (usage) this.emitEvent({ type: 'usage', payload: usage });
     // A finished turn: the process now waits on stdin, so start counting toward an idle stop.

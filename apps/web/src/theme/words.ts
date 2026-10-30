@@ -96,7 +96,7 @@ export const CRYSTAL: Words = {
   hp: { themed: 'HP', plain: "plan usage left in this Kingdom's 5-hour window, shared by its Quests" },
   expedition: { themed: 'Expedition', plain: 'where and how the session runs' },
   roster: { themed: 'Roster', plain: 'each Hero Class and its level, from the Quests it led' },
-  mp: { themed: 'MP', plain: 'context left' },
+  mp: { themed: 'MP', plain: 'context left before it compacts' },
   gold: { themed: 'Gold', plain: 'cost' },
   tokens: { themed: 'Tokens', plain: 'tokens used' },
   turns: { themed: 'Turns', plain: 'turns' },

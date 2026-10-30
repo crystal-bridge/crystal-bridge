@@ -503,6 +503,30 @@ describe('InteractiveSession stats and inventory', () => {
     expect(announced).toEqual([200000, 1000000]);
   });
 
+  it('announces where the Quest compacts along with the window, for the model the statusline names', async () => {
+    const asked: Array<string | undefined> = [];
+    const { session, events, hook } = harness({
+      compactWindow: (model) => {
+        asked.push(model);
+        return 800000;
+      },
+    });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    hook('StatusLine', status({ model: { id: 'model-x' } }));
+    hook('StatusLine', status({ model: { id: 'model-x' } }));
+    await tick();
+    const lines = events.flatMap((e) => {
+      if (e.type !== 'claude.event') return [];
+      const raw = e.payload.raw as { subtype?: string };
+      return raw.subtype === 'context_window' ? [raw] : [];
+    });
+    expect(lines).toEqual([
+      { type: 'system', subtype: 'context_window', contextWindow: 200000, compactWindow: 800000 },
+    ]);
+    expect(asked).toEqual(['model-x']);
+  });
+
   it('times the whole turn, tool time included, not the API time the statusline reports', async () => {
     const { session, events, hook, line } = harness();
     session.start('hello');

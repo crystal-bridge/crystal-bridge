@@ -251,6 +251,7 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   `rate_limits.<five_hour|seven_day>.used_percentage` (0-100) with `resets_at` (epoch seconds). Crystal turns these into
   the turn result's `total_cost_usd` and `modelUsage.session.contextWindow`, a
   `system/context_window` line of Crystal's own as soon as the size is known or changes, and `usage` events.
+  With a configured size (`src/compact.ts`) that line also carries `compactWindow`; the statusline doesn't report it.
   Crystal also adds a `system/turn_changes` line (`files`) after a turn, on both engines, from `src/changes.ts`. Per-turn tokens come from transcript `assistant` lines' `message.usage`, once per `message.id`.
 - **Listing attachments** (internal): `attachment.type: skill_listing` with `names` (every skill, plugin skills
   prefixed `plugin:`; `isInitial`), and `deferred_tools_delta` with `addedNames`/`removedNames` (tool names, MCP ones as

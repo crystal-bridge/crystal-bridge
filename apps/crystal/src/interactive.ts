@@ -100,6 +100,8 @@ export interface InteractiveSessionOptions {
   costSettleMs?: number;
   /** Works out what each turn changed; unset, no `system/turn_changes` lines are sent. */
   changes?: TurnChanges;
+  /** The size the model's context is held to, when one is configured. */
+  compactWindow?: (model: string | undefined) => number | undefined;
   /** How long a prompt typed into an idle terminal may go unsubmitted before the turn ends as stuck. */
   submitWaitMs?: number;
   /** Pause after Esc dismisses a dialog, before typing the message again. */
@@ -262,6 +264,7 @@ export class InteractiveSession extends EventEmitter {
   /** The running cost when the turn began, so its turn.finished carries the turn's own share. */
   private costAtTurnStart: number | undefined;
   private contextWindow: number | undefined;
+  private contextModel: string | undefined;
   private lastUsage = '';
   /** This turn's tokens, summed once per message: a message is written as one line per content block. */
   private turnTokens = {
@@ -539,12 +542,23 @@ export class InteractiveSession extends EventEmitter {
     }
     const context = isObj(body.context_window) ? body.context_window : {};
     const size = context.context_window_size;
-    if (typeof size === 'number' && size !== this.contextWindow) {
+    const model = isObj(body.model) && typeof body.model.id === 'string' ? body.model.id : undefined;
+    if (typeof size === 'number' && (size !== this.contextWindow || model !== this.contextModel)) {
       this.contextWindow = size;
+      this.contextModel = model;
+      const compactWindow = this.opts.compactWindow?.(model);
       // Sent now, not with the turn's result: the MP meter needs it during a Quest's first turn.
       this.emitEvent({
         type: 'claude.event',
-        payload: { engine: 'claude', raw: { type: 'system', subtype: 'context_window', contextWindow: size } },
+        payload: {
+          engine: 'claude',
+          raw: {
+            type: 'system',
+            subtype: 'context_window',
+            contextWindow: size,
+            ...(compactWindow !== undefined ? { compactWindow } : {}),
+          },
+        },
       });
     }
     const usage = usageFromStatusLine(body);

@@ -58,6 +58,36 @@ describe('sessionInfo', () => {
     expect(info.context).toEqual({ used: 1502, window: 1000000 });
   });
 
+  it('measures MP to where the session compacts, keeping the whole window for the words', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw({ type: 'system', subtype: 'context_window', contextWindow: 1000000, compactWindow: 800000 }),
+      raw(toolUse('t1', 'Bash', { command: 'ls' })),
+    ]);
+    expect(info.context).toEqual({ used: 1502, window: 1000000, limit: 800000 });
+  });
+
+  it('never measures past the window, and leaves the limit out when compaction is no sooner', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw({ type: 'system', subtype: 'context_window', contextWindow: 200000, compactWindow: 800000 }),
+      raw(toolUse('t1', 'Bash', { command: 'ls' })),
+    ]);
+    expect(info.context).toEqual({ used: 1502, window: 200000 });
+  });
+
+  it('has a limit before the stream engine-s first result gives the window', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw({ type: 'system', subtype: 'context_window', compactWindow: 800000 }),
+      raw(toolUse('t1', 'Bash', { command: 'ls' })),
+    ]);
+    expect(info.context).toEqual({ used: 1502, limit: 800000 });
+  });
+
   it('measures context from the latest assistant message against the model-s window', () => {
     seq = 0;
     const info = sessionInfo([
