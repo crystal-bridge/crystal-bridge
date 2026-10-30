@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // node -> hub -> client
 export const EventType = z.enum([
-  'session.started', // payload: { cwd, prompt, label, worktree?, adopted?, forkedFrom? }
+  'session.started', // payload: { cwd, prompt, label, worktree?, adopted?, forkedFrom?, engine?, effort? }
   'claude.event', // payload: { engine: 'claude', raw: unknown }  one stream-json line, untouched
   'user.message', // payload: { text }  a follow-up from session.send; the CLI doesn't echo stdin
   'permission.request', // payload: { requestId, toolName, input, toolUseId? }

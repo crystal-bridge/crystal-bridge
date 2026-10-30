@@ -3,7 +3,7 @@ import type { ChildProcessByStdio } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
-import type { EventType, PermissionMode, UsagePayload } from '@crystal-bridge/protocol';
+import type { Effort, EventType, PermissionMode, UsagePayload } from '@crystal-bridge/protocol';
 import { usageFromRaw } from './usage.js';
 
 /** The subset of protocol event types a running `claude` process can emit on its own. */
@@ -116,6 +116,8 @@ export interface ClaudeSessionOptions {
   forkFrom?: string;
   /** Pass `--chrome`, for a node whose user runs Chrome with the Claude extension signed in (CRYSTAL_CHROME=1). */
   chrome?: boolean;
+  /** `--effort` for every process this session starts; unset leaves the CLI's default. */
+  effort?: Effort;
 }
 
 type ClaudeChild = ChildProcessByStdio<Writable, Readable, Readable>;
@@ -131,6 +133,7 @@ function buildArgs(
   sessionArgs: readonly string[],
   mode: PermissionMode,
   chrome = false,
+  effort?: Effort,
 ): string[] {
   const mcpConfig = JSON.stringify({ mcpServers: { crystal: { type: 'http', url: permissionUrl } } });
   return [
@@ -148,6 +151,7 @@ function buildArgs(
     '--permission-mode',
     mode,
     ...(chrome ? ['--chrome'] : []),
+    ...(effort ? ['--effort', effort] : []),
     ...sessionArgs,
   ];
 }
@@ -218,6 +222,7 @@ export class ClaudeSession extends EventEmitter {
   private mode: PermissionMode;
   private readonly forkFrom: string | undefined;
   private readonly chrome: boolean;
+  private readonly effort: Effort | undefined;
   private controlSeq = 0;
 
   private current: ChildRecord | null = null;
@@ -253,6 +258,7 @@ export class ClaudeSession extends EventEmitter {
     this.mode = opts.permissionMode ?? 'manual';
     this.forkFrom = opts.forkFrom;
     this.chrome = opts.chrome ?? false;
+    this.effort = opts.effort;
   }
 
   /** Spawns the first `claude` process (with `--session-id`) and sends the opening prompt. */
@@ -364,7 +370,7 @@ export class ClaudeSession extends EventEmitter {
   private spawnChild(resume: boolean): ChildRecord {
     let sessionArgs = resume ? ['--resume', this.session] : ['--session-id', this.session];
     if (!resume && this.forkFrom) sessionArgs = ['--resume', this.forkFrom, '--fork-session', ...sessionArgs];
-    const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome);
+    const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome, this.effort);
 
     const child = this.spawnFn(this.claudeBin, args, {
       cwd: this.cwd,

@@ -339,7 +339,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (command.type === 'session.send' || command.type === 'session.close') {
       // Always the store's values, so a client can't point a node at another directory.
       const engine = store.sessionEngine(command.session);
-      const resume = { cwd: session.cwd, nextSeq: store.nextSeq(command.session), ...(engine ? { engine } : {}) };
+      const effort = store.sessionEffort(command.session);
+      const resume = {
+        cwd: session.cwd,
+        nextSeq: store.nextSeq(command.session),
+        ...(engine ? { engine } : {}),
+        ...(effort ? { effort } : {}),
+      };
       routeToNode(clientSocket, session.node, { ...command, resume });
       return;
     }

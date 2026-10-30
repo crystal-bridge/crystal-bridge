@@ -10,7 +10,14 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { HubClient, ReplayProgress } from './hub.js';
-import type { Engine, Envelope, ExternalSession, PermissionMode, Project } from '@crystal-bridge/protocol';
+import {
+  Effort,
+  type Engine,
+  type Envelope,
+  type ExternalSession,
+  type PermissionMode,
+  type Project,
+} from '@crystal-bridge/protocol';
 import {
   type Appearance,
   type KingdomLook,
@@ -563,6 +570,7 @@ export function App({ hub }: { hub: HubClient }) {
     mode,
     worktree,
     engine,
+    effort,
   }: {
     node: string;
     cwd: string;
@@ -570,6 +578,7 @@ export function App({ hub }: { hub: HubClient }) {
     mode: PermissionMode;
     worktree: boolean;
     engine?: Engine;
+    effort?: Effort;
   }) {
     const session = crypto.randomUUID();
     hub.subscribe(session);
@@ -582,6 +591,7 @@ export function App({ hub }: { hub: HubClient }) {
       mode,
       ...(worktree ? { worktree } : {}),
       ...(engine ? { engine } : {}),
+      ...(effort ? { effort } : {}),
     });
     openQuest(session);
     // The hub records the session once the node reports `session.started`.
@@ -595,6 +605,8 @@ export function App({ hub }: { hub: HubClient }) {
     const session = crypto.randomUUID();
     // Carry the source's mode over; a mode this client can't pick (unlikely) falls back to the node's default.
     const mode = MODES.find((m) => m.value === sessionMode(envelopes))?.value;
+    // And its effort, so the fork thinks as hard as the Quest it came from.
+    const effort = Effort.safeParse(sessionInfo(envelopes).effort);
     hub.subscribe(session);
     hub.send({
       type: 'session.start',
@@ -604,6 +616,7 @@ export function App({ hub }: { hub: HubClient }) {
       prompt,
       forkFrom: source.id,
       ...(mode ? { mode } : {}),
+      ...(effort.success ? { effort: effort.data } : {}),
     });
     openQuest(session);
     setTimeout(() => void refresh(), 500);

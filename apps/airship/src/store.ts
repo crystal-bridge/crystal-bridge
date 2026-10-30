@@ -3,6 +3,7 @@ import { migrate } from './migrations.js';
 import { z } from 'zod';
 import {
   Appearance,
+  Effort,
   Engine,
   type Envelope,
   PushPrefs,
@@ -107,6 +108,8 @@ export interface Store {
   getSession(id: string): SessionRow | undefined;
   /** The engine a session started on, from its session.started payload; undefined for the default or unknown. */
   sessionEngine(id: string): Engine | undefined;
+  /** The effort a session started with, read from its session.started; undefined when unset. */
+  sessionEffort(id: string): Effort | undefined;
   /** Adds a device's Web Push subscription, or replaces its keys and prefs. */
   putPushSubscription(subscription: PushSubscriptionJson, prefs: PushPrefs): void;
   /** Removes a subscription; false when there was none. */
@@ -401,6 +404,12 @@ export function openStore(path: string): Store {
       if (!row) return undefined;
       const engine = Engine.safeParse((JSON.parse(row.payload) as { engine?: unknown }).engine);
       return engine.success && engine.data !== 'stream' ? engine.data : undefined;
+    },
+    sessionEffort(id) {
+      const row = startedPayloadStmt.get(id) as { payload: string } | undefined;
+      if (!row) return undefined;
+      const effort = Effort.safeParse((JSON.parse(row.payload) as { effort?: unknown }).effort);
+      return effort.success ? effort.data : undefined;
     },
     putPushSubscription(subscription, prefs) {
       putPushStmt.run(subscription.endpoint, JSON.stringify(subscription.keys), JSON.stringify(prefs), Date.now());

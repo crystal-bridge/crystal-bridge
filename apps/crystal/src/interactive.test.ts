@@ -585,4 +585,15 @@ describe('InteractiveSession stats and inventory', () => {
       ],
     });
   });
+
+  it('passes --effort when the session has one, on every process it starts (resumes too)', async () => {
+    const { session, spawned, hook } = harness({ effort: 'max' });
+    session.start('hello');
+    hook('SessionStart', {});
+    await tick();
+    spawned[0]!.pty.emitExit(0);
+    await tick();
+    session.send('again');
+    for (const { args } of [spawned[0]!, spawned[1]!]) expect(args[args.indexOf('--effort') + 1]).toBe('max');
+  });
 });

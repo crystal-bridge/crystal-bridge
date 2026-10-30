@@ -1,11 +1,12 @@
 import { type FormEvent, useState } from 'react';
-import type { Engine, PermissionMode, Project } from '@crystal-bridge/protocol';
+import type { Effort, Engine, PermissionMode, Project } from '@crystal-bridge/protocol';
 import { ProjectPicker } from './ProjectPicker.js';
 import { PromptBox } from './PromptBox.js';
 import { ThemedSelect } from './ThemedSelect.js';
 import { loadDraft, saveDraft } from '../drafts.js';
 import { engineChoices } from '../engines.js';
 import { loadDefaultMode, MODES, saveDefaultMode } from '../modes.js';
+import { EFFORTS, loadDefaultEffort, saveDefaultEffort } from '../effort.js';
 import { hint, w } from '../theme/words.js';
 
 export interface NewSessionProps {
@@ -26,6 +27,7 @@ export interface NewSessionProps {
     mode: PermissionMode;
     worktree: boolean;
     engine?: Engine;
+    effort?: Effort;
   }) => void;
 }
 
@@ -44,6 +46,7 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
   const [mode, setMode] = useState<PermissionMode>(() => loadDefaultMode());
   const [worktree, setWorktree] = useState(false);
   const [engine, setEngine] = useState<Engine>('stream');
+  const [effort, setEffort] = useState<Effort | ''>(() => loadDefaultEffort());
   const choices = engineChoices(engines);
 
   const ready = connected && cwd.trim() !== '' && prompt.trim() !== '';
@@ -58,6 +61,7 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
       mode,
       worktree,
       ...(engine !== 'stream' ? { engine } : {}),
+      ...(effort ? { effort } : {}),
     });
     setPrompt('');
     saveDraft(`new-cwd:${node}`, '');
@@ -96,6 +100,18 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
                   const next = value as PermissionMode;
                   setMode(next);
                   saveDefaultMode(next);
+                }}
+              />
+              <ThemedSelect
+                label="Effort"
+                icon="effort"
+                title="Effort: how hard the agent thinks (the CLI's --effort); Default leaves the CLI's own"
+                value={effort}
+                options={EFFORTS}
+                onChange={(value) => {
+                  const next = value as Effort | '';
+                  setEffort(next);
+                  saveDefaultEffort(next);
                 }}
               />
               {choices.length > 1 && (

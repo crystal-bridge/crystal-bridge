@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn as nodePtySpawn } from '@lydell/node-pty';
 import headless from '@xterm/headless';
-import type { PermissionMode } from '@crystal-bridge/protocol';
+import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
 import { type ClaudeSessionEvent, neutralTokens } from './session.js';
 import {
   applyListing,
@@ -79,6 +79,8 @@ export interface InteractiveSessionOptions {
   permissionMode?: PermissionMode;
   env?: Record<string, string | undefined>;
   chrome?: boolean;
+  /** `--effort` for every process this session starts; unset leaves the CLI's default. */
+  effort?: Effort;
   forkFrom?: string;
   claudeBin?: string;
   /** Where the generated settings file goes; default `<tmp>/crystal-bridge`. */
@@ -379,6 +381,7 @@ export class InteractiveSession extends EventEmitter {
       '--permission-mode',
       this.mode === 'manual' ? 'default' : this.mode,
       ...(this.opts.chrome ? ['--chrome'] : []),
+      ...(this.opts.effort ? ['--effort', this.opts.effort] : []),
       '--settings',
       this.settingsFile,
     ];

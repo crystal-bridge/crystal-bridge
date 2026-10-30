@@ -19,7 +19,7 @@ flavour and never hides what something is.
 - **Plain words where it matters.** Errors say what broke in plain words first; flavour text comes after. Allow and
   Deny stay readable even when the card looks like a battle menu. Fork and worktrees keep their plain names.
 - **The prompt box** (#15) is one rounded field: the text box starts one line tall and grows to five before it
-  scrolls; under it, a bar of settings for what you send next (Permission Mode now, attachments and effort later) and
+  scrolls; under it, a bar of settings for what you send next (Permission Mode; on New Quest also Effort, the CLI's `--effort`, and Engine; attachments later) and
   one round button at the end: **Stop** while a turn runs and the box is empty, **Send** otherwise (mid-turn it
   queues), **Run** for a Command Rune. Selects there wear the theme (icon, display-font value, chevron) over the
   browser's own select, so the phone's native picker still opens.

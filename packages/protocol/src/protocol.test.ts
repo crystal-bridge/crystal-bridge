@@ -127,6 +127,17 @@ describe('NodeCommand', () => {
     expect(NodeCommand.safeParse({ ...start, engine: 'telepathy' }).success).toBe(false);
   });
 
+  it('accepts session.start with an effort level, and only a known one; and an effort in a resume', () => {
+    const start = { type: 'session.start', node: 'local', session, cwd: '/tmp/repo', prompt: 'p' };
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max']) {
+      expect(NodeCommand.safeParse({ ...start, effort }).success).toBe(true);
+    }
+    expect(NodeCommand.safeParse({ ...start, effort: 'eleven' }).success).toBe(false);
+    const resume = { cwd: '/w', nextSeq: 3, effort: 'high' };
+    const parsed = NodeCommand.parse({ type: 'session.send', session, text: 'x', resume });
+    expect(parsed).toMatchObject({ resume: { effort: 'high' } });
+  });
+
   it('accepts an engine on session.adopt and in a resume', () => {
     expect(NodeCommand.safeParse({ type: 'session.adopt', node: 'n', session, engine: 'interactive' }).success).toBe(
       true,
