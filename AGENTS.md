@@ -27,6 +27,8 @@ Other contributors won't have it: the issues and the docs in `docs/` cover the p
 - **Test first.** Each change starts with a failing test, then the fix. Before calling anything done, run
   `pnpm format`, `pnpm test`, `pnpm typecheck` and, for anything touching the runtime path, `pnpm smoke` against a
   running `pnpm dev`, and show the output.
+- **Docs ship with the change.** If a change affects anything the README or `docs/` describe, update them in the same
+  PR, not in a later pass.
 - **The system is in daily use.** Follow `docs/OPERATIONS.md`: deploy only the pushed `main`, keep the node protocol
   additive, never edit a shipped migration, and prefer a deploy that waits over `--force`.
 - **Build for anyone, not just one homelab.** Keep it harness-agnostic: a Kingdom may run no harness or any popular
