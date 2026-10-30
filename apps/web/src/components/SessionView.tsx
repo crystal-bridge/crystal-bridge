@@ -33,7 +33,9 @@ import { SessionPanel, type SessionPanelProps } from './SessionPanel.js';
 import type { PermissionMode } from '@crystal-bridge/protocol';
 import { PermissionCard } from './PermissionCard.js';
 import { QuestionCard } from './QuestionCard.js';
+import { PromptBox } from './PromptBox.js';
 import { SkillLine, ToolCard } from './ToolCard.js';
+import { ThemedSelect } from './ThemedSelect.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext, MARKDOWN_COMPONENTS, REMARK_PLUGINS } from './markdown.js';
 import { BattleCard } from './BattleCard.js';
@@ -712,20 +714,17 @@ export function SessionView({
                 ✦ {w('shellMode')}
               </div>
             )}
-            <div className="mx-auto flex max-w-3xl gap-2">
-              <textarea
-                data-shell={shell ? 'true' : undefined}
-                className={`flex-1 resize-none rounded border bg-white px-2 py-1 text-sm dark:bg-neutral-900 ${
-                  shell
-                    ? 'border-rose-500 font-mono ring-1 ring-rose-500 dark:border-rose-400 dark:ring-rose-400'
-                    : 'border-neutral-300 dark:border-neutral-700'
-                }`}
-                rows={2}
+            <div className="mx-auto max-w-3xl">
+              <PromptBox
+                label="Follow-up"
                 placeholder={closed ? 'Session closed' : 'Send a follow-up'}
                 disabled={closed}
                 value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value);
+                shell={shell}
+                running={turnRunning}
+                onStop={onInterrupt}
+                onChange={(text) => {
+                  setDraft(text);
                   setHighlight(0);
                 }}
                 onKeyDown={(e) => {
@@ -744,43 +743,24 @@ export function SessionView({
                   }
                   if (e.key === 'Enter' && !e.shiftKey) send(e);
                 }}
+                controls={
+                  <ThemedSelect
+                    id={modeId}
+                    label="Permission mode"
+                    icon="mode"
+                    title="Permission mode: how much the Quest may do without asking"
+                    value={mode ?? ''}
+                    options={[
+                      ...(mode === undefined ? [{ value: '', label: '…' }] : []),
+                      ...MODES,
+                      ...(mode !== undefined && !MODES.some((m) => m.value === mode)
+                        ? [{ value: mode, label: mode }]
+                        : []),
+                    ]}
+                    onChange={(value) => onMode(value as PermissionMode)}
+                  />
+                }
               />
-              <button
-                type="submit"
-                disabled={draft.trim() === ''}
-                className={`rounded px-3 text-sm font-medium text-white disabled:opacity-40 ${
-                  shell ? 'bg-rose-600 hover:enabled:bg-rose-700' : 'bg-blue-600 hover:enabled:bg-blue-700'
-                }`}
-              >
-                {shell ? 'Run' : 'Send'}
-              </button>
-              <label htmlFor={modeId} className="sr-only">
-                Permission mode
-              </label>
-              <select
-                id={modeId}
-                value={mode ?? ''}
-                title="Permission mode: how much the Quest may do without asking"
-                onChange={(e) => onMode(e.target.value as PermissionMode)}
-                className="self-start rounded border border-neutral-300 bg-white px-1 py-1 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
-              >
-                {mode === undefined && <option value="">…</option>}
-                {MODES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-                {mode !== undefined && !MODES.some((m) => m.value === mode) && <option value={mode}>{mode}</option>}
-              </select>
-              <button
-                type="button"
-                disabled={!turnRunning}
-                title={turnRunning ? 'Stop this turn' : 'Nothing is running'}
-                onClick={onInterrupt}
-                className="rounded bg-neutral-600 px-3 text-sm font-medium text-white hover:enabled:bg-neutral-700 disabled:opacity-40"
-              >
-                Stop
-              </button>
             </div>
           </form>
         </div>
