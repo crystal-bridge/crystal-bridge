@@ -43,6 +43,10 @@ export interface CastleProps {
   latestCli?: string;
   /** Revokes this Kingdom's token and cuts its connection; without it, no Remove. */
   onRemove?: (id: string) => Promise<void>;
+  /** This Kingdom has no token and no connection: it can no longer be removed, only forgotten. */
+  removed?: boolean;
+  /** Deletes the hub's copy of a removed Kingdom's Quests. */
+  onForget?: (id: string) => Promise<void>;
   /** This Kingdom's finished turns since local midnight and since Monday. */
   today?: TurnStats | null;
   week?: TurnStats | null;
@@ -124,7 +128,7 @@ function RemoveKingdom({ kingdom, onRemove }: { kingdom: Kingdom; onRemove: (id:
       )}
       {confirming && (
         <>
-          <p>{`This revokes its token and disconnects it now. Its ${w('quests')} stay in the ${w('chronicle')}.`}</p>
+          <p>{`This revokes its token and disconnects it now. Its ${w('quests')} stay in the ${w('chronicle')} until you forget them.`}</p>
           <div className="flex gap-2">
             <button
               type="button"
@@ -132,6 +136,66 @@ function RemoveKingdom({ kingdom, onRemove }: { kingdom: Kingdom; onRemove: (id:
               className="rounded bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700"
             >
               Yes, remove
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} className={button}>
+              Keep it
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Forgetting can't be undone, so it asks for the Kingdom's name. */
+function ForgetKingdom({ kingdom, onForget }: { kingdom: Kingdom; onForget: (id: string) => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  async function forget(): Promise<void> {
+    setError(null);
+    try {
+      await onForget(kingdom.id);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
+  }
+
+  const button =
+    'rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-200 dark:border-neutral-700 dark:hover:bg-neutral-800';
+  return (
+    <div className="space-y-2 px-3 pb-4 text-xs text-neutral-500">
+      {!confirming && (
+        <button type="button" onClick={() => setConfirming(true)} className={button}>
+          {`Forget ${kingdom.name}`}
+        </button>
+      )}
+      {confirming && (
+        <>
+          <p>
+            {`This deletes its ${w('quests')} from the hub for good, and its tab goes with them. Their transcripts on the machine stay.`}
+          </p>
+          <input
+            aria-label={`Type ${kingdom.name} to confirm`}
+            placeholder={kingdom.name}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            className="cb-field block py-0.5"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={typed !== kingdom.name}
+              onClick={() => void forget()}
+              className="rounded bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              Yes, forget it
             </button>
             <button type="button" onClick={() => setConfirming(false)} className={button}>
               Keep it
@@ -172,6 +236,8 @@ export function Castle({
   cli,
   latestCli,
   onRemove,
+  removed,
+  onForget,
   today = null,
   week = null,
   heroes,
@@ -320,7 +386,8 @@ export function Castle({
           </Folded>
         )}
 
-        {onRemove && <RemoveKingdom key={kingdom.id} kingdom={kingdom} onRemove={onRemove} />}
+        {!removed && onRemove && <RemoveKingdom key={kingdom.id} kingdom={kingdom} onRemove={onRemove} />}
+        {removed && onForget && <ForgetKingdom key={kingdom.id} kingdom={kingdom} onForget={onForget} />}
       </div>
     </div>
   );

@@ -389,6 +389,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     store.listSessions().map((s) => ({ ...s, relayedBytes: s.relayedBytes + (relayed.get(s.id) ?? 0) })),
   );
   app.get('/api/nodes', async () => [...nodes.keys()]);
+  // Who holds a token, connected or not: a Kingdom with Quests that isn't here has been removed.
+  app.get('/api/nodes/enrolled', async () => registry?.ids() ?? []);
   const secure = (request: FastifyRequest): boolean =>
     request.protocol === 'https' || request.headers['x-forwarded-proto'] === 'https';
   app.get('/api/me', async (request) => ({
@@ -439,6 +441,19 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const { node } = request.params as { node: string };
     if (!registry?.revoke(node)) return reply.code(404).send({ error: 'no such node token' });
     nodes.get(node)?.close(CLOSE_TOKEN_REVOKED, 'node token revoked');
+    return reply.code(204).send();
+  });
+  // Forgetting a Kingdom: deletes the hub's copy of its Quests for good, so only one that was removed first.
+  app.delete('/api/nodes/:node/quests', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    if (nodes.has(node) || registry?.ids().includes(node)) {
+      return reply.code(409).send({ error: 'remove this Kingdom first' });
+    }
+    for (const session of store.forgetNode(node)) {
+      relayed.delete(session);
+      subscriptions.delete(session);
+    }
+    engines.delete(node);
     return reply.code(204).send();
   });
   app.get('/api/usage', async () => store.latestUsage());

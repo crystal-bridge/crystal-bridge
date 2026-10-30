@@ -1185,6 +1185,34 @@ describe('airship server with node tokens', () => {
     expect((await post('/api/leave', {}, { authorization: 'Bearer nope' })).status).toBe(401);
   });
 
+  it('GET /api/nodes/enrolled lists the nodes holding a token, connected or not', async () => {
+    const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/enrolled`);
+    expect((await response.json()) as string[]).toEqual(expect.arrayContaining(['node-a', 'node-b']));
+  });
+
+  it('DELETE /api/nodes/:node/quests refuses a Kingdom that still has a token, and forgets a removed one', async () => {
+    const base = wsUrl.replace('ws:', 'http:');
+    const session = randomUUID();
+    store.appendEvent({
+      node: 'node-a',
+      session,
+      seq: 0,
+      ts: Date.now(),
+      type: 'session.started',
+      payload: { cwd: '/tmp', prompt: 'p', label: 'p' },
+    });
+
+    const refused = await fetch(`${base}/api/nodes/node-a/quests`, { method: 'DELETE' });
+    expect(refused.status).toBe(409);
+    expect(store.getSession(session)).toBeDefined();
+
+    await fetch(`${base}/api/nodes/node-a`, { method: 'DELETE' });
+    const forgotten = await fetch(`${base}/api/nodes/node-a/quests`, { method: 'DELETE' });
+    expect(forgotten.status).toBe(204);
+    expect(store.getSession(session)).toBeUndefined();
+    expect(((await (await fetch(`${base}/api/nodes/enrolled`)).json()) as string[]).includes('node-a')).toBe(false);
+  });
+
   it('DELETE /api/nodes/:node answers 404 for a node with no token', async () => {
     const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/node-z`, { method: 'DELETE' });
     expect(response.status).toBe(404);

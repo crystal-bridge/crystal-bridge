@@ -137,6 +137,43 @@ describe('Castle', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('no such node token');
   });
 
+  it('offers Forget, not Remove, once a Kingdom is removed, and only after its name is typed', async () => {
+    const onForget = vi.fn(async () => undefined);
+    renderCastle({
+      kingdom: { id: 'k', name: 'Lantern', connected: false, sessions: 3 },
+      removed: true,
+      onRemove: vi.fn(),
+      onForget,
+    });
+    expect(screen.queryByRole('button', { name: /^Remove / })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Forget / }));
+    const confirm = screen.getByRole('button', { name: 'Yes, forget it' }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByRole('textbox', { name: /to confirm/ }), { target: { value: 'Lanter' } });
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByRole('textbox', { name: /to confirm/ }), { target: { value: 'Lantern' } });
+    fireEvent.click(confirm);
+    expect(onForget).toHaveBeenCalledWith('k');
+  });
+
+  it('keeps Remove and offers no Forget for a Kingdom that has not been removed', () => {
+    renderCastle({ onRemove: vi.fn(), onForget: vi.fn() });
+    expect(screen.getByRole('button', { name: /^Remove / })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Forget / })).toBeNull();
+  });
+
+  it('shows why forgetting failed', async () => {
+    renderCastle({
+      kingdom: { id: 'k', name: 'Lantern', connected: false, sessions: 3 },
+      removed: true,
+      onForget: vi.fn(async () => Promise.reject(new Error('remove this Kingdom first'))),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Forget / }));
+    fireEvent.change(screen.getByRole('textbox', { name: /to confirm/ }), { target: { value: 'Lantern' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, forget it' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('remove this Kingdom first');
+  });
+
   it('stays quiet when the Kingdom is up to date', () => {
     renderCastle({ release: '0.3.0', hubRelease: '0.3.0' });
     expect(screen.queryByRole('status')).toBeNull();

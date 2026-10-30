@@ -107,6 +107,11 @@ async function removeKingdom(node: string): Promise<void> {
   if (!response.ok) throw await refusal(response);
 }
 
+async function forgetKingdom(node: string): Promise<void> {
+  const response = await fetch(`/api/nodes/${encodeURIComponent(node)}/quests`, { method: 'DELETE' });
+  if (!response.ok) throw await refusal(response);
+}
+
 async function tryJson<T>(url: string): Promise<T | undefined> {
   try {
     const response = await fetch(url);
@@ -130,6 +135,8 @@ export function App({ hub }: { hub: HubClient }) {
   const [projectLists, setProjectLists] = useState<{ node: string; projects: Project[] }[]>([]);
   const [latestCli, setLatestCli] = useState<string | undefined>(undefined);
   const [removed, setRemoved] = useState<string | null>(null);
+  // Who holds a token; undefined until the hub has said, so a Kingdom never looks removed while the page loads.
+  const [enrolled, setEnrolled] = useState<string[] | undefined>(undefined);
   const [engineLists, setEngineLists] = useState<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>(
     [],
   );
@@ -506,7 +513,7 @@ export function App({ hub }: { hub: HubClient }) {
 
   const refresh = useCallback(async () => {
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
-    const [s, n, u, x, h, p, e, l, a] = await Promise.all([
+    const [s, n, u, x, h, p, e, l, a, t] = await Promise.all([
       tryJson<SessionSummary[]>('/api/sessions'),
       tryJson<string[]>('/api/nodes'),
       tryJson<NodeUsageRow[]>('/api/usage'),
@@ -516,9 +523,11 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>('/api/engines'),
       tryJson<{ latest?: string }>('/api/cli-latest'),
       tryJson<{ session: string; node: string }[]>('/api/waiting'),
+      tryJson<string[]>('/api/nodes/enrolled'),
     ]);
     keep(setSessions, s);
     keep(setNodes, n);
+    if (t) setEnrolled(t);
     keep(setUsage, u);
     keep(setExternal, x);
     if (h) setServedRelease(h.release);
@@ -1070,6 +1079,12 @@ export function App({ hub }: { hub: HubClient }) {
                 onRemove={async (id) => {
                   await removeKingdom(id);
                   setRemoved(kingdom.name);
+                }}
+                removed={!kingdom.connected && enrolled !== undefined && !enrolled.includes(kingdom.id)}
+                onForget={async (id) => {
+                  await forgetKingdom(id);
+                  setRemoved(null);
+                  await refresh();
                 }}
                 cli={engineLists.find((row) => row.node === kingdom.id)?.cli}
                 latestCli={latestCli}
