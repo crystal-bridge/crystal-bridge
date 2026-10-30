@@ -89,6 +89,17 @@ describe('SessionPanel', () => {
     expect(meters.indexOf(hp)).toBeLessThan(meters.indexOf(within(stats).getByRole('meter', { name: 'Context left' })));
   });
 
+  it("says how old the Kingdom's report is once it's stale, since it only updates while a Quest runs there", () => {
+    const now = Date.UTC(2026, 9, 30, 12);
+    const plan = [{ id: 'five_hour', label: '5h', usedPct: 5, resetsAt: now + 27 * 60_000, status: 'allowed' }];
+    render(<SessionPanel info={info} kingdom="node-b" plan={plan} planAt={now - 19 * 60_000} now={now} />);
+    const hp = () => screen.getByTitle(/^HP/).closest('div')?.textContent;
+    expect(hp()).toContain('95% · rests in 27m · as of 19m ago');
+    cleanup();
+    render(<SessionPanel info={info} kingdom="node-b" plan={plan} planAt={now - 60_000} now={now} />);
+    expect(hp()).not.toContain('as of');
+  });
+
   it('shows a full HP once the window has reset, and no HP without a plan report', () => {
     const now = Date.UTC(2026, 9, 30, 12);
     const plan = [{ id: 'five_hour', label: '5h', usedPct: 90, resetsAt: now - 1000, status: 'allowed' }];

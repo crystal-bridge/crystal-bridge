@@ -87,6 +87,8 @@ export interface SessionViewProps {
   insertion?: { text: string; seq: number };
   /** The Kingdom's latest plan usage report, for the side panel's HP. */
   plan?: UsageWindow[];
+  /** When the Kingdom's plan report came in. */
+  planAt?: number;
   /** Opens a file of this Quest in the read-only viewer: from Loot, tool cards and file names in replies. */
   onOpenFile?: (path: string) => void;
   /** The open file's viewer, shown in place of the side panel (full screen on a phone). Unused in a split's panes. */
@@ -297,6 +299,7 @@ export function SessionView({
   onExitSplit,
   insertion,
   plan,
+  planAt,
   onOpenFile,
   fileViewer,
 }: SessionViewProps) {
@@ -785,6 +788,7 @@ export function SessionView({
                 relayedBytes={relayedBytes}
                 activity={activity}
                 plan={plan}
+                planAt={planAt}
               />
             </aside>
           )

@@ -8,7 +8,7 @@ export interface NodeUsageRow {
 }
 
 /** Reports older than this get an "as of" note: they only update while a session on that node runs. */
-const STALE_MS = 5 * 60_000;
+export const STALE_MS = 5 * 60_000;
 
 /** Time from `now` until `at`, as 37m, 3h12m or 2d4h; `now` once it has passed. */
 export function formatUntil(at: number, now: number): string {
