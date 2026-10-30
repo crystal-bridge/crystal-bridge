@@ -62,6 +62,7 @@ function harness(overrides: Partial<ConstructorParameters<typeof InteractiveSess
     spawnPty,
     pollMs: 10,
     readyDelayMs: 0,
+    costSettleMs: 0,
     env: {
       PATH: '/bin',
       HOME: '/home/me',
@@ -446,7 +447,10 @@ describe('InteractiveSession', () => {
     await tick();
     session.interrupt();
     expect(spawned[0]!.pty.written.at(-1)).toBe('\x1b');
-    expect(events.at(-1)).toEqual({ type: 'turn.finished', payload: { outcome: 'interrupted' } });
+    expect(events.at(-1)).toEqual({
+      type: 'turn.finished',
+      payload: { outcome: 'interrupted', durationMs: expect.any(Number) },
+    });
     expect(session.busy).toBe(false);
   });
 
@@ -499,6 +503,83 @@ describe('InteractiveSession stats and inventory', () => {
     expect(announced).toEqual([200000, 1000000]);
   });
 
+  it('times the whole turn, tool time included, not the API time the statusline reports', async () => {
+    const { session, events, hook, line } = harness();
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    hook('StatusLine', status({ cost: { total_cost_usd: 0.1, total_api_duration_ms: 1 } }));
+    await tick(120);
+    line(withUsage('m1', 'Done', { output_tokens: 1 }));
+    hook('StatusLine', status({ cost: { total_cost_usd: 0.1, total_api_duration_ms: 2 } }));
+    hook('Stop', { last_assistant_message: 'Done', background_tasks: [] });
+    await tick();
+    const finished = events.find((e) => e.type === 'turn.finished')!.payload as { durationMs: number };
+    expect(finished.durationMs).toBeGreaterThanOrEqual(100);
+    const raw = events.flatMap((e) => (e.type === 'claude.event' ? [e.payload.raw as Record<string, unknown>] : []));
+    expect(raw.find((r) => r.type === 'result')).toMatchObject({ duration_ms: finished.durationMs });
+  });
+
+  it('times a stopped turn too', async () => {
+    const { session, events, hook } = harness();
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    await tick();
+    session.interrupt();
+    expect(events.find((e) => e.type === 'turn.finished')).toMatchObject({
+      payload: { outcome: 'interrupted', durationMs: expect.any(Number) },
+    });
+  });
+
+  it('waits briefly for the statusline after a reply, whose last request it may not have counted yet', async () => {
+    const { session, events, hook, line } = harness({ costSettleMs: 500 });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    hook('StatusLine', status({ cost: { total_cost_usd: 1 } }));
+    await tick();
+    line(withUsage('m1', 'Done', { output_tokens: 1 }));
+    hook('Stop', { last_assistant_message: 'Done', background_tasks: [] });
+    await tick();
+    expect(events.some((e) => e.type === 'turn.finished')).toBe(false);
+    hook('StatusLine', status({ cost: { total_cost_usd: 1.3 } }));
+    await tick();
+    const raw = events.flatMap((e) => (e.type === 'claude.event' ? [e.payload.raw as Record<string, unknown>] : []));
+    expect(raw.find((r) => r.type === 'result')).toMatchObject({ total_cost_usd: 1.3 });
+  });
+
+  it('ends the turn anyway when no later statusline comes', async () => {
+    const { session, events, hook, line } = harness({ costSettleMs: 30 });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    await tick();
+    line(withUsage('m1', 'Done', { output_tokens: 1 }));
+    hook('Stop', { last_assistant_message: 'Done', background_tasks: [] });
+    await tick(120);
+    expect(events.some((e) => e.type === 'turn.finished')).toBe(true);
+  });
+
+  it('reports the files the turn changed, once the tracker has them', async () => {
+    const begun: string[] = [];
+    const { session, events, hook, line } = harness({
+      changes: {
+        begin: async () => void begun.push('begin'),
+        finish: async () => ['a.ts'],
+      },
+    });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    await tick();
+    session.send('while it runs');
+    line(withUsage('m1', 'Done', { output_tokens: 1 }));
+    hook('Stop', { last_assistant_message: 'Done', background_tasks: [] });
+    await tick();
+    expect(begun).toEqual(['begin']);
+    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 1);
+    expect(events.at(-1)).toMatchObject({
+      type: 'claude.event',
+      payload: { raw: { type: 'system', subtype: 'turn_changes', files: ['a.ts'] } },
+    });
+  });
+
   it('gives each turn result the cost, its own tokens once per message, its API time and the context window', async () => {
     const { session, events, hook, line } = harness();
     session.start('hello');
@@ -522,7 +603,6 @@ describe('InteractiveSession stats and inventory', () => {
         raw: {
           type: 'result',
           total_cost_usd: 0.5,
-          duration_ms: 3000,
           usage: { input_tokens: 20, output_tokens: 10, cache_read_input_tokens: 200, cache_creation_input_tokens: 40 },
           modelUsage: { session: { contextWindow: 200000 } },
         },
@@ -532,7 +612,6 @@ describe('InteractiveSession stats and inventory', () => {
     const finished = events.find((e) => e.type === 'turn.finished')!.payload as unknown as Record<string, unknown>;
     expect(finished.costUsd).toBeCloseTo(0.4);
     expect(finished).toMatchObject({
-      durationMs: 3000,
       tokens: { input: 20, output: 10, cacheRead: 200, cacheWrite: 40 },
     });
   });

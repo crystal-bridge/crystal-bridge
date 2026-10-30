@@ -53,6 +53,7 @@ export type Concept =
   | 'questGoesOn'
   | 'shellMode'
   | 'loot'
+  | 'prs'
   | 'heroes'
   | 'sideQuests'
   | 'today'
@@ -99,7 +100,7 @@ export const CRYSTAL: Words = {
   gold: { themed: 'Gold', plain: 'cost' },
   tokens: { themed: 'Tokens', plain: 'tokens used' },
   turns: { themed: 'Turns', plain: 'turns' },
-  workingTime: { themed: 'Time', plain: 'time spent working' },
+  workingTime: { themed: 'Time', plain: 'how long the turns took, tools included' },
   relayed: { themed: 'Relayed', plain: 'data sent to your devices, all together' },
   splitView: { themed: 'Split the Party', plain: 'Split View: a second Quest side by side' },
   exitSplit: { themed: 'Exit Split Party', plain: 'Exit split view: back to one Quest' },
@@ -109,7 +110,8 @@ export const CRYSTAL: Words = {
   questComplete: { themed: 'Quest complete', plain: 'the Quest is over: its summary' },
   questGoesOn: { themed: 'The Quest goes on · awaiting your orders', plain: 'send a message to continue' },
   shellMode: { themed: 'Command Rune', plain: 'shell mode: this runs as a command in the Quest’s folder' },
-  loot: { themed: 'Loot', plain: 'files changed' },
+  loot: { themed: 'Loot', plain: 'files changed, by any tool or command' },
+  prs: { themed: 'Trophies', plain: 'pull requests opened' },
   heroes: { themed: 'Heroes', plain: 'agents sent out' },
   sideQuests: { themed: 'Side Quests', plain: 'background tasks started' },
   today: { themed: 'Today', plain: 'turns finished since midnight' },
@@ -166,6 +168,7 @@ export const CLASSIC: Words = {
   questGoesOn: { themed: 'Waiting for your next message', plain: 'Waiting for your next message' },
   shellMode: { themed: 'Shell mode', plain: 'this runs as a command in the session’s folder' },
   loot: { themed: 'Files changed', plain: 'Files changed' },
+  prs: { themed: 'Pull requests', plain: 'Pull requests' },
   heroes: { themed: 'Agents', plain: 'Agents' },
   sideQuests: { themed: 'Background tasks', plain: 'Background tasks' },
   today: { themed: 'Today', plain: 'Today' },

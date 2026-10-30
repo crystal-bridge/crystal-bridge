@@ -36,6 +36,26 @@ function Loot({ files }: { files: string[] }) {
   );
 }
 
+/** Each link by its number; the full address is its tooltip. */
+function Prs({ links }: { links: string[] }) {
+  return (
+    <>
+      {links.map((link) => (
+        <a
+          key={link}
+          href={link}
+          title={link}
+          target="_blank"
+          rel="noreferrer"
+          className="mr-2 inline-block underline underline-offset-2"
+        >
+          #{link.split('/').pop()}
+        </a>
+      ))}
+    </>
+  );
+}
+
 function Heroes({ types, manifest }: { types: string[]; manifest?: HeroManifest }) {
   if (types.length === 0) return <>none</>;
   return (
@@ -71,6 +91,11 @@ function Details({ result, manifest }: { result: BattleResult; manifest?: HeroMa
       <Row concept="loot">
         <Loot files={result.loot} />
       </Row>
+      {result.prs.length > 0 && (
+        <Row concept="prs">
+          <Prs links={result.prs} />
+        </Row>
+      )}
       <Row concept="heroes">
         <Heroes types={result.heroes} manifest={manifest} />
       </Row>

@@ -52,7 +52,24 @@ describe('battleResults', () => {
     expect(quest.tokens.output).toBe(10);
   });
 
-  it('starts the running cost over after a resume, and names how each turn ended', () => {
+  it('keeps the running cost across resumes, so the Quest totals the final figure', () => {
+    seq = 0;
+    const envelopes = [
+      env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      result({ total_cost_usd: 0.6 }),
+      env('session.resumed', {}),
+      result({ total_cost_usd: 5.82 }),
+      env('session.resumed', {}),
+      result({ total_cost_usd: 6.26 }),
+    ];
+    const { turns, quest } = battleResults(envelopes);
+    expect(turns.get('e1')!.costUsd).toBeCloseTo(0.6);
+    expect(turns.get('e3')!.costUsd).toBeCloseTo(5.22);
+    expect(turns.get('e5')!.costUsd).toBeCloseTo(0.44);
+    expect(quest.costUsd).toBeCloseTo(6.26);
+  });
+
+  it('starts over only when the running cost falls, and names how each turn ended', () => {
     seq = 0;
     const envelopes = [
       env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
@@ -67,6 +84,55 @@ describe('battleResults', () => {
     expect(turns.get('e4')).toMatchObject({ outcome: 'ko' });
     expect(turns.get('e4')!.costUsd).toBeCloseTo(0.1);
     expect(quest.costUsd).toBeCloseTo(0.5);
+  });
+
+  it('does not count the cost again after a stopped turn that reported none', () => {
+    seq = 0;
+    const { turns, quest } = battleResults([
+      env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      result({ total_cost_usd: 2 }),
+      claude({ type: 'result', subtype: 'error_during_execution', is_error: true }),
+      result({ total_cost_usd: 2.5 }),
+    ]);
+    expect(turns.get('e2')!.costUsd).toBe(0);
+    expect(turns.get('e3')!.costUsd).toBeCloseTo(0.5);
+    expect(quest.costUsd).toBeCloseTo(2.5);
+  });
+
+  it('takes Loot from the node-s report as well as the file tools', () => {
+    seq = 0;
+    const { turns, quest } = battleResults([
+      env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      toolUse('t1', 'Edit', { file_path: '/w/a.ts' }),
+      result({}),
+      claude({ type: 'system', subtype: 'turn_changes', files: ['b.ts', 'a.ts'] }),
+      result({}),
+      claude({ type: 'system', subtype: 'turn_changes', files: ['c.ts'] }),
+    ]);
+    expect(turns.get('e2')!.loot).toEqual(['a.ts', 'b.ts']);
+    expect(turns.get('e4')!.loot).toEqual(['c.ts']);
+    expect(quest.loot).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
+  it('finds pull requests a command printed on a line of their own, once each', () => {
+    seq = 0;
+    const output = (content: unknown) =>
+      claude({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', content }] } });
+    const { turns, quest } = battleResults([
+      env('session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      output('Creating pull request\nhttps://github.com/o/r/pull/12\n'),
+      output('url:\thttps://github.com/o/r/pull/99\nsee https://github.com/o/r/pull/98 for more'),
+      output('https://github.com/o/r/actions/runs/5'),
+      output([{ type: 'text', text: 'https://gitlab.example/g/r/-/merge_requests/7' }]),
+      result({}),
+      output('https://github.com/o/r/pull/12'),
+      result({}),
+    ]);
+    expect(turns.get('e5')!.prs).toEqual([
+      'https://github.com/o/r/pull/12',
+      'https://gitlab.example/g/r/-/merge_requests/7',
+    ]);
+    expect(quest.prs).toEqual(['https://github.com/o/r/pull/12', 'https://gitlab.example/g/r/-/merge_requests/7']);
   });
 
   it('reports how much of the context window the Quest last used', () => {

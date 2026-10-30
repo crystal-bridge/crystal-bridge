@@ -120,12 +120,15 @@ HP and MP bars drain in five colour steps, green when full through yellow and or
 ### Battle results
 
 Under each turn's result, a one-line card folded by default: **Battle won**, **Retreat** (you stopped it) or **KO**
-(it failed), with time, Gold and files changed; open it for tokens, Loot, the Heroes sent out (as their Classes) and
-Side Quests started. The latest turn of a Quest between turns shows its card open, with the party leader's pose, so
+(it failed), with time, Gold and files changed; open it for tokens, Loot, Trophies (pull requests a command opened),
+the Heroes sent out (as their Classes) and Side Quests started. Time is the whole turn, tools and approvals included.
+Loot is what changed: the node compares the working tree with the commit the turn began on, so edits from a shell
+count, and a folder that isn't a repository falls back on the file tools. The latest turn of a Quest between turns shows its card open, with the party leader's pose, so
 the chat ends on how it went, and a line under it says **The Quest goes on · awaiting your orders**, so a finished
 turn never reads as the end; a new message folds it. When a Quest is closed, an open **Quest complete** card sums every turn, with the MP its last
 request used and the party leader's victory pose. Classic theme: "Turn finished", "Turn stopped", "Turn failed",
-"Session summary". Derived in `apps/web/src/battle.ts` from the events already stored.
+"Session summary". Derived in `apps/web/src/battle.ts` from the events already stored, so a Quest's Gold corrects
+itself on old cards too. Stored turns keep the Time and Loot they were recorded with.
 
 ### Step words
 

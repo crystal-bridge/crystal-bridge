@@ -1,3 +1,4 @@
+import { reportChanges, type TurnChanges } from './changes.js';
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcessByStdio } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -38,7 +39,7 @@ export interface TurnFinishedPayload {
   summary?: string;
   /** This turn's own cost in US dollars (not the session's running total), when the engine reports one. */
   costUsd?: number;
-  /** Time the engine spent on this turn. */
+  /** The whole turn, from when it opened: tool time and waiting on approvals included. */
   durationMs?: number;
   /** This turn's tokens, when reported. */
   tokens?: TurnTokens;
@@ -120,6 +121,8 @@ export interface ClaudeSessionOptions {
   effort?: Effort;
   /** Folders outside `cwd` the agent may read without asking (`--add-dir`), e.g. its attached files. */
   addDirs?: readonly string[];
+  /** Works out what each turn changed; unset, no `system/turn_changes` lines are sent. */
+  changes?: TurnChanges;
 }
 
 type ClaudeChild = ChildProcessByStdio<Writable, Readable, Readable>;
@@ -201,8 +204,6 @@ interface ChildRecord {
    * reliable signal when that work ends, so such a process is never idle-stopped: stopping it would kill the work.
    */
   background: boolean;
-  /** The CLI's running cost at the last result: total_cost_usd counts per process, so a turn's own is the change. */
-  lastTotalCost: number;
 }
 
 /**
@@ -222,6 +223,7 @@ export class ClaudeSession extends EventEmitter {
   private readonly permissionUrl: string;
   private readonly spawnFn: typeof nodeSpawn;
   private readonly claudeBin: string;
+  private readonly changes: TurnChanges | undefined;
   private readonly idleMs: number;
   private readonly env: Record<string, string | undefined>;
   private mode: PermissionMode;
@@ -266,6 +268,7 @@ export class ClaudeSession extends EventEmitter {
     this.chrome = opts.chrome ?? false;
     this.effort = opts.effort;
     this.addDirs = opts.addDirs ?? [];
+    this.changes = opts.changes;
   }
 
   /** Spawns the first `claude` process (with `--session-id`) and sends the opening prompt. */
@@ -286,7 +289,7 @@ export class ClaudeSession extends EventEmitter {
       // An idle-stopped child has had its stdin ended; the text waits for the --resume process.
       if (rec.idleStopped || this.hasExited(rec)) {
         this.queued.push(text);
-        this.turnOpen = true;
+        this.openTurn();
       } else {
         this.writeTo(rec, text);
       }
@@ -316,6 +319,8 @@ export class ClaudeSession extends EventEmitter {
   }
 
   private stopWaiters: Array<() => void> = [];
+  /** The CLI's running cost at the last result. It carries across `--resume`, so a turn's own is the change. */
+  private lastTotalCost = 0;
 
   /** Resolves once the current process has exited; at once when none is running. */
   stopped(): Promise<void> {
@@ -369,8 +374,13 @@ export class ClaudeSession extends EventEmitter {
     return rec.exited || rec.proc.exitCode !== null || rec.proc.signalCode !== null;
   }
 
-  private writeTo(rec: ChildRecord, text: string): void {
+  private openTurn(): void {
+    if (!this.turnOpen) void this.changes?.begin();
     this.turnOpen = true;
+  }
+
+  private writeTo(rec: ChildRecord, text: string): void {
+    this.openTurn();
     rec.proc.stdin.write(userMessage(text));
   }
 
@@ -395,7 +405,6 @@ export class ClaudeSession extends EventEmitter {
       idleTimer: null,
       idleStopped: false,
       background: false,
-      lastTotalCost: 0,
     };
     this.current = rec;
     if (resume) this.emitEvent({ type: 'session.resumed', payload: {} });
@@ -463,10 +472,11 @@ export class ClaudeSession extends EventEmitter {
       const total = (raw as { total_cost_usd?: unknown }).total_cost_usd;
       let cost: number | undefined;
       if (typeof total === 'number') {
-        cost = Math.max(0, total - rec.lastTotalCost);
-        rec.lastTotalCost = total;
+        cost = total >= this.lastTotalCost ? total - this.lastTotalCost : total;
+        this.lastTotalCost = total;
       }
       this.emitEvent({ type: 'turn.finished', payload: turnFinished(raw as Record<string, unknown>, cost) });
+      reportChanges(this.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
       this.startIdleTimer(rec);
     }
   }

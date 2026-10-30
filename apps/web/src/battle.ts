@@ -1,5 +1,5 @@
 import type { Envelope } from '@crystal-bridge/protocol';
-import { sessionInfo } from './info.js';
+import { costStep, sessionInfo } from './info.js';
 
 /** How a turn ended: finished, stopped by the user, or failed. */
 export type BattleOutcome = 'victory' | 'retreat' | 'ko';
@@ -11,8 +11,10 @@ export interface BattleResult {
   durationMs: number;
   costUsd: number;
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  /** Files written or edited, relative to the Quest's folder when inside it; sorted. */
+  /** Files changed, as the node reports them plus those the file tools wrote; relative to the Quest's folder; sorted. */
   loot: string[];
+  /** Pull request links that commands printed. */
+  prs: string[];
   /** Subagent types the turn sent out, as the engine names them; the UI picks each one's Class. */
   heroes: string[];
   /** Background commands, monitors and background agents started. */
@@ -31,6 +33,17 @@ const WRITE_TOOLS: Record<string, string> = {
   NotebookEdit: 'notebook_path',
 };
 const AGENT_TOOLS = new Set(['Task', 'Agent']);
+/**
+ * A pull or merge request's link alone on a line, the way the tools that open one print it. Output that merely
+ * mentions a link (a listing, a log, `gh pr view`) doesn't match, which keeps out work this Quest didn't do.
+ */
+const PR_LINE = /^https?:\/\/\S+\/(?:pull|pulls|merge_requests|pull-requests)\/\d+\/?$/;
+
+function toolOutput(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((part) => (isObj(part) && typeof part.text === 'string' ? part.text : '')).join('\n');
+}
 
 function empty(): BattleResult {
   return {
@@ -40,6 +53,7 @@ function empty(): BattleResult {
     costUsd: 0,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     loot: [],
+    prs: [],
     heroes: [],
     sideQuests: 0,
   };
@@ -53,8 +67,7 @@ function outcomeOf(raw: Obj): BattleOutcome {
 
 /**
  * Each turn's results, keyed by its `result` line's view-item id (`e<seq>`), and the Quest's totals. A turn is
- * everything since the previous `result`. Cost is the change in the CLI's running per-process total, which starts
- * over when a resume starts a new process.
+ * everything since the previous `result`. Cost is the change in the CLI's running total (`costStep`).
  */
 export function battleResults(envelopes: readonly Envelope[]): {
   turns: Map<string, BattleResult>;
@@ -64,9 +77,12 @@ export function battleResults(envelopes: readonly Envelope[]): {
   const quest = empty();
   const questLoot = new Set<string>();
   const questHeroes = new Set<string>();
+  const questPrs = new Set<string>();
   let cwd: string | undefined;
-  let processCost = 0;
+  let runningCost = 0;
+  let last: BattleResult | undefined;
   let loot = new Set<string>();
+  let prs = new Set<string>();
   let heroes: string[] = [];
   let sideQuests = 0;
 
@@ -78,12 +94,15 @@ export function battleResults(envelopes: readonly Envelope[]): {
       if (typeof payload.cwd === 'string') cwd = payload.cwd;
       continue;
     }
-    if (envelope.type === 'session.resumed') {
-      processCost = 0;
-      continue;
-    }
     if (envelope.type !== 'claude.event' || !isObj(payload.raw)) continue;
     const raw = payload.raw;
+
+    // Follows its turn's `result`: what the node worked out once that turn had ended.
+    if (raw.type === 'system' && raw.subtype === 'turn_changes' && last && Array.isArray(raw.files)) {
+      const files = raw.files.filter((file): file is string => typeof file === 'string');
+      last.loot = [...new Set([...last.loot, ...files])].sort();
+      for (const file of files) questLoot.add(file);
+    }
 
     if (raw.type === 'assistant' && isObj(raw.message) && Array.isArray(raw.message.content)) {
       for (const block of raw.message.content) {
@@ -98,16 +117,24 @@ export function battleResults(envelopes: readonly Envelope[]): {
       }
     }
 
+    if (raw.type === 'user' && isObj(raw.message) && Array.isArray(raw.message.content)) {
+      for (const block of raw.message.content) {
+        if (!isObj(block) || block.type !== 'tool_result') continue;
+        for (const line of toolOutput(block.content).split('\n')) {
+          if (PR_LINE.test(line.trim())) prs.add(line.trim().replace(/\/$/, ''));
+        }
+      }
+    }
+
     if (raw.type === 'result') {
-      const total = num(raw.total_cost_usd);
-      const cost = total >= processCost ? total - processCost : total;
-      processCost = total;
+      const step = costStep(raw.total_cost_usd, runningCost);
+      runningCost = step.running;
       const usage = isObj(raw.usage) ? raw.usage : {};
       const turn: BattleResult = {
         outcome: outcomeOf(raw),
         turns: 1,
         durationMs: num(raw.duration_ms),
-        costUsd: cost,
+        costUsd: step.cost,
         tokens: {
           input: num(usage.input_tokens),
           output: num(usage.output_tokens),
@@ -115,10 +142,12 @@ export function battleResults(envelopes: readonly Envelope[]): {
           cacheWrite: num(usage.cache_creation_input_tokens),
         },
         loot: [...loot].sort(),
+        prs: [...prs],
         heroes: heroes.filter(Boolean),
         sideQuests,
       };
       turns.set(`e${envelope.seq}`, turn);
+      last = turn;
 
       quest.outcome = turn.outcome;
       quest.turns += 1;
@@ -131,7 +160,9 @@ export function battleResults(envelopes: readonly Envelope[]): {
       quest.sideQuests += turn.sideQuests;
       for (const file of loot) questLoot.add(file);
       for (const hero of turn.heroes) questHeroes.add(hero);
+      for (const pr of prs) questPrs.add(pr);
       loot = new Set();
+      prs = new Set();
       heroes = [];
       sideQuests = 0;
     }
@@ -139,6 +170,7 @@ export function battleResults(envelopes: readonly Envelope[]): {
 
   quest.loot = [...questLoot].sort();
   quest.heroes = [...questHeroes];
+  quest.prs = [...questPrs];
   const { context } = sessionInfo(envelopes);
   if (context?.window) quest.mpUsedPct = Math.round((context.used / context.window) * 100);
   return { turns, quest };

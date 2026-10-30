@@ -69,13 +69,26 @@ describe('sessionInfo', () => {
     expect(info.context).toEqual({ used: 1502, window: 200000 });
   });
 
-  it('adds up cost across processes, since each one reports its own running total', () => {
+  it('takes the running cost across resumes, which carries on rather than starting over', () => {
     seq = 0;
     const info = sessionInfo([
       env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
-      raw(result(0.1)),
-      raw(result(0.25)),
+      raw(result(0.6)),
       env('session.ended', { exitCode: 0, signal: null, reason: 'idle' }),
+      env('session.resumed', {}),
+      raw(result(5.82)),
+      env('session.resumed', {}),
+      raw({ type: 'result', subtype: 'error_during_execution', is_error: true }),
+      raw(result(6.26)),
+    ]);
+    expect(info.costUsd).toBeCloseTo(6.26);
+  });
+
+  it('adds a lower running cost as a new count, in case a process does start over', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(result(0.25)),
       env('session.resumed', {}),
       raw(result(0.05)),
     ]);

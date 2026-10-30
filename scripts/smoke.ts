@@ -23,6 +23,7 @@ const CLIENT_URL = process.env.AIRSHIP_CLIENT_URL ?? 'ws://127.0.0.1:7700/client
 const ENGINE = process.env.SMOKE_ENGINE || undefined;
 const PROMPT = 'Run the shell command `touch crystal.txt` with Bash, then reply with the single word DONE.';
 const RESULT_TIMEOUT_MS = 120_000;
+const CHANGES_TIMEOUT_MS = 5_000;
 const MAX_RECENT = 10;
 const MAX_EVENT_CHARS = 400;
 
@@ -81,6 +82,7 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
 
   return new Promise<WaitOutcome>((resolve) => {
     let settled = false;
+    let changesTimer: NodeJS.Timeout | undefined;
     const socket = new WebSocket(clientUrl);
 
     const timer = setTimeout(() => {
@@ -148,9 +150,22 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
         return;
       }
 
-      if (envelope.type === 'claude.event' && isObj(payload) && isObj(payload.raw) && payload.raw.type === 'result') {
-        finish({ ok: true });
-        return;
+      if (envelope.type === 'claude.event' && isObj(payload) && isObj(payload.raw)) {
+        const { raw } = payload;
+        // A shell made the change, so this line shows the node saw it without any file tool.
+        if (raw.type === 'system' && raw.subtype === 'turn_changes') {
+          clearTimeout(changesTimer);
+          const seen = Array.isArray(raw.files) && raw.files.includes('crystal.txt');
+          finish(seen ? { ok: true } : { ok: false, message: `turn_changes missed crystal.txt: ${String(raw.files)}` });
+          return;
+        }
+        if (raw.type === 'result') {
+          changesTimer = setTimeout(
+            () => finish({ ok: false, message: 'a result arrived, but no turn_changes line followed it' }),
+            CHANGES_TIMEOUT_MS,
+          );
+          return;
+        }
       }
 
       if (envelope.type === 'error') {
@@ -208,7 +223,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    console.log('smoke: PASS - result event arrived and crystal.txt exists');
+    console.log('smoke: PASS - result event arrived, crystal.txt exists and the turn reported it');
   } finally {
     await rm(repo, { recursive: true, force: true });
   }
