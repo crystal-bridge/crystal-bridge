@@ -381,6 +381,9 @@ button[aria-pressed='true'] .cb-icon {
   --prompt-ink: #171717;
   --prompt-muted: #737373;
   --prompt-go: #2f5bd8;
+  --prompt-send-top: #ffd75e;
+  --prompt-send-bottom: #e0a800;
+  --prompt-send-ink: #2a1d00;
   --prompt-stop: #262626;
   --prompt-run: #e11d48;
   --select-bg: #f5f5f5;
@@ -443,6 +446,10 @@ button[aria-pressed='true'] .cb-icon {
   border-radius: 999px;
   background: var(--prompt-go);
   color: #ffffff;
+}
+.cb-prompt-go[data-kind='send'] {
+  background: linear-gradient(180deg, var(--prompt-send-top), var(--prompt-send-bottom));
+  color: var(--prompt-send-ink);
 }
 .cb-prompt-go[data-kind='stop'] {
   background: var(--prompt-stop);
