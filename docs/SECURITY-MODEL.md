@@ -19,6 +19,7 @@ browser ──HTTPS──▶ tailscale serve ──▶ Airship (hub) on 127.0.0.
 | --- | --- |
 | Browser → hub | `tailscale serve` (HTTPS, tailnet only) adds `Tailscale-User-Login`; the hub serves only logins in `AIRSHIP_ALLOWED_USERS`. The hub listens on 127.0.0.1 only, so nothing else on the network reaches it directly. |
 | Kingdom → hub | Each Kingdom dials out with its own bearer token. The hub stores only a SHA-256 of each token (`AIRSHIP_NODES`), compares in constant time, and lets a node read and write only its own sessions. |
+| New Kingdom → hub | An allowed user makes a one-time join code for a new name. `POST /api/join` trades it for that node's token, needs no login, and only exists to do this. A code has 128 random bits, lasts 10 minutes, works once, is kept as a hash in memory, and can't be made for a name that already has a token, so it can't take over a Kingdom. |
 | Crystal → `claude` | The unmodified CLI under the machine's login. Crystal never reads, copies or relays Claude's credentials, and keeps its node token out of the sessions' environment. |
 | `claude` → Crystal | The permission tool and hooks call Crystal on 127.0.0.1. Approvals are decided by the user in the web app; Crystal only relays them. |
 | Hub at rest | SQLite on the hub's disk holds every event: prompts, replies, tool inputs and outputs, anything pasted. Nightly backups copy it. |

@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { addNode, loadNodes } from './nodes.js';
+import { addNode, isNodeId, loadNodes } from './nodes.js';
 
 describe('node tokens', () => {
   let dir: string;
@@ -57,6 +57,13 @@ describe('node tokens', () => {
     expect(loadNodes(file).verify(token)).toBeUndefined();
     expect(nodes.verify(other)).toBe('node-a');
     expect(nodes.ids()).toEqual(['node-a']);
+  });
+
+  it('issues a token through the registry, and knows a good node id', () => {
+    const nodes = loadNodes(file);
+    expect(nodes.verify(nodes.issue('node-b'))).toBe('node-b');
+    expect(isNodeId('node-b')).toBe(true);
+    expect(isNodeId('bad id/../x')).toBe(false);
   });
 
   it('reports revoking a node it does not know', () => {
