@@ -8,6 +8,7 @@ describe('hubPaths', () => {
       nodes: '/data/nodes.json',
       tokens: '/data/access-tokens.json',
       vapid: '/data/vapid.json',
+      settings: '/data/hub.json',
       backups: '/data/backups',
     });
   });
@@ -21,6 +22,7 @@ describe('hubPaths', () => {
       db: '/var/lib/airship/airship.db',
       nodes: undefined,
       tokens: '/var/lib/airship/access-tokens.json',
+      settings: '/var/lib/airship/hub.json',
       vapid: '/var/lib/airship/vapid.json',
       backups: './backups',
     });

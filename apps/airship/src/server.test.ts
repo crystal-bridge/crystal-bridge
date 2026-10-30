@@ -1220,6 +1220,52 @@ describe('airship server with node tokens', () => {
   });
 });
 
+describe('airship server hub name', () => {
+  let store: Store;
+  let app: import('fastify').FastifyInstance;
+  let base: string;
+  let name: string | undefined;
+
+  beforeEach(async () => {
+    store = openStore(':memory:');
+    name = undefined;
+    const settings = {
+      name: () => name,
+      setName(next: string | undefined) {
+        name = next;
+      },
+    };
+    app = await buildServer({ store, settings });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    await app.close();
+    store.close();
+  });
+
+  const put = (body: unknown) =>
+    fetch(`${base}/api/hub`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('starts unnamed, takes a name, and an empty one clears it', async () => {
+    expect(await (await fetch(`${base}/api/hub`)).json()).toEqual({ name: null });
+    expect((await put({ name: '  Home fleet ' })).status).toBe(204);
+    expect(await (await fetch(`${base}/api/hub`)).json()).toEqual({ name: 'Home fleet' });
+    expect((await put({ name: '' })).status).toBe(204);
+    expect(name).toBeUndefined();
+  });
+
+  it('refuses a name it cannot show', async () => {
+    expect((await put({ name: 'x'.repeat(41) })).status).toBe(400);
+    expect((await put({ name: 7 })).status).toBe(400);
+    expect(name).toBeUndefined();
+  });
+});
+
 describe('airship server on first run', () => {
   let store: Store;
   let app: import('fastify').FastifyInstance;
@@ -1261,6 +1307,7 @@ describe('airship server on first run', () => {
     expect(await me()).toEqual({ login: null, canLogIn: true, setup: true });
     expect((await fetch(`${base}/api/sessions`)).status).toBe(403);
     expect((await fetch(`${base}/api/join-codes`, { method: 'POST' })).status).toBe(403);
+    expect((await fetch(`${base}/api/hub`)).status).toBe(403);
   });
 
   it('refuses a wrong code, a missing code and a bad name', async () => {

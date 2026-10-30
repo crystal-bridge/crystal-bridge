@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { TAB_STYLES, type KingdomLook, type TabStyle } from '../appearance.js';
 import { hint, w } from '../theme/words.js';
 import type { Kingdom } from '../kingdoms.js';
@@ -41,8 +41,53 @@ export interface ConfigMenuProps {
   onPromptColour?: (id: string) => void;
   /** Makes a join code for a new Kingdom; without it, no Add Kingdom. */
   onCreateJoinCode?: (node: string) => Promise<{ code: string; expiresAt: number }>;
+  hubName?: string;
+  /** Saves the hub's name for everyone; without it, no choice. */
+  onHubName?: (name: string) => Promise<void>;
   /** Ends this browser's login; without it, no Log out. */
   onLogOut?: () => void;
+}
+
+/** The hub's name, shared by everyone on it. */
+function HubNameField({ name, onSave }: { name: string; onSave: (name: string) => Promise<void> }) {
+  const [draft, setDraft] = useState(name);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setError(null);
+    try {
+      await onSave(draft);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void submit(event)} className="space-y-2">
+      <h3 className="cb-label">Hub</h3>
+      <div className="flex items-center gap-2">
+        <input
+          aria-label="Hub name"
+          placeholder="Crystal Bridge"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          className="cb-field min-w-0 flex-1 py-0.5"
+        />
+        <button
+          type="submit"
+          className="shrink-0 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+        >
+          Save name
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </form>
+  );
 }
 
 /** One Kingdom's look: an icon grid and banner swatches, both data lists in theme/kingdomIcons.ts. */
@@ -157,6 +202,8 @@ export function ConfigMenu({
   leaders,
   onCreateJoinCode,
   onLogOut,
+  hubName = '',
+  onHubName,
   promptColour = DEFAULT_PROMPT_COLOUR,
   onPromptColour,
 }: ConfigMenuProps) {
@@ -269,6 +316,8 @@ export function ConfigMenu({
             ))}
             {onCreateJoinCode && <AddKingdom hub={window.location.origin} onCreate={onCreateJoinCode} />}
           </section>
+
+          {onHubName && <HubNameField key={hubName} name={hubName} onSave={onHubName} />}
 
           {onPromptColour && (
             <section className="space-y-2">

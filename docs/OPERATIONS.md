@@ -144,6 +144,10 @@ the code and a name, and it makes your login, logs that browser in and shows the
 while it waits: `/api` and `/client` stay closed. The code is kept in memory and a restart makes a new one. It works
 once, and stops working as soon as any login exists, so `token add` still works for a scripted setup.
 
+Two optional steps follow: naming the hub and adding the first Kingdom. Both are also in Config, and a hub on
+`tailscale-serve` has them there. The name is in `hub.json` beside the access tokens, shows in the app bar and page
+title for everyone on the hub, and isn't in the nightly database backup.
+
 Log out in Config ends that browser's login. It doesn't revoke the token: use `token:remove` for that.
 
 ## Joining and leaving

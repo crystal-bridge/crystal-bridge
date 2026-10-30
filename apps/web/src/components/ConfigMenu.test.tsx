@@ -28,6 +28,20 @@ function renderMenu(overrides: Partial<Parameters<typeof ConfigMenu>[0]> = {}) {
   return props;
 }
 
+describe('ConfigMenu hub name', () => {
+  afterEach(() => cleanup());
+
+  it('saves the hub name', () => {
+    const onHubName = vi.fn(async () => undefined);
+    renderMenu({ hubName: 'Old', onHubName });
+    const field = screen.getByLabelText('Hub name') as HTMLInputElement;
+    expect(field.value).toBe('Old');
+    fireEvent.change(field, { target: { value: 'New' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+    expect(onHubName).toHaveBeenCalledWith('New');
+  });
+});
+
 describe('ConfigMenu logging out', () => {
   afterEach(() => cleanup());
 

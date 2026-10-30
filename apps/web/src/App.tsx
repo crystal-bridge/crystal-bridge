@@ -66,6 +66,7 @@ import { sessionInfo } from './info.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { SplitPicker } from './components/SplitPicker.js';
+import { createJoinCode, refusal, saveHubName } from './api.js';
 import { type KingdomPrefs, listKingdoms, loadPrefs, notifyLevel, pickActive, savePrefs } from './kingdoms.js';
 import { sessionMode } from './model.js';
 import { MODES } from './modes.js';
@@ -86,22 +87,6 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
 }
 
 /** The response, or undefined when the hub didn't answer: callers keep what they had rather than blank the page. */
-/** What the hub said went wrong, for a call the user made and should hear about. */
-async function refusal(response: Response): Promise<Error> {
-  const body = (await response.json().catch(() => ({}))) as { error?: string };
-  return new Error(body.error ?? `The hub answered ${response.status}`);
-}
-
-async function createJoinCode(node: string): Promise<{ code: string; expiresAt: number }> {
-  const response = await fetch('/api/join-codes', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ node }),
-  });
-  if (!response.ok) throw await refusal(response);
-  return (await response.json()) as { code: string; expiresAt: number };
-}
-
 async function removeKingdom(node: string): Promise<void> {
   const response = await fetch(`/api/nodes/${encodeURIComponent(node)}`, { method: 'DELETE' });
   if (!response.ok) throw await refusal(response);
@@ -141,6 +126,8 @@ export function App({ hub }: { hub: HubClient }) {
   const [latestCli, setLatestCli] = useState<string | undefined>(undefined);
   const [removed, setRemoved] = useState<string | null>(null);
   const [canLogOut, setCanLogOut] = useState(false);
+  const [hubName, setHubName] = useState<string | null>(null);
+  const title = hubName ?? 'Crystal Bridge';
   // Who holds a token; undefined until the hub has said, so a Kingdom never looks removed while the page loads.
   const [enrolled, setEnrolled] = useState<string[] | undefined>(undefined);
   const [engineLists, setEngineLists] = useState<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>(
@@ -280,8 +267,8 @@ export function App({ hub }: { hub: HubClient }) {
   const waitingIds = new Set(Object.keys(waiting));
 
   useEffect(() => {
-    document.title = waitingShown > 0 ? `(${waitingShown}) Crystal Bridge` : 'Crystal Bridge';
-  }, [waitingShown]);
+    document.title = waitingShown > 0 ? `(${waitingShown}) ${title}` : title;
+  }, [waitingShown, title]);
 
   // Opening a session, in either pane, clears its waiting mark.
   useEffect(() => {
@@ -523,7 +510,7 @@ export function App({ hub }: { hub: HubClient }) {
 
   const refresh = useCallback(async () => {
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
-    const [s, n, u, x, h, p, e, l, a, t] = await Promise.all([
+    const [s, n, u, x, h, p, e, l, a, t, b] = await Promise.all([
       tryJson<SessionSummary[]>('/api/sessions'),
       tryJson<string[]>('/api/nodes'),
       tryJson<NodeUsageRow[]>('/api/usage'),
@@ -534,10 +521,12 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<{ latest?: string }>('/api/cli-latest'),
       tryJson<{ session: string; node: string }[]>('/api/waiting'),
       tryJson<string[]>('/api/nodes/enrolled'),
+      tryJson<{ name?: string | null }>('/api/hub'),
     ]);
     keep(setSessions, s);
     keep(setNodes, n);
     if (t) setEnrolled(t);
+    if (b) setHubName(b.name ?? null);
     keep(setUsage, u);
     keep(setExternal, x);
     if (h) setServedRelease(h.release);
@@ -854,8 +843,8 @@ export function App({ hub }: { hub: HubClient }) {
               className="mb-1.5 flex shrink-0 items-center gap-2 rounded-md px-1 py-1 hover:bg-neutral-300 dark:hover:bg-neutral-700"
             >
               <img src="/favicon.svg" alt="" width={32} height={32} className="[image-rendering:pixelated]" />
-              <span className="cb-display hidden text-3xl leading-none sm:inline">Crystal Bridge</span>
-              <span className="sr-only sm:hidden">Crystal Bridge</span>
+              <span className="cb-display hidden text-3xl leading-none sm:inline">{title}</span>
+              <span className="sr-only sm:hidden">{title}</span>
             </button>
             <div className="min-w-0 flex-1 pt-2">
               <KingdomBar
@@ -881,6 +870,11 @@ export function App({ hub }: { hub: HubClient }) {
               <ConfigMenu
                 leaders={leaderChoices}
                 onCreateJoinCode={createJoinCode}
+                hubName={hubName ?? ''}
+                onHubName={async (name) => {
+                  await saveHubName(name);
+                  setHubName(name.trim() || null);
+                }}
                 {...(canLogOut ? { onLogOut: logOut } : {})}
                 visible={visible}
                 hidden={hidden}

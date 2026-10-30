@@ -75,6 +75,26 @@ describe('App Kingdom tabs', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows the hub-s name in the app bar and the page title', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/hub'
+                ? { name: 'Home fleet' }
+                : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    await renderApp();
+    await waitFor(() => expect(document.title).toBe('Home fleet'));
+    expect(screen.getAllByText('Home fleet').length).toBeGreaterThan(0);
+  });
+
   it('forgets a removed Kingdom: asks the hub, and its tab goes', async () => {
     let held = sessions;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {

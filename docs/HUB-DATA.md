@@ -11,6 +11,7 @@ into a chat, every reply, and every tool's input and output. Plan for it like yo
 | Hub backups (`AIRSHIP_BACKUP_DIR`) | A full copy of the database, taken nightly and before each schema migration | The newest `AIRSHIP_BACKUP_KEEP` (default 14). |
 | Off-box backup mirror (optional, `AIRSHIP_BACKUP_SSH`) | The same backup folder, mirrored | The same count as the hub's folder. |
 | Hub keys | `nodes.json` (only SHA-256 hashes of node tokens), `vapid.json` (Web Push keys) | Until replaced. |
+| Hub settings | `hub.json` (the hub's name) | Until changed. |
 | Each Kingdom | Crystal keeps nothing on disk beyond its config; unsent events wait in memory. Claude Code keeps its own session files under `~/.claude` | Claude Code's own retention setting. |
 | Each browser | Unsent drafts, the current view, notification levels, in local storage | Until cleared in the browser. |
 

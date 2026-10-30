@@ -6,6 +6,7 @@ export interface HubPaths {
   nodes: string | undefined;
   tokens: string;
   vapid: string;
+  settings: string;
   backups: string;
 }
 
@@ -22,6 +23,7 @@ export function hubPaths(env: NodeJS.ProcessEnv): HubPaths {
     nodes: env.AIRSHIP_NODES ?? (data ? join(data, 'nodes.json') : undefined),
     tokens: env.AIRSHIP_TOKENS ?? join(beside, 'access-tokens.json'),
     vapid: env.AIRSHIP_VAPID_PATH ?? join(beside, 'vapid.json'),
+    settings: join(beside, 'hub.json'),
     backups: env.AIRSHIP_BACKUP_DIR ?? (data ? join(data, 'backups') : './backups'),
   };
 }
