@@ -584,6 +584,30 @@ describe('App Kingdom tabs', () => {
     fireEvent.click(screen.getByRole('button', { name: /Split/ }));
     expect(within(screen.getByRole('dialog', { name: /Split/ })).queryByText('private work')).toBeNull();
   });
+
+  it('shows each Quest-s project beside its Kingdom in the split picker', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole('tab', { name: /node-b/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /fix the build/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Split/ }));
+    const row = within(screen.getByRole('dialog', { name: /Split/ })).getByRole('button', { name: /private work/ });
+    expect(row.querySelector('[data-project]')?.textContent).toBe('m');
+    expect(row.querySelector('[data-project]')?.parentElement?.textContent).toContain('node-a');
+  });
+
+  it('leaves the project out of the split picker for a Discreet Kingdom', async () => {
+    localStorage.setItem(
+      'crystal-bridge.kingdoms',
+      JSON.stringify({ names: {}, hidden: [], notify: { 'node-a': 'discreet' } }),
+    );
+    await renderApp();
+    fireEvent.click(screen.getByRole('tab', { name: /node-b/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /fix the build/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Split/ }));
+    const row = within(screen.getByRole('dialog', { name: /Split/ })).getByRole('button', { name: /private work/ });
+    expect(row.querySelector('[data-project]')).toBeNull();
+    expect(row.textContent).toContain('node-a');
+  });
 });
 
 describe('App file viewer', () => {

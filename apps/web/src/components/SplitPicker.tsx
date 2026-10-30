@@ -10,6 +10,8 @@ export interface SplitCandidate {
   label: string;
   /** This device's name for the Quest's Kingdom. */
   kingdom: string;
+  /** The Quest's project; left out for a Discreet Kingdom. */
+  project?: string;
   look: KingdomLook;
   state?: HeroState;
 }
@@ -79,7 +81,14 @@ export function SplitPicker({ candidates, heroes, onPick, onCancel }: SplitPicke
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{quest.label}</span>
-                    <span className="block truncate text-xs text-neutral-500">{quest.kingdom}</span>
+                    <span className="flex gap-2 text-xs text-neutral-500">
+                      <span className="truncate">{quest.kingdom}</span>
+                      {quest.project && (
+                        <span data-project className="truncate font-mono">
+                          {quest.project}
+                        </span>
+                      )}
+                    </span>
                   </span>
                 </button>
               </li>
