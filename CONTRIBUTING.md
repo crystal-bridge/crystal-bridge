@@ -6,7 +6,7 @@ Thanks for wanting to help. A few things keep Crystal Bridge working for everyon
 
 - **Unmodified CLI, user's own login.** Crystal runs the real `claude` binary under the machine's own login. Changes
   must not pass `--bare`, read or relay credentials, use the Agent SDK with a subscription login, or work around
-  Claude Code's permission prompts. See "Terms of use" in the README.
+  Claude Code's permission prompts. See "Is this allowed?" in the README.
 - **Harness-agnostic.** A node may run no Claude Code plugins, hooks or skills, or any popular set. Don't depend on a
   particular one being installed.
 - **Engine-neutral hub.** The hub stores raw engine lines inside an envelope; nothing engine-specific becomes a table

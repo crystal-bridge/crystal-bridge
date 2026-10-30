@@ -1,8 +1,9 @@
 # Crystal Bridge
 
-One web app to start, watch and steer [Claude Code](https://code.claude.com) sessions on every machine you run them
-on, from your laptop or your phone. Each session streams into a tab; approvals and questions show up as cards you can
-answer from anywhere; notifications tell you when a session needs you.
+Do all your [Claude Code](https://code.claude.com) work from one place. Crystal Bridge brings every session on every
+machine, across one Claude account or several, into a single web app that works as well on your phone as on your
+laptop. Each session streams into a tab; approvals and questions show up as cards you can answer from anywhere;
+notifications tell you when a session needs you.
 
 It wraps the real, unmodified `claude` CLI on each machine, under that machine's own login. It doesn't reimplement
 Claude Code's agent loop, and it never touches your credentials.
@@ -11,23 +12,43 @@ Claude Code's agent loop, and it never touches your credentials.
 
 _A Quest in "Ask every time" mode: each edit and command waits for Approve, and the diff shows as it lands._
 
-## What you get
+## Features
 
-- **Kingdoms:** one tab per machine ("node"), each with its own sessions, plan usage, projects and history. Rename,
+- **Every machine in one app:** a tab per machine, each with its own sessions, plan usage, projects and history. Rename,
   re-colour, re-icon or hide each one per device.
-- **Quests:** sessions in a tab strip, with streaming replies, diff and command cards, approval and question cards,
-  follow-ups that resume a stopped session, fork, close, and per-session permission mode.
-- **Homes:** a cross-machine overview of everything waiting on you, and a per-machine dashboard with today's totals,
-  active sessions and recent folders.
+- **Full sessions in the browser:** streaming replies, diff and command cards, approval and question cards, follow-ups
+  that resume a stopped session, fork, close, and a permission mode per session.
+- **One view of what needs you:** an overview of everything waiting on you across machines, and a dashboard per machine
+  with today's totals, active sessions and recent folders.
 - **Side panels:** status, context and cost meters, files changed, background tasks, and an inventory of the skills,
   commands and MCP servers a session can use.
 - **Split View:** two sessions side by side, even from different machines.
 - **Notifications:** desktop and Web Push, with a per-machine "Discreet" level that never shows session titles.
-- **Adopt** sessions you started in a terminal, and keep using them from the browser.
-- **A theme you can turn off:** the default dresses everything up as a 16-bit RPG (Kingdoms, Quests, Heroes); the
-  Classic theme uses plain words. Words, colours and art are pluggable (`apps/web/src/theme`, `docs/THEME.md`).
+- **Bring sessions in:** adopt sessions you started in a terminal, and carry on from the browser.
+- **A theme you can turn off:** the default dresses everything up as a 16-bit RPG; the Classic theme uses plain words.
+  Words, colours and art are pluggable (`apps/web/src/theme`, `docs/THEME.md`).
 
 ## How it works
+
+### The world
+
+The default theme has its own words for things. Classic uses plain ones.
+
+| Term | What it is |
+|---|---|
+| **Airship** | The hub every machine connects to, and the app's home page |
+| **Tavern** | The room on the Airship that lists everything waiting on you, across Kingdoms |
+| **Kingdom** | A machine and the Claude account signed in on it |
+| **Crystal** | The agent that runs on a Kingdom and connects it to the Airship |
+| **Castle** | A Kingdom's dashboard |
+| **Quest** | A session |
+| **Hero** | An agent: the party leader runs the Quest, and subagents join for a task |
+| **Side Quest** | A background task or monitor running alongside its Quest |
+| **Recruit** | Adopt a session found outside the bridge |
+| **Chronicle** | History: closed Quests and search |
+| **HP, MP, Gold** | Plan usage left, context left, and cost |
+
+### The parts
 
 Three processes:
 
@@ -41,12 +62,15 @@ Crystal runs `claude` in its documented stream-json mode, or optionally in a pse
 interactive sessions have (see "Interactive engine" in `docs/OPERATIONS.md`). The hub stores Claude's raw event lines
 in an engine-neutral envelope.
 
-## Terms of use
+## Is this allowed?
 
-Crystal Bridge only ever runs the unmodified `claude` binary, signed in by you, on your own machines: the use
-Anthropic's [legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) page allows for a personal
-subscription. It never reads, copies or relays Claude credentials or tokens, and it doesn't use the Agent SDK with a
-subscription login. If you need API-key billing or want to offer it to others, read those terms first.
+Yes, and it was built that way from the start. Crystal Bridge only ever runs the unmodified `claude` binary, signed in
+by you, on your own machines: the use Anthropic's
+[legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) page allows for a personal subscription.
+It never reads, copies or relays Claude credentials or tokens, and it doesn't use the Agent SDK with a subscription
+login. Everything your subscription does here, it does through the same CLI you'd run in a terminal.
+
+If you need API-key billing or want to offer it to others, read those terms first.
 
 ## Good to know
 
@@ -63,7 +87,13 @@ subscription login. If you need API-key billing or want to offer it to others, r
   Firefox and Safari, including as an installed app on a phone. Windows is untested.
 - **A personal project.** Pull requests are welcome (see `CONTRIBUTING.md`); there are no support promises.
 
-## Quick start: one machine
+## Quick Start
+
+There are two ways to run it. **One machine** puts everything on your own computer and takes a couple of minutes,
+which is the best way to try it. **Several machines** puts the hub on an always-on host, with a Crystal on each machine
+you run Claude Code on.
+
+### One machine
 
 You need Node 22+, pnpm (`corepack enable`), and Claude Code installed and signed in (run `claude` once).
 
@@ -76,7 +106,7 @@ pnpm dev
 **http://localhost:5173**. With nothing else configured there's no login and no node tokens, so keep it on
 localhost.
 
-## Several machines
+### Several machines
 
 The intended setup puts every machine on one [Tailscale](https://tailscale.com) tailnet:
 

@@ -56,6 +56,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Airship** | the hub, and the app-wide Home | The app-bar logo goes here. |
 | **Tavern** | what's waiting on you, across Kingdoms | A room on the Airship; respects hidden and Discreet Kingdoms. |
 | **Kingdom** | a node and its Claude account | Its dashboard is the **Castle**. |
+| **Crystal** | the agent that runs a Kingdom | Operators see this word; users add and pick Kingdoms. The package is `@crystal-bridge/kingdom`. |
 | **Quest** | a session | |
 | **Hero** | an agent | The session's main agent is the **party leader**; subagents are Heroes who join for a task and leave. The party is whoever is active, so it isn't declared. |
 | **Class** | agent type | Matched from the agent's name by role; see Hero Classes below. Gives a Hero its look. |
