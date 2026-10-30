@@ -144,6 +144,16 @@ describe('sessionInfo', () => {
     ]);
   });
 
+  it('tracks a Monitor as a Side Quest too, running until the process ends', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(toolUse('m1', 'Monitor', { description: 'Watch the deploy log' })),
+      raw(toolResult('m1')),
+    ]);
+    expect(info.tasks).toEqual([{ id: 'm1', kind: 'monitor', description: 'Watch the deploy log', running: true }]);
+  });
+
   it('marks everything still running as stopped once the process ends', () => {
     seq = 0;
     const info = sessionInfo([

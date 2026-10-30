@@ -7,6 +7,8 @@ import type { SessionInfo } from '../info.js';
 import { MODES } from '../modes.js';
 import { type Concept, gameLook, hint, stepWord, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
+import { CompanionSprite } from './CompanionSprite.js';
+import { COMPANIONS, companionFor } from '../theme/companions.js';
 import { bytes, duration, tokens } from '../format.js';
 import { formatUntil, STALE_MS } from './NodeUsage.js';
 import { Gold } from './Gold.js';
@@ -154,6 +156,8 @@ function Party({
 }) {
   const leader = manifest.classes[manifest.leader];
   const helpers = info.tasks.filter((task) => task.kind === 'agent' && task.running);
+  // Background commands and Monitors bring a companion along (#20).
+  const errands = info.tasks.filter((task) => task.kind !== 'agent' && task.running);
   // At work, the leader's word follows what it's doing; otherwise its state (resting, needs you, …).
   const doing = leaderState === 'working' && activity?.kind ? stepWord(activity.kind, activity.since) : undefined;
   const state = doing?.themed ?? STATE_TEXT[leaderState] ?? leader?.verb;
@@ -190,6 +194,26 @@ function Party({
                 <span className="block text-neutral-500">
                   {cls?.name ?? classId}
                   {task.agentType ? ` (${task.agentType})` : ''} · {cls?.verb}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+        {errands.map((task) => {
+          const id = companionFor(task);
+          const name = COMPANIONS[id]?.name ?? id;
+          const doing = task.kind === 'monitor' ? 'keeping watch' : 'on an errand';
+          return (
+            <li key={task.id} className="flex items-center gap-2 text-xs">
+              <span className="flex w-10 shrink-0 justify-center">
+                <CompanionSprite id={id} label={`${name}, ${doing}`} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-medium" title={task.description}>
+                  {task.description}
+                </span>
+                <span className="block text-neutral-500" title={hint('sideQuests')}>
+                  {name} · {doing} · {task.kind === 'monitor' ? 'monitor' : 'background command'}
                 </span>
               </span>
             </li>
@@ -336,7 +360,9 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
                   title={task.running ? 'running' : 'finished'}
                 />
                 <span className="min-w-0 truncate">{task.description}</span>
-                <span className="ml-auto shrink-0 text-neutral-500">{task.kind === 'agent' ? 'agent' : 'shell'}</span>
+                <span className="ml-auto shrink-0 text-neutral-500">
+                  {task.kind === 'agent' ? 'agent' : task.kind === 'monitor' ? 'monitor' : 'shell'}
+                </span>
               </li>
             ))}
           </ul>

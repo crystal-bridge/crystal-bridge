@@ -10,10 +10,10 @@ export interface OutputFile {
   changes: number;
 }
 
-/** A subagent or background command the session started. */
+/** A subagent, background command or Monitor the session started. */
 export interface SessionTask {
   id: string;
-  kind: 'agent' | 'background';
+  kind: 'agent' | 'background' | 'monitor';
   description: string;
   running: boolean;
   /** A subagent's type as the engine names it (e.g. Explore), for picking its Hero's Class. */
@@ -150,6 +150,8 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
         if (block.name === 'Bash' && input.run_in_background === true) {
           tasks.set(block.id, { id: block.id, kind: 'background', description, running: true });
         }
+        if (block.name === 'Monitor')
+          tasks.set(block.id, { id: block.id, kind: 'monitor', description, running: true });
       }
     }
     // A subagent is done when its result comes back; a background command's first result only means it started.
