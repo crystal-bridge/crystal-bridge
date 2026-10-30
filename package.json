@@ -26,7 +26,7 @@
   "simple-git-hooks": {
     "pre-commit": "pnpm exec tsx scripts/repo-checks.ts staged",
     "commit-msg": "pnpm exec tsx scripts/repo-checks.ts msg \"$1\"",
-    "pre-push": "pnpm typecheck && pnpm test"
+    "pre-push": "env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE sh -c 'pnpm typecheck && pnpm test'"
   },
   "devDependencies": {
     "concurrently": "^10.0.6",
