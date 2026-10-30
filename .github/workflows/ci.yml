@@ -37,6 +37,8 @@ jobs:
         run: pnpm test
       - name: Web build
         run: pnpm --filter @crystal-bridge/web build
+      - name: Kingdom package installs and runs outside the workspace
+        run: bash scripts/check-kingdom-package.sh
       - name: Repo scrub (model names, home paths, emails)
         run: pnpm checks
       - name: Third-party notices are current

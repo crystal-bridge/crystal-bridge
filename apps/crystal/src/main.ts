@@ -7,18 +7,20 @@ import { listProjects } from './projects.js';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { ClaudeSession } from './session.js';
 import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
+import { releaseId } from './release.js';
 import { homedir } from 'node:os';
 import { realpathSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/** The package version, written in by the build (scripts/build.ts); undefined when running from source. */
+declare const __KINGDOM_VERSION__: string | undefined;
+const VERSION = typeof __KINGDOM_VERSION__ === 'string' ? __KINGDOM_VERSION__ : undefined;
 
 const HUB_URL = process.env.CRYSTAL_HUB ?? 'ws://127.0.0.1:7700/node';
 // Never default this to the machine's hostname: node ids show in the UI and logs, which must not name machines.
 const NODE_ID = process.env.CRYSTAL_NODE ?? 'local';
-// Deploys install each release in a folder named by its commit (releases/<sha>); a checkout reports none.
-const RELEASE = /^[0-9a-f]{7,40}$/.exec(
-  basename(realpathSync(fileURLToPath(new URL('../../..', import.meta.url)))),
-)?.[0];
+const RELEASE = releaseId(VERSION, realpathSync(fileURLToPath(new URL('../../..', import.meta.url))));
 // Claude in Chrome for every session, on a node whose user has Chrome and the extension signed in.
 const CHROME = process.env.CRYSTAL_CHROME === '1';
 const MCP_PORT = Number(process.env.CRYSTAL_MCP_PORT ?? '7701');
@@ -107,6 +109,11 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
+}
+
+if (process.argv.includes('--version')) {
+  console.log(VERSION ?? RELEASE ?? 'dev');
+  process.exit(0);
 }
 
 main().catch((error: unknown) => {

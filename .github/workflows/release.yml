@@ -1,0 +1,46 @@
+# A `v*` tag builds the Kingdom package and publishes its tarball to a GitHub Release, with build provenance a machine
+# can verify before running it.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: The tag matches the package version
+        run: test "v$(node -p "require('./apps/crystal/package.json').version")" = "$GITHUB_REF_NAME"
+      - name: Package installs and runs
+        run: bash scripts/check-kingdom-package.sh
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          pnpm --filter @crystal-bridge/kingdom pack --pack-destination "$RUNNER_TEMP/release"
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ runner.temp }}/release/*.tgz
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=$([[ $GITHUB_REF_NAME == *-* ]] && echo --prerelease || true)
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/release/*.tgz --generate-notes --verify-tag $prerelease

@@ -97,7 +97,7 @@ if [[ $mode == ship ]]; then
   chrome_line=$(grep '^CRYSTAL_CHROME=' "$env_file" || true)
   engines_line=$(grep '^CRYSTAL_ENGINES=' "$env_file" || true)
   (umask 077 && printf '%s\n' "CRYSTAL_HUB=$hub" "CRYSTAL_NODE=$node" "$token_line" "$mode_line" "$port_line" ${chrome_line:+"$chrome_line"} ${engines_line:+"$engines_line"} "PATH=$path" > "$env_file")
-  (cd "$release" && PATH=$path pnpm install --frozen-lockfile --filter crystal-bridge --filter '@crystal-bridge/crystal...' >/dev/null)
+  (cd "$release" && PATH=$path pnpm install --frozen-lockfile --filter crystal-bridge --filter '@crystal-bridge/kingdom...' >/dev/null)
 fi
 
 # Wait for quiet before switching releases, so giving up leaves the running version untouched.
