@@ -20,6 +20,7 @@ export function PromptBox({
   onStop,
   controls,
   sendLabel = 'Send',
+  sendTitle,
   minRows = 1,
   sendDisabled = false,
   files,
@@ -40,6 +41,8 @@ export function PromptBox({
   controls?: ReactNode;
   /** What sending does, e.g. Start on New Quest. */
   sendLabel?: string;
+  /** The button's tooltip when it would send now, if it should say more than its name. */
+  sendTitle?: string;
   /** How tall the box is at rest, in lines. */
   minRows?: number;
   /** Sending isn't possible yet for a reason other than an empty box (e.g. no project picked). */
@@ -130,7 +133,7 @@ export function PromptBox({
         <button
           type={stop ? 'button' : 'submit'}
           aria-label={name}
-          title={stop ? 'Stop this turn' : running ? `${name} (queues after this turn)` : name}
+          title={stop ? 'Stop this turn' : running ? `${name} (queues after this turn)` : (sendTitle ?? name)}
           disabled={disabled || (!stop && (empty || sendDisabled))}
           onClick={stop ? onStop : undefined}
           data-kind={stop ? 'stop' : shell ? 'run' : 'send'}

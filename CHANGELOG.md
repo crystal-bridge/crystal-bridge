@@ -7,6 +7,7 @@ then, everything is in Unreleased.
 
 ### Added
 
+- Cmd+Enter (Ctrl+Enter off a Mac) starts a Quest from the New Quest prompt.
 - Kingdoms, Quests, approvals and question cards, Split View, Web Push, found-session adoption, the Airship home.
 - The interactive engine (experimental), with recovery when the terminal swallows a typed message.
 - Theme words for each kind of step on the Party card; shell mode in the prompt box; toolbar icons; in-app Credits.

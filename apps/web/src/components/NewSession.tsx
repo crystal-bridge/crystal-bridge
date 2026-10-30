@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react';
+import { type KeyboardEvent, type SyntheticEvent, useState } from 'react';
 import type { Attachment, Effort, Engine, PermissionMode, Project } from '@crystal-bridge/protocol';
 import { toAttachments } from '../attachments.js';
 import { ProjectPicker } from './ProjectPicker.js';
@@ -55,7 +55,7 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
 
   const ready = connected && cwd.trim() !== '' && prompt.trim() !== '';
 
-  function submit(event: FormEvent) {
+  function submit(event: SyntheticEvent) {
     event.preventDefault();
     if (!ready) return;
     const start = {
@@ -75,6 +75,11 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
     else void toAttachments(picked).then((attachments) => onStart({ ...start, attachments }));
   }
 
+  // Plain Enter stays a new line: an opening prompt is often a long brief, unlike a follow-up.
+  function startOnKey(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) submit(event);
+  }
+
   return (
     <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-6">
       <h2 className="cb-display text-3xl leading-none" title={hint('newQuest')}>
@@ -91,11 +96,13 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
           label="Prompt"
           value={prompt}
           onChange={setPrompt}
+          onKeyDown={startOnKey}
           running={false}
           onStop={() => {}}
           sendDisabled={!ready}
           files={{ list: files, onChange: setFiles }}
           sendLabel="Start"
+          sendTitle={`Start (${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'} Enter)`}
           minRows={3}
           controls={
             <div className="flex min-w-0 flex-wrap gap-1.5">

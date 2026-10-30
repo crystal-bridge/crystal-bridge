@@ -154,7 +154,7 @@ Picked by the owner on 2026-10-29 from the "Hero Class Audition". Recipes and ma
 | **Sage** | Elder: old man in purple, starry hat, staff | Plan and architect agents | Scan |
 
 **The party leader** is the art pack's `leader` (Paladin) unless the Kingdom picks another: any Class, or *A different
-Hero per Quest* (a stable pick from the Quest's id), chosen in Config with the Kingdom's icon and banner colour and
+Hero per Quest* (a stable pick from the Quest's id), chosen in Config behind the Kingdom's icon button, with its icon and banner colour, and
 synced the same way (#20). Every view of a Quest (its tab, card, Party, skill lines, Battle cards) shows the same
 leader; subagents still take their Class from their name.
 

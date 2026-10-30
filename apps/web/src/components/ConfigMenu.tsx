@@ -300,7 +300,7 @@ export function ConfigMenu({
                     <button
                       type="button"
                       aria-label={`Look for ${kingdom.id}`}
-                      title="Icon and banner colour"
+                      title={leaders?.length ? 'Party leader, icon and banner colour' : 'Icon and banner colour'}
                       aria-expanded={styling === kingdom.id}
                       onClick={() => setStyling((id) => (id === kingdom.id ? null : kingdom.id))}
                       className="rounded border border-neutral-300 p-0.5 hover:border-neutral-500 dark:border-neutral-700"
