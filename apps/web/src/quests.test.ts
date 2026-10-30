@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionSummary } from './components/SessionList.js';
-import { isActiveQuest, loadPutAway, putAway, questTabs, RECENT_MS, savePutAway } from './quests.js';
+import { isActiveQuest, loadPutAway, projectName, putAway, questTabs, RECENT_MS, savePutAway } from './quests.js';
 
 const NOW = 10 * RECENT_MS;
 
@@ -82,5 +82,22 @@ describe('put-away storage', () => {
     expect(loadPutAway(storage)).toEqual({ k: { a: 5 } });
     storage.setItem('crystal-bridge.put-away', '{nope');
     expect(loadPutAway(storage)).toEqual({});
+  });
+});
+
+describe('projectName', () => {
+  it('is the last folder of the path', () => {
+    expect(projectName('/home/me/code/crystal-bridge')).toBe('crystal-bridge');
+    expect(projectName('/home/me/code/crystal-bridge/')).toBe('crystal-bridge');
+  });
+
+  it('names the repository, not the worktree, for a Quest in a worktree', () => {
+    expect(projectName('/home/me/code/app/.worktrees/4f2a')).toBe('app');
+    expect(projectName('/home/me/code/app/.claude/worktrees/docs-site')).toBe('app');
+  });
+
+  it('keeps what is left for a root or an empty path', () => {
+    expect(projectName('/')).toBe('/');
+    expect(projectName('')).toBe('');
   });
 });

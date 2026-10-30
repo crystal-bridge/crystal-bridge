@@ -40,6 +40,12 @@ describe('QuestStrip', () => {
     expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
   });
 
+  it('shows the project each Quest works in', () => {
+    renderStrip({ quests: [{ ...quests[0]!, cwd: '/r/app/.worktrees/4f2a' }] });
+    const tab = screen.getByRole('tab', { name: /fix the build/ });
+    expect(tab.querySelector('[data-project]')?.textContent).toBe('app');
+  });
+
   it('marks the shown Quest and the ones waiting on you', () => {
     renderStrip({ current: 'b', waiting: new Set(['a']) });
     expect(screen.getByRole('tab', { name: /write docs/ }).getAttribute('aria-selected')).toBe('true');

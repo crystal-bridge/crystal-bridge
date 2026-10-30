@@ -13,6 +13,14 @@ function lastActivity(session: SessionSummary): number {
   return session.lastActivity ?? session.createdAt;
 }
 
+/** A worktree's folder: Crystal's `.worktrees/<id>` or the CLI's `.claude/worktrees/<name>`. */
+const WORKTREE = /\/(?:\.claude\/worktrees|\.worktrees)\/[^/]+\/?$/;
+
+/** The folder a Quest works in, by its repository's name when it's in a worktree, whose own folder says nothing. */
+export function projectName(cwd: string): string {
+  return cwd.replace(WORKTREE, '').split('/').filter(Boolean).at(-1) ?? cwd;
+}
+
 /** Running, waiting on the user, or active in the last day. A closed Quest is history, never active. */
 export function isActiveQuest(session: SessionSummary, now: number, waiting: ReadonlySet<string>): boolean {
   if (session.status === 'closed') return false;
@@ -75,6 +83,5 @@ export function savePutAway(all: PutAway, storage: Storage | undefined = globalT
 
 /** The plain label for a Quest's tab, its folder and status, for tooltips. */
 export function questTitle(session: SessionSummary): string {
-  const folder = session.cwd.split('/').filter(Boolean).at(-1) ?? session.cwd;
-  return `${hint('quest')} · ${session.label || session.id} · ${folder} · ${session.status}`;
+  return `${hint('quest')} · ${session.label || session.id} · ${projectName(session.cwd)} · ${session.status}`;
 }
