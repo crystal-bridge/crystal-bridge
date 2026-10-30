@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
-import { buildInventory, claudeInventory, filterInventory, type InventorySource } from './inventory.js';
+import {
+  buildInventory,
+  claudeInventory,
+  emptyInventory,
+  filterInventory,
+  grantsOf,
+  type InventorySource,
+} from './inventory.js';
 
 let seq = 0;
 function claude(raw: Record<string, unknown>): Envelope {
@@ -21,6 +28,8 @@ const init = claude({
   slash_commands: ['demo-skill', 'demo-plugin:demo-cmd', 'compact', 'doctor', 'review-pr'],
   terminal_slash_commands: ['doctor'],
   skills: ['demo-skill'],
+  agents: ['claude', 'code-reviewer', 'Explore'],
+  tools: ['Bash', 'Read', 'mcp__github__get_issue', 'mcp__github__list_prs', 'mcp__claude_ai_Gmail__search'],
   plugins: [
     { name: 'demo-plugin', path: '/p/demo', source: 'demo-plugin@inline', version: '0.0.1' },
     { name: 'cc-plugin-telemetry', path: 'builtin', source: 'cc-plugin-telemetry@builtin' },
@@ -29,6 +38,8 @@ const init = claude({
     { name: 'crystal', status: 'connected', source: 'dynamic' },
     { name: 'github', status: 'connected', source: 'user' },
     { name: 'flaky', status: 'failed', source: 'project' },
+    { name: 'claude.ai Gmail', status: 'connected', source: 'claudeai' },
+    { name: 'sentry', status: 'needs-auth', source: 'user' },
   ],
 });
 const hook = (name: string, outcome: string) =>
@@ -42,16 +53,40 @@ describe('claudeInventory', () => {
     expect(inv.spells[0]!.use).toBe('/demo-skill ');
   });
 
-  it('lists MCP servers and plugins as Equipment with whether they work, leaving out the bridge-s own tool', () => {
+  it('lists MCP servers as Equipment with whether they work, leaving out the bridge-s own tool', () => {
     const inv = buildInventory([init]);
     expect(inv.equipment.map((e) => [e.name, e.status])).toEqual([
+      ['claude.ai Gmail', 'ok'],
       ['flaky', 'failed'],
       ['github', 'ok'],
-      ['cc-plugin-telemetry', 'ok'],
-      ['demo-plugin', 'ok'],
+      ['sentry', 'needs-auth'],
     ]);
-    expect(inv.equipment.every((e) => e.use === undefined)).toBe(true);
-    expect(inv.equipment.find((e) => e.name === 'cc-plugin-telemetry')!.detail).toMatch(/built in/);
+  });
+
+  it('counts each server-s tools, matching a connector-s tool prefix to its name', () => {
+    const inv = buildInventory([init]);
+    const detail = (name: string) => inv.equipment.find((e) => e.name === name)!.detail;
+    expect(detail('github')).toBe('2 tools · user');
+    expect(detail('claude.ai Gmail')).toBe('1 tool · claudeai');
+    expect(detail('flaky')).toBe('MCP server · project');
+  });
+
+  it('gives Equipment and agents a plain sentence to use, so it works on any engine', () => {
+    const inv = buildInventory([init]);
+    expect(inv.equipment.find((e) => e.name === 'github')!.use).toBe('Use the github tools to ');
+    expect(inv.guild.find((e) => e.name === 'Explore')!.use).toBe('Use the Explore agent to ');
+  });
+
+  it('lists plugins as Relics, which have nothing to use or watch', () => {
+    const inv = buildInventory([init]);
+    expect(inv.relics.map((e) => e.name)).toEqual(['cc-plugin-telemetry', 'demo-plugin']);
+    expect(inv.relics.every((e) => e.use === undefined && e.status === undefined)).toBe(true);
+    expect(inv.relics.find((e) => e.name === 'cc-plugin-telemetry')!.detail).toMatch(/built in/);
+    expect(inv.relics.find((e) => e.name === 'demo-plugin')!.detail).toBe('plugin 0.0.1');
+  });
+
+  it('lists agents as the Guild, without the main agent itself', () => {
+    expect(buildInventory([init]).guild.map((e) => e.name)).toEqual(['code-reviewer', 'Explore']);
   });
 
   it('lists the hooks that fired as Abilities, with their latest outcome', () => {
@@ -62,7 +97,7 @@ describe('claudeInventory', () => {
   });
 
   it('uses the latest init, and is empty before the first one', () => {
-    expect(buildInventory([])).toEqual({ spells: [], items: [], equipment: [], abilities: [] });
+    expect(buildInventory([])).toEqual(emptyInventory());
     const later = claude({ type: 'system', subtype: 'init', slash_commands: ['clear'], skills: [] });
     expect(buildInventory([init, later]).items.map((e) => e.name)).toEqual(['clear']);
   });
@@ -79,6 +114,21 @@ describe('filterInventory', () => {
     const inv = filterInventory(buildInventory([init]), 'DEMO');
     expect(inv.spells.map((e) => e.name)).toEqual(['demo-skill']);
     expect(inv.items.map((e) => e.name)).toEqual(['demo-plugin:demo-cmd']);
-    expect(inv.equipment.map((e) => e.name)).toEqual(['demo-plugin']);
+    expect(inv.relics.map((e) => e.name)).toEqual(['demo-plugin']);
+  });
+});
+
+describe('grantsOf', () => {
+  it('counts the Spells and Items a plugin brings, by their name prefix', () => {
+    const inv = buildInventory([
+      claude({
+        type: 'system',
+        subtype: 'init',
+        skills: ['forge:one', 'forge:two', 'solo'],
+        slash_commands: ['forge:one', 'forge:two', 'solo', 'forge:cmd', 'forger:other'],
+      }),
+    ]);
+    expect(grantsOf(inv, 'forge')).toEqual({ spells: 2, items: 1 });
+    expect(grantsOf(inv, 'nothing')).toEqual({ spells: 0, items: 0 });
   });
 });

@@ -21,7 +21,7 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 - **One view of what needs you:** an overview of everything waiting on you across machines, and a dashboard per machine
   with today's totals, active sessions and recent folders.
 - **Side panels:** status, context and cost meters, files changed, background tasks, and an inventory of the skills,
-  commands and MCP servers a session can use.
+  commands, MCP servers, plugins and agents a session can use, with eight quick actions pinned per machine.
 - **Split View:** two sessions side by side, even from different machines.
 - **Notifications:** desktop and Web Push, with a per-machine "Discreet" level that never shows session titles.
 - **Bring sessions in:** adopt sessions you started in a terminal, and carry on from the browser.

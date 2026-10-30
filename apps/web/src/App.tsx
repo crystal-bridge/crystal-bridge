@@ -63,6 +63,7 @@ import { SessionPanel } from './components/SessionPanel.js';
 import { FileViewer, type FileViewState } from './components/FileViewer.js';
 import { FileOpenContext } from './components/markdown.js';
 import { sessionInfo } from './info.js';
+import { beltFor, withBelt } from './belt.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { SplitPicker } from './components/SplitPicker.js';
@@ -467,6 +468,12 @@ export function App({ hub }: { hub: HubClient }) {
   function pick(text: string) {
     if (focused) setInsertion((prev) => ({ session: focused, text, seq: (prev?.seq ?? 0) + 1 }));
   }
+  // The same pane's Belt: its Kingdom's, and a slot set to send at once goes to its Quest.
+  const focusedNode = sessions.find((s) => s.id === focused)?.node ?? '';
+  const focusedClosed = focusedEvents.some((event) => event.type === 'session.closed');
+  function sendToFocused(text: string) {
+    if (focused) hub.send({ type: 'session.send', session: focused, text });
+  }
 
   // The read-only file viewer: one file at a time, of a Quest on screen; its Kingdom reads it through the hub.
   const [fileView, setFileView] = useState<FileViewState | null>(null);
@@ -724,6 +731,8 @@ export function App({ hub }: { hub: HubClient }) {
         onSplit={primary && splitShown === null ? () => setPicking(true) : undefined}
         onExitSplit={primary && splitShown !== null ? () => setSplit(null) : undefined}
         insertion={insertion?.session === id ? insertion : undefined}
+        belt={node ? beltFor(appearance, node) : undefined}
+        onBeltChange={node ? (belt) => changeAppearance((prev) => withBelt(prev, node, belt)) : undefined}
         plan={usage.find((u) => u.node === node)?.windows}
         planAt={usage.find((u) => u.node === node)?.ts}
         onOpenFile={openFileFor(id)}
@@ -1016,7 +1025,16 @@ export function App({ hub }: { hub: HubClient }) {
                       aria-label={w('inventory')}
                       className="hidden w-60 shrink-0 overflow-y-auto border-r border-neutral-300 p-3 xl:block dark:border-neutral-700"
                     >
-                      <Inventory inventory={focusedInventory} onUse={pick} />
+                      {/* Keyed by Kingdom: an open slot editor must not save to the next pane's Belt. */}
+                      <Inventory
+                        key={focusedNode}
+                        inventory={focusedInventory}
+                        onUse={pick}
+                        onSend={focusedClosed ? undefined : sendToFocused}
+                        belt={beltFor(appearance, focusedNode)}
+                        onBeltChange={(belt) => changeAppearance((prev) => withBelt(prev, focusedNode, belt))}
+                        manifest={heroManifest ?? undefined}
+                      />
                     </aside>
                   )}
                   {pane(shown, questView(shown, envelopes, progress, true))}

@@ -20,6 +20,20 @@ describe('Appearance', () => {
     expect(Appearance.safeParse({ tabStyle: 'x'.repeat(100) }).success).toBe(false);
   });
 
+  it("keeps each Kingdom's Belt: slots or gaps, at most eight", () => {
+    const slot = {
+      label: 'deploy',
+      text: '/deploy ',
+      icon: 'rocket',
+      now: true,
+      source: { category: 'spells', name: 'deploy' },
+    };
+    const belts = { belts: { n: [slot, null, { label: 'Go on', text: 'Continue.' }] } };
+    expect(Appearance.parse(belts)).toEqual(belts);
+    expect(Appearance.safeParse({ belts: { n: Array(9).fill(null) } }).success).toBe(false);
+    expect(Appearance.safeParse({ belts: { n: [{ label: 'x', text: 'x'.repeat(5000) }] } }).success).toBe(false);
+  });
+
   it('travels to clients as an appearance frame', () => {
     expect(HubToClient.safeParse({ kind: 'appearance', appearance: { tabStyle: 'pennant' } }).success).toBe(true);
   });

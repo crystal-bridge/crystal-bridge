@@ -2,9 +2,10 @@ import type { Envelope } from '@crystal-bridge/protocol';
 
 /**
  * The Inventory: what a Quest's engine can use, grouped by how it behaves (docs/THEME.md). Spells and Items are used
- * by inserting them into the prompt; Equipment is always on and shows whether it works; Abilities fire by themselves.
+ * by inserting them into the prompt; Equipment is always on and shows whether it works; Relics are bundles that bring
+ * the others; the Guild are agents to send out; Abilities fire by themselves.
  */
-export type InventoryCategory = 'spells' | 'items' | 'equipment' | 'abilities';
+export type InventoryCategory = 'spells' | 'items' | 'equipment' | 'relics' | 'guild' | 'abilities';
 
 export interface InventoryEntry {
   /** One of InventoryCategory; any other kind a source reports lands in Items. */
@@ -14,7 +15,7 @@ export interface InventoryEntry {
   use?: string;
   /** A short note: a version, where it comes from, the event a hook runs on. */
   detail?: string;
-  status?: 'ok' | 'failed' | 'pending' | 'unknown';
+  status?: 'ok' | 'failed' | 'pending' | 'needs-auth' | 'unknown';
 }
 
 export type Inventory = Record<InventoryCategory, InventoryEntry[]>;
@@ -22,7 +23,18 @@ export type Inventory = Record<InventoryCategory, InventoryEntry[]>;
 /** Reads one engine's events into entries. Another engine adds its own source; the panel doesn't change. */
 export type InventorySource = (envelopes: readonly Envelope[]) => InventoryEntry[];
 
-const CATEGORIES: readonly InventoryCategory[] = ['spells', 'items', 'equipment', 'abilities'];
+export const CATEGORIES: readonly InventoryCategory[] = [
+  'spells',
+  'items',
+  'equipment',
+  'relics',
+  'guild',
+  'abilities',
+];
+
+export function emptyInventory(): Inventory {
+  return { spells: [], items: [], equipment: [], relics: [], guild: [], abilities: [] };
+}
 
 function isObj(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -42,14 +54,24 @@ function serverStatus(status: unknown): InventoryEntry['status'] {
   if (status === 'connected') return 'ok';
   if (status === 'failed') return 'failed';
   if (status === 'pending') return 'pending';
+  if (status === 'needs-auth') return 'needs-auth';
   return 'unknown';
+}
+
+/** How many of the session's tools a server brings; the CLI makes the server's name safe for its tool prefix. */
+function toolCount(tools: string[], server: string): number {
+  const prefix = `mcp__${server.replace(/[^a-zA-Z0-9_-]/g, '_')}__`;
+  return tools.filter((tool) => tool.startsWith(prefix)).length;
 }
 
 /** The bridge's own permission tool, which every Quest has; it's plumbing, not equipment. */
 const BRIDGE_SERVER = 'crystal';
 
+/** The session's own main agent, which `agents` lists too; it isn't one you can send out. */
+const MAIN_AGENT = 'claude';
+
 /**
- * Claude Code's inventory, from the latest `system/init` (skills, slash commands, MCP servers, plugins) and the
+ * Claude Code's inventory, from the latest `system/init` (skills, slash commands, MCP servers, plugins, agents) and the
  * `system/hook_response` events of hooks that have run. Field shapes are recorded in apps/crystal/test/fixtures.
  */
 export const claudeInventory: InventorySource = (envelopes) => {
@@ -76,13 +98,17 @@ export const claudeInventory: InventorySource = (envelopes) => {
     for (const name of strings(init.slash_commands).sort()) {
       if (!skills.has(name) && !terminal.has(name)) entries.push({ category: 'items', name, use: `/${name} ` });
     }
+    const tools = strings(init.tools);
     const servers = (Array.isArray(init.mcp_servers) ? init.mcp_servers : []).filter(isObj);
     for (const server of servers.sort((a, b) => String(a.name).localeCompare(String(b.name)))) {
       if (typeof server.name !== 'string' || (server.name === BRIDGE_SERVER && server.source === 'dynamic')) continue;
+      const count = toolCount(tools, server.name);
+      const kind = count > 0 ? `${count} ${count === 1 ? 'tool' : 'tools'}` : 'MCP server';
       entries.push({
         category: 'equipment',
         name: server.name,
-        detail: `MCP server${typeof server.source === 'string' ? ` · ${server.source}` : ''}`,
+        use: `Use the ${server.name} tools to `,
+        detail: `${kind}${typeof server.source === 'string' ? ` · ${server.source}` : ''}`,
         status: serverStatus(server.status),
       });
     }
@@ -91,11 +117,14 @@ export const claudeInventory: InventorySource = (envelopes) => {
       if (typeof plugin.name !== 'string') continue;
       const version = typeof plugin.version === 'string' ? ` ${plugin.version}` : '';
       entries.push({
-        category: 'equipment',
+        category: 'relics',
         name: plugin.name,
         detail: plugin.path === 'builtin' ? 'plugin · built in' : `plugin${version}`,
-        status: 'ok',
       });
+    }
+    const agents = strings(init.agents).filter((name) => name !== MAIN_AGENT);
+    for (const name of agents.sort((a, b) => a.localeCompare(b))) {
+      entries.push({ category: 'guild', name, use: `Use the ${name} agent to ` });
     }
   }
   return [...entries, ...hooks.values()];
@@ -106,7 +135,7 @@ export function buildInventory(
   envelopes: readonly Envelope[],
   sources: readonly InventorySource[] = [claudeInventory],
 ): Inventory {
-  const inventory: Inventory = { spells: [], items: [], equipment: [], abilities: [] };
+  const inventory = emptyInventory();
   for (const source of sources) {
     for (const entry of source(envelopes)) {
       const category = (CATEGORIES as readonly string[]).includes(entry.category)
@@ -122,11 +151,15 @@ export function buildInventory(
 export function filterInventory(inventory: Inventory, query: string): Inventory {
   const q = query.trim().toLowerCase();
   if (!q) return inventory;
-  const keep = (entries: InventoryEntry[]) => entries.filter((entry) => entry.name.toLowerCase().includes(q));
-  return {
-    spells: keep(inventory.spells),
-    items: keep(inventory.items),
-    equipment: keep(inventory.equipment),
-    abilities: keep(inventory.abilities),
-  };
+  const shown = emptyInventory();
+  for (const category of CATEGORIES) {
+    shown[category] = inventory[category].filter((entry) => entry.name.toLowerCase().includes(q));
+  }
+  return shown;
+}
+
+/** What a plugin brings, from the `plugin:` prefix on its Spells and Items; hooks don't say whose they are. */
+export function grantsOf(inventory: Inventory, plugin: string): { spells: number; items: number } {
+  const mine = (entries: InventoryEntry[]) => entries.filter((entry) => entry.name.startsWith(`${plugin}:`)).length;
+  return { spells: mine(inventory.spells), items: mine(inventory.items) };
 }

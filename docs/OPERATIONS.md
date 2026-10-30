@@ -93,7 +93,7 @@ a PermissionRequest hook in a generated `--settings` file that calls Crystal's l
 session's transcript, a format the CLI calls internal, so check an interactive Quest after each CLI update. The node
 needs `curl`. Recruits offers the same engine choice, and a Quest keeps its engine: the hub names it in the resume it
 sends, so after a Crystal restart a follow-up resumes on the same engine (and a node that no longer runs that engine
-refuses rather than switching quietly). Not yet: cost and token Stats, the Inventory, and switching mode mid-session.
+refuses rather than switching quietly). Not yet: cost and token Stats, the Inventory's Items, Relics, Guild and Abilities (it lists Spells and Equipment), and switching mode mid-session.
 Deploys keep the line.
 
 - A hub deploy is a few seconds of downtime. Crystals and browser tabs reconnect on their own, and tabs then offer
@@ -217,7 +217,7 @@ A restore loses only what happened after that backup; Crystals resend events the
 
 ## Kingdom appearance
 
-- Each user's Kingdom icons, banner colours and tab style are in the database (`appearance`, migration 3), one row
+- Each user's Kingdom icons, banner colours, Belts and tab style are in the database (`appearance`, migration 3), one row
   per tailnet login (`Tailscale-User-Login`, lowercased; `default` when there is none, as in `pnpm dev`). They sync
   across that user's devices: `GET`/`PUT /api/appearance`, last write wins, and the hub sends the change to the
   user's other open tabs at once. Names, hidden Kingdoms and notification levels stay per device, in the browser.

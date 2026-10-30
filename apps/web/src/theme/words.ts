@@ -27,7 +27,10 @@ export type Concept =
   | 'spells'
   | 'items'
   | 'equipment'
+  | 'relics'
+  | 'guild'
   | 'abilities'
+  | 'belt'
   | 'party'
   | 'loadingHistory'
   | 'jumpToLatest'
@@ -80,8 +83,11 @@ export const CRYSTAL: Words = {
   inventory: { themed: 'Inventory', plain: 'skills, commands and tools' },
   spells: { themed: 'Spells', plain: 'skills' },
   items: { themed: 'Items', plain: 'slash commands' },
-  equipment: { themed: 'Equipment', plain: 'MCP servers and plugins' },
+  equipment: { themed: 'Equipment', plain: 'MCP servers' },
+  relics: { themed: 'Relics', plain: 'plugins' },
+  guild: { themed: 'Guild', plain: 'agents' },
   abilities: { themed: 'Abilities', plain: 'hooks' },
+  belt: { themed: 'Belt', plain: 'pinned actions' },
   party: { themed: 'Party', plain: 'the agents working in this session' },
   loadingHistory: { themed: 'Unrolling the Chronicle…', plain: 'Loading history…' },
   jumpToLatest: { themed: 'Jump to latest', plain: 'Jump to latest' },
@@ -133,8 +139,11 @@ export const CLASSIC: Words = {
   inventory: { themed: 'Tools', plain: 'Tools' },
   spells: { themed: 'Skills', plain: 'Skills' },
   items: { themed: 'Commands', plain: 'Commands' },
-  equipment: { themed: 'Extensions', plain: 'Extensions' },
+  equipment: { themed: 'MCP servers', plain: 'MCP servers' },
+  relics: { themed: 'Plugins', plain: 'Plugins' },
+  guild: { themed: 'Agents', plain: 'Agents' },
   abilities: { themed: 'Hooks', plain: 'Hooks' },
+  belt: { themed: 'Pinned', plain: 'Pinned' },
   party: { themed: 'Agents', plain: 'Agents' },
   loadingHistory: { themed: 'Loading history…', plain: 'Loading history…' },
   jumpToLatest: { themed: 'Jump to latest', plain: 'Jump to latest' },
