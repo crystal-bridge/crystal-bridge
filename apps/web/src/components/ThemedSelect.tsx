@@ -18,6 +18,7 @@ export function ThemedSelect({
   onChange,
   title,
   disabled,
+  size,
 }: {
   id?: string;
   /** The accessible name; shown as the tooltip unless `title` says more. */
@@ -28,10 +29,12 @@ export function ThemedSelect({
   onChange: (value: string) => void;
   title?: string;
   disabled?: boolean;
+  /** `sm` for dense rows such as the Config menu's. */
+  size?: 'sm';
 }) {
   const current = options.find((o) => o.value === value)?.label ?? value;
   return (
-    <span className="cb-select" title={title ?? label} data-disabled={disabled ? 'true' : undefined}>
+    <span className="cb-select" title={title ?? label} data-size={size} data-disabled={disabled ? 'true' : undefined}>
       {icon && <Icon name={icon} size={14} />}
       <span className="cb-select-value">{current || '…'}</span>
       <svg className="cb-select-chevron" viewBox="0 0 10 10" width="10" height="10" aria-hidden="true">

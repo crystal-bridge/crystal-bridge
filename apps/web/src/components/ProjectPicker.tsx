@@ -62,7 +62,7 @@ export function ProjectPicker({ projects, value, onChange }: ProjectPickerProps)
             setOpen(false);
           }
         }}
-        className="w-full rounded border border-neutral-300 bg-white px-2 py-1 font-mono text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        className="cb-field w-full font-mono text-sm"
       />
       {shown.length > 0 && (
         <ul

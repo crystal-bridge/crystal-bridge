@@ -31,6 +31,14 @@ function renderMenu(overrides: Partial<Parameters<typeof ConfigMenu>[0]> = {}) {
 describe('ConfigMenu', () => {
   afterEach(() => cleanup());
 
+  it('wears the theme: titled sections, themed selects and fields', () => {
+    renderMenu({ onTabStyle: vi.fn() });
+    expect(screen.getByLabelText('Tab style').closest('.cb-select')).toBeTruthy();
+    expect(screen.getByLabelText('Notifications for node-a').closest('.cb-select')).toBeTruthy();
+    expect(screen.getByLabelText('Name for node-a').className).toContain('cb-field');
+    expect(screen.getByRole('heading', { name: 'Notifications' }).className).toContain('cb-label');
+  });
+
   it('opens from the gear and closes again', () => {
     renderMenu();
     expect(screen.getByRole('dialog', { name: 'Config' })).toBeTruthy();

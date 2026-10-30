@@ -552,3 +552,38 @@ button[aria-pressed='true'] .cb-icon {
   --plate-top: #23704b;
   --plate-bottom: #0b2e1e;
 }
+
+/*
+ * Field labels and checkboxes (#18): labels for things you pick or glance at wear the display font; text you read
+ * at length (chat, prompts, tool output) never does (docs/THEME.md "Type and controls").
+ */
+.cb-label {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+}
+.cb-check {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--prompt-go);
+}
+.cb-select[data-size='sm'] {
+  height: 1.625rem;
+  padding: 0 0.5rem 0 0.4rem;
+}
+.cb-select[data-size='sm'] .cb-select-value {
+  font-size: 0.95rem;
+}
+/* A text field in the prompt box's frame, for short values (names, paths). */
+.cb-field {
+  border: 1px solid var(--prompt-border);
+  border-radius: 0.5rem;
+  background: var(--prompt-bg);
+  color: var(--prompt-ink);
+  padding: 0.25rem 0.5rem;
+}
+.cb-field:focus {
+  outline: none;
+  border-color: var(--prompt-go);
+}

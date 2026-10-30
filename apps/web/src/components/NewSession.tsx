@@ -1,6 +1,8 @@
 import { type FormEvent, useState } from 'react';
 import type { Engine, PermissionMode, Project } from '@crystal-bridge/protocol';
 import { ProjectPicker } from './ProjectPicker.js';
+import { PromptBox } from './PromptBox.js';
+import { ThemedSelect } from './ThemedSelect.js';
 import { loadDraft, saveDraft } from '../drafts.js';
 import { engineChoices } from '../engines.js';
 import { loadDefaultMode, MODES, saveDefaultMode } from '../modes.js';
@@ -26,9 +28,6 @@ export interface NewSessionProps {
     engine?: Engine;
   }) => void;
 }
-
-const input =
-  'w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-900';
 
 export function NewSession({ node, name, connected, projects, engines, initialCwd, onStart }: NewSessionProps) {
   // Unsent drafts are kept per Kingdom, so leaving this view (another tab, a Quest) doesn't lose them.
@@ -71,60 +70,62 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
       </h2>
       {!connected && <p className="text-sm text-amber-600">{name} is offline. Sessions start once it reconnects.</p>}
       <div className="block space-y-1">
-        <span className="text-sm">Project</span>
+        <span className="cb-label">Project</span>
         <ProjectPicker projects={projects} value={cwd} onChange={setCwd} />
       </div>
-      <label className="block space-y-1">
-        <span className="text-sm">Prompt</span>
-        <textarea className={input} rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-      </label>
+      <div className="block space-y-1">
+        <span className="cb-label">Prompt</span>
+        <PromptBox
+          label="Prompt"
+          value={prompt}
+          onChange={setPrompt}
+          running={false}
+          onStop={() => {}}
+          sendDisabled={!ready}
+          sendLabel="Start"
+          minRows={3}
+          controls={
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              <ThemedSelect
+                label="Permission mode"
+                icon="mode"
+                title="Permission mode: how much the Quest may do without asking"
+                value={mode}
+                options={MODES}
+                onChange={(value) => {
+                  const next = value as PermissionMode;
+                  setMode(next);
+                  saveDefaultMode(next);
+                }}
+              />
+              {choices.length > 1 && (
+                <ThemedSelect
+                  label="Engine"
+                  title="Engine: how the Kingdom runs the agent"
+                  value={engine}
+                  options={choices}
+                  onChange={(value) => setEngine(value as Engine)}
+                />
+              )}
+            </div>
+          }
+        />
+      </div>
       <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" className="mt-1" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} />
+        <input
+          type="checkbox"
+          className="cb-check mt-0.5"
+          checked={worktree}
+          onChange={(e) => setWorktree(e.target.checked)}
+        />
         <span>
-          Separate worktree
+          <span className="cb-label">Separate worktree</span>
           <span className="block text-xs text-neutral-500">
             Work on a new branch in its own checkout (repo/.worktrees/…), so it can't collide with another session in
             the same repository. Shares the repo&apos;s memory.
           </span>
         </span>
       </label>
-      <label className="block space-y-1">
-        <span className="text-sm">Permission mode</span>
-        <select
-          className={input}
-          value={mode}
-          onChange={(e) => {
-            const next = e.target.value as PermissionMode;
-            setMode(next);
-            saveDefaultMode(next);
-          }}
-        >
-          {MODES.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {choices.length > 1 && (
-        <label className="block space-y-1">
-          <span className="text-sm">Engine</span>
-          <select className={input} value={engine} onChange={(e) => setEngine(e.target.value as Engine)}>
-            {choices.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <button
-        type="submit"
-        disabled={!ready}
-        className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:enabled:bg-blue-700 disabled:opacity-40"
-      >
-        Start
-      </button>
     </form>
   );
 }
