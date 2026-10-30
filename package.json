@@ -22,7 +22,9 @@
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && simple-git-hooks || true",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "docs:dev": "pnpm --dir docs dev",
+    "docs:build": "pnpm --dir docs build"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm exec tsx scripts/repo-checks.ts staged",

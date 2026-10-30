@@ -26,7 +26,7 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 - **Notifications:** desktop and Web Push, with a per-machine "Discreet" level that never shows session titles.
 - **Bring sessions in:** adopt sessions you started in a terminal, and carry on from the browser.
 - **A theme you can turn off:** the default dresses everything up as a 16-bit RPG; the Classic theme uses plain words.
-  Words, colours and art are pluggable (`apps/web/src/theme`, `docs/THEME.md`).
+  Words, colours and art are pluggable (`apps/web/src/theme`, [themes and art packs](docs/THEME.md)).
 
 ## How it works
 
@@ -59,7 +59,7 @@ Three processes:
 | **Web** (`apps/web`) | The React client (a Vite dev server in development; built and served by the Airship in production) | `5173` |
 
 Crystal runs `claude` in its documented stream-json mode, or optionally in a pseudo-terminal for the tools only
-interactive sessions have (see "Interactive engine" in `docs/OPERATIONS.md`). The hub stores Claude's raw event lines
+interactive sessions have (see [engines](docs/ENGINES.md)). The hub stores Claude's raw event lines
 in an engine-neutral envelope.
 
 ## Is this allowed?
@@ -75,9 +75,9 @@ If you need API-key billing or want to offer it to others, read those terms firs
 ## Good to know
 
 - **It is a remote control for your machines.** Anyone who can use the hub can run code on every connected machine.
-  Read `docs/SECURITY-MODEL.md` before exposing it beyond your own private network.
+  Read the [security model](docs/SECURITY-MODEL.md) before exposing it beyond your own private network.
 - **At work,** check your organisation's policy first: on running agents remotely, and on keeping full session
-  transcripts on a server (the hub stores them, including anything pasted into a chat; see `docs/HUB-DATA.md`).
+  transcripts on a server (the hub stores them, including anything pasted into a chat; see [what the hub stores](docs/HUB-DATA.md)).
 - **The interactive engine is experimental.** It drives Claude Code's terminal UI and reads its session files, which
   the CLI documents as internal, so a CLI update can break it. The default stream engine uses the documented
   `stream-json` output.
@@ -96,6 +96,7 @@ you run Claude Code on. The hub can sit on your tailnet, or anywhere you can giv
 
 ### One machine
 
+<!-- #region one-machine -->
 You need Node 22+, pnpm (`corepack enable`), and Claude Code installed and signed in (run `claude` once).
 
 ```sh
@@ -106,76 +107,33 @@ pnpm dev
 `pnpm dev` checks your tools (`scripts/preflight.sh`), then starts all three processes on `127.0.0.1`. Open
 **http://localhost:5173**. With nothing else configured there's no login and no node tokens, so keep it on
 localhost.
+<!-- #endregion one-machine -->
 
 ### Several machines
 
 The intended setup puts every machine on one [Tailscale](https://tailscale.com) tailnet, with the **Airship** on an
-always-on host, published with `tailscale serve` (HTTPS), limited to your tailnet login (`AIRSHIP_ALLOWED_USERS`), with a
-token per Kingdom (`AIRSHIP_NODES`).
+always-on host. Without Tailscale, the hub also comes as a container with its own login. Either way, you then add each
+machine from the app with one command. [Several machines](docs/SEVERAL-MACHINES.md) has the steps.
 
-Start the hub with the deploy script, which ships the pushed `main` over SSH:
-
-```sh
-scripts/deploy-airship.sh hub-host you@example.com    # first run sets the allowed tailnet login
-```
-
-Then add each machine from the app: open **Config**, name the new Kingdom under **Add Kingdom**, and run the command it
-gives you on that machine. It needs Node 22+ and Claude Code signed in, and only outbound HTTPS: no SSH or inbound
-ports. On Linux it asks for sudo once, so the Kingdom keeps running after you log out. To remove a Kingdom, use **Remove**
-on its Castle, then run the command it shows on that machine. Its Quests stay as history unless you then choose
-**Forget** there. Linux and macOS are supported.
-
-#### Without Tailscale
-
-From `v0.2.0-alpha.1`, the hub also comes as a container with its own login:
-
-```sh
-docker run -d --name crystal-bridge -p 7700:7700 -v crystal-bridge:/data ghcr.io/crystal-bridge/airship:0.2.0-alpha.1
-docker exec crystal-bridge crystal-bridge-airship token add me   # shows your login token once
-```
-
-Put HTTPS in front of it (Caddy, nginx or a tunnel), because tokens travel in the clear without it. Then log in and add
-Kingdoms from the app as above. Releases after `v0.2.0-alpha.1` can skip `token add`: the hub prints a one-time setup
-code to its logs, and you make your login in the browser (`docs/OPERATIONS.md`, "First run"). The same hub runs without Docker from the release's tarball, with `AIRSHIP_AUTH=token`
-and `AIRSHIP_DATA` set; see `docs/OPERATIONS.md`.
-
-#### Pushing Crystal over SSH
-
-If you'd rather push Crystal out from a checkout over SSH, the deploy scripts do that too:
-
-```sh
-scripts/deploy-crystal.sh node-a-host node-a hub-host  # a Linux machine: <ssh-host> <node-id> <hub-ssh-host>
-scripts/deploy-crystal-macos.sh my-mac hub-host        # the Mac you run it on
-```
-
-`docs/OPERATIONS.md` covers joining, deploys that wait for running turns, rollbacks, backups, Web Push and monitoring;
-`deploy/airship/airship.env.example` lists the hub's settings.
+[Operations](docs/OPERATIONS.md) covers joining, deploys that wait for running turns, rollbacks, backups, Web Push and
+monitoring.
 
 ## Configuration
 
-| Variable | Default | Used by |
-|---|---|---|
-| `CRYSTAL_HUB` | `ws://127.0.0.1:7700/node` | Crystal: the hub's node WebSocket |
-| `CRYSTAL_NODE` | `local` | Crystal: this machine's node id |
-| `CRYSTAL_TOKEN` | unset | Crystal: its node token, sent as a bearer header |
-| `CRYSTAL_MCP_PORT` | `7701` | Crystal: its local port (permission tool, hooks, status) |
-| `CRYSTAL_IDLE_MS` | `600000` | Crystal: stop an idle session's process after this long; the next follow-up resumes it |
-| `CRYSTAL_DEFAULT_MODE` | `manual` | Crystal: permission mode for new sessions |
-| `CRYSTAL_PROJECT_ROOTS` | `~/code` | Crystal: where the New Quest picker looks for repos (`:`-separated) |
-| `CRYSTAL_CHROME` | unset | Crystal: `1` starts sessions with `--chrome` |
-| `CRYSTAL_ENGINES` | `stream` | Crystal: `stream,interactive` enables the interactive engine |
-| `CLAUDE_BIN` | `claude` | Crystal: the CLI it runs |
-| `AIRSHIP_PORT` | `7700` | Airship: its HTTP/WebSocket port |
-| `AIRSHIP_HOST` | `127.0.0.1` | Airship: the address it listens on; anything but loopback needs `AIRSHIP_AUTH=token` |
-| `AIRSHIP_DATA` | unset | Airship: one folder for the database, tokens, keys and backups |
-| `AIRSHIP_DB` | `./airship.db` | Airship: the SQLite file |
-| `AIRSHIP_AUTH` | `tailscale-serve` when `AIRSHIP_ALLOWED_USERS` is set | Airship: how it knows who a request is from: `tailscale-serve` or `token` |
-| `AIRSHIP_TOKENS` | next to the database | Airship: the access-token file for `AIRSHIP_AUTH=token` |
-| `AIRSHIP_ALLOWED_USERS` | unset | Airship: tailnet logins allowed to use the app (`Tailscale-User-Login`); required unless `AIRSHIP_DEV=1` |
-| `AIRSHIP_NODES` | unset | Airship: the node-token file; required unless `AIRSHIP_DEV=1` |
-| `AIRSHIP_DEV` | unset | Airship: `1` starts a development hub open (no allow list or node tokens); `pnpm dev` does this itself |
-| `AIRSHIP_VAPID_PATH` | next to the database | Airship: Web Push keys |
-| `AIRSHIP_CLI_CHECK` | on | Airship: `off` stops it asking npm for the latest Claude Code version |
+Crystal Bridge is configured with environment variables. [The reference](docs/CONFIGURATION.md) lists every one with
+its default.
+
+## Documentation
+
+The guides are in [`docs/`](docs), and the same pages build into a site (`pnpm docs:dev` to preview it):
+
+- [Getting started on one machine](docs/GETTING-STARTED.md) and [several machines](docs/SEVERAL-MACHINES.md)
+- [Configuration reference](docs/CONFIGURATION.md)
+- [Operations](docs/OPERATIONS.md)
+- [Security model](docs/SECURITY-MODEL.md) and [what the hub stores](docs/HUB-DATA.md)
+- [Themes and art packs](docs/THEME.md)
+- [Engines and the protocol](docs/ENGINES.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Development
 
@@ -184,7 +142,8 @@ scripts/deploy-crystal-macos.sh my-mac hub-host        # the Mac you run it on
   checks it ran.
 - `pnpm demo`: the app with a scripted world in it, for screenshots and a look around. It starts a throwaway hub and
   three invented Kingdoms over the real protocol. No `claude` runs, nothing is kept, and Approve works.
-- `AGENTS.md` holds the working rules (`CLAUDE.md` imports it); `docs/` the operations guide and theme.
+- `pnpm --dir docs install`, then `pnpm docs:dev`: the docs site with live reload. `pnpm docs:build` fails on a dead link.
+- `AGENTS.md` holds the working rules (`CLAUDE.md` imports it); `docs/` the guides.
 
 ## Licence
 

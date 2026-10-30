@@ -26,6 +26,12 @@ Thanks for wanting to help. A few things keep Crystal Bridge working for everyon
    running `pnpm dev`.
 4. Open a pull request with what changed, why, and how you checked it.
 
+### Docs
+
+Update `README.md` or `docs/` in the same pull request as the change. A new `CRYSTAL_` or `AIRSHIP_` variable needs a
+row in `docs/CONFIGURATION.md`, or `pnpm test` fails. To preview the site, run `pnpm --dir docs install` once, then
+`pnpm docs:dev`. `pnpm docs:build` fails on a dead link.
+
 ### Git hooks
 
 `pnpm install` installs the repo's git hooks (`simple-git-hooks`, configured in `package.json`). They run the same

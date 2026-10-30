@@ -1,7 +1,7 @@
 # Operating Crystal Bridge
 
-How to change the running system without breaking work in progress. The machines and their roles are in the README
-("Several machines"); this is the procedure. Host names here are placeholders: `hub-host` is the Airship's SSH
+How to change the running system without breaking work in progress. The machines and their roles are in
+[Several machines](./SEVERAL-MACHINES.md); this is the procedure. Host names here are placeholders: `hub-host` is the Airship's SSH
 host, `node-a-host`/`node-b-host` the Kingdoms'.
 
 ## The rules
@@ -209,7 +209,7 @@ A restore loses only what happened after that backup; Crystals resend events the
   has to turn "Push to this device" off and on again.
 - Subscriptions and each device's prefs (its Kingdom names, hidden Kingdoms, Full/Discreet/Off levels) are in the
   database (`push_subscriptions`, migration 2). The hub words every push from those prefs, so a Discreet Kingdom's
-  pushes carry only "<name> needs you"; the push service sees an encrypted payload either way.
+  pushes carry only `<name> needs you`; the push service sees an encrypted payload either way.
 - The hub host needs outbound HTTPS to the browsers' push services (Chrome and Android: `fcm.googleapis.com`). A refused
   push is logged as "a Web Push was refused" and never holds up events; a subscription the service reports gone
   (404/410) is deleted.
@@ -267,3 +267,14 @@ identity. Old revisions and commit metadata stay behind.
    identities).
 3. Push it to a new private repository, check CI and the rendered README, then switch on branch rules, CodeQL, secret
    scanning and Discussions, and make it public.
+
+## The docs site
+
+`docs/` builds into a VitePress site. It's its own pnpm workspace with its own lockfile, so its dependencies never
+reach a hub or Kingdom install. `.github/workflows/docs.yml` builds it on every pull request and on `main`, and a dead
+link fails the build. Links out of `docs/` work on GitHub, and on the site go to the same file on GitHub.
+
+The workflow publishes only when the repository's **Settings > Pages > Build and deployment > Source** is **GitHub
+Actions**. Until then it builds and stops there, on any fork too. It reads the address from that setting, so nothing
+names an organisation or a base path. The first publish after turning it on takes a push to `main` or **Run workflow**
+on the Docs workflow.

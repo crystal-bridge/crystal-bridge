@@ -30,5 +30,5 @@ levels they carry no Quest titles or text.
 
 ## Backups and restore
 
-The procedure is in `docs/OPERATIONS.md` ("Backups and restore"). A restore loses only what happened after that
+The procedure is in [Operations](./OPERATIONS.md#backups-and-restore). A restore loses only what happened after that
 backup; Kingdoms resend events the hub never acknowledged.

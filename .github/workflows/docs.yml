@@ -1,0 +1,72 @@
+# Builds the docs site on every PR and on main, failing on a dead link. It publishes only once the repository's Pages
+# source is set to GitHub Actions (docs/OPERATIONS.md, "The docs site"); until then main just builds, on forks too.
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      publish: ${{ steps.pages.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: docs/pnpm-lock.yaml
+      - run: pnpm --dir docs install --frozen-lockfile
+      - name: Find where Pages serves this repository, if it's on
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq 'select(.build_type == "workflow") | .html_url' || true)
+          if [ -n "$url" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "base=$(node -p 'new URL(process.argv[1]).pathname' "$url")" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build
+        env:
+          DOCS_BASE: ${{ steps.pages.outputs.base }}
+        run: pnpm docs:build
+      - if: steps.pages.outputs.publish == 'true' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.publish == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
