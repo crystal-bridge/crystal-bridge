@@ -92,7 +92,7 @@ If you need API-key billing or want to offer it to others, read those terms firs
 
 There are two ways to run it. **One machine** puts everything on your own computer and takes a couple of minutes,
 which is the best way to try it. **Several machines** puts the hub on an always-on host, with a Crystal on each machine
-you run Claude Code on.
+you run Claude Code on. The hub can sit on your tailnet, or anywhere you can give it HTTPS.
 
 ### One machine
 
@@ -123,6 +123,21 @@ Then add each machine from the app: open **Config**, name the new Kingdom under 
 gives you on that machine. It needs Node 22+ and Claude Code signed in, and only outbound HTTPS: no SSH or inbound
 ports. On Linux it asks for sudo once, so the Kingdom keeps running after you log out. To remove a Kingdom, use **Remove**
 on its Castle, then run the command it shows on that machine. Linux and macOS are supported.
+
+#### Without Tailscale
+
+From `v0.2.0-alpha.1`, the hub also comes as a container with its own login:
+
+```sh
+docker run -d --name crystal-bridge -p 7700:7700 -v crystal-bridge:/data ghcr.io/crystal-bridge/airship:0.2.0-alpha.1
+docker exec crystal-bridge crystal-bridge-airship token add me   # shows your login token once
+```
+
+Put HTTPS in front of it (Caddy, nginx or a tunnel), because tokens travel in the clear without it. Then log in and add
+Kingdoms from the app as above. The same hub runs without Docker from the release's tarball, with `AIRSHIP_AUTH=token`
+and `AIRSHIP_DATA` set; see `docs/OPERATIONS.md`.
+
+#### Pushing Crystal over SSH
 
 If you'd rather push Crystal out from a checkout over SSH, the deploy scripts do that too:
 

@@ -77,3 +77,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Join and leave through the real service manager
         run: bash scripts/check-kingdom-join.sh
+
+  # The hub image, built and run for real.
+  hub-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and run the hub image
+        run: bash scripts/check-hub-image.sh

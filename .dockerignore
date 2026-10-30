@@ -1,0 +1,13 @@
+.git
+.github
+.private
+.claude
+**/node_modules
+**/dist
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/nodes.json
+**/access-tokens.json
+**/vapid.json
+docs
