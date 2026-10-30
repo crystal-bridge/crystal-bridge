@@ -33,6 +33,25 @@ describe('accessRefusals', () => {
     expect(accessRefusals({ auth: 'token', allowedUsers: [], nodesPath: undefined }).join()).toMatch(/AIRSHIP_NODES/);
   });
 
+  it('refuses to trust an identity header on an address anyone else can reach', () => {
+    const open = { auth: 'tailscale-serve', allowedUsers: ['me@example.com'], nodesPath: '/n.json' };
+    expect(accessRefusals({ ...open, host: '0.0.0.0' }).join()).toMatch(/AIRSHIP_HOST/);
+    expect(
+      accessRefusals({ ...open, allowedUsers: ['me@example.com'], auth: undefined, host: '0.0.0.0' }).join(),
+    ).toMatch(/AIRSHIP_HOST/);
+    expect(accessRefusals({ ...open, host: '127.0.0.1' })).toEqual([]);
+    expect(accessRefusals({ ...open, host: '::1' })).toEqual([]);
+  });
+
+  it('lets token login listen anywhere, because it reads no identity header', () => {
+    expect(accessRefusals({ auth: 'token', allowedUsers: [], nodesPath: '/n.json', host: '0.0.0.0' })).toEqual([]);
+  });
+
+  it('refuses an open hub on a reachable address, even a development one', () => {
+    const refusals = accessRefusals({ allowedUsers: [], nodesPath: undefined, dev: true, host: '0.0.0.0' });
+    expect(refusals.join()).toMatch(/AIRSHIP_HOST/);
+  });
+
   it('keeps a hub that predates AIRSHIP_AUTH running as it did', () => {
     expect(authMode({ allowedUsers: ['me@example.com'] })).toBe('tailscale-serve');
   });

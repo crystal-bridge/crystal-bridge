@@ -1,28 +1,36 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { accessRefusals, authMode } from './access.js';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { backupStore } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
 import { pendingMigrations } from './migrations.js';
 import { loadNodes } from './nodes.js';
+import { hubPaths } from './paths.js';
 import { createPusher, loadVapidKeys, webPushSender } from './push.js';
 import { buildServer } from './server.js';
 import { openStore } from './store.js';
+import { runTokens } from './tokens.js';
 
 const PORT = Number(process.env.AIRSHIP_PORT ?? '7700');
-const DB_PATH = process.env.AIRSHIP_DB ?? './airship.db';
-const NODES_PATH = process.env.AIRSHIP_NODES;
-// Web Push keys live next to the database by default: outside the releases, so deploys keep them.
-const VAPID_PATH = process.env.AIRSHIP_VAPID_PATH ?? join(dirname(DB_PATH), 'vapid.json');
+const HOST = process.env.AIRSHIP_HOST ?? '127.0.0.1';
+const {
+  db: DB_PATH,
+  nodes: NODES_PATH,
+  tokens: TOKENS_PATH,
+  vapid: VAPID_PATH,
+  backups: BACKUP_DIR,
+} = hubPaths(process.env);
 // Push services contact this if a sender misbehaves; any mailto: or https: URL will do.
 const PUSH_SUBJECT = process.env.AIRSHIP_PUSH_SUBJECT ?? 'mailto:crystal-bridge@example.invalid';
+/** The package version, written in by the build (scripts/build.ts); undefined when running from source. */
+declare const __AIRSHIP_VERSION__: string | undefined;
+const VERSION = typeof __AIRSHIP_VERSION__ === 'string' ? __AIRSHIP_VERSION__ : undefined;
 // Deploys write the commit id to RELEASE at the release root; a checkout without one is a dev build.
 const RELEASE_FILE = new URL('../../../RELEASE', import.meta.url);
-const RELEASE = existsSync(RELEASE_FILE) ? readFileSync(RELEASE_FILE, 'utf8').trim() : 'dev';
+const RELEASE = VERSION ?? (existsSync(RELEASE_FILE) ? readFileSync(RELEASE_FILE, 'utf8').trim() : 'dev');
 const AUTH = process.env.AIRSHIP_AUTH || undefined;
-// Access tokens live next to the database by default: outside the releases, so deploys keep them.
-const TOKENS_PATH = process.env.AIRSHIP_TOKENS ?? join(dirname(DB_PATH), 'access-tokens.json');
 const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
   .split(',')
   .map((login) => login.trim())
@@ -32,7 +40,13 @@ const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
 const DEV = process.argv.includes('--dev') || process.env.AIRSHIP_DEV === '1';
 
 async function main(): Promise<void> {
-  const refusals = accessRefusals({ auth: AUTH, allowedUsers: ALLOWED_USERS, nodesPath: NODES_PATH, dev: DEV });
+  const refusals = accessRefusals({
+    auth: AUTH,
+    allowedUsers: ALLOWED_USERS,
+    nodesPath: NODES_PATH,
+    host: HOST,
+    dev: DEV,
+  });
   if (refusals.length > 0) {
     for (const reason of refusals) console.error(`[airship] refusing to start: ${reason}`);
     process.exit(1);
@@ -40,10 +54,10 @@ async function main(): Promise<void> {
   // A schema change goes after a backup, so a bad migration can always be undone.
   const pending = pendingMigrations(DB_PATH);
   if (pending > 0) {
-    const dir = process.env.AIRSHIP_BACKUP_DIR ?? './backups';
-    const copy = await backupStore(DB_PATH, dir, { keep: Number(process.env.AIRSHIP_BACKUP_KEEP ?? '14') });
+    const copy = await backupStore(DB_PATH, BACKUP_DIR, { keep: Number(process.env.AIRSHIP_BACKUP_KEEP ?? '14') });
     console.log(`[airship] ${pending} schema migration(s) to apply; backed up the database to ${copy} first`);
   }
+  mkdirSync(dirname(DB_PATH), { recursive: true });
   const store = openStore(DB_PATH);
   const nodes = NODES_PATH ? loadNodes(NODES_PATH) : undefined;
   if (nodes) {
@@ -79,12 +93,13 @@ async function main(): Promise<void> {
     nodes,
     ...(auth ? { auth } : {}),
     release: RELEASE,
+    ...(VERSION ? { webRoot: fileURLToPath(new URL('web', import.meta.url)) } : {}),
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
     push: { publicKey: vapid.publicKey, pusher },
   });
 
-  await app.listen({ port: PORT, host: '127.0.0.1' });
-  console.log(`[airship] listening on http://127.0.0.1:${PORT} (db: ${DB_PATH})`);
+  await app.listen({ port: PORT, host: HOST });
+  console.log(`[airship] listening on http://${HOST}:${PORT} (db: ${DB_PATH})`);
 
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
@@ -100,7 +115,15 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-main().catch((error: unknown) => {
-  console.error('[airship] fatal error during startup', error);
-  process.exit(1);
-});
+const [command, ...rest] = process.argv.slice(2);
+if (command === '--version') {
+  console.log(RELEASE);
+} else if (command === 'token') {
+  mkdirSync(dirname(TOKENS_PATH), { recursive: true });
+  runTokens(TOKENS_PATH, rest);
+} else {
+  main().catch((error: unknown) => {
+    console.error('[airship] fatal error during startup', error);
+    process.exit(1);
+  });
+}
