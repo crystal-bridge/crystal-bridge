@@ -94,6 +94,9 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
     const raw = payload.raw;
 
     if (raw.type === 'system' && raw.subtype === 'init' && typeof raw.model === 'string') info.model = raw.model;
+    if (raw.type === 'system' && raw.subtype === 'context_window' && typeof raw.contextWindow === 'number') {
+      windows = { session: raw.contextWindow };
+    }
     if (raw.type === 'result') {
       processCost = Math.max(processCost, num(raw.total_cost_usd));
       // Unlike total_cost_usd, a result's usage and duration cover that turn alone, so they simply add up.

@@ -530,7 +530,15 @@ export class InteractiveSession extends EventEmitter {
       this.apiMsAtTurnStart ??= this.apiMs;
     }
     const context = isObj(body.context_window) ? body.context_window : {};
-    if (typeof context.context_window_size === 'number') this.contextWindow = context.context_window_size;
+    const size = context.context_window_size;
+    if (typeof size === 'number' && size !== this.contextWindow) {
+      this.contextWindow = size;
+      // Sent now, not with the turn's result: the MP meter needs it during a Quest's first turn.
+      this.emitEvent({
+        type: 'claude.event',
+        payload: { engine: 'claude', raw: { type: 'system', subtype: 'context_window', contextWindow: size } },
+      });
+    }
     const usage = usageFromStatusLine(body);
     const json = usage ? JSON.stringify(usage) : '';
     if (usage && json !== this.lastUsage) {

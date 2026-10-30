@@ -483,6 +483,22 @@ describe('InteractiveSession stats and inventory', () => {
     message: { id, role: 'assistant', content: [{ type: 'text', text }], usage },
   });
 
+  it('announces the context window as soon as the statusline reports it, once per size', async () => {
+    const { session, events, hook } = harness();
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    hook('StatusLine', status());
+    hook('StatusLine', status());
+    hook('StatusLine', status({ context_window: { context_window_size: 1000000 } }));
+    await tick();
+    const announced = events.flatMap((e) => {
+      if (e.type !== 'claude.event') return [];
+      const raw = e.payload.raw as { subtype?: string; contextWindow?: number };
+      return raw.subtype === 'context_window' ? [raw.contextWindow] : [];
+    });
+    expect(announced).toEqual([200000, 1000000]);
+  });
+
   it('gives each turn result the cost, its own tokens once per message, its API time and the context window', async () => {
     const { session, events, hook, line } = harness();
     session.start('hello');

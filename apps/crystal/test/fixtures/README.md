@@ -248,8 +248,8 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   stdin after each change (debounced 300 ms): `cost.total_cost_usd` (running, per process), `cost.total_api_duration_ms`,
   `context_window.context_window_size` (1000000 here), `context_window.total_input_tokens`, and
   `rate_limits.<five_hour|seven_day>.used_percentage` (0-100) with `resets_at` (epoch seconds). Crystal turns these into
-  the turn result's `total_cost_usd`, `duration_ms` (API time this turn) and `modelUsage.session.contextWindow`, and
-  `usage` events. Per-turn tokens come from transcript `assistant` lines' `message.usage`, once per `message.id`.
+  the turn result's `total_cost_usd`, `duration_ms` (API time this turn) and `modelUsage.session.contextWindow`, a
+  `system/context_window` line of Crystal's own as soon as the size is known or changes, and `usage` events. Per-turn tokens come from transcript `assistant` lines' `message.usage`, once per `message.id`.
 - **Listing attachments** (internal): `attachment.type: skill_listing` with `names` (every skill, plugin skills
   prefixed `plugin:`; `isInitial`), and `deferred_tools_delta` with `addedNames`/`removedNames` (tool names, MCP ones as
   `mcp__<server>__<tool>`, claude.ai connectors as `mcp__claude_ai_<Name>__…`), `pendingMcpServers` and
