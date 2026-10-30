@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import type { BattleOutcome, BattleResult } from '../battle.js';
-import { duration, money, tokens } from '../format.js';
+import { duration, tokens } from '../format.js';
 import { type HeroManifest, type HeroState, matchClass } from '../heroes.js';
 import { type Concept, hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
+import { Gold } from './Gold.js';
 
 const OUTCOME: Record<BattleOutcome, Concept> = { victory: 'victory', retreat: 'retreat', ko: 'defeat' };
 const POSE: Record<BattleOutcome, HeroState> = { victory: 'victory', retreat: 'resting', ko: 'ko' };
@@ -60,7 +61,9 @@ function Details({ result, manifest }: { result: BattleResult; manifest?: HeroMa
   return (
     <div className="mt-1 text-xs">
       <Row concept="workingTime">{duration(result.durationMs)}</Row>
-      <Row concept="gold">{money(result.costUsd)}</Row>
+      <Row concept="gold">
+        <Gold usd={result.costUsd} />
+      </Row>
       <Row concept="tokens">
         {tokens(t.input)} in · {tokens(t.output)} out · {tokens(t.cacheRead)} cached
       </Row>
@@ -120,7 +123,7 @@ export function BattleCard({
                 {w(OUTCOME[result.outcome])}
               </span>
               <span className="block text-xs text-neutral-500">
-                {duration(result.durationMs)} · {money(result.costUsd)} · {files(result.loot.length)}
+                {duration(result.durationMs)} · <Gold usd={result.costUsd} compact /> · {files(result.loot.length)}
               </span>
               <span title={hint('questGoesOn')} className="block text-xs text-neutral-500">
                 {w('questGoesOn')}
@@ -138,7 +141,7 @@ export function BattleCard({
       <details className={`cb-battle text-xs ${tone}`}>
         <summary title={hint(OUTCOME[result.outcome])} className="cursor-pointer select-none">
           <span className="cb-display text-sm">{w(OUTCOME[result.outcome])}</span> · {duration(result.durationMs)} ·{' '}
-          {money(result.costUsd)} · {files(result.loot.length)}
+          <Gold usd={result.costUsd} compact /> · {files(result.loot.length)}
         </summary>
         <div className="text-neutral-700 dark:text-neutral-300">
           <Details result={result} manifest={manifest} />

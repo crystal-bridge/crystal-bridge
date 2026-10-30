@@ -1,10 +1,12 @@
+import type { ReactNode } from 'react';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import type { TurnStats } from '../home.js';
-import { duration, money, tokens } from '../format.js';
+import { duration, tokens } from '../format.js';
 import { questTitle } from '../quests.js';
 import { hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import type { SessionSummary } from './SessionList.js';
+import { Gold } from './Gold.js';
 
 /** "5m", "3h", "2d": how long ago. */
 export function ago(at: number, now: number): string {
@@ -20,9 +22,9 @@ export function StatTiles({ title, plain, stats }: { title: string; plain: strin
   const allTokens = stats
     ? stats.tokens.input + stats.tokens.output + stats.tokens.cacheRead + stats.tokens.cacheWrite
     : 0;
-  const tiles: { concept: 'turns' | 'gold' | 'workingTime' | 'tokens' | 'kos'; value: string }[] = [
+  const tiles: { concept: 'turns' | 'gold' | 'workingTime' | 'tokens' | 'kos'; value: ReactNode }[] = [
     { concept: 'turns', value: String(stats?.turns ?? 0) },
-    { concept: 'gold', value: money(stats?.costUsd ?? 0) },
+    { concept: 'gold', value: <Gold usd={stats?.costUsd ?? 0} /> },
     { concept: 'workingTime', value: duration(stats?.durationMs ?? 0) },
     { concept: 'tokens', value: tokens(allTokens) },
     { concept: 'kos', value: String(stats?.kos ?? 0) },

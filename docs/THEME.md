@@ -69,7 +69,7 @@ HP and MP bars drain in five colour steps, green when full through yellow and or
 |---|---|
 | **HP** | the Kingdom's plan usage left in its five-hour window, as a draining bar; full again when it resets (*Resting at the Inn*). Shared by the Kingdom's Quests |
 | **MP** | context left in the window, as a draining bar |
-| **Gold** | cost |
+| **Gold** | cost, one coin per US cent (118 Gold is $1.18), grouped by locale; a tiny info icon shows the dollars (hover, focus or tap). Classic: dollars |
 | **Command Rune** | shell mode: a follow-up starting with `!` on an interactive Quest (the prompt box turns rose) |
 | **Loot** | files changed |
 | **Expedition** | where and how a Quest runs (Kingdom, project, branch, model, mode): the side panel's section under Stats |
