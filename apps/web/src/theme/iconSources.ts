@@ -40,8 +40,9 @@ export const ICON_SOURCES = {
   abilities: { pack: 'game-icons', icon: 'lightning-helix', author: 'Lorc' },
   // Prompt box
   attach: { pack: 'ph', icon: 'plus-bold' },
-  send: { pack: 'game-icons', icon: 'arrow-wings', author: 'Delapouite' },
-  stop: { pack: 'game-icons', icon: 'hand', author: 'Sbed' },
+  // Send attacks, Stop blocks (the owner's picks, 2026-10-30).
+  send: { pack: 'game-icons', icon: 'broadsword', author: 'Lorc' },
+  stop: { pack: 'game-icons', icon: 'shield', author: 'Sbed' },
   mode: { pack: 'game-icons', icon: 'checked-shield', author: 'Lorc' },
   // Stats
   hp: { pack: 'game-icons', icon: 'hearts', author: 'Skoll' },

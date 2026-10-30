@@ -159,8 +159,8 @@ From the "Sprite Party Audition" comparison (2026-10-28):
   the art; the Classic theme (`VITE_CB_THEME=classic`) draws no Heroes.
 - **World map and monsters:** Ninja Adventure (CC0).
 - **Icons** ("Quest UI Audition", 2026-10-30): Game-icons (CC BY 3.0, credited per artist) for themed concepts
-  (Inventory, Spells, Items, Abilities, Close, Permission Mode, HP, MP, Gold, and Send as a winged arrow and Stop as
-  a raised hand) and Phosphor's filled weight (MIT) for plain UI (Fork, Split, side panel, Attach) and Equipment's sword. `apps/web/src/theme/iconSources.ts`
+  (Inventory, Spells, Items, Abilities, Close, Permission Mode, HP, MP, Gold, and Send as a sword on a gold button
+  (attack) and Stop as a shield (block)) and Phosphor's filled weight (MIT) for plain UI (Fork, Split, side panel, Attach) and Equipment's sword. `apps/web/src/theme/iconSources.ts`
   names each icon's pack, icon and artist; `pnpm icons` copies the drawings into `iconData.ts`, so the packs are dev
   dependencies only. Each icon keeps its own colour (`.cb-icon-<name>` in theme.css).
 - Time Fantasy was ruled out: its licence forbids redistribution.
