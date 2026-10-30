@@ -8,6 +8,13 @@ import { HeroSprite } from './HeroSprite.js';
 import type { SessionSummary } from './SessionList.js';
 import { Gold } from './Gold.js';
 
+/** The Airship's and Castle's column: most of a wide screen, with a limit so lines stay readable on a huge one. */
+export const HOME_PAGE = 'mx-auto w-full max-w-[110rem]';
+/** Two blocks side by side once each has room for a full row of tiles, stacked otherwise. */
+export const HOME_PAIR = 'grid grid-cols-[repeat(auto-fit,minmax(min(100%,36rem),1fr))] items-start gap-4';
+/** Quest cards: as many columns as fit, without one card stretching across the page. */
+export const QUEST_GRID = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,24rem),1fr))] gap-2';
+
 /** "5m", "3h", "2d": how long ago. */
 export function ago(at: number, now: number): string {
   const minutes = Math.max(0, Math.floor((now - at) / 60_000));
@@ -34,7 +41,7 @@ export function StatTiles({ title, plain, stats }: { title: string; plain: strin
       <h2 className="cb-display px-3 text-xl leading-none" title={plain}>
         {title}
       </h2>
-      <dl className="grid grid-cols-3 gap-2 px-3 sm:grid-cols-5">
+      <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2 px-3">
         {tiles.map((tile) => (
           <div
             key={tile.concept}
@@ -43,7 +50,7 @@ export function StatTiles({ title, plain, stats }: { title: string; plain: strin
             <dt className="text-xs text-neutral-500" title={hint(tile.concept)}>
               {w(tile.concept)}
             </dt>
-            <dd className="font-mono text-base tabular-nums">{tile.value}</dd>
+            <dd className="whitespace-nowrap font-mono text-base tabular-nums">{tile.value}</dd>
           </div>
         ))}
       </dl>
@@ -81,7 +88,7 @@ export function QuestCard({
       type="button"
       onClick={onOpen}
       title={showDetail ? questTitle(session) : undefined}
-      className="flex w-full min-w-0 items-start gap-3 rounded-md border border-neutral-200 bg-white px-3 py-2 text-left hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-neutral-600"
+      className="flex h-full w-full min-w-0 items-start gap-3 rounded-md border border-neutral-200 bg-white px-3 py-2 text-left hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-neutral-600"
     >
       <span className="flex h-10 w-10 shrink-0 items-end justify-center">
         {heroes ? (
