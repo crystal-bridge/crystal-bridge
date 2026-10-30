@@ -8,7 +8,7 @@ notifications tell you when a session needs you.
 It wraps the real, unmodified `claude` CLI on each machine, under that machine's own login. It doesn't reimplement
 Claude Code's agent loop, and it never touches your credentials.
 
-![A tour of the app: the Airship and its Tavern across three Kingdoms, a Castle, a busy Quest with its party and meters, an approval leading to Battle won, the Inventory, and Split View across two Kingdoms](docs/images/demo.gif)
+![A tour of the app: the Airship and its Tavern across three Kingdoms, a Castle, a busy Quest with its party and meters, an approval leading to Battle won with its pull request, the Belt and Inventory tiles, and Split View across two Kingdoms](docs/images/demo.gif)
 
 _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 
