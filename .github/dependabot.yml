@@ -12,6 +12,14 @@ updates:
       # The types follow the oldest Node we support (22); newer majors would allow APIs it lacks.
       - dependency-name: '@types/node'
         update-types: [version-update:semver-major]
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: weekly
+    groups:
+      docs:
+        patterns: ['*']
+    open-pull-requests-limit: 2
   - package-ecosystem: github-actions
     directory: /
     schedule:

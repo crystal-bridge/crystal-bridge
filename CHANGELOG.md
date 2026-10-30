@@ -7,6 +7,7 @@ then, everything is in Unreleased.
 
 ### Added
 
+- A docs site built from `docs/` with VitePress, and a configuration reference that a test holds to the code.
 - Cmd+Enter (Ctrl+Enter off a Mac) starts a Quest from the New Quest prompt.
 - Kingdoms, Quests, approvals and question cards, Split View, Web Push, found-session adoption, the Airship home.
 - The interactive engine (experimental), with recovery when the terminal swallows a typed message.

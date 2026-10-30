@@ -65,8 +65,8 @@ front of the hub, or a proxy that deletes any incoming `Tailscale-User-Login` be
 2. One token per Kingdom; remove a Kingdom's token when you retire it.
 3. Restrict the hub's disk and its backups like you would a password store: they hold full transcripts.
 4. Don't paste secrets into chats. If you did, rotate the secret: deleting a Quest leaves copies in the backups until
-   they rotate out (`docs/HUB-DATA.md`).
+   they rotate out ([what the hub stores](./HUB-DATA.md)).
 5. Run each Kingdom's Crystal under a user that has only the access its Quests need.
 6. Use Discreet or Off notifications on shared or lock-screen devices.
 
-Report problems privately: see `SECURITY.md`.
+Report problems privately: see [`SECURITY.md`](../SECURITY.md).

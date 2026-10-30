@@ -48,4 +48,5 @@ Other contributors won't have it: the issues and the docs in `docs/` cover the p
 - `apps/airship` is the hub: a SQLite store (`src/store.ts`) and the Fastify/WebSocket server (`src/server.ts`).
 - `apps/web` is the React client. `src/model.ts` turns events into view items and `src/hub.ts` is the WebSocket.
 - `scripts/` holds the tools check (`preflight.sh`), the deploy scripts and the end-to-end smoke test (`smoke.ts`).
-- `docs/` holds the operations guide (`OPERATIONS.md`) and the theme (`THEME.md`).
+- `docs/` holds the guides, which also build into the VitePress site. It has its own pnpm workspace and lockfile, so
+  its dependencies stay out of the runtime packages. New pages stay thin and link to the existing material.
