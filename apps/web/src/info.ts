@@ -58,9 +58,15 @@ const WRITE_TOOLS: Record<string, string> = {
 const AGENT_TOOLS = new Set(['Task', 'Agent']);
 
 /**
- * Engine-specific reading of the CLI's stream-json, like `buildView`: unknown lines are ignored. Cost is the sum
- * over processes, because `total_cost_usd` is a running total per process and each start or resume is a new one.
+ * A turn's own cost from the CLI's running `total_cost_usd`, which carries across resumes. A line without one (a
+ * stopped interactive turn) leaves the count alone; a lower one means a new count began, so all of it is new.
  */
+export function costStep(total: unknown, running: number): { cost: number; running: number } {
+  if (typeof total !== 'number') return { cost: 0, running };
+  return { cost: total >= running ? total - running : total, running: total };
+}
+
+/** Engine-specific reading of the CLI's stream-json, like `buildView`: unknown lines are ignored. */
 export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
   const info: SessionInfo = {
     costUsd: 0,
@@ -70,7 +76,7 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
   };
   const outputs = new Map<string, OutputFile>();
   const tasks = new Map<string, SessionTask>();
-  let processCost = 0;
+  let runningCost = 0;
   let windows: Record<string, number> = {};
 
   for (const envelope of envelopes) {
@@ -79,11 +85,6 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
       if (typeof payload.cwd === 'string') info.cwd = payload.cwd;
       if (typeof payload.effort === 'string') info.effort = payload.effort;
       if (isObj(payload.worktree) && typeof payload.worktree.branch === 'string') info.branch = payload.worktree.branch;
-      continue;
-    }
-    if (envelope.type === 'session.resumed') {
-      info.costUsd += processCost;
-      processCost = 0;
       continue;
     }
     if (envelope.type === 'session.ended') {
@@ -98,7 +99,9 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
       windows = { session: raw.contextWindow };
     }
     if (raw.type === 'result') {
-      processCost = Math.max(processCost, num(raw.total_cost_usd));
+      const step = costStep(raw.total_cost_usd, runningCost);
+      info.costUsd += step.cost;
+      runningCost = step.running;
       // Unlike total_cost_usd, a result's usage and duration cover that turn alone, so they simply add up.
       const { stats } = info;
       stats.turns += 1;
@@ -171,7 +174,6 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
     }
   }
 
-  info.costUsd += processCost;
   if (info.context) {
     const window = (info.model && windows[info.model]) || Object.values(windows)[0];
     if (window) info.context.window = window;

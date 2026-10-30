@@ -1,3 +1,4 @@
+import type { TurnChanges } from './changes.js';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -128,6 +129,7 @@ function createSession(
     chrome: boolean;
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     addDirs: string[];
+    changes: TurnChanges;
   }> = {},
 ) {
   return new ClaudeSession({
@@ -954,5 +956,47 @@ describe('ClaudeSession turn.finished', () => {
     });
     expect((stats[1] as { costUsd: number }).costUsd).toBeCloseTo(0.15);
     expect(stats[1]).toMatchObject({ durationMs: 400 });
+  });
+
+  it('keeps counting cost across a resume, whose running total carries on', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn);
+    const events = collect(session);
+    session.start('hello');
+    const result = (cost: number) =>
+      `${JSON.stringify({ type: 'result', subtype: 'success', total_cost_usd: cost })}\n`;
+    children[0]!.stdout.write(result(0.6));
+    await flush();
+    children[0]!.emit('exit', 0, null);
+    children[0]!.emit('close', 0, null);
+    await flush();
+    session.send('more');
+    children[1]!.stdout.write(result(0.65));
+    await flush();
+    const costs = events.flatMap((e) => (e.type === 'turn.finished' ? [e.payload.costUsd] : []));
+    expect(costs[0]).toBeCloseTo(0.6);
+    expect(costs[1]).toBeCloseTo(0.05);
+  });
+
+  it('reports the files the turn changed, once the tracker has them', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const begun: string[] = [];
+    const session = createSession(spawnFn, {
+      changes: {
+        begin: async () => void begun.push('begin'),
+        finish: async () => ['a.ts'],
+      },
+    });
+    const events = collect(session);
+    session.start('hello');
+    session.send('while it runs');
+    children[0]!.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success' })}\n`);
+    await flush();
+    expect(begun).toEqual(['begin']);
+    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 1);
+    expect(events.at(-1)).toMatchObject({
+      type: 'claude.event',
+      payload: { raw: { type: 'system', subtype: 'turn_changes', files: ['a.ts'] } },
+    });
   });
 });

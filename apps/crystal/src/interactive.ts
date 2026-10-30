@@ -1,3 +1,4 @@
+import { reportChanges, type TurnChanges } from './changes.js';
 import { EventEmitter } from 'node:events';
 import { DROP } from './login-env.js';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
@@ -27,7 +28,7 @@ import { usageFromStatusLine } from './usage.js';
  * - SessionStart: the input box is ready, and where the transcript is;
  * - Stop: the turn ended, with the reply's text and any background tasks still running;
  * - Notification: a dialog only the terminal shows.
- * A statusline command (code.claude.com/docs/en/statusline) posts the same way and carries cost, API time, the
+ * A statusline command (code.claude.com/docs/en/statusline) posts the same way and carries cost, the
  * context window and plan limits, which become the turn result's fields and `usage` events, as on the stream engine.
  * Replies, token counts and the skills and tools listing come from the session's transcript, which the CLI
  * documents as an internal format: `transcripts.ts` keeps that mapping in one place (checked against 2.1.312).
@@ -95,6 +96,10 @@ export interface InteractiveSessionOptions {
   closeGraceMs?: number;
   /** How long a Stop waits for its reply to reach the transcript before the turn ends anyway. */
   stopWaitMs?: number;
+  /** How long after the reply to wait for a statusline carrying the last request's cost. */
+  costSettleMs?: number;
+  /** Works out what each turn changed; unset, no `system/turn_changes` lines are sent. */
+  changes?: TurnChanges;
   /** How long a prompt typed into an idle terminal may go unsubmitted before the turn ends as stuck. */
   submitWaitMs?: number;
   /** Pause after Esc dismisses a dialog, before typing the message again. */
@@ -254,9 +259,6 @@ export class InteractiveSession extends EventEmitter {
   /** Set while the terminal is being restarted to type this message again. */
   private restartWith: string | null = null;
   private cost: number | undefined;
-  /** The statusline's latest API time, and its value when this turn's count began. */
-  private apiMs: number | undefined;
-  private apiMsAtTurnStart: number | undefined;
   /** The running cost when the turn began, so its turn.finished carries the turn's own share. */
   private costAtTurnStart: number | undefined;
   private contextWindow: number | undefined;
@@ -275,7 +277,7 @@ export class InteractiveSession extends EventEmitter {
   private initBase: Record<string, unknown> | undefined;
   /** The text of the latest assistant text block this turn, to tell when Stop's reply has been written. */
   private lastText = '';
-  private stopping: { reply: string; timer: NodeJS.Timeout } | null = null;
+  private stopping: { reply: string; timer: NodeJS.Timeout; settling?: boolean } | null = null;
   /** Armed when a prompt is typed into an idle terminal; UserPromptSubmit disarms it. */
   private submitTimer: NodeJS.Timeout | null = null;
 
@@ -308,12 +310,16 @@ export class InteractiveSession extends EventEmitter {
     this.spawn(false);
     this.turnOpen = true;
     this.turnSince = Date.now();
+    void this.opts.changes?.begin();
     this.pending.push(prompt);
   }
 
   send(text: string): void {
     const idle = !this.turnOpen;
-    if (idle) this.turnSince = Date.now();
+    if (idle) {
+      this.turnSince = Date.now();
+      void this.opts.changes?.begin();
+    }
     this.turnOpen = true;
     if (!this.pty) {
       this.spawn(true);
@@ -343,11 +349,16 @@ export class InteractiveSession extends EventEmitter {
     }
     if (this.turnOpen) {
       this.turnOpen = false;
+      const durationMs = Date.now() - this.turnSince;
       this.emitEvent({
         type: 'claude.event',
-        payload: { engine: 'claude', raw: { type: 'result', subtype: 'error_during_execution', is_error: true } },
+        payload: {
+          engine: 'claude',
+          raw: { type: 'result', subtype: 'error_during_execution', is_error: true, duration_ms: durationMs },
+        },
       });
-      this.emitEvent({ type: 'turn.finished', payload: { outcome: 'interrupted' } });
+      this.emitEvent({ type: 'turn.finished', payload: { outcome: 'interrupted', durationMs } });
+      reportChanges(this.opts.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
     }
   }
 
@@ -518,16 +529,13 @@ export class InteractiveSession extends EventEmitter {
     }
   }
 
-  /** The statusline's documented input: running cost and API time, the context window, plan limits. */
+  /** The statusline's documented input: running cost, the context window, plan limits. */
   private onStatusLine(body: Record<string, unknown>): void {
     const cost = isObj(body.cost) ? body.cost : {};
+    const costRose = typeof cost.total_cost_usd === 'number' && cost.total_cost_usd !== this.cost;
     if (typeof cost.total_cost_usd === 'number') {
       this.cost = cost.total_cost_usd;
       this.costAtTurnStart ??= this.cost;
-    }
-    if (typeof cost.total_api_duration_ms === 'number') {
-      this.apiMs = cost.total_api_duration_ms;
-      this.apiMsAtTurnStart ??= this.apiMs;
     }
     const context = isObj(body.context_window) ? body.context_window : {};
     const size = context.context_window_size;
@@ -545,6 +553,7 @@ export class InteractiveSession extends EventEmitter {
       this.lastUsage = json;
       this.emitEvent({ type: 'usage', payload: usage });
     }
+    if (costRose && this.stopping?.settling) this.finishTurn();
   }
 
   private scanListing(transcript: string): void {
@@ -606,7 +615,21 @@ export class InteractiveSession extends EventEmitter {
       if (listingChanged && JSON.stringify(listingFields(this.listing)) !== this.lastListing) this.emitInit();
     }
     const stopping = this.stopping;
-    if (stopping && (stopping.reply.trim() === '' || this.lastText.trim() === stopping.reply.trim())) this.finishTurn();
+    if (stopping && (stopping.reply.trim() === '' || this.lastText.trim() === stopping.reply.trim())) this.settle();
+  }
+
+  /** The reply is in, but a debounced statusline may still owe the last request's cost: give it a moment. */
+  private settle(): void {
+    const stopping = this.stopping;
+    if (!stopping || stopping.settling) return;
+    const wait = this.opts.costSettleMs ?? 600;
+    if (wait === 0) {
+      this.finishTurn();
+      return;
+    }
+    stopping.settling = true;
+    clearTimeout(stopping.timer);
+    stopping.timer = setTimeout(() => this.finishTurn(), wait);
   }
 
   /** Ends the turn the Stop hook announced: the result line the client shows, and the engine-neutral event. */
@@ -617,16 +640,10 @@ export class InteractiveSession extends EventEmitter {
     this.stopping = null;
     this.turnOpen = false;
     this.lastText = '';
-    // The stream engine's result shape: running cost, and this turn's own tokens and API time.
+    // The stream engine's result shape: running cost, and this turn's own tokens and whole length.
     const tokens = this.turnTokens;
     const counted = Object.values(tokens).some((n) => n > 0);
-    // A new process (a resume) may count API time from zero again; then the whole count is this turn's.
-    const durationMs =
-      this.apiMs === undefined
-        ? undefined
-        : this.apiMsAtTurnStart !== undefined && this.apiMs >= this.apiMsAtTurnStart
-          ? this.apiMs - this.apiMsAtTurnStart
-          : this.apiMs;
+    const durationMs = Date.now() - this.turnSince;
     this.emitEvent({
       type: 'claude.event',
       payload: {
@@ -638,7 +655,7 @@ export class InteractiveSession extends EventEmitter {
           result: stopping.reply,
           session_id: this.opts.session,
           ...(this.cost !== undefined ? { total_cost_usd: this.cost } : {}),
-          ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+          duration_ms: durationMs,
           ...(counted ? { usage: { ...tokens } } : {}),
           // Keyed by a neutral name: the client takes the only window there is.
           ...(this.contextWindow !== undefined
@@ -655,7 +672,6 @@ export class InteractiveSession extends EventEmitter {
           : this.cost;
     const neutral = neutralTokens(counted ? tokens : undefined);
     this.turnTokens = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
-    this.apiMsAtTurnStart = this.apiMs;
     this.costAtTurnStart = this.cost;
     const summary = stopping.reply.trim().slice(0, SUMMARY_CHARS);
     this.emitEvent({
@@ -664,10 +680,11 @@ export class InteractiveSession extends EventEmitter {
         outcome: 'success',
         ...(summary ? { summary } : {}),
         ...(turnCost !== undefined ? { costUsd: turnCost } : {}),
-        ...(durationMs !== undefined ? { durationMs } : {}),
+        durationMs,
         ...(neutral ? { tokens: neutral } : {}),
       },
     });
+    reportChanges(this.opts.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
   }
 
   /**

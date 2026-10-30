@@ -243,6 +243,11 @@ export function demoWorld(): DemoWorld {
   whenApproved(login, runTests, (story) => {
     story
       .done(tests, '14 passed')
+      .use(
+        'Bash',
+        { command: 'gh pr create --fill', description: 'Open the pull request' },
+        'https://git.example.com/tavern/app/pull/128\n',
+      )
       .say('Passkey sign-in works, with a fallback to email, and all 14 auth tests pass.')
       .finish('Passkey sign-in works, with a fallback to email.', 1.84, 12);
   });

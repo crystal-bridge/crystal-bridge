@@ -123,8 +123,9 @@ array of strings) appears too.
 ```
 
 `"type":"result"` is **not** the first key on this line (the line starts with `duration_api_ms`), so match on the
-parsed `type`, never on a line prefix. `total_cost_usd` is **cumulative for the process**: followup's two results
-read 0.0139 and then 0.0199. `result_index` counts results within one process.
+parsed `type`, never on a line prefix. `total_cost_usd` is **cumulative for the conversation**: followup's two results
+read 0.0139 and then 0.0199, and it carries across `--resume` (0.0818, 0.1451, 0.1497 over three processes, CLI
+2.1.314). `result_index` counts results within one process.
 
 ### What `system/init` says a session can use
 
@@ -245,11 +246,12 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
 - **Startup.** A folder not yet trusted shows the workspace-trust dialog with the cursor on "No, exit": Down then
   Enter accepts it. No other dialog appeared with hooks in `--settings`.
 - **Statusline** (documented, code.claude.com/docs/en/statusline): a `statusLine` command in `--settings` gets JSON on
-  stdin after each change (debounced 300 ms): `cost.total_cost_usd` (running, per process), `cost.total_api_duration_ms`,
+  stdin after each change (debounced 300 ms): `cost.total_cost_usd` (running, across resumes), `cost.total_api_duration_ms`,
   `context_window.context_window_size` (1000000 here), `context_window.total_input_tokens`, and
   `rate_limits.<five_hour|seven_day>.used_percentage` (0-100) with `resets_at` (epoch seconds). Crystal turns these into
-  the turn result's `total_cost_usd`, `duration_ms` (API time this turn) and `modelUsage.session.contextWindow`, a
-  `system/context_window` line of Crystal's own as soon as the size is known or changes, and `usage` events. Per-turn tokens come from transcript `assistant` lines' `message.usage`, once per `message.id`.
+  the turn result's `total_cost_usd` and `modelUsage.session.contextWindow`, a
+  `system/context_window` line of Crystal's own as soon as the size is known or changes, and `usage` events.
+  Crystal also adds a `system/turn_changes` line (`files`) after a turn, on both engines, from `src/changes.ts`. Per-turn tokens come from transcript `assistant` lines' `message.usage`, once per `message.id`.
 - **Listing attachments** (internal): `attachment.type: skill_listing` with `names` (every skill, plugin skills
   prefixed `plugin:`; `isInitial`), and `deferred_tools_delta` with `addedNames`/`removedNames` (tool names, MCP ones as
   `mcp__<server>__<tool>`, claude.ai connectors as `mcp__claude_ai_<Name>__…`), `pendingMcpServers` and

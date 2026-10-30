@@ -1,3 +1,4 @@
+import { gitChanges } from './changes.js';
 import { Engine, PermissionMode } from '@crystal-bridge/protocol';
 import { HookBus, InteractiveSession } from './interactive.js';
 import { createPermissionServer } from './permissions.js';
@@ -83,16 +84,19 @@ async function main(): Promise<void> {
     cliVersion: cachedCliVersion({ exec: execCliVersion(process.env.CLAUDE_BIN ?? 'claude', sessionEnv) }),
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
-    sessionFactory: ({ engine, ...opts }) =>
-      engine === 'interactive'
+    sessionFactory: ({ engine, ...opts }) => {
+      const changes = gitChanges(opts.cwd);
+      return engine === 'interactive'
         ? new InteractiveSession({
             ...opts,
             env: sessionEnv,
             chrome: CHROME,
+            changes,
             hooks,
             hookUrl: permissionServer.hookUrl(opts.session),
           })
-        : new ClaudeSession({ ...opts, env: sessionEnv, chrome: CHROME }),
+        : new ClaudeSession({ ...opts, env: sessionEnv, chrome: CHROME, changes });
+    },
     permissionServer,
   });
 

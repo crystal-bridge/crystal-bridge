@@ -10,6 +10,7 @@ const turn: BattleResult = {
   costUsd: 0.25,
   tokens: { input: 1200, output: 300, cacheRead: 50_000, cacheWrite: 0 },
   loot: ['src/a.ts', 'b.md'],
+  prs: [],
   heroes: ['Explore'],
   sideQuests: 1,
 };
@@ -36,6 +37,14 @@ describe('BattleCard', () => {
     expect(card.textContent).toContain('src/a.ts');
     expect(card.textContent).toContain('The Quest goes on');
     expect(card.textContent).not.toMatch(/Quest complete/);
+  });
+
+  it('links the pull requests a turn opened, and leaves the row out when there are none', () => {
+    render(<BattleCard result={{ ...turn, prs: ['https://github.com/o/r/pull/12'] }} kind="turn" latest />);
+    expect(screen.getByRole('link', { name: '#12' }).getAttribute('href')).toBe('https://github.com/o/r/pull/12');
+    cleanup();
+    render(<BattleCard result={turn} kind="turn" latest />);
+    expect(screen.queryByText('Trophies')).toBeNull();
   });
 
   it('names a stopped or failed turn', () => {
