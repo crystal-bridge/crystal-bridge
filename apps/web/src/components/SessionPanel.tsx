@@ -1,3 +1,4 @@
+import type { UsageWindow } from '@crystal-bridge/protocol';
 import { type ReactNode, useContext, useEffect, useState } from 'react';
 import type { Activity } from '../activity.js';
 import { type HeroManifest, type HeroState, matchClass, QUIET_MS } from '../heroes.js';
@@ -7,6 +8,7 @@ import { MODES } from '../modes.js';
 import { type Concept, hint, stepWord, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { bytes, duration, tokens } from '../format.js';
+import { formatUntil } from './NodeUsage.js';
 
 /** A Stats row: the theme's label, with the plain term on hover. */
 function Stat({ concept, children }: { concept: Concept; children: ReactNode }) {
@@ -18,6 +20,32 @@ function Stat({ concept, children }: { concept: Concept; children: ReactNode }) 
       <span className="min-w-0 text-right">{children}</span>
     </div>
   );
+}
+
+/** A draining bar (HP, MP), coloured in five steps from full (green) to empty (red): `--meter-<level>` in theme.css. */
+function Meter({ label, left }: { label: string; left: number }) {
+  const level = left > 80 ? 5 : left > 60 ? 4 : left > 40 ? 3 : left > 20 ? 2 : 1;
+  return (
+    <div
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={left}
+      data-level={level}
+      className="mb-1 mt-0.5 h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
+    >
+      <div className="h-full" style={{ width: `${left}%`, background: `var(--meter-${level})` }} />
+    </div>
+  );
+}
+
+/** HP: what's left of the Kingdom's five-hour plan window (full again once it resets), and when it resets. */
+function planLeft(plan: UsageWindow[] | undefined, now: number): { left: number; resetsAt: number | null } | undefined {
+  const window = plan?.find((w) => w.id === 'five_hour') ?? plan?.[0];
+  if (!window) return undefined;
+  if (window.resetsAt !== null && window.resetsAt <= now) return { left: 100, resetsAt: null };
+  return { left: Math.max(0, Math.min(100, Math.round(100 - window.usedPct))), resetsAt: window.resetsAt };
 }
 
 function Section({ title, tooltip, children }: { title: string; tooltip?: string; children: ReactNode }) {
@@ -157,18 +185,20 @@ export interface SessionPanelProps {
   party?: { manifest: HeroManifest; leaderState: HeroState };
   /** The turn's current step, when one is in progress. */
   activity?: Activity;
+  /** The Kingdom's latest plan usage report, for HP. */
+  plan?: UsageWindow[];
   /** The current time (tests); otherwise each timer keeps its own clock. */
   now?: number;
 }
 
 /** The session's side panel: where it runs, how full its context is, what it cost, what it changed and started. */
-export function SessionPanel({ info, kingdom, party, relayedBytes, activity, now }: SessionPanelProps) {
+export function SessionPanel({ info, kingdom, party, relayedBytes, activity, plan, now }: SessionPanelProps) {
   const open = useContext(FileOpenContext);
   const pct = info.context?.window ? Math.round((info.context.used / info.context.window) * 100) : undefined;
   // MP drains: what's left of the context window.
   const left = pct === undefined ? undefined : Math.max(0, 100 - pct);
   const mode = MODES.find((m) => m.value === info.mode)?.label ?? info.mode;
-  const level = left === undefined ? '' : left <= 20 ? 'bg-red-500' : left <= 50 ? 'bg-amber-500' : 'bg-blue-500';
+  const hp = planLeft(plan, now ?? Date.now());
   const { stats } = info;
 
   return (
@@ -184,7 +214,42 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, now
           </Section>
         )
       )}
-      <Section title="Environment">
+
+      <Section title={w('stats')} tooltip={hint('stats')}>
+        {hp && (
+          <>
+            <Stat concept="hp">
+              {hp.left}%{hp.resetsAt !== null && ` · rests in ${formatUntil(hp.resetsAt, now ?? Date.now())}`}
+            </Stat>
+            <Meter label="Plan left" left={hp.left} />
+          </>
+        )}
+        <Stat concept="mp">
+          {info.context ? (
+            <>
+              {left !== undefined && <span className="font-medium">{left}% left · </span>}
+              {info.context.window
+                ? `${tokens(info.context.used)} of ${tokens(info.context.window)}`
+                : `${tokens(info.context.used)} used`}
+            </>
+          ) : (
+            <span className="text-neutral-500">not measured yet</span>
+          )}
+        </Stat>
+        {left !== undefined && <Meter label="Context left" left={left} />}
+        <Stat concept="gold">${info.costUsd.toFixed(2)}</Stat>
+        <Stat concept="tokens">
+          {tokens(stats.tokens.input)} in · {tokens(stats.tokens.output)} out
+          <span className="block text-neutral-500">
+            {tokens(stats.tokens.cacheRead)} cache read · {tokens(stats.tokens.cacheWrite)} written
+          </span>
+        </Stat>
+        <Stat concept="turns">{stats.turns}</Stat>
+        <Stat concept="workingTime">{duration(stats.workingMs)}</Stat>
+        {relayedBytes !== undefined && <Stat concept="relayed">{bytes(relayedBytes)}</Stat>}
+      </Section>
+
+      <Section title={w('expedition')} tooltip={hint('expedition')}>
         <Row label="Kingdom">{kingdom}</Row>
         {info.cwd && (
           <Row label="Project">
@@ -198,43 +263,6 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, now
         )}
         {info.model && <Row label="Model">{info.model}</Row>}
         {mode && <Row label="Mode">{mode}</Row>}
-      </Section>
-
-      <Section title={w('stats')} tooltip={hint('stats')}>
-        <Stat concept="mp">
-          {info.context ? (
-            <>
-              {left !== undefined && <span className="font-medium">{left}% left · </span>}
-              {info.context.window
-                ? `${tokens(info.context.used)} of ${tokens(info.context.window)}`
-                : `${tokens(info.context.used)} used`}
-            </>
-          ) : (
-            <span className="text-neutral-500">not measured yet</span>
-          )}
-        </Stat>
-        {left !== undefined && (
-          <div
-            role="meter"
-            aria-label="Context left"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={left}
-            className="mb-1 mt-0.5 h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
-          >
-            <div className={`h-full ${level}`} style={{ width: `${left}%` }} />
-          </div>
-        )}
-        <Stat concept="gold">${info.costUsd.toFixed(2)}</Stat>
-        <Stat concept="tokens">
-          {tokens(stats.tokens.input)} in · {tokens(stats.tokens.output)} out
-          <span className="block text-neutral-500">
-            {tokens(stats.tokens.cacheRead)} cache read · {tokens(stats.tokens.cacheWrite)} written
-          </span>
-        </Stat>
-        <Stat concept="turns">{stats.turns}</Stat>
-        <Stat concept="workingTime">{duration(stats.workingMs)}</Stat>
-        {relayedBytes !== undefined && <Stat concept="relayed">{bytes(relayedBytes)}</Stat>}
       </Section>
 
       <Section title="Outputs">
