@@ -27,7 +27,9 @@ import {
   loadCachedAppearance,
   lookFor,
   saveAppearance,
+  promptColourFor,
   tabStyle,
+  withPromptColour,
   withLook,
   withTabStyle,
 } from './appearance.js';
@@ -149,6 +151,12 @@ export function App({ hub }: { hub: HubClient }) {
   });
   // The user's Kingdom appearance, shared by their devices: drawn from the local copy, then the hub's.
   const [appearance, setAppearance] = useState<Appearance>(() => loadCachedAppearance());
+  // The prompt colour sits on the root, where it reaches every pane of every Quest.
+  useEffect(() => {
+    const { background, text } = promptColourFor(appearance);
+    document.documentElement.style.setProperty('--prompt-background', background);
+    document.documentElement.style.setProperty('--prompt-text', text);
+  }, [appearance]);
   // The main view: the Airship (Home), or inside the active Kingdom its Castle, the New Quest form, or a Quest.
   const [page, setPage] = useState<'airship' | 'castle' | 'new'>(() =>
     startRoute?.page === 'airship' || startRoute?.page === 'new' ? startRoute.page : 'castle',
@@ -861,6 +869,8 @@ export function App({ hub }: { hub: HubClient }) {
                 onLook={(id, change) => changeAppearance((prev) => withLook(prev, id, change))}
                 tabStyle={tabStyle(appearance)}
                 onTabStyle={(style) => changeAppearance((prev) => withTabStyle(prev, style))}
+                promptColour={promptColourFor(appearance).id}
+                onPromptColour={(id) => changeAppearance((prev) => withPromptColour(prev, id))}
                 status={status}
                 canNotify={canNotify}
                 onEnableNotifications={() => void Notification.requestPermission().then(setCanNotify)}

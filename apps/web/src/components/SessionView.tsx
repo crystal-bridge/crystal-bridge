@@ -162,7 +162,7 @@ function Item({
       return (
         <div
           title={sentAt(ts)}
-          className="ml-auto max-w-[80%] whitespace-pre-wrap rounded bg-blue-600 px-3 py-2 text-white [overflow-wrap:anywhere]"
+          className="cb-sent-prompt ml-auto max-w-[80%] whitespace-pre-wrap rounded px-3 py-2 [overflow-wrap:anywhere]"
         >
           {text}
           {paths.length > 0 && (

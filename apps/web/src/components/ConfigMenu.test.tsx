@@ -39,6 +39,14 @@ describe('ConfigMenu', () => {
     expect(screen.getByRole('heading', { name: 'Notifications' }).className).toContain('cb-label');
   });
 
+  it('offers a swatch per prompt colour, and marks the chosen one', () => {
+    const onPromptColour = vi.fn();
+    renderMenu({ promptColour: 'lavender', onPromptColour });
+    expect(screen.getByRole('button', { name: 'Prompt colour: Lavender' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt colour: Teal' }));
+    expect(onPromptColour).toHaveBeenCalledWith('teal');
+  });
+
   it('opens from the gear and closes again', () => {
     renderMenu();
     expect(screen.getByRole('dialog', { name: 'Config' })).toBeTruthy();

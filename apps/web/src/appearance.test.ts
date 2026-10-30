@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BANNER_COLOURS, KINGDOM_ICONS, iconPixels } from './theme/kingdomIcons.js';
+import { DEFAULT_PROMPT_COLOUR } from './theme/promptColours.js';
 import {
+  promptColourFor,
+  withPromptColour,
   fetchAppearance,
   loadCachedAppearance,
   lookFor,
@@ -95,5 +98,18 @@ describe('Kingdom looks', () => {
       vi.fn(async () => new Response('{"looks":[1]}')),
     );
     expect(await fetchAppearance()).toBeUndefined();
+  });
+});
+
+describe('prompt colour', () => {
+  it('is the default until one is chosen, and ignores one this client does not know', () => {
+    expect(promptColourFor({}).id).toBe(DEFAULT_PROMPT_COLOUR);
+    expect(promptColourFor({ promptColour: 'nope' }).id).toBe(DEFAULT_PROMPT_COLOUR);
+  });
+
+  it('keeps a choice, leaving the rest of the appearance alone', () => {
+    const next = withPromptColour({ tabStyle: 'tinted' }, 'teal');
+    expect(promptColourFor(next).id).toBe('teal');
+    expect(next.tabStyle).toBe('tinted');
   });
 });

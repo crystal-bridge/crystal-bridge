@@ -10,6 +10,7 @@ import { type SelectOption, ThemedSelect } from './ThemedSelect.js';
 import { VARIED } from '../heroes.js';
 import { DevicePush, type PushState } from './DevicePush.js';
 import { KingdomIcon } from './KingdomIcon.js';
+import { DEFAULT_PROMPT_COLOUR, PROMPT_COLOURS } from '../theme/promptColours.js';
 
 export interface ConfigMenuProps {
   visible: Kingdom[];
@@ -35,6 +36,9 @@ export interface ConfigMenuProps {
   /** The Classes a Kingdom can pick as its party leader, the art pack's own leader first (#20). */
   leaders?: SelectOption[];
   onTabStyle?: (style: TabStyle) => void;
+  promptColour?: string;
+  /** Sets the colour of the user's own prompts, on all their devices; without it, no choice. */
+  onPromptColour?: (id: string) => void;
   /** Makes a join code for a new Kingdom; without it, no Add Kingdom. */
   onCreateJoinCode?: (node: string) => Promise<{ code: string; expiresAt: number }>;
 }
@@ -150,6 +154,8 @@ export function ConfigMenu({
   onTabStyle,
   leaders,
   onCreateJoinCode,
+  promptColour = DEFAULT_PROMPT_COLOUR,
+  onPromptColour,
 }: ConfigMenuProps) {
   const [open, setOpen] = useState(false);
   const [styling, setStyling] = useState<string | null>(null);
@@ -260,6 +266,30 @@ export function ConfigMenu({
             ))}
             {onCreateJoinCode && <AddKingdom hub={window.location.origin} onCreate={onCreateJoinCode} />}
           </section>
+
+          {onPromptColour && (
+            <section className="space-y-2">
+              <h3 className="cb-label">Your prompts</h3>
+              <div className="flex flex-wrap gap-1">
+                {PROMPT_COLOURS.map((colour) => (
+                  <button
+                    key={colour.id}
+                    type="button"
+                    aria-label={`Prompt colour: ${colour.label}`}
+                    title={colour.label}
+                    aria-pressed={colour.id === promptColour}
+                    onClick={() => onPromptColour(colour.id)}
+                    style={{ background: colour.background }}
+                    className={`h-6 w-6 rounded-full border-2 border-white dark:border-neutral-900 ${
+                      colour.id === promptColour
+                        ? 'ring-2 ring-blue-600'
+                        : 'ring-1 ring-neutral-300 dark:ring-neutral-600'
+                    }`}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="space-y-2">
             <h3 className="cb-label">Notifications</h3>

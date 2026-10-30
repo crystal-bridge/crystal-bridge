@@ -630,3 +630,9 @@ button[aria-pressed='true'] .cb-icon {
   background: var(--select-bg);
   font-size: 0.75rem;
 }
+
+/* The user's own prompts: the colours are set from their choice (theme/promptColours.ts). */
+.cb-sent-prompt {
+  background: var(--prompt-background, #5f4b8b);
+  color: var(--prompt-text, #ffffff);
+}
