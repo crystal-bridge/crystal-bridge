@@ -179,6 +179,20 @@ describe('Castle', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
+  it('uses the width it has: tiles wrap instead of squeezing, and each value stays on one line', () => {
+    renderCastle();
+    expect(document.querySelector('.max-w-3xl')).toBeNull();
+    const today = screen.getByRole('region', { name: 'Today' });
+    expect(today.querySelector('dl')?.className).toContain('auto-fit');
+    for (const value of today.querySelectorAll('dd')) expect(value.className).toContain('whitespace-nowrap');
+  });
+
+  it('lays Quests out as a grid of cards that fills the width', () => {
+    renderCastle();
+    const active = screen.getByRole('region', { name: 'Active Quests' });
+    expect(active.querySelector('ul')?.className).toContain('auto-fill');
+  });
+
   it('shows active Quests as cards with the start of their latest reply', () => {
     renderCastle({ sessions: [{ ...sessions[0]!, preview: 'All tests pass now.' }, ...sessions.slice(1)] });
     expect(screen.getByRole('region', { name: 'Active Quests' }).textContent).toContain('All tests pass now.');

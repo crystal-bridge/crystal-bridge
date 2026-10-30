@@ -18,7 +18,7 @@ export function Gold({ usd, compact = false }: { usd: number; compact?: boolean 
   const dollars = `${money(usd)} (${NOTE})`;
   if (compact) return <span title={dollars}>{goldText(usd)} Gold</span>;
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-x-1">
       {goldText(usd)}
       {open && <span className="cb-gold-usd text-neutral-500">{money(usd)}</span>}
       <Tip text={dollars} align="end">

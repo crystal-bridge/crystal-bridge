@@ -2,7 +2,7 @@ import { type CSSProperties, useState } from 'react';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import type { Level } from '../levels.js';
 import { type ActivityItem, activityLine, sumStats, type TurnStats } from '../home.js';
-import { ago, QuestCard, StatTiles } from './HomeParts.js';
+import { ago, HOME_PAGE, HOME_PAIR, QuestCard, StatTiles } from './HomeParts.js';
 import type { KingdomLook } from '../appearance.js';
 import type { Kingdom } from '../kingdoms.js';
 import { hint, w } from '../theme/words.js';
@@ -85,40 +85,45 @@ export function Airship({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-6 px-3 py-6">
+      <div className={`${HOME_PAGE} space-y-6 px-3 py-6`}>
         <h1 className="cb-display text-4xl leading-none" title={hint('home')}>
           {w('home')}
         </h1>
 
-        <section aria-label={w('tavern')} className="cb-window space-y-2 p-4">
-          <h2 className="cb-display text-2xl leading-none text-gold-bright" title={hint('tavern')}>
-            {w('tavern')}
-          </h2>
-          {tavern.length === 0 ? (
-            <p className="text-sm text-white/80">Nothing is waiting on you.</p>
-          ) : (
-            <ul className="space-y-1">
-              {tavern.map((row) => (
-                <li key={row.session}>
-                  <button
-                    type="button"
-                    onClick={() => onQuest(row.node, row.session)}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-white/10"
-                  >
-                    <span className="shrink-0 rounded-full bg-amber-500 px-1.5 text-xs font-bold leading-4 text-white">
-                      !
-                    </span>
-                    <span className="truncate">{row.text}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <div className={HOME_PAIR}>
+          <section aria-label={w('tavern')} className="cb-window space-y-2 p-4">
+            <h2 className="cb-display text-2xl leading-none text-gold-bright" title={hint('tavern')}>
+              {w('tavern')}
+            </h2>
+            {tavern.length === 0 ? (
+              <p className="text-sm text-white/80">Nothing is waiting on you.</p>
+            ) : (
+              <ul className="space-y-1">
+                {tavern.map((row) => (
+                  <li key={row.session}>
+                    <button
+                      type="button"
+                      onClick={() => onQuest(row.node, row.session)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-white/10"
+                    >
+                      <span className="shrink-0 rounded-full bg-amber-500 px-1.5 text-xs font-bold leading-4 text-white">
+                        !
+                      </span>
+                      <span className="truncate">{row.text}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-        <StatTiles title={w('today')} plain={hint('today')} stats={sumStats(today, new Set(shown.keys()))} />
+          <StatTiles title={w('today')} plain={hint('today')} stats={sumStats(today, new Set(shown.keys()))} />
+        </div>
 
-        <section aria-label={w('kingdoms')} className="grid gap-3 sm:grid-cols-2">
+        <section
+          aria-label={w('kingdoms')}
+          className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] gap-3"
+        >
           {kingdoms.map((kingdom) => {
             const own = sessions.filter((s) => s.node === kingdom.id);
             const active = own
@@ -188,34 +193,36 @@ export function Airship({
           })}
         </section>
 
-        {heroes && levels && <Roster manifest={heroes} levels={levels} />}
+        <div className={HOME_PAIR}>
+          {heroes && levels && <Roster manifest={heroes} levels={levels} />}
 
-        {log.length > 0 && (
-          <section aria-label={w('adventureLog')} className="space-y-1">
-            <h2 className="cb-display text-xl leading-none" title={hint('adventureLog')}>
-              {w('adventureLog')}
-            </h2>
-            <ul className="divide-y divide-neutral-200 text-sm dark:divide-neutral-800">
-              {(moreLog ? log : log.slice(0, LOG_SHOWN)).map((item) => (
-                <li key={`${item.session}-${item.ts}-${item.kind}`} className="flex items-baseline gap-3 py-1">
-                  <span className="w-10 shrink-0 text-right text-xs text-neutral-500">{ago(item.ts, now)}</span>
-                  <span className="min-w-0 truncate">
-                    {activityLine(item, shown.get(item.node)!.name, discreet(item.node))}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {log.length > LOG_SHOWN && (
-              <button
-                type="button"
-                onClick={() => setMoreLog((open) => !open)}
-                className="text-xs text-neutral-500 hover:underline"
-              >
-                {moreLog ? 'Show less' : `Show ${log.length - LOG_SHOWN} more`}
-              </button>
-            )}
-          </section>
-        )}
+          {log.length > 0 && (
+            <section aria-label={w('adventureLog')} className="space-y-1">
+              <h2 className="cb-display text-xl leading-none" title={hint('adventureLog')}>
+                {w('adventureLog')}
+              </h2>
+              <ul className="divide-y divide-neutral-200 text-sm dark:divide-neutral-800">
+                {(moreLog ? log : log.slice(0, LOG_SHOWN)).map((item) => (
+                  <li key={`${item.session}-${item.ts}-${item.kind}`} className="flex items-baseline gap-3 py-1">
+                    <span className="w-10 shrink-0 text-right text-xs text-neutral-500">{ago(item.ts, now)}</span>
+                    <span className="min-w-0 truncate">
+                      {activityLine(item, shown.get(item.node)!.name, discreet(item.node))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {log.length > LOG_SHOWN && (
+                <button
+                  type="button"
+                  onClick={() => setMoreLog((open) => !open)}
+                  className="text-xs text-neutral-500 hover:underline"
+                >
+                  {moreLog ? 'Show less' : `Show ${log.length - LOG_SHOWN} more`}
+                </button>
+              )}
+            </section>
+          )}
+        </div>
       </div>
     </div>
   );

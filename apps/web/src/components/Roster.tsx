@@ -16,7 +16,7 @@ export function Roster({ manifest, levels }: { manifest: HeroManifest; levels: R
       <h2 className="cb-display text-xl leading-none" title={hint('roster')}>
         {w('roster')}
       </h2>
-      <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-2">
         {rows.map(({ id, name, level }) => (
           <li
             key={id}

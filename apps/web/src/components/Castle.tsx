@@ -12,7 +12,7 @@ import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
-import { QuestCard, StatTiles } from './HomeParts.js';
+import { HOME_PAGE, HOME_PAIR, QUEST_GRID, QuestCard, StatTiles } from './HomeParts.js';
 
 export interface CastleProps {
   kingdom: Kingdom;
@@ -265,7 +265,7 @@ export function Castle({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-5 py-6">
+      <div className={`${HOME_PAGE} space-y-5 py-6`}>
         <header
           data-kingdom={kingdom.id}
           style={look ? ({ '--kingdom-colour': look.colour } as CSSProperties) : undefined}
@@ -311,80 +311,89 @@ export function Castle({
         </header>
         <NodeUsage rows={usage} now={now} named={false} />
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className={HOME_PAIR}>
           <StatTiles title={w('today')} plain={hint('today')} stats={today} />
           <StatTiles title={w('thisWeek')} plain={hint('thisWeek')} stats={week} />
         </div>
 
-        {needsYou.length > 0 && (
-          <Section title={w('needsYou')} plain={hint('needsYou')}>
-            <ul className="space-y-2 px-3">{needsYou.map(card)}</ul>
-          </Section>
-        )}
+        <div className={`grid items-start gap-5 ${haunts.length > 0 ? 'xl:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}>
+          <div className="min-w-0 space-y-5">
+            {needsYou.length > 0 && (
+              <Section title={w('needsYou')} plain={hint('needsYou')}>
+                <ul className={`${QUEST_GRID} px-3`}>{needsYou.map(card)}</ul>
+              </Section>
+            )}
 
-        <Section title={w('activeQuests')} plain={hint('activeQuests')}>
-          {active.length === 0 ? (
-            <p className="px-3 text-sm text-neutral-500">{`Nothing in play. Start one with ${w('newQuest')}.`}</p>
-          ) : (
-            <ul className="space-y-2 px-3">{active.map(card)}</ul>
-          )}
-        </Section>
+            <Section title={w('activeQuests')} plain={hint('activeQuests')}>
+              {active.length === 0 ? (
+                <p className="px-3 text-sm text-neutral-500">{`Nothing in play. Start one with ${w('newQuest')}.`}</p>
+              ) : (
+                <ul className={`${QUEST_GRID} px-3`}>{active.map(card)}</ul>
+              )}
+            </Section>
 
-        {haunts.length > 0 && (
-          <Section title={w('haunts')} plain={hint('haunts')}>
-            <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-              {haunts.map((haunt) => (
-                <li key={haunt.cwd} className="flex items-center gap-3 py-1.5">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{haunt.name}</span>
-                    <span className="block truncate text-xs text-neutral-500" title={haunt.cwd}>
-                      {haunt.cwd} · {haunt.count} {haunt.count === 1 ? w('quest') : w('quests')}
+            <Folded title={w('chronicle')} plain={hint('chronicle')} count={history.length}>
+              <input
+                type="search"
+                placeholder={`Search this ${w('kingdom')}`}
+                value={query}
+                onChange={(e) => onQuery(e.target.value)}
+                className="mx-3 mb-2 w-[calc(100%-1.5rem)] rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+              />
+              {searching ? (
+                <SearchResults query={query.trim()} hits={hits} onOpen={onOpenHit} />
+              ) : (
+                <SessionList
+                  sessions={history}
+                  selected={null}
+                  onSelect={onSelect}
+                  now={now}
+                  empty="Nothing here yet."
+                />
+              )}
+            </Folded>
+
+            {found.length > 0 && (
+              <Folded title={w('recruits')} plain={hint('recruits')} count={found.length}>
+                <FoundSessions
+                  name={kingdom.name}
+                  sessions={found}
+                  connected={kingdom.connected}
+                  engines={engines}
+                  onAdopt={onAdopt}
+                  now={now}
+                />
+              </Folded>
+            )}
+          </div>
+          {haunts.length > 0 && (
+            <Section title={w('haunts')} plain={hint('haunts')}>
+              <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+                {haunts.map((haunt) => (
+                  <li key={haunt.cwd} className="flex items-center gap-3 py-1.5">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{haunt.name}</span>
+                      <span className="block truncate text-xs text-neutral-500" title={haunt.cwd}>
+                        {haunt.cwd} · {haunt.count} {haunt.count === 1 ? w('quest') : w('quests')}
+                      </span>
                     </span>
-                  </span>
-                  {onNewIn && (
-                    <button
-                      type="button"
-                      aria-label={`${w('setOutHere')}: ${haunt.name}`}
-                      title={hint('setOutHere')}
-                      onClick={() => onNewIn(haunt.cwd)}
-                      className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                    >
-                      {w('setOutHere')}
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
-
-        <Folded title={w('chronicle')} plain={hint('chronicle')} count={history.length}>
-          <input
-            type="search"
-            placeholder={`Search this ${w('kingdom')}`}
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            className="mx-3 mb-2 w-[calc(100%-1.5rem)] rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-          />
-          {searching ? (
-            <SearchResults query={query.trim()} hits={hits} onOpen={onOpenHit} />
-          ) : (
-            <SessionList sessions={history} selected={null} onSelect={onSelect} now={now} empty="Nothing here yet." />
+                    {onNewIn && (
+                      <button
+                        type="button"
+                        aria-label={`${w('setOutHere')}: ${haunt.name}`}
+                        title={hint('setOutHere')}
+                        onClick={() => onNewIn(haunt.cwd)}
+                        className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                      >
+                        {w('setOutHere')}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Section>
           )}
-        </Folded>
-
-        {found.length > 0 && (
-          <Folded title={w('recruits')} plain={hint('recruits')} count={found.length}>
-            <FoundSessions
-              name={kingdom.name}
-              sessions={found}
-              connected={kingdom.connected}
-              engines={engines}
-              onAdopt={onAdopt}
-              now={now}
-            />
-          </Folded>
-        )}
+        </div>
 
         {!removed && onRemove && <RemoveKingdom key={kingdom.id} kingdom={kingdom} onRemove={onRemove} />}
         {removed && onForget && <ForgetKingdom key={kingdom.id} kingdom={kingdom} onForget={onForget} />}

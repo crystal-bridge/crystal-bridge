@@ -33,6 +33,13 @@ function renderAirship(overrides: Partial<Parameters<typeof Airship>[0]> = {}) {
 describe('Airship', () => {
   afterEach(() => cleanup());
 
+  it('uses the width it has: Kingdoms and tiles wrap to fit instead of squeezing', () => {
+    renderAirship();
+    expect(document.querySelector('.max-w-3xl')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Kingdoms' }).className).toContain('auto-fit');
+    expect(screen.getByRole('region', { name: 'Today' }).querySelector('dl')?.className).toContain('auto-fit');
+  });
+
   it('lists what is waiting on you in the Tavern, with no titles from Discreet Kingdoms', () => {
     const props = renderAirship();
     const tavern = screen.getByRole('region', { name: 'Tavern' });

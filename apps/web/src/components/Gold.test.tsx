@@ -29,6 +29,11 @@ describe('Gold', () => {
     expect(screen.getByText('$100.82', { selector: '.cb-gold-usd' })).toBeTruthy();
   });
 
+  it('lets the opened dollars drop to a new line when the coins fill a narrow tile', () => {
+    render(<Gold usd={100.82} />);
+    expect(screen.getByText(/10,082/).className).toContain('flex-wrap');
+  });
+
   it('can leave out the info button where space is tight, keeping the dollars in the tooltip text', () => {
     render(<Gold usd={1.18} compact />);
     expect(screen.queryByRole('button')).toBeNull();
