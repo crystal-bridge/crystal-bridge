@@ -84,6 +84,12 @@ function harness(overrides: Partial<ConstructorParameters<typeof InteractiveSess
 
 const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Waits until `ready()` holds (or `ms` pass), for timers whose firing a busy CI runner can delay. */
+async function until(ready: () => boolean, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!ready() && Date.now() < deadline) await tick(5);
+}
+
 const assistant = (id: string, content: unknown[]) => ({
   type: 'assistant',
   isSidechain: false,
@@ -413,7 +419,7 @@ describe('InteractiveSession', () => {
     expect(session.busyReason).toBeUndefined();
     session.start('hello');
     hook('SessionStart', {});
-    await tick(10);
+    await until(() => session.busyReason?.startsWith('typed') === true);
     expect(session.busyReason).toMatch(/^typed message not yet taken for \d+s$/);
     hook('UserPromptSubmit', { prompt: 'hello' });
     expect(session.busyReason).toMatch(/^turn open for \d+s$/);
