@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -54,6 +55,12 @@ export interface BuildServerOptions {
   /** Web Push: the VAPID public key browsers subscribe with, and what sends each attention to subscribed devices. */
   push?: { publicKey: string; pusher: Pusher };
 }
+
+/** Tokens and codes can't be guessed, but each try costs a file read: a limit for the routes that take one. */
+const GUESSES = { max: 20, timeWindow: '1 minute' };
+
+/** Higher, for a whole fleet reconnecting after a hub restart. */
+const NODE_DIALS = { max: 300, timeWindow: '1 minute' };
 
 /** Close code for a node whose hello names a protocol version this hub doesn't speak. */
 const CLOSE_WRONG_PROTOCOL = 4006;
@@ -152,6 +159,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     relayFlushMs = 30_000,
   } = options;
   const app = fastify({ logger });
+  // Only on the doors anyone can knock at, by route. Not on the whole API: behind a proxy every request shares an address,
+  // so a global limit would throttle the app's own polling.
+  await app.register(rateLimit, { global: false });
 
   /** Whose request this is; one shared user when there's no login (pnpm dev, where the client side is open anyway). */
   const loginOf = (request: FastifyRequest): string => auth?.identify(request) ?? 'default';
@@ -382,7 +392,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     login: auth ? (auth.identify(request) ?? null) : 'default',
     canLogIn: auth?.login !== undefined,
   }));
-  app.post('/api/login', async (request, reply) => {
+  app.post('/api/login', { config: { rateLimit: GUESSES } }, async (request, reply) => {
     if (!auth?.login) return reply.code(404).send({ error: 'this hub has no login page' });
     const { token } = (request.body ?? {}) as { token?: unknown };
     const login = typeof token === 'string' ? auth.login(token) : undefined;
@@ -405,7 +415,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (registry.ids().includes(node)) return reply.code(409).send({ error: 'that name is taken' });
     return joinCodes.issue(node);
   });
-  app.post('/api/join', async (request, reply) => {
+  app.post('/api/join', { config: { rateLimit: GUESSES } }, async (request, reply) => {
     const { code } = (request.body ?? {}) as { code?: unknown };
     if (typeof code !== 'string') return reply.code(400).send({ error: 'expected { code }' });
     const node = joinCodes.redeem(code);
@@ -414,7 +424,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     return { node, token: registry.issue(node) };
   });
   // The Kingdom's own uninstall: it gives up its token, so nobody needs to remove it from the app as well.
-  app.post('/api/leave', async (request, reply) => {
+  app.post('/api/leave', { config: { rateLimit: GUESSES } }, async (request, reply) => {
     const node = registry?.verify(bearer(request.headers.authorization));
     if (!node) return reply.code(401).send({ error: 'missing or invalid node token' });
     registry!.revoke(node);
@@ -502,6 +512,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     '/node',
     {
       websocket: true,
+      config: { rateLimit: NODE_DIALS },
       preValidation: async (request, reply) => {
         if (registry && !registry.verify(bearer(request.headers.authorization))) {
           await refuse(request, reply, 401, 'missing or invalid node token');
