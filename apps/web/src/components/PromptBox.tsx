@@ -81,7 +81,7 @@ export function PromptBox({
           data-kind={stop ? 'stop' : shell ? 'run' : 'send'}
           className="cb-prompt-go"
         >
-          <Icon name={stop ? 'stop' : 'send'} size={18} />
+          <Icon name={stop ? 'stop' : 'send'} size={16} />
         </button>
       </div>
     </div>

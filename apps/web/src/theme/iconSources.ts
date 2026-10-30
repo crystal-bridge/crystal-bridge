@@ -40,8 +40,8 @@ export const ICON_SOURCES = {
   abilities: { pack: 'game-icons', icon: 'lightning-helix', author: 'Lorc' },
   // Prompt box
   attach: { pack: 'ph', icon: 'plus-bold' },
-  send: { pack: 'ph', icon: 'paper-plane-tilt-fill' },
-  stop: { pack: 'ph', icon: 'stop-fill' },
+  send: { pack: 'game-icons', icon: 'arrow-wings', author: 'Delapouite' },
+  stop: { pack: 'game-icons', icon: 'hand', author: 'Sbed' },
   mode: { pack: 'game-icons', icon: 'checked-shield', author: 'Lorc' },
   // Stats
   hp: { pack: 'game-icons', icon: 'hearts', author: 'Skoll' },
