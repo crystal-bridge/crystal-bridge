@@ -4,7 +4,7 @@ Recorded by `scripts/capture.ts` against the real CLI, version **2.1.312**, on 2
 Re-record with:
 
 ```
-pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow ...]
+pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow|background-agent ...]
 ```
 
 Every run uses these flags, with `cwd` set to a fresh `mkdtemp` git repo:
@@ -210,6 +210,29 @@ retries with `MCP_TOOL_TIMEOUT=300000` only when the slow run fails. Longer hold
   `post_turn_summary` reports `status_category:"blocked"` with a `needs_action` string.
 - Permission decisions are visible on every tool result: `source` is `config` (CLI auto-allow), `user_temporary` (our
   allow) or `user_reject` (our deny).
+
+## A background agent (2.1.314, recorded 2026-10-30)
+
+`background-agent.ndjson` runs in `--permission-mode auto` without the permission tool, so it needs no local server.
+Launching returns straight away, so a tool result doesn't mean a background agent finished:
+
+- `system/task_started` carries `tool_use_id` and `is_backgrounded: true`. A call can land in the background without
+  `run_in_background` in its input: the interactive CLI did this for all three agents of one Quest, and `result`'s
+  `subagent_stats.requested` counts those as `unset`.
+- The `user` line with the `tool_result` adds `tool_use_result: { isAsync: true, status: "async_launched", ... }`.
+- The agent's own lines follow with a non-null `parent_tool_use_id`, then `system/task_progress` and
+  `system/task_updated`.
+- `system/task_notification` ends it, with `tool_use_id` and `status`. A new turn starts for the main agent.
+
+An interactive transcript has none of the `system` lines. The launch's result line has `toolUseResult` (the same
+fields), and the end is the text handed to the model, `<task-notification>` with `<tool-use-id>` and `<status>`, in up
+to three places: a `queue-operation` with `operation: "enqueue"` the moment the task ends, then a `user` line with
+`origin.kind: "task-notification"`, or an `attachment` of type `queued_command` when a running turn absorbs it.
+`liveTranscriptEvent` relays these in the stream-json shape, so the client reads one form. One agent can notify twice.
+
+An MCP server the CLI once reported as `needs-auth` stays that way for a while under that name, without a request
+being made: `system/init` shows the status and the permission tool fails as "not found". Seen under a network sandbox
+that blocks localhost, and it outlasted the sandbox. Any other server name connects.
 
 ## Scrubbing
 
