@@ -269,7 +269,7 @@ export type HubToClient = z.infer<typeof HubToClient>;
  * release. A test keeps it on the Kingdom package's version.
  */
 export const KINGDOM_PACKAGE =
-  'https://github.com/crystal-bridge/crystal-bridge/releases/download/v0.2.0-alpha.0/crystal-bridge-kingdom-0.2.0-alpha.0.tgz';
+  'https://github.com/crystal-bridge/crystal-bridge/releases/download/v0.2.0-alpha.1/crystal-bridge-kingdom-0.2.0-alpha.1.tgz';
 
 /** The one command that turns a machine into a Kingdom of this hub. */
 export function joinCommand(hub: string, code: string): string {
