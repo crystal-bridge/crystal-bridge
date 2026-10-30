@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { LEAVE_COMMAND } from '@crystal-bridge/protocol';
 
 const LABEL = 'dev.crystal-bridge.crystal';
 const SERVICE = 'crystal.service';
@@ -28,7 +29,7 @@ export interface ServicePaths {
 
 /** A systemd user unit. The token stays in the env file, which only its owner can read. */
 export function systemdUnit({ nodeBin, mainJs, envFile, path }: ServicePaths): string {
-  return `# Written by \`crystal-bridge-kingdom join\`; \`crystal-bridge-kingdom leave\` removes it.
+  return `# Written by \`crystal-bridge-kingdom join\`; its \`leave\` removes this.
 [Unit]
 Description=Crystal Bridge Kingdom agent
 After=network-online.target
@@ -153,7 +154,7 @@ async function checkMachine(deps: JoinDeps, where: Layout): Promise<string> {
     throw new Error('This installer runs on Linux and macOS for now.');
   }
   if (existsSync(where.envFile) && /^CRYSTAL_TOKEN=./m.test(readFileSync(where.envFile, 'utf8'))) {
-    throw new Error(`This machine is already a Kingdom (${where.envFile}). Run "crystal-bridge-kingdom leave" first.`);
+    throw new Error(`This machine is already a Kingdom (${where.envFile}). To start over, first run: ${LEAVE_COMMAND}`);
   }
   const root = installRootOf(deps.mainPath);
   if (!root) throw new Error('join has to run from the installed package, not from source.');
@@ -267,7 +268,7 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
   await startService(deps, where);
 
   deps.log(`Kingdom "${node}" joined ${hub}. It runs as a service and dials out to the hub.`);
-  deps.log('To remove it: crystal-bridge-kingdom leave');
+  deps.log(`To remove it: ${LEAVE_COMMAND}`);
 }
 
 function envValue(env: string, key: string): string | undefined {

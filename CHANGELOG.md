@@ -21,6 +21,7 @@ then, everything is in Unreleased.
 
 - The hub makes one-time join codes that trade for a new Kingdom's token, and a Kingdom can give up its own token.
 
+- Add Kingdom in Config gives one command to run on a new machine, and Remove on a Castle takes a Kingdom away.
 - `crystal-bridge-kingdom join` and `leave` turn a Linux or macOS machine into a Kingdom and back, with one command.
 
 ### Changed

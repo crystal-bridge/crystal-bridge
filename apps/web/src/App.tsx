@@ -73,6 +73,7 @@ import { applyOrder, moveTo } from './tabOrder.js';
 import { loadPutAway, putAway as withPutAway, questTabs, savePutAway } from './quests.js';
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
+import { RemovedKingdom } from './components/RemovedKingdom.js';
 import { hint, showHeroes, w } from './theme/words.js';
 
 const REFRESH_MS = 5000;
@@ -83,6 +84,27 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
 }
 
 /** The response, or undefined when the hub didn't answer: callers keep what they had rather than blank the page. */
+/** What the hub said went wrong, for a call the user made and should hear about. */
+async function refusal(response: Response): Promise<Error> {
+  const body = (await response.json().catch(() => ({}))) as { error?: string };
+  return new Error(body.error ?? `The hub answered ${response.status}`);
+}
+
+async function createJoinCode(node: string): Promise<{ code: string; expiresAt: number }> {
+  const response = await fetch('/api/join-codes', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ node }),
+  });
+  if (!response.ok) throw await refusal(response);
+  return (await response.json()) as { code: string; expiresAt: number };
+}
+
+async function removeKingdom(node: string): Promise<void> {
+  const response = await fetch(`/api/nodes/${encodeURIComponent(node)}`, { method: 'DELETE' });
+  if (!response.ok) throw await refusal(response);
+}
+
 async function tryJson<T>(url: string): Promise<T | undefined> {
   try {
     const response = await fetch(url);
@@ -105,6 +127,7 @@ export function App({ hub }: { hub: HubClient }) {
   const [external, setExternal] = useState<{ node: string; sessions: ExternalSession[] }[]>([]);
   const [projectLists, setProjectLists] = useState<{ node: string; projects: Project[] }[]>([]);
   const [latestCli, setLatestCli] = useState<string | undefined>(undefined);
+  const [removed, setRemoved] = useState<string | null>(null);
   const [engineLists, setEngineLists] = useState<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>(
     [],
   );
@@ -815,6 +838,7 @@ export function App({ hub }: { hub: HubClient }) {
             <div className="mb-1.5">
               <ConfigMenu
                 leaders={leaderChoices}
+                onCreateJoinCode={createJoinCode}
                 visible={visible}
                 hidden={hidden}
                 onRename={(id, name) =>
@@ -866,6 +890,7 @@ export function App({ hub }: { hub: HubClient }) {
               </button>
             </div>
           )}
+          {removed && <RemovedKingdom name={removed} onDismiss={() => setRemoved(null)} />}
           {view !== 'airship' && kingdom && (
             <QuestStrip
               castleName={kingdom.name}
@@ -1017,6 +1042,10 @@ export function App({ hub }: { hub: HubClient }) {
                 engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
                 release={engineLists.find((row) => row.node === kingdom.id)?.release}
                 hubRelease={servedRelease}
+                onRemove={async (id) => {
+                  await removeKingdom(id);
+                  setRemoved(kingdom.name);
+                }}
                 cli={engineLists.find((row) => row.node === kingdom.id)?.cli}
                 latestCli={latestCli}
                 today={statsToday.find((row) => row.node === kingdom.id) ?? null}

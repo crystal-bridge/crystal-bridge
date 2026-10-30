@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  KINGDOM_PACKAGE,
+  joinCommand,
   ClientMessage,
   Envelope,
   FileReply,
@@ -446,5 +448,14 @@ describe('file viewer', () => {
     expect(HubToClient.safeParse(ok).success).toBe(true);
     const refused = { kind: 'file', requestId, ok: false, reason: 'outside this Quest-s folder' };
     expect(HubToClient.safeParse(refused).success).toBe(true);
+  });
+});
+
+describe('installing a Kingdom', () => {
+  it('builds the command that joins a machine to a hub', () => {
+    const command = joinCommand('https://hub.example.com', 'CODE');
+    expect(command).toBe(
+      `npx --yes --package=${KINGDOM_PACKAGE} crystal-bridge-kingdom join https://hub.example.com CODE`,
+    );
   });
 });

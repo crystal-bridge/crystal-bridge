@@ -112,6 +112,31 @@ describe('Castle', () => {
     expect(screen.getByRole('banner').textContent).not.toContain('update available');
   });
 
+  it('removes a Kingdom only after a confirm', () => {
+    const onRemove = vi.fn(async () => undefined);
+    renderCastle({ onRemove });
+    fireEvent.click(screen.getByRole('button', { name: /^Remove / }));
+    expect(onRemove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, remove' }));
+    expect(onRemove).toHaveBeenCalledWith('k');
+  });
+
+  it('can back out of removing a Kingdom', () => {
+    const onRemove = vi.fn(async () => undefined);
+    renderCastle({ onRemove });
+    fireEvent.click(screen.getByRole('button', { name: /^Remove / }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Yes, remove' })).toBeNull();
+  });
+
+  it('shows why a removal failed', async () => {
+    renderCastle({ onRemove: vi.fn(async () => Promise.reject(new Error('no such node token'))) });
+    fireEvent.click(screen.getByRole('button', { name: /^Remove / }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, remove' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('no such node token');
+  });
+
   it('stays quiet when the Kingdom is up to date', () => {
     renderCastle({ release: '0.3.0', hubRelease: '0.3.0' });
     expect(screen.queryByRole('status')).toBeNull();

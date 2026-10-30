@@ -263,3 +263,19 @@ export const HubToClient = z.discriminatedUnion('kind', [
   FileReply,
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
+
+/**
+ * What Add Kingdom installs: this release's tarball on GitHub until the package is on npm. A fork points this at its own
+ * release. A test keeps it on the Kingdom package's version.
+ */
+export const KINGDOM_PACKAGE =
+  'https://github.com/crystal-bridge/crystal-bridge/releases/download/v0.2.0-alpha.0/crystal-bridge-kingdom-0.2.0-alpha.0.tgz';
+
+/** The one command that turns a machine into a Kingdom of this hub. */
+export function joinCommand(hub: string, code: string): string {
+  return `npx --yes --package=${KINGDOM_PACKAGE} crystal-bridge-kingdom join ${hub} ${code}`;
+}
+
+/** What removes a joined Kingdom from its machine. Run with node: an npx install leaves no command on the PATH. */
+export const LEAVE_COMMAND =
+  'node ~/.local/share/crystal-bridge/current/node_modules/@crystal-bridge/kingdom/dist/main.js leave';

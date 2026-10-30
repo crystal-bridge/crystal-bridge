@@ -4,6 +4,7 @@ import { hint, w } from '../theme/words.js';
 import type { Kingdom } from '../kingdoms.js';
 import { NOTIFY_LEVELS, type NotifyLevel } from '../notify.js';
 import { BANNER_COLOURS, KINGDOM_ICONS } from '../theme/kingdomIcons.js';
+import { AddKingdom } from './AddKingdom.js';
 import { Credits } from './Credits.js';
 import { type SelectOption, ThemedSelect } from './ThemedSelect.js';
 import { VARIED } from '../heroes.js';
@@ -34,6 +35,8 @@ export interface ConfigMenuProps {
   /** The Classes a Kingdom can pick as its party leader, the art pack's own leader first (#20). */
   leaders?: SelectOption[];
   onTabStyle?: (style: TabStyle) => void;
+  /** Makes a join code for a new Kingdom; without it, no Add Kingdom. */
+  onCreateJoinCode?: (node: string) => Promise<{ code: string; expiresAt: number }>;
 }
 
 /** One Kingdom's look: an icon grid and banner swatches, both data lists in theme/kingdomIcons.ts. */
@@ -146,6 +149,7 @@ export function ConfigMenu({
   tabStyle = 'underline',
   onTabStyle,
   leaders,
+  onCreateJoinCode,
 }: ConfigMenuProps) {
   const [open, setOpen] = useState(false);
   const [styling, setStyling] = useState<string | null>(null);
@@ -254,6 +258,7 @@ export function ConfigMenu({
                 )}
               </div>
             ))}
+            {onCreateJoinCode && <AddKingdom hub={window.location.origin} onCreate={onCreateJoinCode} />}
           </section>
 
           <section className="space-y-2">

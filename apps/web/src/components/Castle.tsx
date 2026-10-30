@@ -41,6 +41,8 @@ export interface CastleProps {
   /** The agent CLI version this Kingdom runs, and the latest published one when the hub checks. */
   cli?: string;
   latestCli?: string;
+  /** Revokes this Kingdom's token and cuts its connection; without it, no Remove. */
+  onRemove?: (id: string) => Promise<void>;
   /** This Kingdom's finished turns since local midnight and since Monday. */
   today?: TurnStats | null;
   week?: TurnStats | null;
@@ -96,6 +98,56 @@ function Folded({
   );
 }
 
+/** Removing a Kingdom cuts it off at once, so it asks first. */
+function RemoveKingdom({ kingdom, onRemove }: { kingdom: Kingdom; onRemove: (id: string) => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove(): Promise<void> {
+    setError(null);
+    try {
+      await onRemove(kingdom.id);
+      setConfirming(false);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
+  }
+
+  const button =
+    'rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-200 dark:border-neutral-700 dark:hover:bg-neutral-800';
+  return (
+    <div className="space-y-2 px-3 pb-4 text-xs text-neutral-500">
+      {!confirming && (
+        <button type="button" onClick={() => setConfirming(true)} className={button}>
+          {`Remove ${kingdom.name}`}
+        </button>
+      )}
+      {confirming && (
+        <>
+          <p>{`This revokes its token and disconnects it now. Its ${w('quests')} stay in the ${w('chronicle')}.`}</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void remove()}
+              className="rounded bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700"
+            >
+              Yes, remove
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} className={button}>
+              Keep it
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * A Kingdom's home: what needs the user, the Quests in play, and New Quest up front; the Chronicle (history and
  * search) and Recruits folded away. The header flies the Kingdom's banner: its icon and colour on this device.
@@ -119,6 +171,7 @@ export function Castle({
   hubRelease,
   cli,
   latestCli,
+  onRemove,
   today = null,
   week = null,
   heroes,
@@ -266,6 +319,8 @@ export function Castle({
             />
           </Folded>
         )}
+
+        {onRemove && <RemoveKingdom key={kingdom.id} kingdom={kingdom} onRemove={onRemove} />}
       </div>
     </div>
   );
