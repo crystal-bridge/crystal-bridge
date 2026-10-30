@@ -1166,6 +1166,20 @@ describe('airship server with node tokens', () => {
     expect((await dial('token-b')).socket).toBeDefined();
   });
 
+  it('slows down guessing at join codes and node tokens, leaving the rest of the hub alone', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 25; i++) statuses.push((await post('/api/join', { code: 'wrong' })).status);
+    expect(statuses[0]).toBe(401);
+    expect(statuses.at(-1)).toBe(429);
+    expect((await post('/api/join-codes', { node: 'node-c' })).status).toBe(200);
+  });
+
+  it('lets a whole fleet reconnect at once after a hub restart', async () => {
+    const tries: { status?: number }[] = [];
+    for (let i = 0; i < 40; i++) tries.push(await dial('wrong'));
+    expect(tries.every(({ status }) => status === 401)).toBe(true);
+  });
+
   it('POST /api/leave refuses a missing or unknown token', async () => {
     expect((await post('/api/leave', {})).status).toBe(401);
     expect((await post('/api/leave', {}, { authorization: 'Bearer nope' })).status).toBe(401);
@@ -1236,6 +1250,15 @@ describe('airship server with token login', () => {
     const response = await login('bad');
     expect(response.status).toBe(401);
     expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('slows down guessing at the login, and leaves everyone already in alone', async () => {
+    const session = (await login('good')).headers.get('set-cookie')!.split(';')[0]!;
+    const statuses: number[] = [];
+    for (let i = 0; i < 25; i++) statuses.push((await login('bad')).status);
+    expect(statuses[0]).toBe(401);
+    expect(statuses.at(-1)).toBe(429);
+    expect((await fetch(`${base}/api/sessions`, { headers: { cookie: session } })).status).toBe(200);
   });
 
   it('says who is asking, so the app knows to show its login page', async () => {
