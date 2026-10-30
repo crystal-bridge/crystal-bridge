@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 
 /** Which node a connection's bearer token belongs to. */
@@ -7,6 +7,8 @@ export interface NodeRegistry {
   /** The node id the token was issued to, or undefined for an unknown, empty or missing token. */
   verify(token: string | undefined): string | undefined;
   ids(): string[];
+  /** Removes the node's token for good; false if it has none. */
+  revoke(node: string): boolean;
 }
 
 /** Node ids appear in URLs, logs and the UI, so keep them to a plain slug. */
@@ -25,6 +27,13 @@ function read(path: string): NodesFile {
   return existsSync(path) ? NodesFile.parse(JSON.parse(readFileSync(path, 'utf8'))) : { nodes: {} };
 }
 
+/** Replaces the file in one step, because the hub reads it on every connection and must never see half of it. */
+function write(path: string, file: NodesFile): void {
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temp, path);
+}
+
 /**
  * Issues a new token for `node` and stores only its SHA-256 in the nodes file, replacing any earlier
  * token for that node. The token itself is returned once and never written anywhere.
@@ -34,25 +43,29 @@ export function addNode(path: string, node: string): string {
   const file = read(path);
   const token = randomBytes(32).toString('base64url');
   file.nodes[node] = { sha256: sha256(token).toString('hex'), addedAt: Date.now() };
-  writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(path, 0o600); // writeFileSync's mode only applies when it creates the file
+  write(path, file);
   return token;
 }
 
-/** Loads the nodes file once; restart the hub after adding or rotating a node. */
+/** Reads the nodes file on every call, so a token issued or revoked takes effect without restarting the hub. */
 export function loadNodes(path: string): NodeRegistry {
-  const entries = Object.entries(read(path).nodes).map(([id, entry]) => ({
-    id,
-    hash: Buffer.from(entry.sha256, 'hex'),
-  }));
   return {
     verify(token) {
       if (!token) return undefined;
       const hash = sha256(token);
-      return entries.find((entry) => timingSafeEqual(entry.hash, hash))?.id;
+      return Object.entries(read(path).nodes).find(([, entry]) =>
+        timingSafeEqual(Buffer.from(entry.sha256, 'hex'), hash),
+      )?.[0];
     },
     ids() {
-      return entries.map((entry) => entry.id).sort();
+      return Object.keys(read(path).nodes).sort();
+    },
+    revoke(node) {
+      const file = read(path);
+      if (!Object.hasOwn(file.nodes, node)) return false;
+      delete file.nodes[node];
+      write(path, file);
+      return true;
     },
   };
 }

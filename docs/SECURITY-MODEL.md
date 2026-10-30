@@ -43,7 +43,7 @@ front of the hub, or a proxy that deletes any incoming `Tailscale-User-Login` be
 | If an attacker has… | They can… |
 | --- | --- |
 | An allowed login (or a spoofed header, above) | Start Quests and approve their actions on every Kingdom: run commands as each Kingdom's user. Read every stored conversation. |
-| A node token | Pose as that one Kingdom to the hub: see the Quests started for it, send fake events into its sessions. Not reach other Kingdoms' sessions. Rotate with `scripts/airship-node-add.sh`. |
+| A node token | Pose as that one Kingdom to the hub: see the Quests started for it, send fake events into its sessions. Not reach other Kingdoms' sessions. Rotate with `scripts/airship-node-add.sh`; `DELETE /api/nodes/<id>` revokes it and cuts its connection. Both take effect without a hub restart. |
 | A shell on a Kingdom as Crystal's user | Everything that user can already do, including running `claude` and answering Crystal's local permission port. Crystal adds no protection inside one user account. |
 | The hub's disk or a backup | Every stored conversation, including any secret ever pasted into one. |
 | A shell on the hub host | All of the above for the hub, plus serving a modified web app to users. |

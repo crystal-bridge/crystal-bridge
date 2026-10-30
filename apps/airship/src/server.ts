@@ -54,6 +54,9 @@ export interface BuildServerOptions {
 /** Close code for a node whose hello names a protocol version this hub doesn't speak. */
 const CLOSE_WRONG_PROTOCOL = 4006;
 
+/** Close code for a node whose token was just revoked. */
+const CLOSE_TOKEN_REVOKED = 4007;
+
 /** How long the file viewer waits for a node's answer before telling the client it didn't come. */
 const FILE_TIMEOUT_MS = 15_000;
 
@@ -369,6 +372,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     store.listSessions().map((s) => ({ ...s, relayedBytes: s.relayedBytes + (relayed.get(s.id) ?? 0) })),
   );
   app.get('/api/nodes', async () => [...nodes.keys()]);
+  // Removing a Kingdom: its token stops working now, and so does a connection made with it. Its Quests stay as history.
+  app.delete('/api/nodes/:node', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    if (!registry?.revoke(node)) return reply.code(404).send({ error: 'no such node token' });
+    nodes.get(node)?.close(CLOSE_TOKEN_REVOKED, 'node token revoked');
+    return reply.code(204).send();
+  });
   app.get('/api/usage', async () => store.latestUsage());
   // Found sessions, minus any the hub already hosts (bridge sessions leave transcripts on the node too).
   // One node at a time, so a search never pulls another Kingdom's content into view.
