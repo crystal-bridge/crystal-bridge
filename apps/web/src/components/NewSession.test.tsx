@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NewSession } from './NewSession.js';
 
@@ -74,6 +74,17 @@ describe('NewSession', () => {
     cleanup();
     fill();
     expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('high');
+  });
+
+  it('starts with the files attached to the prompt', async () => {
+    const onStart = fill();
+    const log = new File(['boom'], 'error.log', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText('Attach files'), { target: { files: [log] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(onStart).toHaveBeenCalled());
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [{ name: 'error.log', type: 'text/plain', data: btoa('boom') }] }),
+    );
   });
 
   it('starts in the project folder itself by default', () => {

@@ -11,6 +11,8 @@ import {
   NodeProjects,
   PROTOCOL_VERSION,
   UsagePayload,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BASE64,
 } from './index.js';
 
 const session = '123e4567-e89b-12d3-a456-426614174000';
@@ -136,6 +138,20 @@ describe('NodeCommand', () => {
     const resume = { cwd: '/w', nextSeq: 3, effort: 'high' };
     const parsed = NodeCommand.parse({ type: 'session.send', session, text: 'x', resume });
     expect(parsed).toMatchObject({ resume: { effort: 'high' } });
+  });
+
+  it('accepts files attached to a prompt or follow-up, within limits', () => {
+    const file = { name: 'shot.png', type: 'image/png', data: 'iVBORw0KGgo=' };
+    const start = { type: 'session.start', node: 'local', session, cwd: '/tmp/repo', prompt: 'look' };
+    expect(NodeCommand.safeParse({ ...start, attachments: [file] }).success).toBe(true);
+    expect(
+      NodeCommand.safeParse({ type: 'session.send', session, text: 'and this', attachments: [file] }).success,
+    ).toBe(true);
+    const many = Array.from({ length: MAX_ATTACHMENTS + 1 }, () => file);
+    expect(NodeCommand.safeParse({ ...start, attachments: many }).success).toBe(false);
+    const huge = { ...file, data: 'A'.repeat(MAX_ATTACHMENT_BASE64 + 4) };
+    expect(NodeCommand.safeParse({ ...start, attachments: [huge] }).success).toBe(false);
+    expect(NodeCommand.safeParse({ ...start, attachments: [{ ...file, data: 'not base64!' }] }).success).toBe(false);
   });
 
   it('accepts an engine on session.adopt and in a resume', () => {

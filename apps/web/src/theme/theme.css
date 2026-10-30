@@ -602,3 +602,31 @@ button[aria-pressed='true'] .cb-icon {
     --icon-colour: #ffa45a;
   }
 }
+
+/* The prompt box's + for files, and a chip per attached file (#14). */
+.cb-attach {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--prompt-border);
+  background: var(--select-bg);
+  color: var(--prompt-ink);
+  cursor: pointer;
+}
+.cb-attach:focus-within {
+  outline: 2px solid var(--prompt-go);
+  outline-offset: 1px;
+}
+.cb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--prompt-border);
+  background: var(--select-bg);
+  font-size: 0.75rem;
+}

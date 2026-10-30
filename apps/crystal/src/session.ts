@@ -118,6 +118,8 @@ export interface ClaudeSessionOptions {
   chrome?: boolean;
   /** `--effort` for every process this session starts; unset leaves the CLI's default. */
   effort?: Effort;
+  /** Folders outside `cwd` the agent may read without asking (`--add-dir`), e.g. its attached files. */
+  addDirs?: readonly string[];
 }
 
 type ClaudeChild = ChildProcessByStdio<Writable, Readable, Readable>;
@@ -134,6 +136,7 @@ function buildArgs(
   mode: PermissionMode,
   chrome = false,
   effort?: Effort,
+  addDirs: readonly string[] = [],
 ): string[] {
   const mcpConfig = JSON.stringify({ mcpServers: { crystal: { type: 'http', url: permissionUrl } } });
   return [
@@ -152,6 +155,8 @@ function buildArgs(
     mode,
     ...(chrome ? ['--chrome'] : []),
     ...(effort ? ['--effort', effort] : []),
+    // One folder per flag, each followed by another flag: --add-dir takes a list.
+    ...addDirs.flatMap((dir) => ['--add-dir', dir]),
     ...sessionArgs,
   ];
 }
@@ -223,6 +228,7 @@ export class ClaudeSession extends EventEmitter {
   private readonly forkFrom: string | undefined;
   private readonly chrome: boolean;
   private readonly effort: Effort | undefined;
+  private readonly addDirs: readonly string[];
   private controlSeq = 0;
 
   private current: ChildRecord | null = null;
@@ -259,6 +265,7 @@ export class ClaudeSession extends EventEmitter {
     this.forkFrom = opts.forkFrom;
     this.chrome = opts.chrome ?? false;
     this.effort = opts.effort;
+    this.addDirs = opts.addDirs ?? [];
   }
 
   /** Spawns the first `claude` process (with `--session-id`) and sends the opening prompt. */
@@ -370,7 +377,7 @@ export class ClaudeSession extends EventEmitter {
   private spawnChild(resume: boolean): ChildRecord {
     let sessionArgs = resume ? ['--resume', this.session] : ['--session-id', this.session];
     if (!resume && this.forkFrom) sessionArgs = ['--resume', this.forkFrom, '--fork-session', ...sessionArgs];
-    const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome, this.effort);
+    const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome, this.effort, this.addDirs);
 
     const child = this.spawnFn(this.claudeBin, args, {
       cwd: this.cwd,

@@ -1,4 +1,5 @@
-import { type KeyboardEvent, type ReactNode, useLayoutEffect, useRef } from 'react';
+import { type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { addFiles } from '../attachments.js';
 import { Icon } from '../theme/icons.js';
 
 /**
@@ -21,6 +22,7 @@ export function PromptBox({
   sendLabel = 'Send',
   minRows = 1,
   sendDisabled = false,
+  files,
 }: {
   /** The text box's accessible name. */
   label: string;
@@ -42,7 +44,16 @@ export function PromptBox({
   minRows?: number;
   /** Sending isn't possible yet for a reason other than an empty box (e.g. no project picked). */
   sendDisabled?: boolean;
+  /** Files to send with the prompt (#14): a + to pick them, paste for images, a chip each. */
+  files?: { list: File[]; onChange: (files: File[]) => void };
 }) {
+  const [fileError, setFileError] = useState<string | undefined>(undefined);
+  function add(adding: File[]) {
+    if (!files || adding.length === 0) return;
+    const next = addFiles(files.list, adding);
+    setFileError(next.error);
+    files.onChange(next.files);
+  }
   const box = useRef<HTMLTextAreaElement>(null);
   // Fit the text: one line at rest, up to the CSS max-height (five lines), then it scrolls.
   useLayoutEffect(() => {
@@ -52,11 +63,34 @@ export function PromptBox({
     if (el.scrollHeight > 0) el.style.height = `${el.scrollHeight}px`;
   }, [value]);
 
-  const empty = value.trim() === '';
+  const empty = value.trim() === '' && !files?.list.length;
   const stop = running && empty;
   const name = stop ? 'Stop' : shell ? 'Run' : sendLabel;
   return (
     <div className="cb-prompt" data-shell={shell ? 'true' : undefined}>
+      {files && files.list.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5 px-1 pt-1" aria-label="Attached files">
+          {files.list.map((file, i) => (
+            <li key={`${file.name}-${i}`} className="cb-chip">
+              <Icon name="attach" size={10} />
+              <span className="max-w-40 truncate">{file.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${file.name}`}
+                onClick={() => files.onChange(files.list.filter((_, j) => j !== i))}
+                className="opacity-60 hover:opacity-100"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {fileError && (
+        <p role="alert" className="px-1 text-xs text-red-600 dark:text-red-400">
+          {fileError}
+        </p>
+      )}
       <textarea
         ref={box}
         aria-label={label}
@@ -67,9 +101,30 @@ export function PromptBox({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
+        onPaste={(e) => {
+          const pasted = [...(e.clipboardData?.files ?? [])];
+          if (!files || pasted.length === 0) return;
+          e.preventDefault();
+          add(pasted);
+        }}
         className={shell ? 'font-mono' : undefined}
       />
       <div className="cb-prompt-bar">
+        {files && (
+          <label className="cb-attach" title="Attach files (images, logs, documents)">
+            <Icon name="attach" size={14} />
+            <input
+              type="file"
+              multiple
+              aria-label="Attach files"
+              className="sr-only"
+              onChange={(e) => {
+                add([...(e.target.files ?? [])]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
         {controls}
         <span className="flex-1" />
         <button

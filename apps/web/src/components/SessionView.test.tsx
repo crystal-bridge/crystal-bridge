@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
 import { SessionView } from './SessionView.js';
@@ -785,5 +785,32 @@ describe('SessionView skills', () => {
     expect(line.closest('details')?.open).toBe(false);
     expect(line.closest('details')?.textContent).toContain('# Demo skill body');
     expect(screen.queryByText('Skill', { selector: '.font-mono' })).toBeNull();
+  });
+});
+
+describe('SessionView attachments', () => {
+  afterEach(() => cleanup());
+
+  it('sends picked files with the follow-up, with a line of its own when there is no text', async () => {
+    const onSend = vi.fn();
+    renderView([envelope(0, 'session.started', { cwd: '/w', prompt: 'p', label: 'p' })], undefined, undefined, onSend);
+    const shot = new File(['png'], 'shot.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('Attach files'), { target: { files: [shot] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onSend).toHaveBeenCalled());
+    expect(onSend).toHaveBeenCalledWith('See the attached files.', [
+      { name: 'shot.png', type: 'image/png', data: btoa('png') },
+    ]);
+    expect(screen.queryByText('shot.png')).toBeNull();
+  });
+
+  it('shows the files a prompt carried as chips, not as raw lines', () => {
+    renderView([
+      envelope(0, 'session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      envelope(1, 'user.message', { text: 'Look\n\n[Attached file: /tmp/x/123-1-shot.png]' }),
+    ]);
+    expect(screen.getByText('Look')).toBeTruthy();
+    expect(screen.getByTitle('/tmp/x/123-1-shot.png').textContent).toContain('shot.png');
+    expect(screen.queryByText(/\[Attached file/)).toBeNull();
   });
 });

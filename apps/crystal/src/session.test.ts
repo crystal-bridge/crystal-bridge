@@ -127,6 +127,7 @@ function createSession(
     forkFrom: string;
     chrome: boolean;
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    addDirs: string[];
   }> = {},
 ) {
   return new ClaudeSession({
@@ -205,6 +206,19 @@ describe('ClaudeSession', () => {
     session.send('more');
     for (const call of [calls[1]!, calls[2]!]) {
       expect(call.args[call.args.indexOf('--effort') + 1]).toBe('high');
+    }
+  });
+
+  it('gives every process it starts the extra folders it may read (--add-dir, one each)', async () => {
+    const { spawnFn, calls, children } = createSpawnMock();
+    const session = createSession(spawnFn, { addDirs: ['/tmp/files/s1'] });
+    session.start('hello');
+    finishExit(children[0]!, 0);
+    session.send('more');
+    for (const { args } of [calls[0]!, calls[1]!]) {
+      const at = args.indexOf('--add-dir');
+      expect(args[at + 1]).toBe('/tmp/files/s1');
+      expect(args[at + 2]).toMatch(/^--/);
     }
   });
 

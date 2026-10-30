@@ -596,4 +596,14 @@ describe('InteractiveSession stats and inventory', () => {
     session.send('again');
     for (const { args } of [spawned[0]!, spawned[1]!]) expect(args[args.indexOf('--effort') + 1]).toBe('max');
   });
+
+  it('gives every process it starts the extra folders it may read (--add-dir, one each)', async () => {
+    const { session, spawned, hook } = harness({ addDirs: ['/tmp/files/s1'] });
+    session.start('hello');
+    hook('SessionStart', {});
+    await tick();
+    const { args } = spawned[0]!;
+    expect(args[args.indexOf('--add-dir') + 1]).toBe('/tmp/files/s1');
+    expect(args[args.indexOf('--add-dir') + 2]).toMatch(/^--/);
+  });
 });

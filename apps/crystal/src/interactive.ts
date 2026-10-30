@@ -81,6 +81,8 @@ export interface InteractiveSessionOptions {
   chrome?: boolean;
   /** `--effort` for every process this session starts; unset leaves the CLI's default. */
   effort?: Effort;
+  /** Folders outside `cwd` the agent may read without asking (`--add-dir`), e.g. its attached files. */
+  addDirs?: readonly string[];
   forkFrom?: string;
   claudeBin?: string;
   /** Where the generated settings file goes; default `<tmp>/crystal-bridge`. */
@@ -382,6 +384,8 @@ export class InteractiveSession extends EventEmitter {
       this.mode === 'manual' ? 'default' : this.mode,
       ...(this.opts.chrome ? ['--chrome'] : []),
       ...(this.opts.effort ? ['--effort', this.opts.effort] : []),
+      // One folder per flag, each followed by another flag: --add-dir takes a list.
+      ...(this.opts.addDirs ?? []).flatMap((dir) => ['--add-dir', dir]),
       '--settings',
       this.settingsFile,
     ];
