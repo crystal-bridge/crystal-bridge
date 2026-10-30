@@ -603,6 +603,7 @@ export function App({ hub }: { hub: HubClient }) {
         onSplit={primary && splitShown === null ? () => setPicking(true) : undefined}
         onExitSplit={primary && splitShown !== null ? () => setSplit(null) : undefined}
         insertion={insertion?.session === id ? insertion : undefined}
+        plan={usage.find((u) => u.node === node)?.windows}
         onOpenFile={openFileFor(id)}
         fileViewer={primary && splitShown === null ? fileViewer : undefined}
       />
@@ -872,6 +873,7 @@ export function App({ hub }: { hub: HubClient }) {
                     <FileOpenContext.Provider value={openFileFor(focused)}>
                       <SessionPanel
                         info={focusedInfo}
+                        plan={usage.find((u) => u.node === sessions.find((s) => s.id === focused)?.node)?.windows}
                         kingdom={(() => {
                           const node = sessions.find((s) => s.id === focused)?.node ?? '';
                           return visible.find((k) => k.id === node)?.name ?? node;

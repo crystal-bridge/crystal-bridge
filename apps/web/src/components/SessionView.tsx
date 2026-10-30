@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react';
 import Markdown from 'react-markdown';
-import type { Envelope } from '@crystal-bridge/protocol';
+import type { Envelope, UsageWindow } from '@crystal-bridge/protocol';
 import {
   IncrementalView,
   sessionEngine,
@@ -85,6 +85,8 @@ export interface SessionViewProps {
   onExitSplit?: () => void;
   /** Text to put in the follow-up box, e.g. an Inventory pick from a split's shared panel; `seq` makes each one new. */
   insertion?: { text: string; seq: number };
+  /** The Kingdom's latest plan usage report, for the side panel's HP. */
+  plan?: UsageWindow[];
   /** Opens a file of this Quest in the read-only viewer: from Loot, tool cards and file names in replies. */
   onOpenFile?: (path: string) => void;
   /** The open file's viewer, shown in place of the side panel (full screen on a phone). Unused in a split's panes. */
@@ -294,6 +296,7 @@ export function SessionView({
   onSplit,
   onExitSplit,
   insertion,
+  plan,
   onOpenFile,
   fileViewer,
 }: SessionViewProps) {
@@ -781,6 +784,7 @@ export function SessionView({
                 party={party}
                 relayedBytes={relayedBytes}
                 activity={activity}
+                plan={plan}
               />
             </aside>
           )

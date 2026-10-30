@@ -506,3 +506,21 @@ button[aria-pressed='true'] .cb-icon {
   /* 16px stops phones zooming in when the picker opens. */
   font-size: 16px;
 }
+
+/* Draining bars (HP, MP) in five steps, full to empty (SessionPanel's Meter sets `--meter-<level>`). */
+:root {
+  --meter-5: #16a34a;
+  --meter-4: #84cc16;
+  --meter-3: #eab308;
+  --meter-2: #f97316;
+  --meter-1: #dc2626;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --meter-5: #4ade80;
+    --meter-4: #a3e635;
+    --meter-3: #facc15;
+    --meter-2: #fb923c;
+    --meter-1: #f87171;
+  }
+}

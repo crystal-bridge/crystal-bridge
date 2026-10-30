@@ -29,8 +29,9 @@ const info: SessionInfo = {
 describe('SessionPanel', () => {
   afterEach(() => cleanup());
 
-  it('shows the environment: Kingdom, project, branch, model and mode', () => {
+  it('shows the Expedition: Kingdom, project, branch, model and mode', () => {
     render(<SessionPanel info={info} kingdom="node-b" />);
+    expect(screen.getByRole('region', { name: 'Expedition' })).toBeTruthy();
     expect(screen.getByText('node-b')).toBeTruthy();
     expect(screen.getByText('/home/me/code/app/.worktrees/0123abcd')).toBeTruthy();
     expect(screen.getByText('cb/0123abcd')).toBeTruthy();
@@ -56,6 +57,48 @@ describe('SessionPanel', () => {
     expect(value('Time')).toContain('1h 2m');
     expect(value('Relayed')).toContain('3.4 MB');
     expect(within(stats).getByTitle(/^Gold \(cost\)/)).toBeTruthy();
+  });
+
+  it('puts Stats above the Expedition', () => {
+    render(<SessionPanel info={info} kingdom="node-b" />);
+    const names = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(names.indexOf('Stats')).toBeLessThan(names.indexOf('Expedition'));
+  });
+
+  it("shows HP above MP: the Kingdom's five-hour plan usage left, and when it rests", () => {
+    const now = Date.UTC(2026, 9, 30, 12);
+    const plan = [
+      { id: 'seven_day', label: '7d', usedPct: 10, resetsAt: now + 86_400_000, status: 'allowed' },
+      { id: 'five_hour', label: '5h', usedPct: 28, resetsAt: now + 72 * 60_000, status: 'allowed' },
+    ];
+    render(<SessionPanel info={info} kingdom="node-b" plan={plan} now={now} />);
+    const stats = screen.getByRole('region', { name: 'Stats' });
+    const hp = within(stats).getByRole('meter', { name: 'Plan left' });
+    expect(hp.getAttribute('aria-valuenow')).toBe('72');
+    expect(within(stats).getByTitle(/^HP/).closest('div')?.textContent).toContain('72% · rests in 1h12m');
+    const meters = within(stats).getAllByRole('meter');
+    expect(meters.indexOf(hp)).toBeLessThan(meters.indexOf(within(stats).getByRole('meter', { name: 'Context left' })));
+  });
+
+  it('shows a full HP once the window has reset, and no HP without a plan report', () => {
+    const now = Date.UTC(2026, 9, 30, 12);
+    const plan = [{ id: 'five_hour', label: '5h', usedPct: 90, resetsAt: now - 1000, status: 'allowed' }];
+    render(<SessionPanel info={info} kingdom="node-b" plan={plan} now={now} />);
+    expect(screen.getByRole('meter', { name: 'Plan left' }).getAttribute('aria-valuenow')).toBe('100');
+    cleanup();
+    render(<SessionPanel info={info} kingdom="node-b" />);
+    expect(screen.queryByRole('meter', { name: 'Plan left' })).toBeNull();
+  });
+
+  it('colours a meter in steps from full (green) to empty (red)', () => {
+    const plan = (usedPct: number) => [{ id: 'five_hour', label: '5h', usedPct, resetsAt: null, status: 'allowed' }];
+    const step = (usedPct: number) => {
+      render(<SessionPanel info={info} kingdom="node-b" plan={plan(usedPct)} />);
+      const value = screen.getByRole('meter', { name: 'Plan left' }).getAttribute('data-level');
+      cleanup();
+      return value;
+    };
+    expect([step(5), step(30), step(50), step(70), step(95)]).toEqual(['5', '4', '3', '2', '1']);
   });
 
   it('lists outputs with what happened to each, and tasks with whether they are still running', () => {
