@@ -178,7 +178,12 @@ From the "Sprite Party Audition" comparison (2026-10-28):
   code's licence, and the in-app Credits name each layer's licence. `build_pack.py` refuses a layer that is
   share-alike only (CC-BY-SA or GPL with no attribution-only option); pick another. Hero Class matching (agent-name keywords → Class) should be data a user can edit.
 
-## Later ideas (low priority)
+## Levels
 
-- **A pointless levelling system:** Heroes, Kingdoms or Crystal Bridge itself earn experience and levels from use.
-  Arbitrary on purpose; a rough, fun measure of usage over time.
+Pointless on purpose (#23): each Hero Class earns XP from the Quests it leads, across all Kingdoms, for life, a rough
+fun measure of use. A battle won is 10 XP, a KO 2 (you learn from defeat), a completed (closed) Quest 50; level L
+takes 50 × L × (L−1) XP (Lv 2 at 100, Lv 10 at 4,500). The hub counts each Quest's battles from engine-neutral
+`turn.finished` and `session.closed` events (`/api/xp`); the client credits them to the Quest's leader by the same
+rule as everywhere else (so changing a Kingdom's leader re-credits its Quests) and keeps the rules in
+`apps/web/src/levels.ts`. Shown as "Lv N" beside the party leader and in the Airship's **Roster**. Classic theme:
+hidden. Subagents don't earn XP yet: `turn.finished` doesn't say which were sent out.

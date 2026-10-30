@@ -33,6 +33,7 @@ export type Concept =
   | 'jumpToLatest'
   | 'stats'
   | 'hp'
+  | 'roster'
   | 'expedition'
   | 'mp'
   | 'gold'
@@ -87,6 +88,7 @@ export const CRYSTAL: Words = {
   stats: { themed: 'Stats', plain: "this session's numbers" },
   hp: { themed: 'HP', plain: "plan usage left in this Kingdom's 5-hour window, shared by its Quests" },
   expedition: { themed: 'Expedition', plain: 'where and how the session runs' },
+  roster: { themed: 'Roster', plain: 'each Hero Class and its level, from the Quests it led' },
   mp: { themed: 'MP', plain: 'context left' },
   gold: { themed: 'Gold', plain: 'cost' },
   tokens: { themed: 'Tokens', plain: 'tokens used' },
@@ -139,6 +141,7 @@ export const CLASSIC: Words = {
   stats: { themed: 'Usage', plain: 'Usage' },
   hp: { themed: 'Plan left', plain: "Plan usage left in this node's 5-hour window" },
   expedition: { themed: 'Environment', plain: 'Environment' },
+  roster: { themed: 'Agent levels', plain: 'Agent levels' },
   mp: { themed: 'Context', plain: 'Context left' },
   gold: { themed: 'Cost', plain: 'Cost' },
   tokens: { themed: 'Tokens', plain: 'Tokens' },

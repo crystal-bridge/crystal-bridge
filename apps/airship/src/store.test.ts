@@ -447,6 +447,22 @@ describe('store', () => {
       ]);
     });
 
+    it("counts each Quest's lifetime battles for levels: won, KOs, and whether it was completed", () => {
+      const [a, b] = [randomUUID(), randomUUID()];
+      start(a, 'n1', 'a', 100);
+      start(b, 'n2', 'b', 100);
+      finish(a, 'n1', 1, 200, { outcome: 'success' });
+      finish(a, 'n1', 2, 300, { outcome: 'success' });
+      finish(a, 'n1', 3, 400, { outcome: 'error' });
+      finish(a, 'n1', 4, 500, { outcome: 'interrupted' });
+      store.appendEvent(makeEnvelope({ session: a, node: 'n1', seq: 5, ts: 600, type: 'session.closed', payload: {} }));
+      finish(b, 'n2', 1, 200, { outcome: 'success' });
+      expect(store.questXp().sort((x, y) => x.node.localeCompare(y.node))).toEqual([
+        { session: a, node: 'n1', won: 2, kos: 1, completed: true },
+        { session: b, node: 'n2', won: 1, kos: 0, completed: false },
+      ]);
+    });
+
     it('lists recent activity, newest first: Quests started and closed, turns finished, with labels', () => {
       const a = randomUUID();
       start(a, 'n1', 'Fix it', 100);

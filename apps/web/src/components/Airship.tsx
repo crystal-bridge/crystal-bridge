@@ -1,5 +1,6 @@
 import { type CSSProperties, useState } from 'react';
 import type { HeroManifest, HeroState } from '../heroes.js';
+import type { Level } from '../levels.js';
 import { type ActivityItem, activityLine, sumStats, type TurnStats } from '../home.js';
 import { ago, QuestCard, StatTiles } from './HomeParts.js';
 import type { KingdomLook } from '../appearance.js';
@@ -8,6 +9,7 @@ import { hint, w } from '../theme/words.js';
 import type { NotifyLevel } from '../notify.js';
 import { isActiveQuest } from '../quests.js';
 import { KingdomIcon } from './KingdomIcon.js';
+import { Roster } from './Roster.js';
 import { NodeUsage, type NodeUsageRow } from './NodeUsage.js';
 import type { SessionSummary } from './SessionList.js';
 
@@ -30,6 +32,8 @@ export interface AirshipProps {
   activity?: ActivityItem[];
   heroes?: HeroManifest | null;
   heroStates?: Record<string, HeroState>;
+  /** Each Hero Class's level, for the Roster (#23). */
+  levels?: Record<string, Level>;
   /** Starts a New Quest on that Kingdom. */
   onNewQuest?: (node: string) => void;
   now?: number;
@@ -57,6 +61,7 @@ export function Airship({
   activity = [],
   heroes,
   heroStates = {},
+  levels,
   onNewQuest,
   now = Date.now(),
 }: AirshipProps) {
@@ -182,6 +187,8 @@ export function Airship({
             );
           })}
         </section>
+
+        {heroes && levels && <Roster manifest={heroes} levels={levels} />}
 
         {log.length > 0 && (
           <section aria-label={w('adventureLog')} className="space-y-1">

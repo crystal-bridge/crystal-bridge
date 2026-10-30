@@ -619,6 +619,8 @@ describe('airship server', () => {
       { session, node: 'node-a', label: 'say hello', ts: 5000, kind: 'turn', outcome: 'success' },
     ]);
     expect((await fetch(`${baseUrl}/api/stats?since=soon`)).status).toBe(400);
+    const xp = (await (await fetch(`${baseUrl}/api/xp`)).json()) as unknown[];
+    expect(xp).toContainEqual({ session, node: 'node-a', won: 1, kos: 0, completed: false });
   });
 
   it('serves each node-s project folders', async () => {
