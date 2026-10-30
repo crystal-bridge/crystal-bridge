@@ -8,9 +8,9 @@ notifications tell you when a session needs you.
 It wraps the real, unmodified `claude` CLI on each machine, under that machine's own login. It doesn't reimplement
 Claude Code's agent loop, and it never touches your credentials.
 
-![A Quest on the Kingdom "tavern": the prompt, an approval card for each edit and test run, the diff, and the Battle won summary](docs/images/demo.gif)
+![A Quest on the Kingdom "tavern": the prompt, an approval card for each edit and test run, and the Battle won summary](docs/images/demo.gif)
 
-_A Quest in "Ask every time" mode: each edit and command waits for Approve, and the diff shows as it lands._
+_A Quest in "Ask every time" mode: each edit and command waits for Approve, from any device, and the turn ends with what it cost and changed._
 
 ## Features
 
