@@ -94,6 +94,17 @@ describe('Castle', () => {
     expect(screen.getByRole('region', { name: 'This week' }).textContent).toContain('$3.25');
   });
 
+  it('shows a version whole, and says when the Kingdom is behind the Airship', () => {
+    renderCastle({ release: '0.2.0-alpha.1', hubRelease: '0.3.0' });
+    expect(screen.getByRole('banner').textContent).toContain('0.2.0-alpha.1');
+    expect(screen.getByRole('status').textContent).toContain('0.3.0');
+  });
+
+  it('stays quiet when the Kingdom is up to date', () => {
+    renderCastle({ release: '0.3.0', hubRelease: '0.3.0' });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('shows active Quests as cards with the start of their latest reply', () => {
     renderCastle({ sessions: [{ ...sessions[0]!, preview: 'All tests pass now.' }, ...sessions.slice(1)] });
     expect(screen.getByRole('region', { name: 'Active Quests' }).textContent).toContain('All tests pass now.');

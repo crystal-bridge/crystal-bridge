@@ -11,6 +11,7 @@ import { type SearchHit, SearchResults } from './SearchResults.js';
 import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
+import { isBehind, releaseLabel } from '../release.js';
 import { QuestCard, StatTiles } from './HomeParts.js';
 
 export interface CastleProps {
@@ -33,8 +34,10 @@ export interface CastleProps {
   onOpenHit: (session: string) => void;
   /** This Kingdom's icon and colour on this device. */
   look?: KingdomLook;
-  /** The Kingdom's Crystal release (its deployed commit), when it reports one. */
+  /** The Kingdom's Crystal release (a version, or its deployed commit), when it reports one. */
   release?: string;
+  /** The hub's own release, to tell when this Kingdom is behind it. */
+  hubRelease?: string;
   /** This Kingdom's finished turns since local midnight and since Monday. */
   today?: TurnStats | null;
   week?: TurnStats | null;
@@ -110,6 +113,7 @@ export function Castle({
   onOpenHit,
   look,
   release,
+  hubRelease,
   today = null,
   week = null,
   heroes,
@@ -151,11 +155,16 @@ export function Castle({
               </h1>
               <p className="text-sm text-neutral-500">
                 {kingdom.connected ? 'Connected' : 'Offline: Quests start once it reconnects'}
-                {release && <span title="Crystal release (deployed commit)"> · {release.slice(0, 7)}</span>}
+                {release && <span title="Crystal release"> · {releaseLabel(release)}</span>}
                 {engines && engines.length > 0 && (
                   <span title="engines this Kingdom runs"> · {engines.join(', ')}</span>
                 )}
               </p>
+              {isBehind(release, hubRelease) && (
+                <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+                  Behind the Airship ({hubRelease}): update this Kingdom.
+                </p>
+              )}
             </div>
           </div>
           <button

@@ -188,6 +188,16 @@ describe('startNode', () => {
     await closeHarness(harness);
   });
 
+  it('logs why the hub refused it, and keeps trying in case the hub is updated', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    createNode();
+    const conn = await nextConnection(harness, 0);
+    conn.socket.close(4006, 'protocol v2 not supported; this hub speaks v1');
+    await waitUntil(() => errors.mock.calls.some(([line]) => String(line).includes('protocol v2 not supported')));
+    await nextConnection(harness, 1);
+    errors.mockRestore();
+  });
+
   // Each test's attached files go in its own temporary folder, never the system's shared one.
   let attachmentsBase = '';
   function createNode(extra: Partial<Parameters<typeof startNode>[0]> = {}): CrystalNode {

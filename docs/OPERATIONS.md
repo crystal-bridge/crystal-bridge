@@ -13,6 +13,19 @@ host, `node-a-host`/`node-b-host` the Kingdoms'.
   clear reason instead of half working.
 - **Never edit a shipped migration.** Append a new one to `apps/airship/src/migrations.ts`.
 
+## Compatibility
+
+A hub and a Kingdom work together when they speak the same `PROTOCOL_VERSION`, whatever their releases. Changes inside
+a protocol version are additive, so either side can be updated first; updating the hub first is the habit.
+
+A change an older peer can't handle bumps the version. The hub then refuses a Kingdom on another version instead of half
+working: both sides log the reason, and the Kingdom shows as offline and keeps retrying, so updating the older side
+ends the refusal without touching the other. A release's notes say when it bumps the protocol.
+
+The Castle shows each Kingdom's release. A packaged Kingdom reports its version, and one deployed from git its commit.
+The Castle warns when a Kingdom's version is older than the hub's. Commits can't be ordered, so it never warns about a
+Kingdom or hub deployed from git. `GET /api/health` reports the hub's release and protocol version.
+
 ## Deploying
 
 The simplest way is one command, driven by a config file outside the repo (so your host names are never committed,
