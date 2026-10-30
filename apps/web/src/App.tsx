@@ -74,7 +74,7 @@ import { MODES } from './modes.js';
 import { isLooking, notificationFor } from './notify.js';
 import { disablePush, enablePush, openTarget, prefsForPush, pushSupported, syncPush } from './push.js';
 import { applyOrder, moveTo } from './tabOrder.js';
-import { loadPutAway, putAway as withPutAway, questTabs, savePutAway } from './quests.js';
+import { loadPutAway, projectName, putAway as withPutAway, questTabs, savePutAway } from './quests.js';
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
 import { RemovedKingdom } from './components/RemovedKingdom.js';
@@ -1144,6 +1144,7 @@ export function App({ hub }: { hub: HubClient }) {
                   id: s.id,
                   label: s.label || s.id,
                   kingdom: visible.find((k) => k.id === s.node)?.name ?? s.node,
+                  project: notifyLevel(prefs, s.node) === 'discreet' ? undefined : projectName(s.cwd),
                   look: looks[s.node] ?? lookFor(appearance, s.node),
                   state: heroStates[s.id],
                 }))}

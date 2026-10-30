@@ -39,7 +39,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
   it stays crisp (about 1rem and up).
 - **Mono means a literal value.** Paths, branches, commands and code use JetBrains Mono, the typed value as well as
   its placeholder (the Project field). A Quest's tab shows its project this way under the title, by the repository's
-  name for a Quest in a worktree.
+  name for a Quest in a worktree, and so does Split View's picker beside the Kingdom, except for a Discreet Kingdom.
 - **Controls are themed; pickers stay native.** A select wears the theme's face (`ThemedSelect`: icon, display-font
   value, chevron) over the browser's own select, which opens the native picker (the better UI on a phone). Build a
   custom list only where it needs icons or rich rows (the project picker, slash suggestions). Short text fields use
