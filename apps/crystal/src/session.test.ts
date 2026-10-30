@@ -130,6 +130,7 @@ function createSession(
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     addDirs: string[];
     changes: TurnChanges;
+    compactWindow: (model: string | undefined) => number | undefined;
   }> = {},
 ) {
   return new ClaudeSession({
@@ -956,6 +957,23 @@ describe('ClaudeSession turn.finished', () => {
     });
     expect((stats[1] as { costUsd: number }).costUsd).toBeCloseTo(0.15);
     expect(stats[1]).toMatchObject({ durationMs: 400 });
+  });
+
+  it('announces where the session compacts when the init line names the model, once', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { compactWindow: (model) => (model === 'model-x' ? 800000 : undefined) });
+    const events = collect(session);
+    session.start('hello');
+    const init = `${JSON.stringify({ type: 'system', subtype: 'init', model: 'model-x' })}\n`;
+    children[0]!.stdout.write(init);
+    children[0]!.stdout.write(init);
+    await flush();
+    const lines = events.flatMap((e) => {
+      if (e.type !== 'claude.event') return [];
+      const raw = e.payload.raw as { subtype?: string };
+      return raw.subtype === 'context_window' ? [raw] : [];
+    });
+    expect(lines).toEqual([{ type: 'system', subtype: 'context_window', compactWindow: 800000 }]);
   });
 
   it('keeps counting cost across a resume, whose running total carries on', async () => {

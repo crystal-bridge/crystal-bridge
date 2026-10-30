@@ -3,7 +3,7 @@ import { type ReactNode, useContext, useEffect, useState } from 'react';
 import type { Activity } from '../activity.js';
 import { type HeroManifest, type HeroState, matchClass, QUIET_MS } from '../heroes.js';
 import { FileOpenContext } from './markdown.js';
-import type { SessionInfo } from '../info.js';
+import { contextRoom, type SessionInfo } from '../info.js';
 import { MODES } from '../modes.js';
 import { effortLabel } from '../effort.js';
 import { type Concept, gameLook, hint, stepWord, w } from '../theme/words.js';
@@ -254,7 +254,8 @@ export interface SessionPanelProps {
 /** The session's side panel: where it runs, how full its context is, what it cost, what it changed and started. */
 export function SessionPanel({ info, kingdom, party, relayedBytes, activity, plan, planAt, now }: SessionPanelProps) {
   const open = useContext(FileOpenContext);
-  const pct = info.context?.window ? Math.round((info.context.used / info.context.window) * 100) : undefined;
+  const room = contextRoom(info.context);
+  const pct = info.context && room ? Math.round((info.context.used / room) * 100) : undefined;
   // MP drains: what's left of the context window.
   const left = pct === undefined ? undefined : Math.max(0, 100 - pct);
   const mode = MODES.find((m) => m.value === info.mode)?.label ?? info.mode;
@@ -291,9 +292,10 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
           {info.context ? (
             <>
               {left !== undefined && <span className="font-medium">{left}% left · </span>}
-              {info.context.window
-                ? `${tokens(info.context.used)} of ${tokens(info.context.window)}`
-                : `${tokens(info.context.used)} used`}
+              {room ? `${tokens(info.context.used)} of ${tokens(room)}` : `${tokens(info.context.used)} used`}
+              {info.context.limit !== undefined &&
+                info.context.window !== undefined &&
+                ` · window ${tokens(info.context.window)}`}
             </>
           ) : (
             <span className="text-neutral-500">not measured yet</span>

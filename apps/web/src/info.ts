@@ -37,8 +37,11 @@ export interface SessionInfo {
   branch?: string;
   model?: string;
   mode?: string;
-  /** Tokens in the latest request, and the model's window when the CLI has reported it. */
-  context?: { used: number; window?: number };
+  /**
+   * Tokens in the latest request, the model's window when reported, and `limit`, where the session compacts if that
+   * comes before the window's end: what MP is measured against.
+   */
+  context?: { used: number; window?: number; limit?: number };
   costUsd: number;
   stats: SessionStats;
   outputs: OutputFile[];
@@ -56,6 +59,11 @@ const WRITE_TOOLS: Record<string, string> = {
   NotebookEdit: 'notebook_path',
 };
 const AGENT_TOOLS = new Set(['Task', 'Agent']);
+
+/** What MP is measured against: where the session compacts, else the window's end. */
+export function contextRoom(context: SessionInfo['context']): number | undefined {
+  return context?.limit ?? context?.window;
+}
 
 /**
  * A turn's own cost from the CLI's running `total_cost_usd`, which carries across resumes. A line without one (a
@@ -78,6 +86,7 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
   const tasks = new Map<string, SessionTask>();
   let runningCost = 0;
   let windows: Record<string, number> = {};
+  let compactWindow: number | undefined;
 
   for (const envelope of envelopes) {
     const payload = isObj(envelope.payload) ? envelope.payload : {};
@@ -95,8 +104,9 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
     const raw = payload.raw;
 
     if (raw.type === 'system' && raw.subtype === 'init' && typeof raw.model === 'string') info.model = raw.model;
-    if (raw.type === 'system' && raw.subtype === 'context_window' && typeof raw.contextWindow === 'number') {
-      windows = { session: raw.contextWindow };
+    if (raw.type === 'system' && raw.subtype === 'context_window') {
+      if (typeof raw.contextWindow === 'number') windows = { session: raw.contextWindow };
+      if (typeof raw.compactWindow === 'number') compactWindow = raw.compactWindow;
     }
     if (raw.type === 'result') {
       const step = costStep(raw.total_cost_usd, runningCost);
@@ -177,6 +187,7 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
   if (info.context) {
     const window = (info.model && windows[info.model]) || Object.values(windows)[0];
     if (window) info.context.window = window;
+    if (compactWindow !== undefined && !(window && window <= compactWindow)) info.context.limit = compactWindow;
   }
   const mode = sessionMode(envelopes);
   if (mode) info.mode = mode;

@@ -1,4 +1,5 @@
 import { gitChanges } from './changes.js';
+import { compactWindow } from './compact.js';
 import { Engine, PermissionMode } from '@crystal-bridge/protocol';
 import { HookBus, InteractiveSession } from './interactive.js';
 import { createPermissionServer } from './permissions.js';
@@ -37,7 +38,8 @@ const TOKEN = process.env.CRYSTAL_TOKEN || undefined;
 // Unset or unknown: manual. Deploys set auto, the preferred mode.
 const DEFAULT_MODE = PermissionMode.catch('manual').parse(process.env.CRYSTAL_DEFAULT_MODE ?? 'manual');
 // The CLI's own session transcripts (never its credential files): CLAUDE_CONFIG_DIR, else ~/.claude.
-const PROJECTS_DIR = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects');
+const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+const PROJECTS_DIR = join(CONFIG_DIR, 'projects');
 // Where the New session picker looks for git repos: CRYSTAL_PROJECT_ROOTS (colon-separated), else ~/code.
 const PROJECT_ROOTS = (process.env.CRYSTAL_PROJECT_ROOTS ?? join(homedir(), 'code')).split(':').filter(Boolean);
 
@@ -86,16 +88,19 @@ async function main(): Promise<void> {
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
       const changes = gitChanges(opts.cwd);
+      const compactWindowFor = (model: string | undefined) =>
+        compactWindow({ env: sessionEnv, cwd: opts.cwd, configDir: CONFIG_DIR, model });
       return engine === 'interactive'
         ? new InteractiveSession({
             ...opts,
             env: sessionEnv,
             chrome: CHROME,
             changes,
+            compactWindow: compactWindowFor,
             hooks,
             hookUrl: permissionServer.hookUrl(opts.session),
           })
-        : new ClaudeSession({ ...opts, env: sessionEnv, chrome: CHROME, changes });
+        : new ClaudeSession({ ...opts, env: sessionEnv, chrome: CHROME, changes, compactWindow: compactWindowFor });
     },
     permissionServer,
   });

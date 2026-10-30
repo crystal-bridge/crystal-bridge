@@ -60,6 +60,17 @@ describe('SessionPanel', () => {
     expect(within(stats).getByTitle(/^Gold \(cost\)/)).toBeTruthy();
   });
 
+  it('measures MP to where the session compacts, and still names the whole window', () => {
+    render(
+      <SessionPanel
+        info={{ ...info, context: { used: 200_000, window: 1_000_000, limit: 800_000 } }}
+        kingdom="node-b"
+      />,
+    );
+    expect(screen.getByText('75% left ·', { exact: false })).toBeTruthy();
+    expect(screen.getByText(/200k of 800k · window 1M/)).toBeTruthy();
+  });
+
   it('titles the game sections with menu-window plates, each in its own hue, and leaves the rest plain', () => {
     render(<SessionPanel info={info} kingdom="node-b" />);
     const plate = (name: string) => screen.getByRole('region', { name }).getAttribute('data-plate');
