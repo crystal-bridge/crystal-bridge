@@ -524,3 +524,31 @@ button[aria-pressed='true'] .cb-icon {
     --meter-1: #f87171;
   }
 }
+
+/*
+ * Menu-window plates (#24): the side panel's game sections (Party, Stats, Expedition) title themselves with a small
+ * window in their own hue; the bodies stay plain, so the full blue window still means "this needs you".
+ */
+.cb-plate {
+  --plate-top: var(--color-window-top);
+  --plate-bottom: var(--color-window-bottom);
+  display: inline-block;
+  padding: 0.2rem 0.6rem 0.1rem;
+  border: 1.5px solid var(--color-window-border);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1.5px var(--color-window-edge);
+  background: linear-gradient(180deg, var(--plate-top), var(--plate-bottom));
+  color: var(--color-window-ink);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+}
+[data-plate='stats'] > .cb-plate {
+  --plate-top: #8f2335;
+  --plate-bottom: #3a0b16;
+}
+[data-plate='expedition'] > .cb-plate {
+  --plate-top: #23704b;
+  --plate-bottom: #0b2e1e;
+}

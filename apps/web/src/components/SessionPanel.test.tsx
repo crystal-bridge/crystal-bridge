@@ -59,6 +59,15 @@ describe('SessionPanel', () => {
     expect(within(stats).getByTitle(/^Gold \(cost\)/)).toBeTruthy();
   });
 
+  it('titles the game sections with menu-window plates, each in its own hue, and leaves the rest plain', () => {
+    render(<SessionPanel info={info} kingdom="node-b" />);
+    const plate = (name: string) => screen.getByRole('region', { name }).getAttribute('data-plate');
+    expect(plate('Stats')).toBe('stats');
+    expect(plate('Expedition')).toBe('expedition');
+    expect(plate('Outputs')).toBeNull();
+    expect(within(screen.getByRole('region', { name: 'Stats' })).getByRole('heading').className).toContain('cb-plate');
+  });
+
   it('puts Stats above the Expedition', () => {
     render(<SessionPanel info={info} kingdom="node-b" />);
     const names = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
