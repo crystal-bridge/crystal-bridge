@@ -33,7 +33,7 @@ import { SessionPanel, type SessionPanelProps } from './SessionPanel.js';
 import type { PermissionMode } from '@crystal-bridge/protocol';
 import { PermissionCard } from './PermissionCard.js';
 import { QuestionCard } from './QuestionCard.js';
-import { ToolCard } from './ToolCard.js';
+import { SkillLine, ToolCard } from './ToolCard.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext, MARKDOWN_COMPONENTS, REMARK_PLUGINS } from './markdown.js';
 import { BattleCard } from './BattleCard.js';
@@ -180,7 +180,7 @@ function Item({
         </div>
       );
     case 'tool':
-      return <ToolCard tool={item} />;
+      return item.name === 'Skill' ? <SkillLine tool={item} manifest={manifest} /> : <ToolCard tool={item} />;
     case 'permission':
       // Claude's questions come through the permission tool too; they need answers, not approval.
       if (item.toolName === 'AskUserQuestion') {

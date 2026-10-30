@@ -428,3 +428,40 @@ describe('slashCommands', () => {
     expect(slashCommands(new Stream().started().envelopes)).toEqual([]);
   });
 });
+
+describe('skills', () => {
+  // As the CLI streams a skill (live check, CLI 2.1.312): the Skill tool, its result, then the skill's text as a
+  // synthetic user message.
+  const skillTurn = (synthetic = true) => [
+    {
+      type: 'assistant',
+      message: {
+        id: 'm1',
+        content: [{ type: 'tool_use', id: 'toolu_s', name: 'Skill', input: { skill: 'demo-skill' } }],
+      },
+    },
+    {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_s', content: 'Launching skill: demo-skill' }] },
+    },
+    {
+      type: 'user',
+      ...(synthetic ? { isSynthetic: true } : {}),
+      message: {
+        content: [{ type: 'text', text: 'Base directory for this skill: /tmp/FIXTURE/demo-skill\n\n# Demo skill\n' }],
+      },
+    },
+  ];
+
+  it("folds the skill's text into its Skill tool instead of showing it as a notice", () => {
+    const items = buildView(new Stream().started().claude(skillTurn()).envelopes);
+    expect(items.filter((i) => i.kind === 'notice')).toEqual([]);
+    const skill = items.find((i) => i.kind === 'tool');
+    expect(skill).toMatchObject({ name: 'Skill', done: true, body: expect.stringContaining('# Demo skill') });
+  });
+
+  it('keeps user text that is not synthetic as a notice', () => {
+    const items = buildView(new Stream().started().claude(skillTurn(false)).envelopes);
+    expect(items.filter((i) => i.kind === 'notice')).toHaveLength(1);
+  });
+});

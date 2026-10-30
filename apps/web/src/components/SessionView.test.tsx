@@ -752,3 +752,38 @@ describe('SessionView follow-up draft', () => {
     expect(box().value).toBe('/review ');
   });
 });
+
+describe('SessionView skills', () => {
+  afterEach(() => cleanup());
+
+  const claude = (seq: number, raw: unknown) => envelope(seq, 'claude.event', { engine: 'claude', raw });
+  const skill: Envelope[] = [
+    envelope(0, 'session.started', { cwd: '/tmp/FIXTURE', prompt: 'greet me', label: 'greet me' }),
+    claude(1, {
+      type: 'assistant',
+      message: {
+        id: 'm1',
+        content: [{ type: 'tool_use', id: 'toolu_s', name: 'Skill', input: { skill: 'demo-skill' } }],
+      },
+    }),
+    claude(2, {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_s', content: 'Launching skill: demo-skill' }] },
+    }),
+    claude(3, {
+      type: 'user',
+      isSynthetic: true,
+      message: {
+        content: [{ type: 'text', text: 'Base directory for this skill: /tmp/FIXTURE\n\n# Demo skill body' }],
+      },
+    }),
+  ];
+
+  it('announces a skill in one line and keeps its text folded away', () => {
+    renderView(skill);
+    const line = screen.getByText('Hero casts demo-skill!');
+    expect(line.closest('details')?.open).toBe(false);
+    expect(line.closest('details')?.textContent).toContain('# Demo skill body');
+    expect(screen.queryByText('Skill', { selector: '.font-mono' })).toBeNull();
+  });
+});

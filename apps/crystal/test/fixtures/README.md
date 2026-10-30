@@ -142,6 +142,13 @@ a project agent and a `--plugin-dir` plugin) showed the shapes the web Inventory
 Hooks aren't listed in `init`; each run shows up as `system/hook_started` and `system/hook_response` (`hook_name`,
 `hook_event`, `outcome`).
 
+### When a skill runs
+
+A live check (CLI 2.1.312, a project skill, 2026-10-30): the `assistant` line has a `Skill` tool_use with
+`input.skill` (the name); the tool_result's content is `Launching skill: <name>`; then a separate `user` line with
+`"isSynthetic": true` carries the skill's text as one `text` block, starting `Base directory for this skill: <path>`.
+The web folds that text into the Skill tool (`body`) instead of showing it as chat.
+
 ## 2. Arguments the CLI passes to `approve`
 
 From `permission-calls.json`, `wire` (the same for allow, deny, followup and slow-allow):

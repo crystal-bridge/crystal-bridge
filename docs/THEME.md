@@ -49,6 +49,10 @@ Grouped by how a thing behaves, not where it came from, so new kinds slot in. An
 | **Equipment** | Always on; grants abilities; shows whether it works | MCP servers, plugins |
 | **Abilities** | Passive triggers that fire by themselves; read-only | Hooks (collapsed by default) |
 
+When a Hero uses something from the Inventory, the chat says so in one line, with a verb per category: "Paladin
+**casts** deploy!" (Spells), "**uses**" (Items), "**wields**" (Equipment). The skill's own text stays folded under
+it. Words in `useLine` (`apps/web/src/theme/words.ts`); Classic: "Used skill: deploy".
+
 ### Stats
 
 | Theme | Claude concept |

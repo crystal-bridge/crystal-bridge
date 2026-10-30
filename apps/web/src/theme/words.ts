@@ -240,3 +240,15 @@ export function hint(concept: Concept, theme: Words = words): string {
   const { themed, plain } = theme[concept];
   return themed.toLowerCase() === plain.toLowerCase() ? themed : `${themed} (${plain})`;
 }
+
+/** The Inventory categories a Hero can use something from, as the chat announces it. */
+export type UseKind = 'spells' | 'items' | 'equipment';
+
+const USE_VERBS: Record<UseKind, string> = { spells: 'casts', items: 'uses', equipment: 'wields' };
+const USE_PLAIN: Record<UseKind, string> = { spells: 'skill', items: 'command', equipment: 'tool' };
+
+/** The chat's line when a Hero uses an Inventory entry, e.g. "Paladin casts deploy!"; the plain form is the hint. */
+export function useLine(kind: UseKind, hero: string, name: string, theme: Words = words): Word {
+  const plain = `Used ${USE_PLAIN[kind]}: ${name}`;
+  return { themed: theme === CLASSIC ? plain : `${hero} ${USE_VERBS[kind]} ${name}!`, plain };
+}
