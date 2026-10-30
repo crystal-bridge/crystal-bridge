@@ -11,7 +11,9 @@ flavour and never hides what something is.
   drop-in swap, so forks and workplaces can turn the game names off.
 
 - **A blend, not a costume.** A modern, neutral base with retro touches. The classic blue menu window is an accent for
-  things that need attention (approval cards, dialogs), not the whole UI.
+  things that need attention (approval cards, dialogs), not the whole UI. The side panel's game sections (Party,
+  Stats, Expedition) wear it only as a small plate on their titles, each in its own hue (blue, crimson, green), with
+  plain bodies, so a full blue window still means "this needs you" (#24).
 - **Readability first.** A pixel-style display font only for the wordmark, tabs and headers. Chat and body text use a
   clean UI font, and code uses a monospace font: people read a lot in a Quest.
 - **Plain words where it matters.** Errors say what broke in plain words first; flavour text comes after. Allow and

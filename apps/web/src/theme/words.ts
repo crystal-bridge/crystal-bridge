@@ -173,6 +173,9 @@ export const words: Words = THEMES[import.meta.env.VITE_CB_THEME ?? 'crystal'] ?
 /** Whether this build draws Heroes (sprites) for agents; the Classic theme shows plain status dots instead. */
 export const showHeroes: boolean = (import.meta.env.VITE_CB_THEME ?? 'crystal') !== 'classic';
 
+/** Whether this build dresses things in the game's look (menu-window plates and the like); Classic stays plain. */
+export const gameLook: boolean = showHeroes;
+
 /** The kinds of step a Quest's leader takes, for words that change with the work (`activity.ts` sets them). */
 export type StepKind =
   | 'listen'

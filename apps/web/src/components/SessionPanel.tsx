@@ -5,7 +5,7 @@ import { type HeroManifest, type HeroState, matchClass, QUIET_MS } from '../hero
 import { FileOpenContext } from './markdown.js';
 import type { SessionInfo } from '../info.js';
 import { MODES } from '../modes.js';
-import { type Concept, hint, stepWord, w } from '../theme/words.js';
+import { type Concept, gameLook, hint, stepWord, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { bytes, duration, tokens } from '../format.js';
 import { formatUntil } from './NodeUsage.js';
@@ -48,7 +48,30 @@ function planLeft(plan: UsageWindow[] | undefined, now: number): { left: number;
   return { left: Math.max(0, Math.min(100, Math.round(100 - window.usedPct))), resetsAt: window.resetsAt };
 }
 
-function Section({ title, tooltip, children }: { title: string; tooltip?: string; children: ReactNode }) {
+/** The game sections whose titles sit on a menu-window plate, each in its own hue (`.cb-plate` in theme.css). */
+type Plate = 'party' | 'stats' | 'expedition';
+
+function Section({
+  title,
+  tooltip,
+  plate,
+  children,
+}: {
+  title: string;
+  tooltip?: string;
+  plate?: Plate;
+  children: ReactNode;
+}) {
+  if (plate && gameLook) {
+    return (
+      <section aria-label={title} data-plate={plate} className="px-1">
+        <h3 title={tooltip} className="cb-plate mb-2">
+          {title}
+        </h3>
+        {children}
+      </section>
+    );
+  }
   return (
     <section aria-label={title} className="rounded-lg border border-neutral-300 p-3 dark:border-neutral-700">
       <h3 title={tooltip} className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
@@ -134,7 +157,7 @@ function Party({
   const doing = leaderState === 'working' && activity?.kind ? stepWord(activity.kind, activity.since) : undefined;
   const state = doing?.themed ?? STATE_TEXT[leaderState] ?? leader?.verb;
   return (
-    <Section title={w('party')} tooltip={hint('party')}>
+    <Section title={w('party')} tooltip={hint('party')} plate="party">
       <ul className="space-y-1.5">
         {leader && (
           <li className="flex items-center gap-2 text-xs">
@@ -215,7 +238,7 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
         )
       )}
 
-      <Section title={w('stats')} tooltip={hint('stats')}>
+      <Section title={w('stats')} tooltip={hint('stats')} plate="stats">
         {hp && (
           <>
             <Stat concept="hp">
@@ -249,7 +272,7 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
         {relayedBytes !== undefined && <Stat concept="relayed">{bytes(relayedBytes)}</Stat>}
       </Section>
 
-      <Section title={w('expedition')} tooltip={hint('expedition')}>
+      <Section title={w('expedition')} tooltip={hint('expedition')} plate="expedition">
         <Row label="Kingdom">{kingdom}</Row>
         {info.cwd && (
           <Row label="Project">
