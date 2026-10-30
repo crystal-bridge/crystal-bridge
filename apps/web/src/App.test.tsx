@@ -526,7 +526,7 @@ describe('App Kingdom tabs', () => {
     const second = screen.getByRole('region', { name: /private work/ });
     fireEvent.pointerDown(second);
     expect(within(details()).getByText('node-a')).toBeTruthy();
-    fireEvent.click(within(inventory()).getByRole('button', { name: /private-skill/ }));
+    fireEvent.click(within(inventory()).getByRole('button', { name: 'private-skill' }));
     expect((within(second).getByPlaceholderText(/follow-up/i) as HTMLTextAreaElement).value).toBe('/private-skill ');
     const main = screen.getByRole('region', { name: /fix the build/ });
     expect((within(main).getByPlaceholderText(/follow-up/i) as HTMLTextAreaElement).value).toBe('');
@@ -535,6 +535,46 @@ describe('App Kingdom tabs', () => {
     fireEvent.click(within(main).getByRole('button', { name: 'Exit Split Party' }));
     expect(screen.queryByRole('region', { name: /private work/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Close pane|Unsplit/ })).toBeNull();
+  });
+
+  it('aims the shared Belt at the focused pane: its Kingdom-s slots, and its Quest for sending', async () => {
+    const appearance = {
+      belts: {
+        'node-b': [{ label: 'build-slot', text: 'Build it', now: true }],
+        'node-a': [{ label: 'private-slot', text: 'Keep it private', now: true }],
+      },
+    };
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) =>
+      String(url) === '/api/appearance' && !init?.method
+        ? ({ ok: true, json: async () => appearance } as Response)
+        : answer(url, init),
+    );
+    const hub = fakeHub();
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(screen.getByRole('tab', { name: /node-b/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /fix the build/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Split/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: /Split/ })).getByRole('button', { name: /private work/ }),
+    );
+    const inventory = () => screen.getByRole('complementary', { name: 'Inventory' });
+    const slot = (name: RegExp) => within(inventory()).getByRole('button', { name });
+
+    // The main pane is focused at first. An editor left open must not carry over to the other Kingdom's Belt.
+    fireEvent.click(within(inventory()).getByRole('button', { name: 'Edit slots' }));
+    fireEvent.click(slot(/^build-slot/));
+    expect(within(inventory()).getByLabelText('Prompt text')).toBeTruthy();
+    fireEvent.pointerDown(screen.getByRole('region', { name: /private work/ }));
+    expect(within(inventory()).queryByLabelText('Prompt text')).toBeNull();
+
+    fireEvent.click(slot(/^private-slot/));
+    expect(hub.send).toHaveBeenCalledWith({ type: 'session.send', session: sessions[1]!.id, text: 'Keep it private' });
+    expect(within(inventory()).queryByRole('button', { name: /^build-slot/ })).toBeNull();
   });
 
   it('never offers a hidden Kingdom-s Quests for the split', async () => {

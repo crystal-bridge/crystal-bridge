@@ -64,16 +64,17 @@ export class Story {
       cwd: this.cwd,
       model: MODEL,
       permissionMode: 'default',
-      tools: ['Task', 'Bash', 'Edit', 'Read', 'Write', 'Monitor'],
+      tools: ['Task', 'Bash', 'Edit', 'Read', 'Write', 'Monitor', 'mcp__github__get_issue', 'mcp__github__list_prs'],
       skills: ['code-review', 'deploy', 'release-notes', 'write-tests', 'brainstorm', 'explain-this'],
       slash_commands: ['compact', 'context', 'cost', 'review', 'code-review', 'deploy'],
       mcp_servers: [
-        { name: 'crystal', status: 'connected' },
+        { name: 'crystal', status: 'connected', source: 'dynamic' },
         { name: 'github', status: 'connected' },
         { name: 'postgres', status: 'connected' },
         { name: 'browser', status: 'failed' },
       ],
       plugins: [{ name: 'formatter', path: 'builtin', source: 'builtin', version: '1.4.0' }],
+      agents: ['code-reviewer', 'docs-researcher', 'Explore', 'general-purpose', 'Plan', 'security-auditor'],
     });
     return this;
   }

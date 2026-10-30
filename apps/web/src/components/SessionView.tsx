@@ -22,6 +22,7 @@ import {
   type ViewItem,
 } from '../model.js';
 import { sessionInfo } from '../info.js';
+import { beltFor, type Belt } from '../belt.js';
 import { buildInventory } from '../inventory.js';
 import { usePanel } from '../panels.js';
 import { Icon } from '../theme/icons.js';
@@ -87,6 +88,9 @@ export interface SessionViewProps {
   onExitSplit?: () => void;
   /** Text to put in the follow-up box, e.g. an Inventory pick from a split's shared panel; `seq` makes each one new. */
   insertion?: { text: string; seq: number };
+  /** The Kingdom's Belt, shown with the Inventory, and how to change it. */
+  belt?: Belt;
+  onBeltChange?: (belt: Belt) => void;
   /** The Kingdom's latest plan usage report, for the side panel's HP. */
   plan?: UsageWindow[];
   /** When the Kingdom's plan report came in. */
@@ -96,6 +100,9 @@ export interface SessionViewProps {
   /** The open file's viewer, shown in place of the side panel (full screen on a phone). Unused in a split's panes. */
   fileViewer?: ReactNode;
 }
+
+/** A Belt for a view that isn't given one. */
+const NO_BELT = beltFor({}, '');
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
@@ -319,6 +326,8 @@ export function SessionView({
   onSplit,
   onExitSplit,
   insertion,
+  belt = NO_BELT,
+  onBeltChange,
   plan,
   planAt,
   onOpenFile,
@@ -530,7 +539,14 @@ export function SessionView({
             aria-label={w('inventory')}
             className="hidden w-64 shrink-0 overflow-y-auto border-r border-neutral-300 p-3 lg:block dark:border-neutral-700"
           >
-            <Inventory inventory={inventory} onUse={setDraft} />
+            <Inventory
+              inventory={inventory}
+              onUse={setDraft}
+              onSend={closed ? undefined : onSend}
+              belt={belt}
+              onBeltChange={onBeltChange ?? (() => {})}
+              manifest={party?.manifest}
+            />
           </aside>
         )}
         <div className="flex min-w-0 flex-1 flex-col">

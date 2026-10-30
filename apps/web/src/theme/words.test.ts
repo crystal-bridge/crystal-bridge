@@ -32,6 +32,19 @@ describe('theme words', () => {
   });
 });
 
+describe('the Inventory words', () => {
+  it('names the Belt, Relics and Guild in both themes, with the plain term as the hint', () => {
+    expect(hint('belt', CRYSTAL)).toBe('Belt (pinned actions)');
+    expect(hint('relics', CRYSTAL)).toBe('Relics (plugins)');
+    expect(hint('guild', CRYSTAL)).toBe('Guild (agents)');
+    expect(hint('equipment', CRYSTAL)).toBe('Equipment (MCP servers)');
+    expect(w('belt', CLASSIC)).toBe('Pinned');
+    expect(w('relics', CLASSIC)).toBe('Plugins');
+    expect(w('guild', CLASSIC)).toBe('Agents');
+    expect(w('equipment', CLASSIC)).toBe('MCP servers');
+  });
+});
+
 describe('useLine', () => {
   it('names the Hero and what it used, with a verb per Inventory category', () => {
     expect(useLine('spells', 'Paladin', 'deploy', CRYSTAL)).toEqual({

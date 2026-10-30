@@ -253,8 +253,18 @@
 .cb-icon-equipment {
   --icon-colour: #2a74b8;
 }
+.cb-icon-relics {
+  --icon-colour: #0f8a7a;
+}
+.cb-icon-guild {
+  --icon-colour: #2f8540;
+}
 .cb-icon-abilities {
   --icon-colour: #b88a00;
+}
+.cb-icon-belt,
+.cb-icon-instant {
+  --icon-colour: #a87400;
 }
 .cb-icon-mode {
   --icon-colour: #3446b4;
@@ -292,7 +302,17 @@
   .cb-icon-equipment {
     --icon-colour: #7ec3ff;
   }
+  .cb-icon-relics {
+    --icon-colour: #5fe0cf;
+  }
+  .cb-icon-guild {
+    --icon-colour: #8fe09a;
+  }
   .cb-icon-abilities {
+    --icon-colour: var(--color-gold-bright);
+  }
+  .cb-icon-belt,
+  .cb-icon-instant {
     --icon-colour: var(--color-gold-bright);
   }
   .cb-icon-mode {
@@ -316,6 +336,204 @@ button:hover .cb-icon,
 button:focus-visible .cb-icon,
 button[aria-pressed='true'] .cb-icon {
   opacity: 1;
+}
+
+/*
+ * The Inventory's sockets (components/Inventory.tsx, Belt.tsx): Belt slots and category tiles share one dark inset
+ * frame with the colour in the icon, so the panel stays calm beside a blue window, which means "this needs you".
+ * Armory icons take their family's colour.
+ */
+:root {
+  --socket-bg: #e3e6f0;
+  --socket-edge: #c3c8d8;
+}
+.cb-family-forge {
+  color: #c4560c;
+}
+.cb-family-trials {
+  color: #2f8540;
+}
+.cb-family-voyage {
+  color: #c0392b;
+}
+.cb-family-charts {
+  color: #a87400;
+}
+.cb-family-lore {
+  color: #2a74b8;
+}
+.cb-family-wards {
+  color: #6d4bb8;
+}
+.cb-family-heralds {
+  color: #c0267a;
+}
+.cb-family-provisions {
+  color: #0f8a7a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --socket-bg: #0e1018;
+    --socket-edge: #343949;
+  }
+  .cb-family-forge {
+    color: #ffa45a;
+  }
+  .cb-family-trials {
+    color: #8fe09a;
+  }
+  .cb-family-voyage {
+    color: #ff8a7a;
+  }
+  .cb-family-charts {
+    color: var(--color-gold-bright);
+  }
+  .cb-family-lore {
+    color: #7ec3ff;
+  }
+  .cb-family-wards {
+    color: #b99cff;
+  }
+  .cb-family-heralds {
+    color: #ff8fc8;
+  }
+  .cb-family-provisions {
+    color: #5fe0cf;
+  }
+}
+.cb-socket {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--socket-edge);
+  border-radius: 6px;
+  background: var(--socket-bg);
+  box-shadow: inset 0 2px 3px rgb(0 0 0 / 0.2);
+  cursor: pointer;
+}
+.cb-socket:hover,
+.cb-slot[data-editing='true'],
+.cb-slot[data-over='true'] {
+  border-color: var(--color-gold);
+}
+.cb-socket .cb-icon {
+  opacity: 1;
+}
+.cb-slot {
+  aspect-ratio: 1;
+}
+.cb-slot[data-empty='true'] {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+}
+.cb-slot[data-empty='true'] .cb-icon {
+  color: var(--prompt-muted);
+}
+.cb-slot[data-missing='true'] .cb-slot-glyph {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+.cb-slot[data-selected='true'],
+.cb-slot[data-over='true'] {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 1px;
+}
+.cb-slot-glyph {
+  display: inline-flex;
+}
+.cb-slot-key {
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  color: var(--prompt-muted);
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  line-height: 1.3;
+}
+.cb-slot-now {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: inline-flex;
+}
+.cb-tile {
+  aspect-ratio: 1.12;
+}
+.cb-tile[data-empty='true'] .cb-icon {
+  opacity: 0.28;
+  filter: grayscale(1);
+}
+.cb-tile[aria-pressed='true'] {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 1px var(--color-gold);
+}
+.cb-tile[aria-pressed='true']::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: var(--color-gold);
+}
+.cb-tile-count {
+  position: absolute;
+  right: 5px;
+  bottom: 2px;
+  color: var(--prompt-muted);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  line-height: 1;
+}
+.cb-tile-alert {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--socket-bg);
+}
+.cb-belt-toggle {
+  display: inline-flex;
+  flex: none;
+  padding: 3px;
+  border-radius: 4px;
+  opacity: 0;
+}
+li:hover > .cb-belt-toggle,
+.cb-belt-toggle:focus-visible,
+.cb-belt-toggle[aria-pressed='true'] {
+  opacity: 1;
+}
+.cb-belt-toggle[aria-pressed='false'] .cb-icon {
+  color: var(--prompt-muted);
+}
+.cb-icon-choice {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+.cb-icon-choice:hover {
+  background: var(--socket-bg);
+}
+.cb-icon-choice[aria-pressed='true'] {
+  border-color: var(--color-gold);
+  background: var(--socket-bg);
+}
+.cb-belt-action {
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--prompt-border);
+  border-radius: 0.5rem;
+  background: var(--prompt-bg);
+  color: var(--prompt-ink);
+  font-size: 0.8125rem;
 }
 
 /*

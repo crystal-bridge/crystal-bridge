@@ -75,8 +75,28 @@ Grouped by how a thing behaves, not where it came from, so new kinds slot in. An
 |---|---|---|
 | **Spells** | Cast, with an optional target or argument; shapes how a Hero acts | Skills |
 | **Items** | Use once and it's done | Slash commands (`/compact` is an Ether) |
-| **Equipment** | Always on; grants abilities; shows whether it works | MCP servers, plugins |
-| **Abilities** | Passive triggers that fire by themselves; read-only | Hooks (collapsed by default) |
+| **Equipment** | Always on; a connection that shows whether it works | MCP servers |
+| **Relics** | A bundle that brings Spells, Items and Abilities; nothing to watch | Plugins |
+| **Guild** | Agents you can send out, each drawn as its Hero Class | Agents |
+| **Abilities** | Passive triggers that fire by themselves; read-only | Hooks |
+
+The panel ("Inventory Audition", #78) stacks the Belt, a 3×2 grid of large icon-only tiles, and the picked tile's list,
+which takes the remaining height. Tiles always show, in this order, so the grid doesn't shift between engines: an
+empty one stays in place, dimmed, and a tile with something failed in it wears a red mark. Interactive Quests report
+only Spells and Equipment. Tiles and slots share one dark socket frame with the colour in the icon, so nothing in the
+panel competes with a blue window.
+
+**The Belt** is a Kingdom's eight quick actions, synced across the user's devices with the Kingdom's look, because a
+Kingdom's skills are its own. A slot holds prompt text, so it can be a Spell, Item, Equipment or Guild member, or
+anything typed; Abilities can't go on it. A Kingdom starts with plain prompts that need no plugin, skill or hook
+(`apps/web/src/belt.ts`). A click fills the prompt, and a slot set to send at once (the lightning mark) sends instead.
+Alt+1 to Alt+8 fire a slot while the panel is open. A slot whose source isn't in this Quest is dimmed and still works.
+Classic: "Pinned". The panel is desktop-only; the phone needs its own design.
+
+**The Armory** is the only set of icons a slot picks from: 42 Game-icons in eight families, each with one colour, so
+nobody has to find an icon per item. Keyword rules give any name a default, so `deploy` gets a rocket, and rows use
+the same rules with the category's icon as the fallback. Both are data in `apps/web/src/theme/armory.ts`, like Hero
+Class keywords. In the rules, a specific one goes before a broader one.
 
 When a Hero uses something from the Inventory, the chat says so in one line, with a verb per category: "Paladin
 **casts** deploy!" (Spells), "**uses**" (Items), "**wields**" (Equipment). The skill's own text stays folded under
@@ -173,8 +193,8 @@ From the "Sprite Party Audition" comparison (2026-10-28):
   the art; the Classic theme (`VITE_CB_THEME=classic`) draws no Heroes.
 - **World map and monsters:** Ninja Adventure (CC0).
 - **Icons** ("Quest UI Audition", 2026-10-30): Game-icons (CC BY 3.0, credited per artist) for themed concepts
-  (Inventory, Spells, Items, Abilities, Close, Permission Mode, HP, MP, Gold, and Send as a sword on a gold button
-  (attack) and Stop as a shield (block)) and Phosphor's filled weight (MIT) for plain UI (Fork, Split, side panel, Attach) and Equipment's sword. `apps/web/src/theme/iconSources.ts`
+  (Inventory and its categories, the Armory, Close, Permission Mode, HP, MP, Gold, and Send as a sword on a gold button
+  (attack) and Stop as a shield (block)) and Phosphor's filled weight (MIT) for plain UI (Fork, Split, side panel, Attach, Edit). `apps/web/src/theme/iconSources.ts`
   names each icon's pack, icon and artist; `pnpm icons` copies the drawings into `iconData.ts`, so the packs are dev
   dependencies only. Each icon keeps its own colour (`.cb-icon-<name>` in theme.css).
 - Time Fantasy was ruled out: its licence forbids redistribution.
