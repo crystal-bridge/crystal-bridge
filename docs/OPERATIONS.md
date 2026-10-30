@@ -115,15 +115,19 @@ running. Before this, a deploy killed every process in the service's cgroup, det
 
 ## Joining and leaving
 
-A machine can join without SSH or a checkout. `crystal-bridge-kingdom join <hub-url> <code>` checks that Claude Code is
+A machine can join without SSH or a checkout. Add Kingdom in Config makes a one-time code and shows the command to run
+there (`joinCommand` in `packages/protocol`). The hub needs `AIRSHIP_NODES` for this. That command is
+`crystal-bridge-kingdom join <hub-url> <code>`, which checks that Claude Code is
 installed and signed in (it reads only the `loggedIn` field of `claude auth status`), then copies itself to
 `~/.local/share/crystal-bridge/releases/<version>`, because npx's own copy is temporary. Only then does it spend the
 code, write the token to `~/.config/crystal-bridge/crystal.env` (mode 0600) and start a systemd user unit or launchd
 agent. It refuses a machine that's already a Kingdom. On Linux it runs `sudo loginctl enable-linger` once, and says so,
 so the service survives logging out.
 
-`crystal-bridge-kingdom leave` gives up the token and removes the service, the env file and the install. It works even
-if the hub can't be reached, and then says to remove the Kingdom from the app as well.
+`leave` (`LEAVE_COMMAND` in `packages/protocol`) gives up the token and removes the service, the env file and the
+install. It works even if the hub can't be reached, and then says to remove the Kingdom from the app as well. Remove on
+a Castle does the hub's half: it revokes the token and cuts the connection, and shows that command to run on the
+machine. A removed Kingdom's Quests stay as history, so its tab stays until you hide it in Config.
 
 ## Rolling back
 

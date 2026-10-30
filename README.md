@@ -109,24 +109,30 @@ localhost.
 
 ### Several machines
 
-The intended setup puts every machine on one [Tailscale](https://tailscale.com) tailnet:
+The intended setup puts every machine on one [Tailscale](https://tailscale.com) tailnet, with the **Airship** on an
+always-on host, published with `tailscale serve` (HTTPS), limited to your tailnet login (`AIRSHIP_ALLOWED_USERS`), with a
+token per Kingdom (`AIRSHIP_NODES`).
 
-- the **Airship** on an always-on host, published with `tailscale serve` (HTTPS), limited to your tailnet login
-  (`AIRSHIP_ALLOWED_USERS`), with a token per node (`AIRSHIP_NODES`);
-- a **Crystal** on each machine you run Claude Code on (Linux as a systemd user service, macOS as a launchd agent).
-
-The deploy scripts ship the pushed `main` over SSH:
+Start the hub with the deploy script, which ships the pushed `main` over SSH:
 
 ```sh
-scripts/deploy-airship.sh hub-host you@example.com            # first run sets the allowed tailnet login
-scripts/deploy-crystal.sh node-a-host node-a hub-host          # a Linux machine: <ssh-host> <node-id> <hub-ssh-host>
-scripts/deploy-crystal-macos.sh my-mac hub-host                # the Mac you run it on
+scripts/deploy-airship.sh hub-host you@example.com    # first run sets the allowed tailnet login
 ```
 
-The first Crystal deploy issues that node's token on the hub and writes it straight into the node's
-`~/.config/crystal-bridge/crystal.env` (mode 0600); it is never printed. `docs/OPERATIONS.md` covers deploys that
-wait for running turns, rollbacks, backups, Web Push and monitoring; `deploy/airship/airship.env.example` lists the
-hub's settings.
+Then add each machine from the app: open **Config**, name the new Kingdom under **Add Kingdom**, and run the command it
+gives you on that machine. It needs Node 22+ and Claude Code signed in, and only outbound HTTPS: no SSH or inbound
+ports. On Linux it asks for sudo once, so the Kingdom keeps running after you log out. To remove a Kingdom, use **Remove**
+on its Castle, then run the command it shows on that machine. Linux and macOS are supported.
+
+If you'd rather push Crystal out from a checkout over SSH, the deploy scripts do that too:
+
+```sh
+scripts/deploy-crystal.sh node-a-host node-a hub-host  # a Linux machine: <ssh-host> <node-id> <hub-ssh-host>
+scripts/deploy-crystal-macos.sh my-mac hub-host        # the Mac you run it on
+```
+
+`docs/OPERATIONS.md` covers joining, deploys that wait for running turns, rollbacks, backups, Web Push and monitoring;
+`deploy/airship/airship.env.example` lists the hub's settings.
 
 ## Configuration
 

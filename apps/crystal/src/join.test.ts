@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { LEAVE_COMMAND } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   hubHttpUrl,
@@ -156,6 +157,11 @@ describe('join and leave', () => {
       join(current(), 'node_modules/@crystal-bridge/kingdom/dist/main.js'),
     );
     expect(calls).toContain('systemctl --user enable --now crystal.service');
+  });
+
+  it('says how to leave with a command that works: the bin is not on PATH after an npx install', async () => {
+    await runJoin('https://hub.example.com', 'CODE', deps());
+    expect(lines.join('\n')).toContain(LEAVE_COMMAND);
   });
 
   it('never prints the token or the login-s email', async () => {
