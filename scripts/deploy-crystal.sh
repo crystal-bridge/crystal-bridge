@@ -76,7 +76,7 @@ printf '%s\n' "CRYSTAL_HUB=$hub" "CRYSTAL_NODE=$node" "$token_line" "$mode_line"
 
 release=$base/releases/$sha
 cd "$release"
-PATH=$path pnpm install --frozen-lockfile --filter crystal-bridge --filter '@crystal-bridge/crystal...' >/dev/null
+PATH=$path pnpm install --frozen-lockfile --filter crystal-bridge --filter '@crystal-bridge/kingdom...' >/dev/null
 fi
 cd "$release"
 # Wait for quiet before switching releases, so giving up leaves the running version untouched.

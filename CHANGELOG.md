@@ -12,6 +12,8 @@ then, everything is in Unreleased.
 - Theme words for each kind of step on the Party card; shell mode in the prompt box; toolbar icons; in-app Credits.
 - `scripts/deploy-all.sh` with a deploy config outside the repo; deploys say why a Quest counts as busy.
 - Git hooks and CI: formatting, types, tests, the repo scrub and a secret scan.
+- The Kingdom agent builds into one installable package, `@crystal-bridge/kingdom`, and a `v*` tag publishes its
+  tarball to a GitHub Release with build provenance.
 
 ### Changed
 

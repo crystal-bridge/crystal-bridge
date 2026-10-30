@@ -2,12 +2,12 @@
  * Records real `claude -p` stream-json output into test/fixtures so later code is
  * built against what the CLI actually emits. Run:
  *
- *   pnpm --filter @crystal-bridge/crystal exec tsx scripts/capture.ts [scenario...]
+ *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
  * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow. With no
  * arguments, all of them run. Every fixture line is passed through `scrub()`.
  *
- *   pnpm --filter @crystal-bridge/crystal exec tsx scripts/capture.ts --rescrub
+ *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts --rescrub
  *
  * re-applies `scrub()` to the existing fixtures in place, without running the CLI.
  */

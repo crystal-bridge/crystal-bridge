@@ -4,7 +4,7 @@ Recorded by `scripts/capture.ts` against the real CLI, version **2.1.312**, on 2
 Re-record with:
 
 ```
-pnpm --filter @crystal-bridge/crystal exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow ...]
+pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow ...]
 ```
 
 Every run uses these flags, with `cwd` set to a fresh `mkdtemp` git repo:

@@ -10,7 +10,7 @@
   "type": "module",
   "scripts": {
     "preflight": "bash scripts/preflight.sh",
-    "dev": "pnpm preflight && concurrently -n airship,crystal,web \"pnpm --filter @crystal-bridge/airship dev\" \"pnpm --filter @crystal-bridge/crystal dev\" \"pnpm --filter @crystal-bridge/web dev\"",
+    "dev": "pnpm preflight && concurrently -n airship,crystal,web \"pnpm --filter @crystal-bridge/airship dev\" \"pnpm --filter @crystal-bridge/kingdom dev\" \"pnpm --filter @crystal-bridge/web dev\"",
     "smoke": "tsx scripts/smoke.ts",
     "notices": "tsx scripts/third-party-notices.ts",
     "notices:check": "tsx scripts/third-party-notices.ts --check",
