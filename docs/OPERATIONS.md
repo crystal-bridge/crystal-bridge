@@ -113,6 +113,21 @@ A Crystal restart stops only Crystal's own process (`KillMode=process`): Crystal
 SIGTERM, and anything a Quest deliberately left running in the background (detached workers, long jobs) keeps
 running. Before this, a deploy killed every process in the service's cgroup, detached or not.
 
+## Running a packaged hub
+
+A release has the hub as a container (`ghcr.io/crystal-bridge/airship`, for amd64 and arm64) and a tarball. Both are for
+token login, with HTTPS in front. The image defaults to `AIRSHIP_AUTH=token`, `AIRSHIP_HOST=0.0.0.0` and `AIRSHIP_DATA=/data`,
+and runs as a non-root user. Without Docker:
+
+```sh
+export AIRSHIP_AUTH=token AIRSHIP_DATA=~/crystal-bridge-hub
+npx --yes --package=<tarball-url> crystal-bridge-airship token add me
+npx --yes --package=<tarball-url> crystal-bridge-airship
+```
+
+Everything the hub keeps is in `AIRSHIP_DATA`, so back up that folder and keep it across upgrades. The hub refuses to
+listen on anything but loopback without token login.
+
 ## Logging in
 
 `AIRSHIP_AUTH` picks how the hub knows who a request is from. `tailscale-serve` trusts the identity header, so put nothing else in front of the hub. `token` is the hub's own login and works behind any HTTPS proxy. Add a token per person or device on the hub:

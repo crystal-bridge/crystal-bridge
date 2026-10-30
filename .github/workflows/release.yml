@@ -49,3 +49,43 @@ jobs:
         run: |
           prerelease=$([[ $GITHUB_REF_NAME == *-* ]] && echo --prerelease || true)
           gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/release/*.tgz --generate-notes --verify-tag $prerelease
+
+  # The hub image for both common architectures. `latest` is only for full releases, never a pre-release.
+  image:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Tags
+        id: tags
+        run: |
+          image=ghcr.io/crystal-bridge/airship
+          tags=$image:${GITHUB_REF_NAME#v}
+          [[ $GITHUB_REF_NAME == *-* ]] || tags=$tags,$image:latest
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        id: push
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ steps.tags.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

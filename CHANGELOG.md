@@ -26,6 +26,7 @@ then, everything is in Unreleased.
 
 - Choose the colour of your own prompts in Config. The default is a muted purple, so blue only ever means "look here".
 
+- The hub comes as a container image for amd64 and arm64, with token login on by default.
 - The hub builds into an installable package, `@crystal-bridge/airship`, with the web app inside. `AIRSHIP_HOST` sets the address it listens on and `AIRSHIP_DATA` keeps everything in one folder.
 - `pnpm demo` runs the app with a scripted world in it, with no `claude` and nothing kept.
 - The Tavern knows what's waiting after a reload or on a new device.
