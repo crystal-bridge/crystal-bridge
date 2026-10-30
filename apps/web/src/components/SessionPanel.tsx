@@ -9,6 +9,7 @@ import { type Concept, gameLook, hint, stepWord, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { CompanionSprite } from './CompanionSprite.js';
 import { COMPANIONS, companionFor } from '../theme/companions.js';
+import { LevelContext } from '../levels.js';
 import { bytes, duration, tokens } from '../format.js';
 import { formatUntil, STALE_MS } from './NodeUsage.js';
 import { Gold } from './Gold.js';
@@ -155,6 +156,7 @@ function Party({
   now?: number;
 }) {
   const leader = manifest.classes[manifest.leader];
+  const level = useContext(LevelContext)[manifest.leader];
   const helpers = info.tasks.filter((task) => task.kind === 'agent' && task.running);
   // Background commands and Monitors bring a companion along (#20).
   const errands = info.tasks.filter((task) => task.kind !== 'agent' && task.running);
@@ -168,7 +170,14 @@ function Party({
           <li className="flex items-center gap-2 text-xs">
             <HeroSprite manifest={manifest} classId={manifest.leader} state={leaderState} size={40} />
             <span className="min-w-0">
-              <span className="block font-medium">{leader.name}</span>
+              <span className="block font-medium">
+                {leader.name}
+                {level && (
+                  <span className="cb-display text-amber-700 dark:text-gold-bright" title={`${level.xp} XP`}>
+                    {` · Lv ${level.level}`}
+                  </span>
+                )}
+              </span>
               <span className="block text-neutral-500" title={doing ? `${doing.themed} (${doing.plain})` : undefined}>
                 Party leader · {state}
               </span>

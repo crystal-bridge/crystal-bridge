@@ -2,6 +2,7 @@ import { act, cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HeroManifest } from '../heroes.js';
 import type { SessionInfo } from '../info.js';
+import { LevelContext } from '../levels.js';
 import { SessionPanel } from './SessionPanel.js';
 
 const info: SessionInfo = {
@@ -213,6 +214,20 @@ describe('SessionPanel', () => {
     expect(party.textContent).toContain('Watch the deploy log');
     expect(party.textContent).toContain('Start the dev server');
     expect(party.textContent).not.toContain('Old build');
+  });
+
+  it("shows the party leader's level", () => {
+    const manifest: HeroManifest = {
+      leader: 'paladin',
+      fallback: 'paladin',
+      classes: { paladin: { name: 'Paladin', match: [], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} } },
+    };
+    render(
+      <LevelContext.Provider value={{ paladin: { level: 7, xp: 2200, into: 100, span: 700 } }}>
+        <SessionPanel info={info} kingdom="k" party={{ manifest, leaderState: 'resting' }} />
+      </LevelContext.Provider>,
+    );
+    expect(screen.getByRole('region', { name: 'Party' }).textContent).toContain('Paladin · Lv 7');
   });
 
   it('says in theme words what the party leader is doing, not its fixed Class verb', () => {

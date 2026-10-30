@@ -41,6 +41,18 @@ export interface TurnStats {
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
 }
 
+/** A Quest's lifetime battles, for the client's pointless levels (#23): engine-neutral, from turn.finished. */
+export interface QuestXp {
+  session: string;
+  node: string;
+  /** Turns that ended in success. */
+  won: number;
+  /** Turns that ended in an error. */
+  kos: number;
+  /** The Quest was closed (completed). */
+  completed: boolean;
+}
+
 /** One line of the activity feed: a Quest started or closed, or one of its turns finished. */
 export interface ActivityItem {
   session: string;
@@ -72,6 +84,8 @@ export interface Store {
   listSessions(): ListedSession[];
   /** Finished turns since `since` (epoch ms), per node, ordered by node id. */
   turnStats(since: number): TurnStats[];
+  /** Every Quest's lifetime battles, for levels. */
+  questXp(): QuestXp[];
   /** The newest Quest starts, closes and finished turns across all nodes. */
   activity(limit: number): ActivityItem[];
   /** Adds bytes relayed to clients, per session, in one transaction. */
@@ -175,6 +189,15 @@ export function openStore(path: string): Store {
        TOTAL(json_extract(payload, '$.tokens.cacheRead')) AS cache_read,
        TOTAL(json_extract(payload, '$.tokens.cacheWrite')) AS cache_write
      FROM events WHERE type = 'turn.finished' AND ts >= ? GROUP BY node ORDER BY node`,
+  );
+  const questXpStmt = db.prepare(
+    `SELECT s.id AS session, s.node AS node,
+       (SELECT COUNT(*) FROM events WHERE session = s.id AND type = 'turn.finished'
+          AND json_extract(payload, '$.outcome') = 'success') AS won,
+       (SELECT COUNT(*) FROM events WHERE session = s.id AND type = 'turn.finished'
+          AND json_extract(payload, '$.outcome') = 'error') AS kos,
+       EXISTS (SELECT 1 FROM events WHERE session = s.id AND type = 'session.closed') AS completed
+     FROM sessions s`,
   );
   const activityStmt = db.prepare(
     `SELECT e.session, e.node, s.label, e.ts, e.type, json_extract(e.payload, '$.outcome') AS outcome
@@ -319,6 +342,16 @@ export function openStore(path: string): Store {
         costUsd: row.cost,
         durationMs: row.duration,
         tokens: { input: row.input, output: row.output, cacheRead: row.cache_read, cacheWrite: row.cache_write },
+      }));
+    },
+    questXp() {
+      type Row = { session: string; node: string; won: number; kos: number; completed: number };
+      return (questXpStmt.all() as Row[]).map((row) => ({
+        session: row.session,
+        node: row.node,
+        won: row.won,
+        kos: row.kos,
+        completed: row.completed === 1,
       }));
     },
     activity(limit) {

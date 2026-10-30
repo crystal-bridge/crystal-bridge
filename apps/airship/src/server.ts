@@ -417,6 +417,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!Number.isFinite(since)) return reply.code(400).send({ error: 'since must be epoch milliseconds' });
     return store.turnStats(since);
   });
+  // Every Quest's lifetime battles, for the client's levels (#23); also engine-neutral.
+  app.get('/api/xp', async () => store.questXp());
   app.get('/api/activity', async (request) => {
     const limit = Number((request.query as { limit?: string }).limit);
     return store.activity(Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 30);
