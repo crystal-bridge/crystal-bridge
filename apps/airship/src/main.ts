@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { accessRefusals } from './access.js';
 import { backupStore } from './backup.js';
+import { latestCliChecker } from './cli-release.js';
 import { pendingMigrations } from './migrations.js';
 import { loadNodes } from './nodes.js';
 import { createPusher, loadVapidKeys, webPushSender } from './push.js';
@@ -64,6 +65,7 @@ async function main(): Promise<void> {
     nodes,
     allowedUsers: ALLOWED_USERS.length > 0 ? ALLOWED_USERS : undefined,
     release: RELEASE,
+    ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
     push: { publicKey: vapid.publicKey, pusher },
   });
 

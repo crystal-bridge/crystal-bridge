@@ -188,6 +188,12 @@ describe('startNode', () => {
     await closeHarness(harness);
   });
 
+  it('tells the hub its agent CLI version on connecting', async () => {
+    createNode({ cliVersion: async () => '2.1.314' });
+    const conn = await nextConnection(harness, 0);
+    expect(await waitForFrame(conn, (frame) => frame.kind === 'cli')).toEqual({ kind: 'cli', version: '2.1.314' });
+  });
+
   it('logs why the hub refused it, and keeps trying in case the hub is updated', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     createNode();

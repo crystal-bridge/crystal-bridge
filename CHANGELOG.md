@@ -16,6 +16,7 @@ then, everything is in Unreleased.
   tarball to a GitHub Release with build provenance.
 
 - The Castle warns when a Kingdom's version is older than the hub's, and a refused Kingdom logs why.
+- The Castle shows each Kingdom's Claude Code version and when an update is available.
 - `docs/OPERATIONS.md` states which hub and Kingdom releases work together.
 
 ### Changed

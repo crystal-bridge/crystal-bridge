@@ -100,6 +100,18 @@ describe('Castle', () => {
     expect(screen.getByRole('status').textContent).toContain('0.3.0');
   });
 
+  it('shows the Kingdom-s CLI version, and when an update is available', () => {
+    renderCastle({ cli: '2.1.314', latestCli: '2.1.320' });
+    expect(screen.getByRole('banner').textContent).toContain('2.1.314');
+    expect(screen.getByRole('banner').textContent).toContain('update available: 2.1.320');
+  });
+
+  it('offers no update for a CLI that is current', () => {
+    renderCastle({ cli: '2.1.320', latestCli: '2.1.320' });
+    expect(screen.getByRole('banner').textContent).toContain('2.1.320');
+    expect(screen.getByRole('banner').textContent).not.toContain('update available');
+  });
+
   it('stays quiet when the Kingdom is up to date', () => {
     renderCastle({ release: '0.3.0', hubRelease: '0.3.0' });
     expect(screen.queryByRole('status')).toBeNull();
