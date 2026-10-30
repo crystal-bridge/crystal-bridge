@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { accessRefusals } from './access.js';
+import { accessRefusals, authMode } from './access.js';
+import { tailscaleServe } from './auth.js';
 import { backupStore } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
 import { pendingMigrations } from './migrations.js';
@@ -19,6 +20,7 @@ const PUSH_SUBJECT = process.env.AIRSHIP_PUSH_SUBJECT ?? 'mailto:crystal-bridge@
 // Deploys write the commit id to RELEASE at the release root; a checkout without one is a dev build.
 const RELEASE_FILE = new URL('../../../RELEASE', import.meta.url);
 const RELEASE = existsSync(RELEASE_FILE) ? readFileSync(RELEASE_FILE, 'utf8').trim() : 'dev';
+const AUTH = process.env.AIRSHIP_AUTH || undefined;
 const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
   .split(',')
   .map((login) => login.trim())
@@ -28,7 +30,7 @@ const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
 const DEV = process.argv.includes('--dev') || process.env.AIRSHIP_DEV === '1';
 
 async function main(): Promise<void> {
-  const refusals = accessRefusals({ allowedUsers: ALLOWED_USERS, nodesPath: NODES_PATH, dev: DEV });
+  const refusals = accessRefusals({ auth: AUTH, allowedUsers: ALLOWED_USERS, nodesPath: NODES_PATH, dev: DEV });
   if (refusals.length > 0) {
     for (const reason of refusals) console.error(`[airship] refusing to start: ${reason}`);
     process.exit(1);
@@ -63,7 +65,7 @@ async function main(): Promise<void> {
     store,
     logger: true,
     nodes,
-    allowedUsers: ALLOWED_USERS.length > 0 ? ALLOWED_USERS : undefined,
+    ...(authMode({ auth: AUTH, allowedUsers: ALLOWED_USERS }) ? { auth: tailscaleServe(ALLOWED_USERS) } : {}),
     release: RELEASE,
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
     push: { publicKey: vapid.publicKey, pusher },

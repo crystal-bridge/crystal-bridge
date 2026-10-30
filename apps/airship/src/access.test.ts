@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accessRefusals } from './access.js';
+import { accessRefusals, authMode } from './access.js';
 
 describe('accessRefusals', () => {
   it('lets a hub start with an allow list and node tokens', () => {
@@ -13,6 +13,29 @@ describe('accessRefusals', () => {
     expect(both.join('\n')).toMatch(/AIRSHIP_NODES/);
     expect(both.join('\n')).toMatch(/AIRSHIP_DEV=1/);
     expect(accessRefusals({ allowedUsers: [], nodesPath: '/n.json' })).toHaveLength(1);
+  });
+
+  it('takes tailscale-serve by name, and still needs its allow list', () => {
+    expect(accessRefusals({ auth: 'tailscale-serve', allowedUsers: ['me@example.com'], nodesPath: '/n.json' })).toEqual(
+      [],
+    );
+    expect(accessRefusals({ auth: 'tailscale-serve', allowedUsers: [], nodesPath: '/n.json' }).join()).toMatch(
+      /AIRSHIP_ALLOWED_USERS/,
+    );
+  });
+
+  it('keeps a hub that predates AIRSHIP_AUTH running as it did', () => {
+    expect(authMode({ allowedUsers: ['me@example.com'] })).toBe('tailscale-serve');
+  });
+
+  it('refuses a login method it does not know, even on a development hub', () => {
+    const refusals = accessRefusals({
+      auth: 'magic',
+      allowedUsers: ['me@example.com'],
+      nodesPath: '/n.json',
+      dev: true,
+    });
+    expect(refusals.join()).toMatch(/AIRSHIP_AUTH/);
   });
 
   it('starts open only when told it is a development hub', () => {
