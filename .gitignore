@@ -9,4 +9,4 @@ RELEASE
 vapid.json
 .claude/worktrees/
 .private/
-.vitepress/cache
+docs/.vitepress/cache
