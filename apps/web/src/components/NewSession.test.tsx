@@ -26,6 +26,56 @@ describe('NewSession', () => {
     expect(screen.getByRole('button', { name: 'Start' }).closest('.cb-prompt')).toBe(box);
   });
 
+  describe('starting from the keyboard', () => {
+    const ready = () => {
+      const onStart = vi.fn();
+      render(<NewSession node="mac" name="mac" connected projects={[]} initialCwd="/w" onStart={onStart} />);
+      fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'Fix the test' } });
+      return { onStart, box: screen.getByLabelText('Prompt') };
+    };
+
+    for (const key of ['metaKey', 'ctrlKey']) {
+      it(`starts the Quest on ${key} and Enter, and only once`, () => {
+        const { onStart, box } = ready();
+        fireEvent.keyDown(box, { key: 'Enter', [key]: true });
+        expect(onStart).toHaveBeenCalledOnce();
+        expect(onStart.mock.calls[0]![0]).toMatchObject({ cwd: '/w', prompt: 'Fix the test' });
+      });
+    }
+
+    it('leaves plain Enter and Shift+Enter as new lines', () => {
+      const { onStart, box } = ready();
+      expect(fireEvent.keyDown(box, { key: 'Enter' })).toBe(true);
+      expect(fireEvent.keyDown(box, { key: 'Enter', shiftKey: true })).toBe(true);
+      expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it('does nothing until Start can', () => {
+      const onStart = vi.fn();
+      render(<NewSession node="mac" name="mac" connected projects={[]} onStart={onStart} />);
+      fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'No project yet' } });
+      fireEvent.keyDown(screen.getByLabelText('Prompt'), { key: 'Enter', metaKey: true });
+      expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it('lets an input method confirm its text without starting', () => {
+      const { onStart, box } = ready();
+      fireEvent.keyDown(box, { key: 'Enter', metaKey: true, isComposing: true });
+      expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it('names the shortcut on Start, as this platform writes it', () => {
+      const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+      render(<NewSession node="mac" name="mac" connected projects={[]} onStart={vi.fn()} />);
+      expect(screen.getByRole('button', { name: 'Start' }).title).toBe('Start (⌘ Enter)');
+      cleanup();
+      platform.mockReturnValue('Win32');
+      render(<NewSession node="mac" name="mac" connected projects={[]} onStart={vi.fn()} />);
+      expect(screen.getByRole('button', { name: 'Start' }).title).toBe('Start (Ctrl Enter)');
+      platform.mockRestore();
+    });
+  });
+
   it('labels its fields in the theme style', () => {
     render(<NewSession node="mac" name="mac" connected projects={[]} onStart={vi.fn()} />);
     expect(screen.getByText('Project', { selector: 'span' }).className).toContain('cb-label');

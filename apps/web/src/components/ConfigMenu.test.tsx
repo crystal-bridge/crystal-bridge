@@ -122,6 +122,15 @@ describe('ConfigMenu', () => {
     expect(screen.getByText(/connecting/)).toBeTruthy();
   });
 
+  it('names the party leader on the button that opens its picker', () => {
+    renderMenu({
+      looks: { 'node-a': { icon: 'castle', colour: '#3550c8' } },
+      onLook: vi.fn(),
+      leaders: [{ value: 'paladin', label: 'Paladin' }],
+    });
+    expect(screen.getByRole('button', { name: 'Look for node-a' }).title).toBe('Party leader, icon and banner colour');
+  });
+
   it('picks each Kingdom-s icon and banner colour, and the tab style, for this device', () => {
     const props = renderMenu({
       looks: { 'node-a': { icon: 'castle', colour: '#3550c8' } },
