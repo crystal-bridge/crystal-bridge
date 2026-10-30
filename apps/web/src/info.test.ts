@@ -47,6 +47,17 @@ describe('sessionInfo', () => {
     expect(info).toMatchObject({ cwd: '/r/.worktrees/ab', branch: 'cb/ab', model: 'model-x', mode: 'auto' });
   });
 
+  it('knows the window during the first turn, before any result, from the engine-s announcement', () => {
+    seq = 0;
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw({ type: 'system', subtype: 'init', model: 'model-x' }),
+      raw({ type: 'system', subtype: 'context_window', contextWindow: 1000000 }),
+      raw(toolUse('t1', 'Bash', { command: 'ls' })),
+    ]);
+    expect(info.context).toEqual({ used: 1502, window: 1000000 });
+  });
+
   it('measures context from the latest assistant message against the model-s window', () => {
     seq = 0;
     const info = sessionInfo([
