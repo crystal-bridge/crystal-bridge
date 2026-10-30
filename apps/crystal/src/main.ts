@@ -8,8 +8,10 @@ import { createWorktree, removeWorktree } from './worktree.js';
 import { ClaudeSession } from './session.js';
 import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
 import { cachedCliVersion, execCliVersion } from './cli-version.js';
+import { runJoin, runLeave, type JoinDeps } from './join.js';
 import { releaseId } from './release.js';
-import { homedir } from 'node:os';
+import { execFile } from 'node:child_process';
+import { homedir, userInfo } from 'node:os';
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,12 +115,50 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
+/** What `join` and `leave` touch, for real. The sudo for lingering may ask for a password, so it gets the terminal. */
+function joinDeps(): JoinDeps {
+  return {
+    home: homedir(),
+    platform: process.platform,
+    user: userInfo().username,
+    uid: process.getuid?.() ?? 0,
+    version: VERSION ?? 'dev',
+    mainPath: realpathSync(fileURLToPath(import.meta.url)),
+    nodeBin: process.execPath,
+    path: process.env.PATH ?? '',
+    claudeBin: process.env.CLAUDE_BIN ?? 'claude',
+    shell: process.env.SHELL ?? '/bin/bash',
+    fetch,
+    exec: (file, args) =>
+      new Promise((resolve, reject) => {
+        const child = execFile(file, args, { timeout: 120_000 }, (error, stdout) =>
+          error ? reject(error) : resolve(stdout),
+        );
+        if (file === 'sudo') child.stderr?.pipe(process.stderr);
+      }),
+    log: (line) => console.log(line),
+  };
+}
+
+function fail(error: unknown): never {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
+
+const [command, hub, code] = process.argv.slice(2);
 if (process.argv.includes('--version')) {
   console.log(VERSION ?? RELEASE ?? 'dev');
   process.exit(0);
+} else if (command === 'join') {
+  if (!hub || !code) fail('usage: crystal-bridge-kingdom join <hub-url> <code>');
+  runJoin(hub, code, joinDeps()).catch(fail);
+} else if (command === 'leave') {
+  runLeave(joinDeps()).catch(fail);
+} else if (command) {
+  fail('usage: crystal-bridge-kingdom [join <hub-url> <code> | leave | --version]');
+} else {
+  main().catch((error: unknown) => {
+    console.error('[crystal] fatal error during startup', error);
+    process.exit(1);
+  });
 }
-
-main().catch((error: unknown) => {
-  console.error('[crystal] fatal error during startup', error);
-  process.exit(1);
-});

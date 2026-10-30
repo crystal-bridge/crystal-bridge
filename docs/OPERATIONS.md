@@ -113,6 +113,18 @@ A Crystal restart stops only Crystal's own process (`KillMode=process`): Crystal
 SIGTERM, and anything a Quest deliberately left running in the background (detached workers, long jobs) keeps
 running. Before this, a deploy killed every process in the service's cgroup, detached or not.
 
+## Joining and leaving
+
+A machine can join without SSH or a checkout. `crystal-bridge-kingdom join <hub-url> <code>` checks that Claude Code is
+installed and signed in (it reads only the `loggedIn` field of `claude auth status`), then copies itself to
+`~/.local/share/crystal-bridge/releases/<version>`, because npx's own copy is temporary. Only then does it spend the
+code, write the token to `~/.config/crystal-bridge/crystal.env` (mode 0600) and start a systemd user unit or launchd
+agent. It refuses a machine that's already a Kingdom. On Linux it runs `sudo loginctl enable-linger` once, and says so,
+so the service survives logging out.
+
+`crystal-bridge-kingdom leave` gives up the token and removes the service, the env file and the install. It works even
+if the hub can't be reached, and then says to remove the Kingdom from the app as well.
+
 ## Rolling back
 
 ```sh
