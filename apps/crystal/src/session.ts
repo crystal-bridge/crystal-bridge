@@ -174,7 +174,9 @@ function userMessage(text: string): string {
 /** Whether a stream-json line starts work that keeps running after its turn: a Monitor, or a background command or agent. */
 function startsBackgroundWork(raw: unknown): boolean {
   if (typeof raw !== 'object' || raw === null) return false;
-  const line = raw as { type?: unknown; message?: { content?: unknown } };
+  const line = raw as { type?: unknown; subtype?: unknown; is_backgrounded?: unknown; message?: { content?: unknown } };
+  // A call needn't ask for the background to land there, so what the CLI reports counts too.
+  if (line.type === 'system' && line.subtype === 'task_started' && line.is_backgrounded === true) return true;
   if (line.type !== 'assistant' || !Array.isArray(line.message?.content)) return false;
   return line.message.content.some((block: unknown) => {
     if (typeof block !== 'object' || block === null) return false;

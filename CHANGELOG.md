@@ -35,6 +35,11 @@ then, everything is in Unreleased.
 
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".
 
+### Fixed
+
+- Background subagents stay in the Party until they finish, on both engines, and count as Side Quests on battle cards.
+  A Quest whose only work is a background agent no longer idles out.
+
 ### Security
 
 - `AIRSHIP_AUTH=token` is the hub's own login, with long-lived access tokens. It ignores identity headers, so a hub can sit behind any proxy.

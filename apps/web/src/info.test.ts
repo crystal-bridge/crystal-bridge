@@ -1,5 +1,6 @@
 import type { Envelope } from '@crystal-bridge/protocol';
 import { describe, expect, it } from 'vitest';
+import backgroundAgent from './__fixtures__/background-agent.ndjson?raw';
 import { sessionInfo } from './info.js';
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
@@ -177,6 +178,29 @@ describe('sessionInfo', () => {
       { path: '/r/src/app.ts', display: 'src/app.ts', kind: 'edited', changes: 2 },
       { path: '/r/src/new.ts', display: 'src/new.ts', kind: 'created', changes: 1 },
     ]);
+  });
+
+  it('keeps a background agent in the party from its launch until the CLI reports it finished', () => {
+    seq = 0;
+    const lines = backgroundAgent
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string; subtype?: string });
+    const notified = lines.findIndex((line) => line.subtype === 'task_notification');
+    const running = (count: number) =>
+      sessionInfo([env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }), ...lines.slice(0, count).map(raw)])
+        .tasks;
+    expect(running(notified)).toMatchObject([{ kind: 'agent', description: 'Say done', running: true }]);
+    expect(running(notified + 1)).toMatchObject([{ kind: 'agent', description: 'Say done', running: false }]);
+  });
+
+  it('holds a background agent the same way when only its transcript marks reach the client', () => {
+    seq = 0;
+    const launch = { ...toolResult('a1'), tool_use_result: { isAsync: true } };
+    const before = [raw(toolUse('a1', 'Agent', { description: 'Audit the repo' })), raw(launch)];
+    expect(sessionInfo(before).tasks[0]?.running).toBe(true);
+    const finished = { type: 'system', subtype: 'task_notification', tool_use_id: 'a1', status: 'killed' };
+    expect(sessionInfo([...before, raw(finished)]).tasks[0]?.running).toBe(false);
   });
 
   it('tracks subagents and background commands, running until their result comes back', () => {

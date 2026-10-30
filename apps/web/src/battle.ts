@@ -1,5 +1,5 @@
 import type { Envelope } from '@crystal-bridge/protocol';
-import { contextRoom, costStep, sessionInfo } from './info.js';
+import { contextRoom, costStep, launchedInBackground, sessionInfo } from './info.js';
 
 /** How a turn ended: finished, stopped by the user, or failed. */
 export type BattleOutcome = 'victory' | 'retreat' | 'ko';
@@ -85,6 +85,7 @@ export function battleResults(envelopes: readonly Envelope[]): {
   let prs = new Set<string>();
   let heroes: string[] = [];
   let sideQuests = 0;
+  const askedForBackground = new Set<string>();
 
   const display = (path: string) => (cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path);
 
@@ -113,13 +114,17 @@ export function battleResults(envelopes: readonly Envelope[]): {
         if (typeof path === 'string') loot.add(display(path));
         if (AGENT_TOOLS.has(block.name))
           heroes.push(typeof input.subagent_type === 'string' ? input.subagent_type : '');
-        if (block.name === 'Monitor' || input.run_in_background === true) sideQuests += 1;
+        if (block.name === 'Monitor' || input.run_in_background === true) {
+          sideQuests += 1;
+          if (typeof block.id === 'string') askedForBackground.add(block.id);
+        }
       }
     }
 
     if (raw.type === 'user' && isObj(raw.message) && Array.isArray(raw.message.content)) {
       for (const block of raw.message.content) {
         if (!isObj(block) || block.type !== 'tool_result') continue;
+        if (launchedInBackground(raw) && !askedForBackground.has(String(block.tool_use_id))) sideQuests += 1;
         for (const line of toolOutput(block.content).split('\n')) {
           if (PR_LINE.test(line.trim())) prs.add(line.trim().replace(/\/$/, ''));
         }

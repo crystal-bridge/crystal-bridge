@@ -105,6 +105,18 @@ export class Story {
     return this;
   }
 
+  /** A subagent sent to the background: its result only says so, and it stays in the party. */
+  background(input: Record<string, unknown>): string {
+    const id = this.call('Agent', { ...input, run_in_background: true });
+    this.raw({
+      type: 'user',
+      parent_tool_use_id: null,
+      tool_use_result: { isAsync: true, status: 'async_launched' },
+      message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content: 'Launched.' }] },
+    });
+    return id;
+  }
+
   /** A tool call that finished. */
   use(name: string, input: Record<string, unknown>, result = 'OK'): this {
     return this.done(this.call(name, input), result);
@@ -232,7 +244,7 @@ export function demoWorld(): DemoWorld {
     subagent_type: 'Explore',
     prompt: 'Trace sign-in end to end.',
   });
-  login.call('Task', {
+  login.background({
     description: 'Draft passkey tests',
     subagent_type: 'test-writer',
     prompt: 'Cover the happy path.',

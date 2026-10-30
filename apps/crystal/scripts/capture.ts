@@ -4,8 +4,8 @@
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
- * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow. With no
- * arguments, all of them run. Every fixture line is passed through `scrub()`.
+ * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent.
+ * With no arguments, all of them run. Every fixture line is passed through `scrub()`.
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts --rescrub
  *
@@ -35,6 +35,10 @@ const MODEL_RE = /\bclaude-(?!code\b|model\b)[a-z0-9][a-z0-9.-]*[a-z0-9]\b/g;
 // (permission_decision source "config", reason "subcommandResults") and never calls the
 // permission tool. `touch` has a side effect, so it goes through `approve`.
 const BASH_PROMPT = 'Run the shell command `touch crystal.txt` with Bash, then reply with the single word DONE.';
+const BACKGROUND_AGENT_PROMPT =
+  'Use the Agent tool exactly once, in the background, with description "Say done" and a prompt asking it to reply ' +
+  'with the single word done and use no tools. After launching it, reply with the single word started and end your ' +
+  'turn. When it finishes, reply with the single word finished.';
 // The CLI blocks a standalone `sleep 30` itself ("Blocked: standalone sleep 30 ..."
 // tool_use_error), so the long-running command is a python sleep instead.
 const SLEEP_PROMPT =
@@ -77,12 +81,15 @@ function escapeRe(s: string): string {
 
 /** Replace the temp repo path (and its encoded project-dir form), $HOME paths and emails in raw text. */
 function scrubText(text: string, tempPath: string): string {
-  let out = text;
+  // A background task's output file, under a folder named after this machine's temp path.
+  let out = text.replace(/\/(?:private\/)?tmp\/claude-[^/"\s]+\/[^"\s]*?\/tasks\//g, '/tmp/FIXTURE-tasks/');
   if (tempPath) {
     out = out.replace(new RegExp(escapeRe(tempPath), 'g'), '/tmp/FIXTURE');
     // ~/.claude/projects/<cwd with / and . replaced by ->
     out = out.replace(new RegExp(escapeRe(tempPath.replace(/[/.]/g, '-')), 'g'), '-tmp-FIXTURE');
   }
+  // The same folder as the CLI encodes it once it has resolved symlinks, as macOS does for its temp directory.
+  out = out.replace(/-[A-Za-z0-9-]*-crystal-capture-[A-Za-z0-9]+/g, '-tmp-FIXTURE');
   out = out.replace(new RegExp(escapeRe(HOME), 'g'), '/HOME');
   out = out.replace(EMAIL_RE, 'user@example.com');
   out = out.replace(MODEL_RE, modelPlaceholder);
@@ -212,6 +219,8 @@ interface RunOptions {
   sessionArgs: string[];
   firstPrompt: string;
   env?: Record<string, string>;
+  /** For a run that never asks for approval: no permission tool, so it needs no local server. */
+  noApprovals?: boolean;
   /** Called per parsed line; may write further messages or close stdin via the controls. */
   onLine(msg: Record<string, unknown>, ctl: Controls): void;
 }
@@ -238,10 +247,7 @@ function runClaude(opts: RunOptions): Promise<RunResult> {
     'stream-json',
     '--verbose',
     '--include-partial-messages',
-    '--mcp-config',
-    mcpConfig,
-    '--permission-prompt-tool',
-    'mcp__crystal__approve',
+    ...(opts.noApprovals ? [] : ['--mcp-config', mcpConfig, '--permission-prompt-tool', 'mcp__crystal__approve']),
     ...opts.sessionArgs,
   ];
   const child = spawn('claude', args, {
@@ -396,6 +402,27 @@ async function main(): Promise<void> {
 
   try {
     if (want('allow')) await record('allow', await simple('allow', BASH_PROMPT, allow));
+    if (want('background-agent')) {
+      const session = randomUUID();
+      sessionScenario.set(session, 'background-agent');
+      let finished = false;
+      await record(
+        'background-agent',
+        await runClaude({
+          repo,
+          mcpUrl: mcpUrl(session),
+          // As a Quest runs by default: the agent launches with no approval to wait on.
+          noApprovals: true,
+          sessionArgs: ['--session-id', session, '--permission-mode', 'auto'],
+          firstPrompt: BACKGROUND_AGENT_PROMPT,
+          onLine: (msg, ctl) => {
+            if (msg.type === 'system' && msg.subtype === 'task_notification') finished = true;
+            // The turn the notification starts, not the one that launched the agent.
+            if (finished && msg.type === 'result') ctl.end();
+          },
+        }),
+      );
+    }
     if (want('deny')) {
       await record(
         'deny',
