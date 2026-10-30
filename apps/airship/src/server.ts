@@ -25,6 +25,7 @@ import {
   type Project,
   Engine,
 } from '@crystal-bridge/protocol';
+import type { Authenticator } from './auth.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
@@ -40,11 +41,10 @@ export interface BuildServerOptions {
    */
   nodes?: NodeRegistry;
   /**
-   * Tailnet logins allowed to use the client side (the web app, `/api` and `/client`). The Airship listens on
-   * 127.0.0.1 behind `tailscale serve`, which sets `Tailscale-User-Login` on every proxied request. `/node` is
-   * left to node tokens and `/api/health` stays open. Unset, the client side is open, for `pnpm dev`.
+   * Who may use the client side (the web app, `/api` and `/client`). `/node` is left to node tokens and `/api/health`
+   * stays open. Unset, the client side is open, for `pnpm dev`.
    */
-  allowedUsers?: readonly string[];
+  auth?: Authenticator;
   /** This release's id (the deployed commit), reported by /api/health so open tabs can tell they're outdated. */
   release?: string;
   /** Finds the latest agent CLI version, for "update available". Unset: the hub doesn't check. */
@@ -82,15 +82,6 @@ const OPEN_PATHS = new Set(['/node', '/api/health', '/api/join', '/api/leave']);
 
 /** Close code for a node whose hello names a different node than its token. */
 const CLOSE_WRONG_NODE = 4003;
-
-/**
- * Whose request this is: the tailnet login `tailscale serve` adds, lowercased; one shared user when there is none
- * (pnpm dev, where the client side is open anyway).
- */
-function loginOf(request: FastifyRequest): string {
-  const login = request.headers['tailscale-user-login'];
-  return typeof login === 'string' && login ? login.toLowerCase() : 'default';
-}
 
 function bearer(header: string | undefined): string | undefined {
   return header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
@@ -154,22 +145,23 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     store,
     logger = false,
     nodes: registry,
-    allowedUsers,
+    auth,
     release = 'dev',
     latestCli,
     push,
     relayFlushMs = 30_000,
   } = options;
-  const allowed = allowedUsers && new Set(allowedUsers.map((login) => login.toLowerCase()));
   const app = fastify({ logger });
 
-  if (allowed) {
+  /** Whose request this is; one shared user when there's no login (pnpm dev, where the client side is open anyway). */
+  const loginOf = (request: FastifyRequest): string => auth?.identify(request) ?? 'default';
+
+  if (auth) {
     app.addHook('onRequest', async (request, reply) => {
       if (OPEN_PATHS.has(request.url.split('?', 1)[0]!)) return;
-      const login = request.headers['tailscale-user-login'];
-      if (typeof login === 'string' && allowed.has(login.toLowerCase())) return;
-      app.log.warn({ login, url: request.url }, 'refused a request from a user who is not allowed');
-      await refuse(request, reply, 403, 'not an allowed tailnet user');
+      if (auth.identify(request)) return;
+      app.log.warn({ url: request.url }, 'refused a request from a user who is not allowed');
+      await refuse(request, reply, 403, auth.refusal);
     });
   }
 

@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
+import { tailscaleServe } from './auth.js';
 import { buildServer } from './server.js';
 import type { NodeRegistry } from './nodes.js';
 import { openStore, type SessionRow, type Store } from './store.js';
@@ -1182,7 +1183,7 @@ describe('joining a hub with allowed users', () => {
     const store = openStore(':memory:');
     const app = await buildServer({
       store,
-      allowedUsers: ['me@example.com'],
+      auth: tailscaleServe(['me@example.com']),
       nodes: {
         verify: (token) => tokens.get(token ?? ''),
         ids: () => [...tokens.values()],
@@ -1219,7 +1220,7 @@ describe('airship server with allowed users', () => {
 
   beforeEach(async () => {
     store = openStore(':memory:');
-    app = await buildServer({ store, allowedUsers: ['me@example.com'] });
+    app = await buildServer({ store, auth: tailscaleServe(['me@example.com']) });
     await app.listen({ port: 0, host: '127.0.0.1' });
     baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   });
@@ -1270,7 +1271,7 @@ describe('airship server with allowed users', () => {
     const start = Date.now();
     await app.close();
     expect(Date.now() - start).toBeLessThan(1000);
-    app = await buildServer({ store, allowedUsers: ['me@example.com'] }); // for afterEach
+    app = await buildServer({ store, auth: tailscaleServe(['me@example.com']) }); // for afterEach
   });
 
   it('leaves /node to node tokens: no tailnet user is required there', async () => {
@@ -1288,7 +1289,7 @@ describe('airship server appearance', () => {
 
   beforeEach(async () => {
     store = openStore(':memory:');
-    app = await buildServer({ store, allowedUsers: ['me@example.com', 'you@example.com'] });
+    app = await buildServer({ store, auth: tailscaleServe(['me@example.com', 'you@example.com']) });
     await app.listen({ port: 0, host: '127.0.0.1' });
     baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   });

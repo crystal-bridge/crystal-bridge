@@ -150,6 +150,7 @@ scripts/deploy-crystal-macos.sh my-mac hub-host        # the Mac you run it on
 | `CLAUDE_BIN` | `claude` | Crystal: the CLI it runs |
 | `AIRSHIP_PORT` | `7700` | Airship: its HTTP/WebSocket port |
 | `AIRSHIP_DB` | `./airship.db` | Airship: the SQLite file |
+| `AIRSHIP_AUTH` | `tailscale-serve` when `AIRSHIP_ALLOWED_USERS` is set | Airship: how it knows who a request is from |
 | `AIRSHIP_ALLOWED_USERS` | unset | Airship: tailnet logins allowed to use the app (`Tailscale-User-Login`); required unless `AIRSHIP_DEV=1` |
 | `AIRSHIP_NODES` | unset | Airship: the node-token file; required unless `AIRSHIP_DEV=1` |
 | `AIRSHIP_DEV` | unset | Airship: `1` starts a development hub open (no allow list or node tokens); `pnpm dev` does this itself |
