@@ -152,6 +152,8 @@ drawn for Crystal Bridge (no licence strings), bobbing on a two-frame idle, as d
 
 ## Art
 
+**Your prompts** in the chat wear a colour you pick in Config, which follows you across devices. It's a short muted list in `apps/web/src/theme/promptColours.ts`, because the bright blue means something needs your attention. A test holds every option to WCAG AA contrast (4.5:1), so a fork can change the list without risking an unreadable one.
+
 **Kingdom banners** ("Kingdom Banner Audition", 2026-10-29): each Kingdom has an icon and a banner colour, and tabs
 show the colour as an underline, a tint or a pennant. These are the user's choices in Config, synced to all their
 devices, never built-in defaults; a Kingdom with no choice gets a stable look from its id. The eight icons are

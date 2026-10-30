@@ -24,6 +24,8 @@ then, everything is in Unreleased.
 - Add Kingdom in Config gives one command to run on a new machine, and Remove on a Castle takes a Kingdom away.
 - `crystal-bridge-kingdom join` and `leave` turn a Linux or macOS machine into a Kingdom and back, with one command.
 
+- Choose the colour of your own prompts in Config. The default is a muted purple, so blue only ever means "look here".
+
 ### Changed
 
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".

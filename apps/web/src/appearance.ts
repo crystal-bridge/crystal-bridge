@@ -1,5 +1,6 @@
 import { Appearance } from '@crystal-bridge/protocol';
 import { BANNER_COLOURS, KINGDOM_ICONS } from './theme/kingdomIcons.js';
+import { DEFAULT_PROMPT_COLOUR, PROMPT_COLOURS, type PromptColour } from './theme/promptColours.js';
 
 /**
  * How Kingdoms look: each one's icon and banner colour, and how tabs show the colour. Unlike names, hidden Kingdoms
@@ -47,12 +48,24 @@ export function tabStyle(appearance: Appearance): TabStyle {
   return TAB_STYLES.find((s) => s.value === appearance.tabStyle)?.value ?? 'underline';
 }
 
+/** The chosen prompt colour, or the default for none or for one this client doesn't know. */
+export function promptColourFor(appearance: Appearance): PromptColour {
+  return (
+    PROMPT_COLOURS.find((c) => c.id === appearance.promptColour) ??
+    PROMPT_COLOURS.find((c) => c.id === DEFAULT_PROMPT_COLOUR)!
+  );
+}
+
 export function withLook(appearance: Appearance, id: string, change: Partial<KingdomLook>): Appearance {
   return { ...appearance, looks: { ...appearance.looks, [id]: { ...appearance.looks?.[id], ...change } } };
 }
 
 export function withTabStyle(appearance: Appearance, style: TabStyle): Appearance {
   return { ...appearance, tabStyle: style };
+}
+
+export function withPromptColour(appearance: Appearance, id: string): Appearance {
+  return { ...appearance, promptColour: id };
 }
 
 const CACHE_KEY = 'crystal-bridge.appearance';
