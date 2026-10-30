@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react';
-import type { Effort, Engine, PermissionMode, Project } from '@crystal-bridge/protocol';
+import type { Attachment, Effort, Engine, PermissionMode, Project } from '@crystal-bridge/protocol';
+import { toAttachments } from '../attachments.js';
 import { ProjectPicker } from './ProjectPicker.js';
 import { PromptBox } from './PromptBox.js';
 import { ThemedSelect } from './ThemedSelect.js';
@@ -28,6 +29,7 @@ export interface NewSessionProps {
     worktree: boolean;
     engine?: Engine;
     effort?: Effort;
+    attachments?: Attachment[];
   }) => void;
 }
 
@@ -47,6 +49,8 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
   const [worktree, setWorktree] = useState(false);
   const [engine, setEngine] = useState<Engine>('stream');
   const [effort, setEffort] = useState<Effort | ''>(() => loadDefaultEffort());
+  // Files for the opening prompt (#14); kept only while the form is open.
+  const [files, setFiles] = useState<File[]>([]);
   const choices = engineChoices(engines);
 
   const ready = connected && cwd.trim() !== '' && prompt.trim() !== '';
@@ -54,7 +58,7 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!ready) return;
-    onStart({
+    const start = {
       node,
       cwd: cwd.trim(),
       prompt: prompt.trim(),
@@ -62,9 +66,13 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
       worktree,
       ...(engine !== 'stream' ? { engine } : {}),
       ...(effort ? { effort } : {}),
-    });
+    };
+    const picked = files;
     setPrompt('');
+    setFiles([]);
     saveDraft(`new-cwd:${node}`, '');
+    if (picked.length === 0) onStart(start);
+    else void toAttachments(picked).then((attachments) => onStart({ ...start, attachments }));
   }
 
   return (
@@ -86,6 +94,7 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
           running={false}
           onStop={() => {}}
           sendDisabled={!ready}
+          files={{ list: files, onChange: setFiles }}
           sendLabel="Start"
           minRows={3}
           controls={

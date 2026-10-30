@@ -11,6 +11,7 @@ import {
 } from 'react';
 import type { HubClient, ReplayProgress } from './hub.js';
 import {
+  type Attachment,
   Effort,
   type Engine,
   type Envelope,
@@ -571,6 +572,7 @@ export function App({ hub }: { hub: HubClient }) {
     worktree,
     engine,
     effort,
+    attachments,
   }: {
     node: string;
     cwd: string;
@@ -579,6 +581,7 @@ export function App({ hub }: { hub: HubClient }) {
     worktree: boolean;
     engine?: Engine;
     effort?: Effort;
+    attachments?: Attachment[];
   }) {
     const session = crypto.randomUUID();
     hub.subscribe(session);
@@ -592,6 +595,7 @@ export function App({ hub }: { hub: HubClient }) {
       ...(worktree ? { worktree } : {}),
       ...(engine ? { engine } : {}),
       ...(effort ? { effort } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     });
     openQuest(session);
     // The hub records the session once the node reports `session.started`.
@@ -643,7 +647,9 @@ export function App({ hub }: { hub: HubClient }) {
         onAnswer={(requestId, behavior, answers) =>
           hub.send({ type: 'permission.answer', session: id, requestId, behavior, ...(answers ? { answers } : {}) })
         }
-        onSend={(text) => hub.send({ type: 'session.send', session: id, text })}
+        onSend={(text, attachments) =>
+          hub.send({ type: 'session.send', session: id, text, ...(attachments?.length ? { attachments } : {}) })
+        }
         onInterrupt={() => hub.send({ type: 'session.interrupt', session: id })}
         onMode={(mode) => hub.send({ type: 'session.mode', session: id, mode })}
         kingdom={visible.find((k) => k.id === node)?.name ?? node ?? ''}

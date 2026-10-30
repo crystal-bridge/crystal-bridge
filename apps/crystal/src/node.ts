@@ -3,6 +3,7 @@ import {
   NodeCommand,
   NodeHello,
   PROTOCOL_VERSION,
+  type Attachment,
   type Effort,
   type Envelope,
   type EventType,
@@ -15,6 +16,7 @@ import {
   type Engine,
   type FileReply,
 } from '@crystal-bridge/protocol';
+import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
 import { readSessionFile } from './files.js';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
@@ -58,6 +60,8 @@ export type SessionFactory = (opts: {
   engine?: Engine;
   /** `--effort` for every process it starts; unset is the CLI's default. */
   effort?: Effort;
+  /** Folders outside `cwd` it may read without asking: the session's attached files. */
+  addDirs?: string[];
 }) => SessionLike;
 
 /** All `startNode` needs from Task 4's permission server. */
@@ -84,6 +88,8 @@ export interface StartNodeOptions {
   worktrees?: (cwd: string, session: string) => Promise<{ path: string; root: string; branch: string }>;
   /** Removes a closed session's worktree (`worktree.ts` in production), keeping one with uncommitted changes. */
   removeWorktree?: (cwd: string) => Promise<{ removed: boolean; reason?: string }>;
+  /** Where files sent with prompts are kept (one folder per session); default `ATTACHMENTS_DIR`. */
+  attachmentsDir?: string;
   /** The node's project folders for the New session picker, reported with the transcripts scan. */
   projects?: () => Promise<Project[]>;
   /** How often to rescan `transcripts`; the hub only hears about a change. Default 60 s. */
@@ -167,6 +173,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     projects,
     worktrees,
     removeWorktree,
+    attachmentsDir = ATTACHMENTS_DIR,
     defaultMode = 'manual',
     engines,
   } = options;
@@ -242,6 +249,13 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     effort?: Effort,
   ): SessionLike {
     const permissionUrl = permissionServer.url(sessionId);
+    // The session's folder for attached files exists before any process starts, so the agent can always read it.
+    let addDirs: string[] = [];
+    try {
+      addDirs = [attachmentDir(sessionId, attachmentsDir)];
+    } catch (error) {
+      log(`no folder for attached files for ${sessionId}`, error);
+    }
     const runtime = sessionFactory({
       session: sessionId,
       cwd,
@@ -250,6 +264,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       ...(forkFrom ? { forkFrom } : {}),
       ...(engine ? { engine } : {}),
       ...(effort ? { effort } : {}),
+      ...(addDirs.length ? { addDirs } : {}),
     });
     sessions.set(sessionId, { seq, unacked: new Map(), runtime, cwd });
 
@@ -301,10 +316,13 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       if (sessions.has(cmd.session)) return;
     }
 
+    // Saved first: if they can't be, nothing starts.
+    const prompt = withFiles(cmd.session, cmd.prompt, cmd.attachments);
+    if (prompt === undefined) return;
     const runtime = createSession(cmd.session, cwd, 0, cmd.mode, cmd.forkFrom, cmd.engine, cmd.effort);
     sendEnvelope(cmd.session, 'session.started', {
       cwd,
-      prompt: cmd.prompt,
+      prompt,
       label: labelFromPrompt(cmd.prompt),
       ...(worktree ? { worktree } : {}),
       ...(cmd.forkFrom ? { forkedFrom: cmd.forkFrom } : {}),
@@ -312,7 +330,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       ...(cmd.effort ? { effort: cmd.effort } : {}),
     });
 
-    runtime.start(cmd.prompt);
+    runtime.start(prompt);
   }
 
   /**
@@ -342,9 +360,11 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       sendNodeError(cmd.session, `session is closed: ${cmd.session}`);
       return;
     }
+    const text = withFiles(cmd.session, cmd.text, cmd.attachments);
+    if (text === undefined) return;
     // Recorded before the send, so the follow-up sorts ahead of anything the reply emits.
-    sendEnvelope(cmd.session, 'user.message', { text: cmd.text });
-    state.runtime.send(cmd.text);
+    sendEnvelope(cmd.session, 'user.message', { text });
+    state.runtime.send(text);
   }
 
   /** Sends the hub the current external sessions; unless `force`, only when the list changed. */
@@ -437,6 +457,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     state.closed = true;
     denyPending(cmd.session);
     state.runtime.close();
+    removeAttachments(cmd.session, attachmentsDir);
     let worktree: { removed: boolean; reason?: string } | undefined;
     if (cmd.removeWorktree && removeWorktree) {
       worktree = await removeWorktree(state.cwd).catch((error: unknown) => ({
@@ -445,6 +466,23 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       }));
     }
     sendEnvelope(cmd.session, 'session.closed', worktree ? { worktree } : {});
+  }
+
+  /**
+   * A prompt with its files saved and their paths added (the hub only ever sees the text), or undefined after
+   * reporting files that couldn't be saved, so nothing goes out without them.
+   */
+  function withFiles(session: string, text: string, files: readonly Attachment[] | undefined): string | undefined {
+    if (!files?.length) return text;
+    try {
+      return withAttachments(text, saveAttachments(session, files, attachmentsDir));
+    } catch (error) {
+      sendNodeError(
+        session,
+        `could not save the attached files: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return undefined;
+    }
   }
 
   function handleSessionInterrupt(cmd: Extract<NodeCommand, { type: 'session.interrupt' }>): void {

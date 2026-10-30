@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -188,10 +188,81 @@ describe('startNode', () => {
     await closeHarness(harness);
   });
 
+  // Each test's attached files go in its own temporary folder, never the system's shared one.
+  let attachmentsBase = '';
   function createNode(extra: Partial<Parameters<typeof startNode>[0]> = {}): CrystalNode {
-    node = startNode({ hubUrl: harness.url, node: 'test', sessionFactory, permissionServer, ...extra });
+    attachmentsBase = mkdtempSync(join(tmpdir(), 'cb-node-files-'));
+    node = startNode({
+      hubUrl: harness.url,
+      node: 'test',
+      sessionFactory,
+      permissionServer,
+      attachmentsDir: attachmentsBase,
+      ...extra,
+    });
     return node;
   }
+
+  it('saves files sent with a prompt or follow-up, names them in the text, and removes them on close', async () => {
+    const attachmentsDir = mkdtempSync(join(tmpdir(), 'cb-node-attach-'));
+    createNode({ attachmentsDir });
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+    const session = randomUUID();
+    const file = (name: string, text: string) => ({
+      name,
+      type: 'text/plain',
+      data: Buffer.from(text).toString('base64'),
+    });
+    conn.socket.send(
+      JSON.stringify({
+        type: 'session.start',
+        node: 'test',
+        session,
+        cwd: '/w',
+        prompt: 'Read this',
+        attachments: [file('a.txt', 'first')],
+      }),
+    );
+    const started = (await waitForFrame(conn, (f) => f.type === 'session.started')) as {
+      payload: { prompt: string; label: string };
+    };
+    const [, first] = /\[Attached file: (.+)\]/.exec(started.payload.prompt)!;
+    expect(readFileSync(first!, 'utf8')).toBe('first');
+    expect(started.payload.label).toBe('Read this');
+    expect(created[0]!.opts).toMatchObject({ addDirs: [join(attachmentsDir, session)] });
+    expect(created[0]!.fake.start).toHaveBeenCalledWith(started.payload.prompt);
+
+    conn.socket.send(
+      JSON.stringify({ type: 'session.send', session, text: 'And this', attachments: [file('b.txt', 'second')] }),
+    );
+    const message = (await waitForFrame(conn, (f) => f.type === 'user.message')) as { payload: { text: string } };
+    const [, second] = /\[Attached file: (.+)\]/.exec(message.payload.text)!;
+    expect(readFileSync(second!, 'utf8')).toBe('second');
+    expect(created[0]!.fake.send).toHaveBeenCalledWith(message.payload.text);
+
+    conn.socket.send(JSON.stringify({ type: 'session.close', session }));
+    await waitForFrame(conn, (f) => f.type === 'session.closed');
+    expect(existsSync(join(attachmentsDir, session))).toBe(false);
+  });
+
+  it("reports files it couldn't save instead of sending the follow-up without them", async () => {
+    const blocked = join(mkdtempSync(join(tmpdir(), 'cb-node-attach-')), 'not-a-folder');
+    writeFileSync(blocked, '');
+    createNode({ attachmentsDir: blocked });
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+    const session = randomUUID();
+    conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'p' }));
+    await waitForFrame(conn, (f) => f.type === 'session.started');
+    const file = { name: 'a.txt', type: 'text/plain', data: Buffer.from('x').toString('base64') };
+    conn.socket.send(JSON.stringify({ type: 'session.send', session, text: 'see file', attachments: [file] }));
+    expect(await waitForFrame(conn, (f) => f.kind === 'node-error')).toMatchObject({
+      session,
+      message: expect.stringContaining('could not save the attached files'),
+    });
+    expect(created[0]!.fake.send).not.toHaveBeenCalled();
+  });
 
   it('closes its sessions on close and waits for their processes to stop', async () => {
     createNode();
@@ -650,6 +721,7 @@ describe('startNode', () => {
       cwd: '/tmp/work',
       permissionUrl: `${PERMISSION_URL_BASE}/mcp/${sessionId}`,
       permissionMode: 'manual',
+      addDirs: [join(attachmentsBase, sessionId)],
     });
     expect(created[0]!.fake.start).toHaveBeenCalledWith('Fix the bug\nmore detail');
 
@@ -1015,6 +1087,7 @@ describe('startNode', () => {
       cwd: '/tmp/old',
       permissionUrl: `${PERMISSION_URL_BASE}/mcp/${sessionId}`,
       permissionMode: 'manual',
+      addDirs: [join(attachmentsBase, sessionId)],
     });
     expect(created[0]!.fake.start).not.toHaveBeenCalled();
     expect(created[0]!.fake.send).toHaveBeenCalledWith('still there?');

@@ -51,6 +51,28 @@ describe('PromptBox', () => {
   });
 });
 
+describe('PromptBox attachments', () => {
+  afterEach(() => cleanup());
+
+  it('adds picked or pasted files as chips that can be removed, and lets a prompt of only files send', () => {
+    const onFiles = vi.fn();
+    const shot = new File(['x'], 'shot.png', { type: 'image/png' });
+    const { button } = box({ files: { list: [shot], onChange: onFiles } });
+    expect(screen.getByText('shot.png')).toBeTruthy();
+    expect(button().disabled).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove shot.png' }));
+    expect(onFiles).toHaveBeenLastCalledWith([]);
+
+    const notes = new File(['y'], 'notes.txt', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText('Attach files'), { target: { files: [notes] } });
+    expect(onFiles).toHaveBeenLastCalledWith([shot, notes]);
+
+    const pasted = new File(['z'], 'image.png', { type: 'image/png' });
+    fireEvent.paste(screen.getByLabelText('Follow-up'), { clipboardData: { files: [pasted] } });
+    expect(onFiles).toHaveBeenLastCalledWith([shot, pasted]);
+  });
+});
+
 describe('ThemedSelect', () => {
   afterEach(() => cleanup());
 

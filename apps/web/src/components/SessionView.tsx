@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react';
 import Markdown from 'react-markdown';
-import type { Envelope, UsageWindow } from '@crystal-bridge/protocol';
+import type { Attachment, Envelope, UsageWindow } from '@crystal-bridge/protocol';
 import {
   IncrementalView,
   sessionEngine,
@@ -40,6 +40,7 @@ import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext, MARKDOWN_COMPONENTS, REMARK_PLUGINS } from './markdown.js';
 import { BattleCard } from './BattleCard.js';
 import { loadDraft, saveDraft } from '../drafts.js';
+import { attachedPaths, toAttachments } from '../attachments.js';
 import { currentActivity } from '../activity.js';
 import { type BattleResult, battleResults } from '../battle.js';
 import type { HeroManifest } from '../heroes.js';
@@ -58,7 +59,8 @@ export interface SessionViewProps {
   /** How far the history has loaded; until synced, a loading screen stands in for the chat. Unset: loaded. */
   progress?: ReplayProgress;
   onAnswer: (requestId: string, behavior: 'allow' | 'deny', answers?: Record<string, string>) => void;
-  onSend: (text: string) => void;
+  /** Sends a follow-up, with any files attached to it (#14). */
+  onSend: (text: string, attachments?: Attachment[]) => void;
   onInterrupt: () => void;
   onMode: (mode: PermissionMode) => void;
   /** Closes the session for good; true also removes its worktree if it has one. */
@@ -155,15 +157,34 @@ function Item({
   manifest?: HeroManifest;
 }) {
   switch (item.kind) {
-    case 'user':
+    case 'user': {
+      const { text, paths } = attachedPaths(item.text);
       return (
         <div
           title={sentAt(ts)}
           className="ml-auto max-w-[80%] whitespace-pre-wrap rounded bg-blue-600 px-3 py-2 text-white [overflow-wrap:anywhere]"
         >
-          {item.text}
+          {text}
+          {paths.length > 0 && (
+            <span className="mt-1.5 flex flex-wrap gap-1">
+              {paths.map((path) => (
+                <span
+                  key={path}
+                  title={path}
+                  className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs"
+                >
+                  <Icon name="attach" size={10} />
+                  {path
+                    .split('/')
+                    .at(-1)!
+                    .replace(/^\d+-\d+-/, '')}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
       );
+    }
     case 'assistant':
       return (
         // Long words and URLs wrap; code blocks and tables scroll inside their own box, never the pane.
@@ -441,12 +462,17 @@ export function SessionView({
     [],
   );
 
+  // Files picked for the next follow-up; kept only while the Quest is open.
+  const [files, setFiles] = useState<File[]>([]);
   function send(event: FormEvent) {
     event.preventDefault();
-    const text = draft.trim();
+    const text = draft.trim() || (files.length > 0 ? 'See the attached files.' : '');
     if (!text) return;
-    onSend(text);
+    const picked = files;
     setDraft('');
+    setFiles([]);
+    if (picked.length === 0) onSend(text);
+    else void toAttachments(picked).then((attachments) => onSend(text, attachments));
   }
 
   const mode = sessionMode(envelopes);
@@ -729,6 +755,7 @@ export function SessionView({
                 shell={shell}
                 running={turnRunning}
                 onStop={onInterrupt}
+                files={closed ? undefined : { list: files, onChange: setFiles }}
                 onChange={(text) => {
                   setDraft(text);
                   setHighlight(0);

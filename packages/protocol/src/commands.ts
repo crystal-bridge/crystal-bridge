@@ -21,6 +21,25 @@ export type Engine = z.infer<typeof Engine>;
 export const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export type Effort = z.infer<typeof Effort>;
 
+/** How many files one prompt or follow-up can carry, and each one's size as base64 (about 5 MB of file). */
+export const MAX_ATTACHMENTS = 5;
+export const MAX_ATTACHMENT_BASE64 = 7_000_000;
+
+/**
+ * A file sent with a prompt (#14): the node saves it outside the project and adds its path to the prompt, so the agent
+ * opens it with its own tools (images included). Never stored by the hub; only the prompt text is.
+ */
+export const Attachment = z.object({
+  name: z.string().min(1).max(200),
+  type: z.string().max(100),
+  data: z
+    .string()
+    .max(MAX_ATTACHMENT_BASE64)
+    .regex(/^[A-Za-z0-9+/]*={0,2}$/),
+});
+export type Attachment = z.infer<typeof Attachment>;
+const Attachments = z.array(Attachment).max(MAX_ATTACHMENTS);
+
 /**
  * Filled in by the hub from its store, never by clients: lets a node that restarted and no longer holds a session
  * rebuild it, on the same engine, numbering its events after the ones the hub already has.
@@ -55,6 +74,8 @@ export const NodeCommand = z.discriminatedUnion('type', [
     engine: Engine.optional(),
     /** Passed as `--effort` to every process this session starts; unset leaves the CLI's default. */
     effort: Effort.optional(),
+    /** Files sent with the opening prompt. */
+    attachments: Attachments.optional(),
   }),
   z.object({
     /** Closes a session for good: its process stops, its history stays, and it takes no more follow-ups. */
@@ -75,6 +96,8 @@ export const NodeCommand = z.discriminatedUnion('type', [
     type: z.literal('session.send'),
     session: z.uuid(),
     text: z.string().min(1),
+    /** Files sent with the follow-up. */
+    attachments: Attachments.optional(),
     /** Filled in by the hub from its store, never by clients; see `Resume`. */
     resume: Resume.optional(),
   }),
