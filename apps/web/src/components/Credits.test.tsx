@@ -24,4 +24,16 @@ describe('Credits', () => {
     expect(screen.getByText(/offered as OGA-BY 3.0, CC-BY-SA 3.0/)).toBeTruthy();
     expect(screen.getByText(/JetBrains Mono/)).toBeTruthy();
   });
+
+  it('credits the icon packs, naming each Game-icons artist', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(CSV)),
+    );
+    render(<Credits />);
+    const icons = screen.getByRole('heading', { name: 'Icons' }).parentElement!;
+    expect(icons.textContent).toContain('Game-icons, by Caro Asercion, Delapouite, Lorc and Skoll (CC BY 3.0)');
+    expect(icons.textContent).toContain('Phosphor Icons (MIT)');
+    expect(icons.querySelector('a[href="https://game-icons.net"]')).toBeTruthy();
+  });
 });

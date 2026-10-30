@@ -25,6 +25,8 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@iconify-json/game-icons": "1.2.4",
+    "@iconify-json/ph": "1.2.2",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",

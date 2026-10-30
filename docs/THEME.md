@@ -125,7 +125,12 @@ From the "Sprite Party Audition" comparison (2026-10-28):
   `tools/sprites/build_pack.py`: one folder per Class, a `manifest.json` the app reads at runtime (Classes, keywords,
   leader, fallback, frame sizes), and `CREDITS.csv` plus `LICENSE-ART.md`. A fork swaps the whole folder to change
   the art; the Classic theme (`VITE_CB_THEME=classic`) draws no Heroes.
-- **World map, monsters and icons:** Ninja Adventure (CC0).
+- **World map and monsters:** Ninja Adventure (CC0).
+- **Icons** ("Quest UI Audition", 2026-10-30): Game-icons (CC BY 3.0, credited per artist) for themed concepts
+  (Inventory, Spells, Items, Abilities, Close, Permission Mode, HP, MP, Gold) and Phosphor's filled weight (MIT) for
+  plain UI (Fork, Split, side panel, Send, Stop, Attach) and Equipment's sword. `apps/web/src/theme/iconSources.ts`
+  names each icon's pack, icon and artist; `pnpm icons` copies the drawings into `iconData.ts`, so the packs are dev
+  dependencies only. Each icon keeps its own colour (`.cb-icon-<name>` in theme.css).
 - Time Fantasy was ruled out: its licence forbids redistribution.
 - **For open-sourcing:** the art ships as its own pack with `CREDITS.csv` and `LICENSE-ART.md`, separate from the
   code's licence, and the in-app Credits name each layer's licence. `build_pack.py` refuses a layer that is

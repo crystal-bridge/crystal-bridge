@@ -256,6 +256,18 @@
 .cb-icon-abilities {
   --icon-colour: #b88a00;
 }
+.cb-icon-mode {
+  --icon-colour: #3446b4;
+}
+.cb-icon-hp {
+  --icon-colour: #c62f3c;
+}
+.cb-icon-mp {
+  --icon-colour: #2a74b8;
+}
+.cb-icon-gold {
+  --icon-colour: #a87400;
+}
 @media (prefers-color-scheme: dark) {
   .cb-icon-fork {
     --icon-colour: #4fd1a1;
@@ -281,6 +293,18 @@
     --icon-colour: #7ec3ff;
   }
   .cb-icon-abilities {
+    --icon-colour: var(--color-gold-bright);
+  }
+  .cb-icon-mode {
+    --icon-colour: #9fb0ff;
+  }
+  .cb-icon-hp {
+    --icon-colour: #ff7a85;
+  }
+  .cb-icon-mp {
+    --icon-colour: #7ec3ff;
+  }
+  .cb-icon-gold {
     --icon-colour: var(--color-gold-bright);
   }
 }

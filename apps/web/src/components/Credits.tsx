@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { creditedAuthors, type CreditRow, parseCredits, usedUnder } from '../credits.js';
+import { ICON_PACKS, iconAuthors, type IconPack } from '../theme/iconSources.js';
 
 /** The bundled fonts, all under the SIL Open Font License 1.1. */
 const FONTS = [
@@ -8,9 +9,14 @@ const FONTS = [
   { name: 'JetBrains Mono', by: 'The JetBrains Mono Project Authors' },
 ];
 
+/** "A, B and C". */
+function list(names: string[]): string {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
 /**
- * Who made what the app shows: the Hero art's artists and layers (from CREDITS.csv, fetched only when opened) and the
- * bundled fonts. The full third-party list is THIRD_PARTY_NOTICES.md in the repo.
+ * Who made what the app shows: the Hero art's artists and layers (from CREDITS.csv, fetched only when opened), the
+ * icon packs and the bundled fonts. The full third-party list is THIRD_PARTY_NOTICES.md in the repo.
  */
 export function Credits() {
   const [rows, setRows] = useState<CreditRow[] | null>(null);
@@ -61,6 +67,23 @@ export function Credits() {
               </details>
             </>
           )}
+        </section>
+        <section>
+          <h4 className="font-medium">Icons</h4>
+          <ul>
+            {(Object.keys(ICON_PACKS) as IconPack[]).map((id) => {
+              const pack = ICON_PACKS[id];
+              const authors = iconAuthors(id);
+              return (
+                <li key={id}>
+                  <a href={pack.url} target="_blank" rel="noreferrer" className="underline">
+                    {pack.name}
+                  </a>
+                  {authors.length > 0 && `, by ${list(authors)}`} ({pack.licence})
+                </li>
+              );
+            })}
+          </ul>
         </section>
         <section>
           <h4 className="font-medium">Fonts</h4>
