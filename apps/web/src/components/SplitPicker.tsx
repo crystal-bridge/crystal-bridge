@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useContext } from 'react';
 import type { KingdomLook } from '../appearance.js';
-import type { HeroManifest, HeroState } from '../heroes.js';
+import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import { hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { KingdomIcon } from './KingdomIcon.js';
@@ -24,6 +24,7 @@ export interface SplitPickerProps {
 
 /** Picks the Quest for the second pane of Split View, from any Kingdom this device shows. */
 export function SplitPicker({ candidates, heroes, onPick, onCancel }: SplitPickerProps) {
+  const leaderOf = useContext(LeaderContext);
   const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
     dialog.current?.querySelector('button')?.focus();
@@ -68,7 +69,13 @@ export function SplitPicker({ candidates, heroes, onPick, onCancel }: SplitPicke
                 >
                   <KingdomIcon icon={quest.look.icon} colour={quest.look.colour} size={20} />
                   {heroes && quest.state && (
-                    <HeroSprite manifest={heroes} classId={heroes.leader} state={quest.state} size={24} decorative />
+                    <HeroSprite
+                      manifest={heroes}
+                      classId={leaderOf(quest.id) ?? heroes.leader}
+                      state={quest.state}
+                      size={24}
+                      decorative
+                    />
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{quest.label}</span>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { createContext, useEffect, useState } from 'react';
 import type { SessionSummary } from './components/SessionList.js';
 
 /**
@@ -48,6 +48,36 @@ export function matchClass(manifest: HeroManifest, agent: string | undefined, { 
 }
 
 /** How long a finished turn's Victory shows before the Hero rests. */
+/** A Kingdom's party leader choice that gives each Quest its own Class. */
+export const VARIED = 'varied';
+
+/** A small stable hash of a Quest id. */
+function hash(id: string): number {
+  let h = 2166136261;
+  for (const ch of id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return h >>> 0;
+}
+
+/**
+ * The Class leading a Quest: the Kingdom's chosen Class, a stable pick per Quest when it chose `varied`, else the
+ * manifest's leader (#20).
+ */
+export function leaderFor(manifest: HeroManifest, quest: string, choice?: string): string {
+  if (choice === VARIED) {
+    const ids = Object.keys(manifest.classes).sort();
+    return ids[hash(quest) % ids.length] ?? manifest.leader;
+  }
+  return choice && manifest.classes[choice] ? choice : manifest.leader;
+}
+
+/** The manifest with another Class as leader, for the views of one Quest; unchanged when it already leads. */
+export function withLeader(manifest: HeroManifest, leader: string): HeroManifest {
+  return leader === manifest.leader ? manifest : { ...manifest, leader };
+}
+
+/** Which Class leads a Quest, for lists that draw many Quests' leaders (the strip, cards, the split picker). */
+export const LeaderContext = createContext<(quest: string) => string | undefined>(() => undefined);
+
 export const VICTORY_MS = 2 * 60_000;
 /** A running process quiet this long is resting between turns, not working. */
 export const QUIET_MS = 2 * 60_000;

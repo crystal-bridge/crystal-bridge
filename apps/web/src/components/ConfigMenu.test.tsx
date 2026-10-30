@@ -103,4 +103,20 @@ describe('ConfigMenu', () => {
     fireEvent.change(screen.getByLabelText('Tab style'), { target: { value: 'tinted' } });
     expect(props.onTabStyle).toHaveBeenCalledWith('tinted');
   });
+
+  it("picks each Kingdom's party leader: a Class, or a different Hero per Quest", () => {
+    const props = renderMenu({
+      looks: { 'node-a': { icon: 'castle', colour: '#3550c8', leader: 'paladin' } },
+      onLook: vi.fn(),
+      leaders: [
+        { value: 'paladin', label: 'Paladin' },
+        { value: 'rogue', label: 'Rogue' },
+      ],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Look for node-a' }));
+    const select = screen.getByLabelText('Party leader for node-a') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(['Paladin', 'Rogue', 'A different Hero per Quest']);
+    fireEvent.change(select, { target: { value: 'varied' } });
+    expect(props.onLook).toHaveBeenCalledWith('node-a', { leader: 'varied' });
+  });
 });

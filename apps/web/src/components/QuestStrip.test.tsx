@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { HeroManifest } from '../heroes.js';
+import { type HeroManifest, LeaderContext } from '../heroes.js';
 import type { SessionSummary } from './SessionList.js';
 import { QuestStrip } from './QuestStrip.js';
 
@@ -106,5 +106,35 @@ describe('QuestStrip', () => {
     cleanup();
     renderStrip();
     expect(document.querySelector('canvas')).toBeNull();
+  });
+
+  it('draws the Class the Kingdom chose to lead each Quest', () => {
+    const manifest: HeroManifest = {
+      leader: 'paladin',
+      fallback: 'paladin',
+      classes: {
+        paladin: { name: 'Paladin', match: [], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} },
+        rogue: { name: 'Rogue', match: [], work: 'slash', verb: 'Sneak', victory: 'emote', anims: {} },
+      },
+    };
+    render(
+      <LeaderContext.Provider value={(quest) => (quest === 'b' ? 'rogue' : undefined)}>
+        <QuestStrip
+          castleName="Castle"
+          quests={quests}
+          current="castle"
+          waiting={new Set()}
+          onCastle={vi.fn()}
+          onSelect={vi.fn()}
+          onPutAway={vi.fn()}
+          onNew={vi.fn()}
+          heroes={{ manifest, states: {} }}
+        />
+      </LeaderContext.Provider>,
+    );
+    expect([...document.querySelectorAll('canvas')].map((c) => c.getAttribute('data-class'))).toEqual([
+      'paladin',
+      'rogue',
+    ]);
   });
 });

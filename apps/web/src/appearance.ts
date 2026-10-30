@@ -12,6 +12,8 @@ export type { Appearance };
 export interface KingdomLook {
   icon: string;
   colour: string;
+  /** The Class leading this Kingdom's Quests, or `varied`; unset means the art pack's leader. */
+  leader?: string;
 }
 
 export type TabStyle = 'underline' | 'tinted' | 'pennant';
@@ -37,7 +39,8 @@ export function lookFor(appearance: Appearance, id: string): KingdomLook {
   const colour =
     BANNER_COLOURS.find((c) => c.hex === chosen?.colour)?.hex ??
     BANNER_COLOURS[Math.floor(h / KINGDOM_ICONS.length) % BANNER_COLOURS.length]!.hex;
-  return { icon, colour };
+  const leader = chosen?.leader;
+  return leader ? { icon, colour, leader } : { icon, colour };
 }
 
 export function tabStyle(appearance: Appearance): TabStyle {

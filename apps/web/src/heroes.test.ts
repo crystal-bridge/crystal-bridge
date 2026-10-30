@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type HeroManifest, heroAnimation, matchClass, questState } from './heroes.js';
+import { type HeroManifest, heroAnimation, leaderFor, matchClass, questState, VARIED, withLeader } from './heroes.js';
 import shippedRaw from '../public/heroes/manifest.json?raw';
 import recipesRaw from '../../../tools/sprites/classes.json?raw';
 
@@ -27,6 +27,28 @@ const manifest: HeroManifest = {
     rogue: { name: 'Rogue', match: ['explore', 'search'], work: 'slash', verb: 'Sneak', victory: 'emote', anims: {} },
   },
 };
+
+describe('leaderFor', () => {
+  it("is the manifest's leader unless the Kingdom chose another Class", () => {
+    expect(leaderFor(manifest, 'q1')).toBe('paladin');
+    expect(leaderFor(manifest, 'q1', 'rogue')).toBe('rogue');
+    expect(leaderFor(manifest, 'q1', 'not-a-class')).toBe('paladin');
+  });
+
+  it('gives each Quest its own Class when varied, the same one every time', () => {
+    const picks = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8'].map((q) => leaderFor(manifest, q, VARIED));
+    expect(new Set(picks).size).toBeGreaterThan(1);
+    for (const pick of picks) expect(Object.keys(manifest.classes)).toContain(pick);
+    expect(leaderFor(manifest, 'q1', VARIED)).toBe(picks[0]);
+  });
+
+  it('swaps the leader into a copy of the manifest', () => {
+    const swapped = withLeader(manifest, 'cleric');
+    expect(swapped.leader).toBe('cleric');
+    expect(manifest.leader).toBe('paladin');
+    expect(withLeader(manifest, 'paladin')).toBe(manifest);
+  });
+});
 
 describe('matchClass', () => {
   it('gives the main agent the leader Class', () => {

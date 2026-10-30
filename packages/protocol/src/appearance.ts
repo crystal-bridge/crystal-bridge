@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * How a user's Kingdoms look, shared across all their devices (unlike names, hidden Kingdoms and notification
- * levels, which stay per device): each Kingdom's icon and banner colour, and how tabs show the colour. Ids are the
+ * levels, which stay per device): each Kingdom's icon, banner colour and party leader, and how tabs show the colour. Ids are the
  * client's own lists (theme data), so the hub stores them without knowing what they mean.
  */
 export const KingdomLookChoice = z.object({
@@ -11,6 +11,8 @@ export const KingdomLookChoice = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
     .optional(),
+  /** The Class that leads this Kingdom's Quests, or `varied` for a different one per Quest. */
+  leader: z.string().max(64).optional(),
 });
 export type KingdomLookChoice = z.infer<typeof KingdomLookChoice>;
 
