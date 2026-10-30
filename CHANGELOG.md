@@ -19,6 +19,8 @@ then, everything is in Unreleased.
 - The Castle shows each Kingdom's Claude Code version and when an update is available.
 - `docs/OPERATIONS.md` states which hub and Kingdom releases work together.
 
+- The hub makes one-time join codes that trade for a new Kingdom's token, and a Kingdom can give up its own token.
+
 ### Changed
 
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".

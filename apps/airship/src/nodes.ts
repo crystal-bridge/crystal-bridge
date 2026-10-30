@@ -9,10 +9,16 @@ export interface NodeRegistry {
   ids(): string[];
   /** Removes the node's token for good; false if it has none. */
   revoke(node: string): boolean;
+  /** Issues the node's token, shown once. */
+  issue(node: string): string;
 }
 
 /** Node ids appear in URLs, logs and the UI, so keep them to a plain slug. */
 const NODE_ID = /^[a-z0-9][a-z0-9-]{0,62}$/i;
+
+export function isNodeId(node: string): boolean {
+  return NODE_ID.test(node);
+}
 
 const NodesFile = z.object({
   nodes: z.record(z.string(), z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), addedAt: z.number().int() })),
@@ -59,6 +65,9 @@ export function loadNodes(path: string): NodeRegistry {
     },
     ids() {
       return Object.keys(read(path).nodes).sort();
+    },
+    issue(node) {
+      return addNode(path, node);
     },
     revoke(node) {
       const file = read(path);

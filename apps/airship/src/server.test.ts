@@ -1022,6 +1022,11 @@ describe('airship server with node tokens', () => {
       const token = [...tokens].find(([, id]) => id === node)?.[0];
       return token !== undefined && tokens.delete(token);
     },
+    issue(node) {
+      const token = `issued-${node}`;
+      tokens.set(token, node);
+      return token;
+    },
   };
   let store: Store;
   let app: import('fastify').FastifyInstance;
@@ -1099,9 +1104,96 @@ describe('airship server with node tokens', () => {
     expect((await dial('token-b')).socket).toBeDefined();
   });
 
+  async function post(path: string, body: unknown, headers: Record<string, string> = {}): Promise<Response> {
+    return fetch(`${wsUrl.replace('ws:', 'http:')}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('makes a join code for a new node, which trades once for its own token', async () => {
+    const made = await post('/api/join-codes', { node: 'node-c' });
+    expect(made.status).toBe(200);
+    const { code, expiresAt } = (await made.json()) as { code: string; expiresAt: number };
+    expect(expiresAt).toBeGreaterThan(Date.now());
+
+    const joined = await post('/api/join', { code });
+    expect(joined.status).toBe(200);
+    const { node, token } = (await joined.json()) as { node: string; token: string };
+    expect(node).toBe('node-c');
+    expect((await dial(token)).socket).toBeDefined();
+    expect((await post('/api/join', { code })).status).toBe(401);
+  });
+
+  it('refuses a join code for a node that already has a token, so one cannot take over a Kingdom', async () => {
+    expect((await post('/api/join-codes', { node: 'node-a' })).status).toBe(409);
+  });
+
+  it('refuses a join code for a bad node id, and a join without a code', async () => {
+    expect((await post('/api/join-codes', { node: 'bad id/x' })).status).toBe(400);
+    expect((await post('/api/join', {})).status).toBe(400);
+  });
+
+  it('POST /api/leave revokes the caller-s own token and cuts its connection', async () => {
+    const { socket } = await dial('token-a');
+    send(socket!, { kind: 'hello', node: 'node-a' });
+    const start = Date.now();
+    while (!(await connectedNodes()).includes('node-a') && Date.now() - start < 2000)
+      await new Promise((r) => setTimeout(r, 10));
+    const closed = new Promise<number>((resolve) => socket!.once('close', (code) => resolve(code)));
+
+    const left = await post('/api/leave', {}, { authorization: 'Bearer token-a' });
+
+    expect(left.status).toBe(204);
+    expect(await closed).toBe(4007);
+    expect((await dial('token-a')).status).toBe(401);
+    expect((await dial('token-b')).socket).toBeDefined();
+  });
+
+  it('POST /api/leave refuses a missing or unknown token', async () => {
+    expect((await post('/api/leave', {})).status).toBe(401);
+    expect((await post('/api/leave', {}, { authorization: 'Bearer nope' })).status).toBe(401);
+  });
+
   it('DELETE /api/nodes/:node answers 404 for a node with no token', async () => {
     const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/node-z`, { method: 'DELETE' });
     expect(response.status).toBe(404);
+  });
+});
+
+describe('joining a hub with allowed users', () => {
+  it('lets a machine with no login trade a code, but only an allowed user make one', async () => {
+    const tokens = new Map<string, string>();
+    const store = openStore(':memory:');
+    const app = await buildServer({
+      store,
+      allowedUsers: ['me@example.com'],
+      nodes: {
+        verify: (token) => tokens.get(token ?? ''),
+        ids: () => [...tokens.values()],
+        revoke: () => false,
+        issue(node) {
+          tokens.set('token', node);
+          return 'token';
+        },
+      },
+    });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    const post = (path: string, body: unknown, login?: string) =>
+      fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(login ? { 'tailscale-user-login': login } : {}) },
+        body: JSON.stringify(body),
+      });
+
+    expect((await post('/api/join-codes', { node: 'node-a' })).status).toBe(403);
+    const made = await post('/api/join-codes', { node: 'node-a' }, 'me@example.com');
+    const { code } = (await made.json()) as { code: string };
+    expect((await post('/api/join', { code })).status).toBe(200);
+    await app.close();
+    store.close();
   });
 });
 

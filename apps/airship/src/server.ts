@@ -25,7 +25,8 @@ import {
   type Project,
   Engine,
 } from '@crystal-bridge/protocol';
-import type { NodeRegistry } from './nodes.js';
+import { createJoinCodes } from './join.js';
+import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
 import type { Store } from './store.js';
 
@@ -73,8 +74,11 @@ async function refuse(request: FastifyRequest, reply: FastifyReply, code: number
   await reply.code(code).header('connection', 'close').send({ error });
 }
 
-/** Paths that don't need a tailnet user: node links use their token, and health checks carry no data. */
-const OPEN_PATHS = new Set(['/node', '/api/health']);
+/**
+ * Paths that don't need a tailnet user: node links and leaving use a node's token, joining uses a one-time code, and
+ * health checks carry no data.
+ */
+const OPEN_PATHS = new Set(['/node', '/api/health', '/api/join', '/api/leave']);
 
 /** Close code for a node whose hello names a different node than its token. */
 const CLOSE_WRONG_NODE = 4003;
@@ -378,6 +382,31 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     store.listSessions().map((s) => ({ ...s, relayedBytes: s.relayedBytes + (relayed.get(s.id) ?? 0) })),
   );
   app.get('/api/nodes', async () => [...nodes.keys()]);
+  const joinCodes = createJoinCodes();
+  // Adding a Kingdom: only for a new node, so a code can't be used to take over one that already has a token.
+  app.post('/api/join-codes', async (request, reply) => {
+    const { node } = (request.body ?? {}) as { node?: unknown };
+    if (!registry) return reply.code(409).send({ error: 'this hub has no node tokens' });
+    if (typeof node !== 'string' || !isNodeId(node)) return reply.code(400).send({ error: 'expected { node }' });
+    if (registry.ids().includes(node)) return reply.code(409).send({ error: 'that name is taken' });
+    return joinCodes.issue(node);
+  });
+  app.post('/api/join', async (request, reply) => {
+    const { code } = (request.body ?? {}) as { code?: unknown };
+    if (typeof code !== 'string') return reply.code(400).send({ error: 'expected { code }' });
+    const node = joinCodes.redeem(code);
+    if (!node || !registry) return reply.code(401).send({ error: 'that code is wrong, used or expired' });
+    if (registry.ids().includes(node)) return reply.code(409).send({ error: 'that name is taken' });
+    return { node, token: registry.issue(node) };
+  });
+  // The Kingdom's own uninstall: it gives up its token, so nobody needs to remove it from the app as well.
+  app.post('/api/leave', async (request, reply) => {
+    const node = registry?.verify(bearer(request.headers.authorization));
+    if (!node) return reply.code(401).send({ error: 'missing or invalid node token' });
+    registry!.revoke(node);
+    nodes.get(node)?.close(CLOSE_TOKEN_REVOKED, 'node token revoked');
+    return reply.code(204).send();
+  });
   // Removing a Kingdom: its token stops working now, and so does a connection made with it. Its Quests stay as history.
   app.delete('/api/nodes/:node', async (request, reply) => {
     const { node } = request.params as { node: string };
