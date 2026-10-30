@@ -211,6 +211,21 @@ describe('App Kingdom tabs', () => {
     expect(screen.getByRole('region', { name: 'Tavern' })).toBeTruthy();
   });
 
+  it('adds each view to the history, so Back returns to the one before (a phone back gesture too)', async () => {
+    await renderApp();
+    const start = window.history.length;
+    fireEvent.click(screen.getByRole('tab', { name: /private work/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Crystal Bridge/ }));
+    expect(window.history.length).toBe(start + 2);
+    expect(window.location.hash).toBe('#/airship');
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(window.location.hash).toBe(`#/k/node-a/q/${sessions[1]!.id}`);
+    expect(screen.getByRole('tab', { name: /private work/, selected: true })).toBeTruthy();
+  });
+
   it('follows a change to the address while open (a link, or an edited address)', async () => {
     await renderApp();
     await act(async () => {

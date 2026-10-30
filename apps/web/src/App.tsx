@@ -687,7 +687,10 @@ export function App({ hub }: { hub: HubClient }) {
       )
     : [];
   const view = page === 'airship' ? 'airship' : shown ? 'quest' : page;
-  // The address follows the view, so a reload comes back here. Replaced, not pushed: Back still leaves the app.
+  // The address follows the view, so a reload comes back here, and each new view is a history entry, so Back (a
+  // phone's back gesture too) returns to the one before; the hashchange listener below follows it. The first write
+  // after loading replaces, so settling on a view at startup doesn't add a step.
+  const addressSet = useRef(false);
   useEffect(() => {
     let route: Route | null = null;
     if (view === 'airship') route = { page: 'airship' };
@@ -697,8 +700,11 @@ export function App({ hub }: { hub: HubClient }) {
     if (!route) return;
     const hash = formatRoute(route);
     if (window.location.hash !== hash) {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`);
+      const url = `${window.location.pathname}${window.location.search}${hash}`;
+      if (addressSet.current) window.history.pushState(null, '', url);
+      else window.history.replaceState(null, '', url);
     }
+    addressSet.current = true;
   }, [view, active, shown]);
   // And the view follows the address when something else changes it (a link, an edited address), as on a reload.
   const followRoute = useRef<(route: Route) => void>(() => {});
