@@ -12,6 +12,7 @@
     "preflight": "bash scripts/preflight.sh",
     "dev": "pnpm preflight && concurrently -n airship,crystal,web \"pnpm --filter @crystal-bridge/airship dev\" \"pnpm --filter @crystal-bridge/kingdom dev\" \"pnpm --filter @crystal-bridge/web dev\"",
     "smoke": "tsx scripts/smoke.ts",
+    "demo": "tsx scripts/demo.ts",
     "notices": "tsx scripts/third-party-notices.ts",
     "notices:check": "tsx scripts/third-party-notices.ts --check",
     "icons": "tsx apps/web/scripts/icons.ts && prettier --write apps/web/src/theme/iconData.ts",

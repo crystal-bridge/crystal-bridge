@@ -8,9 +8,9 @@ notifications tell you when a session needs you.
 It wraps the real, unmodified `claude` CLI on each machine, under that machine's own login. It doesn't reimplement
 Claude Code's agent loop, and it never touches your credentials.
 
-![A Quest on the Kingdom "tavern": the prompt, an approval card for each edit and test run, and the Battle won summary](docs/images/demo.gif)
+![A tour of the app: the Airship and its Tavern across three Kingdoms, a Castle, a busy Quest with its party and meters, an approval leading to Battle won, the Inventory, and Split View across two Kingdoms](docs/images/demo.gif)
 
-_A Quest in "Ask every time" mode: each edit and command waits for Approve, from any device, and the turn ends with what it cost and changed._
+_A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 
 ## Features
 
@@ -161,6 +161,8 @@ scripts/deploy-crystal-macos.sh my-mac hub-host        # the Mac you run it on
 - `pnpm test`, `pnpm typecheck`, `pnpm format` (Prettier).
 - `pnpm smoke`: with `pnpm dev` running, starts a real session in a throwaway repo, approves its permission prompt and
   checks it ran.
+- `pnpm demo`: the app with a scripted world in it, for screenshots and a look around. It starts a throwaway hub and
+  three invented Kingdoms over the real protocol. No `claude` runs, nothing is kept, and Approve works.
 - `AGENTS.md` holds the working rules (`CLAUDE.md` imports it); `docs/` the operations guide and theme.
 
 ## Licence
