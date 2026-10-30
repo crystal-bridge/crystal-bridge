@@ -5,6 +5,7 @@ import { accessRefusals, authMode } from './access.js';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { backupStore } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
+import { createFirstRun } from './first-run.js';
 import { pendingMigrations } from './migrations.js';
 import { loadNodes } from './nodes.js';
 import { hubPaths } from './paths.js';
@@ -70,15 +71,16 @@ async function main(): Promise<void> {
   const auth = tokens ? accessTokens(tokens) : mode === 'tailscale-serve' ? tailscaleServe(ALLOWED_USERS) : undefined;
   if (tokens) {
     console.log(`[airship] token login, tokens from ${TOKENS_PATH}: ${tokens.ids().join(', ') || '(none yet)'}`);
-    if (tokens.ids().length === 0) {
-      console.warn(
-        '[airship] no access tokens yet, so nobody can log in. Add one: pnpm --filter @crystal-bridge/airship token:add <name>',
-      );
-    }
   } else if (ALLOWED_USERS.length > 0) {
     console.log(`[airship] client side limited to tailnet users: ${ALLOWED_USERS.join(', ')}`);
   } else {
     console.warn('[airship] development hub without AIRSHIP_ALLOWED_USERS: the web app and API are open.');
+  }
+  const firstRun = tokens && tokens.ids().length === 0 ? createFirstRun(tokens) : undefined;
+  if (firstRun) {
+    console.warn('[airship] no logins yet. Open the hub in a browser and enter this one-time setup code:');
+    console.warn(`[airship]   ${firstRun.code}`);
+    console.warn('[airship] Or make a login from a shell, with the `token add <name>` command.');
   }
   const vapid = loadVapidKeys(VAPID_PATH);
   const pusher = createPusher({
@@ -92,6 +94,7 @@ async function main(): Promise<void> {
     logger: true,
     nodes,
     ...(auth ? { auth } : {}),
+    ...(firstRun ? { firstRun } : {}),
     release: RELEASE,
     ...(VERSION ? { webRoot: fileURLToPath(new URL('web', import.meta.url)) } : {}),
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),

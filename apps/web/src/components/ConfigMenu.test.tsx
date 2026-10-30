@@ -28,6 +28,22 @@ function renderMenu(overrides: Partial<Parameters<typeof ConfigMenu>[0]> = {}) {
   return props;
 }
 
+describe('ConfigMenu logging out', () => {
+  afterEach(() => cleanup());
+
+  it('logs out when the hub has a login', () => {
+    const onLogOut = vi.fn();
+    renderMenu({ onLogOut });
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    expect(onLogOut).toHaveBeenCalled();
+  });
+
+  it('has no Log out on a hub without a login page', () => {
+    renderMenu();
+    expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull();
+  });
+});
+
 describe('ConfigMenu', () => {
   afterEach(() => cleanup());
 

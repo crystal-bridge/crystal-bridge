@@ -107,6 +107,11 @@ async function removeKingdom(node: string): Promise<void> {
   if (!response.ok) throw await refusal(response);
 }
 
+/** Clears this browser's cookie, then reloads into the login page. */
+function logOut(): void {
+  void fetch('/api/logout', { method: 'POST' }).finally(() => window.location.reload());
+}
+
 async function forgetKingdom(node: string): Promise<void> {
   const response = await fetch(`/api/nodes/${encodeURIComponent(node)}/quests`, { method: 'DELETE' });
   if (!response.ok) throw await refusal(response);
@@ -135,6 +140,7 @@ export function App({ hub }: { hub: HubClient }) {
   const [projectLists, setProjectLists] = useState<{ node: string; projects: Project[] }[]>([]);
   const [latestCli, setLatestCli] = useState<string | undefined>(undefined);
   const [removed, setRemoved] = useState<string | null>(null);
+  const [canLogOut, setCanLogOut] = useState(false);
   // Who holds a token; undefined until the hub has said, so a Kingdom never looks removed while the page loads.
   const [enrolled, setEnrolled] = useState<string[] | undefined>(undefined);
   const [engineLists, setEngineLists] = useState<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>(
@@ -511,6 +517,10 @@ export function App({ hub }: { hub: HubClient }) {
     />
   ) : null;
 
+  useEffect(() => {
+    void tryJson<{ canLogIn?: boolean }>('/api/me').then((me) => setCanLogOut(me?.canLogIn === true));
+  }, []);
+
   const refresh = useCallback(async () => {
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
     const [s, n, u, x, h, p, e, l, a, t] = await Promise.all([
@@ -871,6 +881,7 @@ export function App({ hub }: { hub: HubClient }) {
               <ConfigMenu
                 leaders={leaderChoices}
                 onCreateJoinCode={createJoinCode}
+                {...(canLogOut ? { onLogOut: logOut } : {})}
                 visible={visible}
                 hidden={hidden}
                 onRename={(id, name) =>

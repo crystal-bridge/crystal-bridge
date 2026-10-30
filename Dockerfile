@@ -1,6 +1,6 @@
 # The hub: `docker run -d -p 7700:7700 -v crystal-bridge:/data ghcr.io/crystal-bridge/airship`. It defaults to token login,
-# the only one safe on a reachable address. Add a login with `docker exec <container> crystal-bridge-airship token add me`,
-# and put HTTPS in front of it. Kingdoms don't run in here: they run on the machines with your code.
+# the only one safe on a reachable address. `docker logs` shows a one-time setup code for making the first login in the
+# browser, or use `docker exec <container> crystal-bridge-airship token add me`. Put HTTPS in front of it. Kingdoms don't run in here: they run on the machines with your code.
 FROM node:22-slim AS build
 WORKDIR /src
 RUN npm install --global pnpm@12.16.1

@@ -17,6 +17,36 @@ describe('LoginGate', () => {
     vi.unstubAllGlobals();
   });
 
+  it('asks a new hub for its setup code, then shows the login once before going in', async () => {
+    const calls = hub({
+      '/api/me': () => json({ login: null, canLogIn: true, setup: true }),
+      '/api/setup': () => json({ login: 'me', token: 'the-new-token' }),
+    });
+    render(<LoginGate>{app}</LoginGate>);
+    fireEvent.change(await screen.findByLabelText('Setup code'), { target: { value: 'code-from-logs' } });
+    fireEvent.change(screen.getByLabelText('Your login name'), { target: { value: 'me' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create login' }));
+
+    expect(((await screen.findByLabelText('Your access token')) as HTMLInputElement).value).toBe('the-new-token');
+    expect(screen.queryByText('the app')).toBeNull();
+    const [, init] = calls.mock.calls.find(([url]) => url === '/api/setup') as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ code: 'code-from-logs', name: 'me' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'I saved it' }));
+    expect(await screen.findByText('the app')).toBeTruthy();
+  });
+
+  it('shows why a setup code was refused', async () => {
+    hub({
+      '/api/me': () => json({ login: null, canLogIn: true, setup: true }),
+      '/api/setup': () => json({ error: 'that setup code is wrong' }, 401),
+    });
+    render(<LoginGate>{app}</LoginGate>);
+    fireEvent.change(await screen.findByLabelText('Setup code'), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create login' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('wrong');
+  });
+
   it('shows the app to someone logged in', async () => {
     hub({ '/api/me': () => json({ login: 'laptop', canLogIn: true }) });
     render(<LoginGate>{app}</LoginGate>);
