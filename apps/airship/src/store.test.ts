@@ -242,6 +242,20 @@ describe('store', () => {
     expect(store.sessionEngine(randomUUID())).toBeUndefined();
   });
 
+  it('reports the effort a session started with, read from its session.started (none when unset or unknown)', () => {
+    const [plain, high, odd] = [randomUUID(), randomUUID(), randomUUID()];
+    const start = (session: string, extra: Record<string, unknown>) =>
+      store.appendEvent(
+        makeEnvelope({ session, type: 'session.started', payload: { cwd: '/w', prompt: 'p', label: 'p', ...extra } }),
+      );
+    start(plain, {});
+    start(high, { effort: 'high' });
+    start(odd, { effort: 'ludicrous' });
+    expect(store.sessionEffort(plain)).toBeUndefined();
+    expect(store.sessionEffort(high)).toBe('high');
+    expect(store.sessionEffort(odd)).toBeUndefined();
+  });
+
   it('reports the next free seq of a session', () => {
     const session = randomUUID();
     expect(store.nextSeq(session)).toBe(0);

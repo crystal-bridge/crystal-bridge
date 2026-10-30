@@ -17,6 +17,10 @@ export type PermissionMode = z.infer<typeof PermissionMode>;
 export const Engine = z.enum(['stream', 'interactive']);
 export type Engine = z.infer<typeof Engine>;
 
+/** How hard the agent thinks: the CLI's `--effort` levels. Unset leaves the CLI's own default. */
+export const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+export type Effort = z.infer<typeof Effort>;
+
 /**
  * Filled in by the hub from its store, never by clients: lets a node that restarted and no longer holds a session
  * rebuild it, on the same engine, numbering its events after the ones the hub already has.
@@ -26,6 +30,8 @@ const Resume = z.object({
   nextSeq: z.number().int().nonnegative(),
   /** The engine the session started on; unset is `stream`. */
   engine: Engine.optional(),
+  /** The effort the session started with; unset is the CLI's default. */
+  effort: Effort.optional(),
 });
 
 // client -> hub -> node
@@ -47,6 +53,8 @@ export const NodeCommand = z.discriminatedUnion('type', [
     forkFrom: z.uuid().optional(),
     /** Unset: `stream`. A node runs only the engines its hello lists. */
     engine: Engine.optional(),
+    /** Passed as `--effort` to every process this session starts; unset leaves the CLI's default. */
+    effort: Effort.optional(),
   }),
   z.object({
     /** Closes a session for good: its process stops, its history stays, and it takes no more follow-ups. */

@@ -44,6 +44,7 @@ export const ICON_SOURCES = {
   send: { pack: 'game-icons', icon: 'broadsword', author: 'Lorc' },
   stop: { pack: 'game-icons', icon: 'shield', author: 'Sbed' },
   mode: { pack: 'game-icons', icon: 'checked-shield', author: 'Lorc' },
+  effort: { pack: 'game-icons', icon: 'flame', author: 'Carl Olsen' },
   // Stats
   hp: { pack: 'game-icons', icon: 'hearts', author: 'Skoll' },
   mp: { pack: 'game-icons', icon: 'magic-swirl', author: 'Lorc' },

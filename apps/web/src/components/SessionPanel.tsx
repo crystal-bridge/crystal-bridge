@@ -5,6 +5,7 @@ import { type HeroManifest, type HeroState, matchClass, QUIET_MS } from '../hero
 import { FileOpenContext } from './markdown.js';
 import type { SessionInfo } from '../info.js';
 import { MODES } from '../modes.js';
+import { effortLabel } from '../effort.js';
 import { type Concept, gameLook, hint, stepWord, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { CompanionSprite } from './CompanionSprite.js';
@@ -327,6 +328,7 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
         )}
         {info.model && <Row label="Model">{info.model}</Row>}
         {mode && <Row label="Mode">{mode}</Row>}
+        {info.effort && <Row label="Effort">{effortLabel(info.effort)}</Row>}
       </Section>
 
       <Section title="Outputs">

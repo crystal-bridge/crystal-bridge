@@ -3,6 +3,7 @@ import {
   NodeCommand,
   NodeHello,
   PROTOCOL_VERSION,
+  type Effort,
   type Envelope,
   type EventType,
   type NodeError,
@@ -55,6 +56,8 @@ export type SessionFactory = (opts: {
   forkFrom?: string;
   /** Which engine runs it; unset is `stream`. Only engines in `StartNodeOptions.engines` reach the factory. */
   engine?: Engine;
+  /** `--effort` for every process it starts; unset is the CLI's default. */
+  effort?: Effort;
 }) => SessionLike;
 
 /** All `startNode` needs from Task 4's permission server. */
@@ -236,6 +239,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     mode = defaultMode,
     forkFrom?: string,
     engine?: Engine,
+    effort?: Effort,
   ): SessionLike {
     const permissionUrl = permissionServer.url(sessionId);
     const runtime = sessionFactory({
@@ -245,6 +249,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       permissionMode: mode,
       ...(forkFrom ? { forkFrom } : {}),
       ...(engine ? { engine } : {}),
+      ...(effort ? { effort } : {}),
     });
     sessions.set(sessionId, { seq, unacked: new Map(), runtime, cwd });
 
@@ -296,7 +301,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       if (sessions.has(cmd.session)) return;
     }
 
-    const runtime = createSession(cmd.session, cwd, 0, cmd.mode, cmd.forkFrom, cmd.engine);
+    const runtime = createSession(cmd.session, cwd, 0, cmd.mode, cmd.forkFrom, cmd.engine, cmd.effort);
     sendEnvelope(cmd.session, 'session.started', {
       cwd,
       prompt: cmd.prompt,
@@ -304,6 +309,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       ...(worktree ? { worktree } : {}),
       ...(cmd.forkFrom ? { forkedFrom: cmd.forkFrom } : {}),
       ...(cmd.engine ? { engine: cmd.engine } : {}),
+      ...(cmd.effort ? { effort: cmd.effort } : {}),
     });
 
     runtime.start(cmd.prompt);
@@ -318,14 +324,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   function handleSessionSend(cmd: Extract<NodeCommand, { type: 'session.send' }>): void {
     let state = sessions.get(cmd.session);
     if (!state && cmd.resume) {
-      const { cwd, nextSeq, engine } = cmd.resume;
+      const { cwd, nextSeq, engine, effort } = cmd.resume;
       // Resuming on another engine would quietly lose what the Quest was started for (e.g. artifacts).
       if (!runs(engine)) {
         sendNodeError(cmd.session, `this node no longer runs the ${engine} engine this session started on`);
         return;
       }
       log(`rebuilding session ${cmd.session} in ${cwd} from seq ${nextSeq}`);
-      createSession(cmd.session, cwd, nextSeq, undefined, undefined, engine);
+      createSession(cmd.session, cwd, nextSeq, undefined, undefined, engine, effort);
       state = sessions.get(cmd.session);
     }
     if (!state) {

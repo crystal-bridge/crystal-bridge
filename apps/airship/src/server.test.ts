@@ -652,23 +652,23 @@ describe('airship server', () => {
     });
   });
 
-  it('names the session-s engine in the resume it fills in, so a restarted node rebuilds it on the same one', async () => {
+  it('names the session-s engine and effort in the resume it fills in, so a restarted node rebuilds it the same', async () => {
     const { socket: nodeSocket } = await connectNode('node-a');
     const nodeFrames = new FrameRecorder(nodeSocket);
     const { socket: clientSocket } = await connectClient();
     const sessionId = randomUUID();
     store.appendEvent(
       sessionStartedEnvelope(sessionId, 'node-a', {
-        payload: { cwd: '/tmp/work', prompt: 'p', label: 'p', engine: 'interactive' },
+        payload: { cwd: '/tmp/work', prompt: 'p', label: 'p', engine: 'interactive', effort: 'high' },
       }),
     );
     send(clientSocket, { kind: 'command', command: { type: 'session.send', session: sessionId, text: 'hi' } });
     expect(await nodeFrames.waitFor((f) => f.type === 'session.send')).toMatchObject({
-      resume: { cwd: '/tmp/work', nextSeq: 1, engine: 'interactive' },
+      resume: { cwd: '/tmp/work', nextSeq: 1, engine: 'interactive', effort: 'high' },
     });
     send(clientSocket, { kind: 'command', command: { type: 'session.close', session: sessionId } });
     expect(await nodeFrames.waitFor((f) => f.type === 'session.close')).toMatchObject({
-      resume: { cwd: '/tmp/work', nextSeq: 1, engine: 'interactive' },
+      resume: { cwd: '/tmp/work', nextSeq: 1, engine: 'interactive', effort: 'high' },
     });
   });
 

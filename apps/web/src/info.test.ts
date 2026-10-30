@@ -144,6 +144,12 @@ describe('sessionInfo', () => {
     ]);
   });
 
+  it('reads the effort a session started with', () => {
+    seq = 0;
+    const info = sessionInfo([env('session.started', { cwd: '/r', prompt: 'p', label: 'p', effort: 'xhigh' })]);
+    expect(info.effort).toBe('xhigh');
+  });
+
   it('tracks a Monitor as a Side Quest too, running until the process ends', () => {
     seq = 0;
     const info = sessionInfo([

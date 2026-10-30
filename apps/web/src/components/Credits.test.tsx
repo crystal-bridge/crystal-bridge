@@ -32,7 +32,9 @@ describe('Credits', () => {
     );
     render(<Credits />);
     const icons = screen.getByRole('heading', { name: 'Icons' }).parentElement!;
-    expect(icons.textContent).toContain('Game-icons, by Caro Asercion, Delapouite, Lorc, Sbed and Skoll (CC BY 3.0)');
+    expect(icons.textContent).toContain(
+      'Game-icons, by Carl Olsen, Caro Asercion, Delapouite, Lorc, Sbed and Skoll (CC BY 3.0)',
+    );
     expect(icons.textContent).toContain('Phosphor Icons (MIT)');
     expect(icons.querySelector('a[href="https://game-icons.net"]')).toBeTruthy();
   });

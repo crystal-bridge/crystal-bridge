@@ -69,6 +69,11 @@ describe('SessionPanel', () => {
     expect(within(screen.getByRole('region', { name: 'Stats' })).getByRole('heading').className).toContain('cb-plate');
   });
 
+  it('names the effort in the Expedition when the Quest started with one', () => {
+    render(<SessionPanel info={{ ...info, effort: 'xhigh' }} kingdom="node-b" />);
+    expect(screen.getByRole('region', { name: 'Expedition' }).textContent).toContain('EffortExtra high');
+  });
+
   it('puts Stats above the Expedition', () => {
     render(<SessionPanel info={info} kingdom="node-b" />);
     const names = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));

@@ -58,6 +58,24 @@ describe('NewSession', () => {
     return onStart;
   }
 
+  it('starts at the CLI default effort unless one is picked, and remembers the pick on this device', () => {
+    const onStart = fill();
+    expect(screen.getByLabelText('Effort').closest('.cb-prompt')).toBe(
+      screen.getByLabelText('Prompt').closest('.cb-prompt'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(onStart.mock.calls[0]![0]).not.toHaveProperty('effort');
+    cleanup();
+
+    const onHigh = fill();
+    fireEvent.change(screen.getByLabelText('Effort'), { target: { value: 'high' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(onHigh).toHaveBeenCalledWith(expect.objectContaining({ effort: 'high' }));
+    cleanup();
+    fill();
+    expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('high');
+  });
+
   it('starts in the project folder itself by default', () => {
     const onStart = fill();
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));

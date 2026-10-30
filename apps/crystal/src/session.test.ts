@@ -126,6 +126,7 @@ function createSession(
     permissionMode: 'manual' | 'acceptEdits' | 'auto' | 'plan';
     forkFrom: string;
     chrome: boolean;
+    effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   }> = {},
 ) {
   return new ClaudeSession({
@@ -191,6 +192,20 @@ describe('ClaudeSession', () => {
     session.send('more');
     expect(calls[1]!.args.slice(-2)).toEqual(['--resume', SESSION_ID]);
     expect(calls[1]!.args).not.toContain('--fork-session');
+  });
+
+  it('passes --effort when the session has one, on every process it starts (resumes too)', async () => {
+    const { spawnFn, calls, children } = createSpawnMock();
+    createSession(spawnFn).start('hello');
+    expect(calls[0]!.args).not.toContain('--effort');
+
+    const session = createSession(spawnFn, { effort: 'high' });
+    session.start('hello');
+    finishExit(children[1]!, 0);
+    session.send('more');
+    for (const call of [calls[1]!, calls[2]!]) {
+      expect(call.args[call.args.indexOf('--effort') + 1]).toBe('high');
+    }
   });
 
   it('adds --chrome only when the node enables it, on every process it starts', async () => {

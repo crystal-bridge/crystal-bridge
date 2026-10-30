@@ -594,3 +594,11 @@ button[aria-pressed='true'] .cb-icon {
   outline: none;
   border-color: var(--prompt-go);
 }
+.cb-icon-effort {
+  --icon-colour: #c4560c;
+}
+@media (prefers-color-scheme: dark) {
+  .cb-icon-effort {
+    --icon-colour: #ffa45a;
+  }
+}

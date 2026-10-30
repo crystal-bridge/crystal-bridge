@@ -41,7 +41,7 @@ describe('icon build', () => {
   });
 
   it('credits every Game-icons artist used', () => {
-    expect(iconAuthors('game-icons')).toEqual(['Caro Asercion', 'Delapouite', 'Lorc', 'Sbed', 'Skoll']);
+    expect(iconAuthors('game-icons')).toEqual(['Carl Olsen', 'Caro Asercion', 'Delapouite', 'Lorc', 'Sbed', 'Skoll']);
     expect(iconAuthors('ph')).toEqual([]);
   });
 });

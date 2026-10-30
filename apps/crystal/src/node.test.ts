@@ -1041,6 +1041,32 @@ describe('startNode', () => {
     expect(created[0]!.fake.send).toHaveBeenCalledWith('still there?');
   });
 
+  it('starts a session with the effort it asks for, records it, and keeps it when rebuilding from a resume', async () => {
+    createNode();
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+    const session = randomUUID();
+    conn.socket.send(
+      JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'p', effort: 'xhigh' }),
+    );
+    expect(await waitForFrame(conn, (f) => f.type === 'session.started')).toMatchObject({
+      payload: { effort: 'xhigh' },
+    });
+    expect(created[0]!.opts).toMatchObject({ effort: 'xhigh' });
+
+    const rebuilt = randomUUID();
+    conn.socket.send(
+      JSON.stringify({
+        type: 'session.send',
+        session: rebuilt,
+        text: 'still there?',
+        resume: { cwd: '/tmp/old', nextSeq: 7, effort: 'low' },
+      }),
+    );
+    await waitForFrame(conn, (f) => f.type === 'user.message' && f.session === rebuilt);
+    expect(created[1]!.opts).toMatchObject({ session: rebuilt, effort: 'low' });
+  });
+
   it('refuses to rebuild a session on an engine it no longer runs, starting nothing', async () => {
     createNode();
     const conn = await nextConnection(harness, 0);
