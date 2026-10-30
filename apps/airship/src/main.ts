@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { accessRefusals, authMode } from './access.js';
-import { tailscaleServe } from './auth.js';
+import { accessTokens, tailscaleServe } from './auth.js';
 import { backupStore } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
 import { pendingMigrations } from './migrations.js';
@@ -21,6 +21,8 @@ const PUSH_SUBJECT = process.env.AIRSHIP_PUSH_SUBJECT ?? 'mailto:crystal-bridge@
 const RELEASE_FILE = new URL('../../../RELEASE', import.meta.url);
 const RELEASE = existsSync(RELEASE_FILE) ? readFileSync(RELEASE_FILE, 'utf8').trim() : 'dev';
 const AUTH = process.env.AIRSHIP_AUTH || undefined;
+// Access tokens live next to the database by default: outside the releases, so deploys keep them.
+const TOKENS_PATH = process.env.AIRSHIP_TOKENS ?? join(dirname(DB_PATH), 'access-tokens.json');
 const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
   .split(',')
   .map((login) => login.trim())
@@ -49,7 +51,17 @@ async function main(): Promise<void> {
   } else {
     console.warn('[airship] development hub without AIRSHIP_NODES: any local process can connect as any node.');
   }
-  if (ALLOWED_USERS.length > 0) {
+  const mode = authMode({ auth: AUTH, allowedUsers: ALLOWED_USERS });
+  const tokens = mode === 'token' ? loadNodes(TOKENS_PATH) : undefined;
+  const auth = tokens ? accessTokens(tokens) : mode === 'tailscale-serve' ? tailscaleServe(ALLOWED_USERS) : undefined;
+  if (tokens) {
+    console.log(`[airship] token login, tokens from ${TOKENS_PATH}: ${tokens.ids().join(', ') || '(none yet)'}`);
+    if (tokens.ids().length === 0) {
+      console.warn(
+        '[airship] no access tokens yet, so nobody can log in. Add one: pnpm --filter @crystal-bridge/airship token:add <name>',
+      );
+    }
+  } else if (ALLOWED_USERS.length > 0) {
     console.log(`[airship] client side limited to tailnet users: ${ALLOWED_USERS.join(', ')}`);
   } else {
     console.warn('[airship] development hub without AIRSHIP_ALLOWED_USERS: the web app and API are open.');
@@ -65,7 +77,7 @@ async function main(): Promise<void> {
     store,
     logger: true,
     nodes,
-    ...(authMode({ auth: AUTH, allowedUsers: ALLOWED_USERS }) ? { auth: tailscaleServe(ALLOWED_USERS) } : {}),
+    ...(auth ? { auth } : {}),
     release: RELEASE,
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
     push: { publicKey: vapid.publicKey, pusher },

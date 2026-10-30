@@ -25,7 +25,7 @@ import {
   type Project,
   Engine,
 } from '@crystal-bridge/protocol';
-import type { Authenticator } from './auth.js';
+import { type Authenticator, cookieHeader } from './auth.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
@@ -75,10 +75,10 @@ async function refuse(request: FastifyRequest, reply: FastifyReply, code: number
 }
 
 /**
- * Paths that don't need a tailnet user: node links and leaving use a node's token, joining uses a one-time code, and
- * health checks carry no data.
+ * Paths that don't need a logged-in user: node links and leaving use a node's token, joining uses a one-time code,
+ * logging in is how you become one, and health checks carry no data.
  */
-const OPEN_PATHS = new Set(['/node', '/api/health', '/api/join', '/api/leave']);
+const OPEN_PATHS = new Set(['/node', '/api/health', '/api/join', '/api/leave', '/api/me', '/api/login', '/api/logout']);
 
 /** Close code for a node whose hello names a different node than its token. */
 const CLOSE_WRONG_NODE = 4003;
@@ -158,7 +158,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   if (auth) {
     app.addHook('onRequest', async (request, reply) => {
-      if (OPEN_PATHS.has(request.url.split('?', 1)[0]!)) return;
+      const path = request.url.split('?', 1)[0]!;
+      if (OPEN_PATHS.has(path)) return;
+      if (auth.publicApp && !path.startsWith('/api/') && path !== '/client') return;
       if (auth.identify(request)) return;
       app.log.warn({ url: request.url }, 'refused a request from a user who is not allowed');
       await refuse(request, reply, 403, auth.refusal);
@@ -374,6 +376,26 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     store.listSessions().map((s) => ({ ...s, relayedBytes: s.relayedBytes + (relayed.get(s.id) ?? 0) })),
   );
   app.get('/api/nodes', async () => [...nodes.keys()]);
+  const secure = (request: FastifyRequest): boolean =>
+    request.protocol === 'https' || request.headers['x-forwarded-proto'] === 'https';
+  app.get('/api/me', async (request) => ({
+    login: auth ? (auth.identify(request) ?? null) : 'default',
+    canLogIn: auth?.login !== undefined,
+  }));
+  app.post('/api/login', async (request, reply) => {
+    if (!auth?.login) return reply.code(404).send({ error: 'this hub has no login page' });
+    const { token } = (request.body ?? {}) as { token?: unknown };
+    const login = typeof token === 'string' ? auth.login(token) : undefined;
+    if (!login) return reply.code(401).send({ error: 'that token is not valid' });
+    void reply.header('set-cookie', cookieHeader(token as string, { secure: secure(request) }));
+    return { login };
+  });
+  app.post('/api/logout', async (request, reply) =>
+    reply
+      .header('set-cookie', cookieHeader('', { secure: secure(request), clear: true }))
+      .code(204)
+      .send(),
+  );
   const joinCodes = createJoinCodes();
   // Adding a Kingdom: only for a new node, so a code can't be used to take over one that already has a token.
   app.post('/api/join-codes', async (request, reply) => {

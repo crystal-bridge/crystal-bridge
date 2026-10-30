@@ -24,6 +24,15 @@ describe('accessRefusals', () => {
     );
   });
 
+  it('takes token login with no allow list', () => {
+    expect(accessRefusals({ auth: 'token', allowedUsers: [], nodesPath: '/n.json' })).toEqual([]);
+    expect(authMode({ auth: 'token', allowedUsers: ['ignored@example.com'] })).toBe('token');
+  });
+
+  it('still needs node tokens with token login', () => {
+    expect(accessRefusals({ auth: 'token', allowedUsers: [], nodesPath: undefined }).join()).toMatch(/AIRSHIP_NODES/);
+  });
+
   it('keeps a hub that predates AIRSHIP_AUTH running as it did', () => {
     expect(authMode({ allowedUsers: ['me@example.com'] })).toBe('tailscale-serve');
   });
