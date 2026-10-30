@@ -714,3 +714,41 @@ describe('SessionView toolbar', () => {
     expect(screen.getByLabelText('Permission mode').closest('form')).toBe(prompt);
   });
 });
+
+describe('SessionView follow-up draft', () => {
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  const props = {
+    session: SESSION,
+    onAnswer: () => {},
+    onSend: () => {},
+    onInterrupt: () => {},
+    onMode: () => {},
+    subscribeErrors: () => () => {},
+  };
+  const box = () => screen.getByPlaceholderText('Send a follow-up') as HTMLTextAreaElement;
+
+  it('keeps the draft when the Quest is left and opened again', () => {
+    const first = render(<SessionView envelopes={[]} {...props} />);
+    fireEvent.change(box(), { target: { value: 'a long prompt' } });
+    first.unmount();
+    render(<SessionView envelopes={[]} {...props} />);
+    expect(box().value).toBe('a long prompt');
+  });
+
+  it("doesn't replay a split's earlier Inventory pick over the draft when the pane opens again", () => {
+    const pick = { text: '/compact ', seq: 1 };
+    const first = render(<SessionView envelopes={[]} {...props} />);
+    first.rerender(<SessionView envelopes={[]} {...props} insertion={pick} />);
+    expect(box().value).toBe('/compact ');
+    fireEvent.change(box(), { target: { value: '/compact and a long prompt' } });
+    first.unmount();
+    const again = render(<SessionView envelopes={[]} {...props} insertion={pick} />);
+    expect(box().value).toBe('/compact and a long prompt');
+    again.rerender(<SessionView envelopes={[]} {...props} insertion={{ text: '/review ', seq: 2 }} />);
+    expect(box().value).toBe('/review ');
+  });
+});
