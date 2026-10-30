@@ -40,8 +40,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq 'select(.build_type == "workflow") | .html_url' || true)
-          if [ -n "$url" ]; then
+          # On a 404 gh prints the error body to stdout and skips --jq, so only trust the output when it succeeds.
+          if url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq 'select(.build_type == "workflow") | .html_url') && [ -n "$url" ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
             echo "base=$(node -p 'new URL(process.argv[1]).pathname' "$url")" >> "$GITHUB_OUTPUT"
           else
