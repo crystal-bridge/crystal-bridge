@@ -370,3 +370,139 @@ button[aria-pressed='true'] .cb-icon {
   visibility: visible;
   transition-delay: 0.35s;
 }
+
+/*
+ * The prompt box (components/PromptBox.tsx): a rounded field holding a text box that grows from one line to five and
+ * a bar of controls with one Send/Stop button at the end.
+ */
+:root {
+  --prompt-bg: #ffffff;
+  --prompt-border: #d4d4d4;
+  --prompt-ink: #171717;
+  --prompt-muted: #737373;
+  --prompt-go: #2f5bd8;
+  --prompt-stop: #262626;
+  --prompt-run: #e11d48;
+  --select-bg: #f5f5f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --prompt-bg: #171717;
+    --prompt-border: #404040;
+    --prompt-ink: #f5f5f5;
+    --prompt-muted: #a3a3a3;
+    --prompt-go: #4b6ef0;
+    --prompt-stop: #e5e5e5;
+    --prompt-run: #fb7185;
+    --select-bg: #262626;
+  }
+}
+.cb-prompt {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid var(--prompt-border);
+  border-radius: 1rem;
+  background: var(--prompt-bg);
+  color: var(--prompt-ink);
+  padding: 0.375rem 0.5rem 0.375rem;
+}
+.cb-prompt:focus-within {
+  border-color: var(--prompt-go);
+}
+.cb-prompt[data-shell='true'] {
+  border-color: var(--prompt-run);
+  box-shadow: 0 0 0 1px var(--prompt-run);
+}
+.cb-prompt textarea {
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0.25rem 0.375rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  max-height: calc(1.5em * 5 + 0.5rem);
+  overflow-y: auto;
+}
+.cb-prompt textarea::placeholder {
+  color: var(--prompt-muted);
+}
+.cb-prompt-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.cb-prompt-go {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--prompt-go);
+  color: #ffffff;
+}
+.cb-prompt-go[data-kind='stop'] {
+  background: var(--prompt-stop);
+  color: var(--prompt-bg);
+}
+.cb-prompt-go[data-kind='run'] {
+  background: var(--prompt-run);
+}
+.cb-prompt-go:disabled {
+  opacity: 0.35;
+}
+.cb-prompt-go .cb-icon {
+  --icon-colour: currentColor;
+  opacity: 1;
+}
+
+/*
+ * A select wearing the theme (components/ThemedSelect.tsx): icon, value in the display font, chevron. The native
+ * select sits on top, transparent, so the browser's own picker still opens.
+ */
+.cb-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.625rem 0 0.5rem;
+  border: 1px solid var(--prompt-border);
+  border-radius: 999px;
+  background: var(--select-bg);
+  color: var(--prompt-ink);
+  flex: none;
+  max-width: 100%;
+}
+.cb-select:focus-within {
+  outline: 2px solid var(--prompt-go);
+  outline-offset: 1px;
+}
+.cb-select[data-disabled='true'] {
+  opacity: 0.5;
+}
+.cb-select-value {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-select-chevron {
+  opacity: 0.6;
+  flex: none;
+}
+.cb-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+  /* 16px stops phones zooming in when the picker opens. */
+  font-size: 16px;
+}

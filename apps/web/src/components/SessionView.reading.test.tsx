@@ -67,15 +67,15 @@ describe('SessionView reading and controls', () => {
     );
   });
 
-  it('enables Stop only while a turn is running', () => {
-    const stop = () => (screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled;
+  it('offers Stop only while a turn is running', () => {
+    const stop = () => screen.queryByRole('button', { name: 'Stop' });
     view([started]);
-    expect(stop()).toBe(false);
+    expect(stop()).toBeTruthy();
     cleanup();
     view([started, assistant(1, 'done'), result(2)]);
-    expect(stop()).toBe(true);
+    expect(stop()).toBeNull();
     cleanup();
     view([started, assistant(1, 'done'), result(2), envelope(3, 'user.message', { text: 'more' })]);
-    expect(stop()).toBe(false);
+    expect(stop()).toBeTruthy();
   });
 });

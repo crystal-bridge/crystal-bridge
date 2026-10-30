@@ -151,14 +151,14 @@ describe('SessionView follow-ups', () => {
     localStorage.clear();
   });
 
-  it('disables Stop while no process runs, and enables it again once the session resumes', () => {
+  it('offers no Stop while no process runs, and Stop again once the session resumes', () => {
     const ended = [stopped[0]!, envelope(1, 'session.ended', { exitCode: 0, signal: null, reason: 'idle' })];
     const { rerenderWith } = renderView(ended);
-    const stop = () => screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement;
-    expect(stop().disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(true);
 
     rerenderWith([...ended, envelope(2, 'user.message', { text: 'back' }), envelope(3, 'session.resumed', {})]);
-    expect(stop().disabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
   });
 });
 
