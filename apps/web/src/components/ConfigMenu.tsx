@@ -5,6 +5,7 @@ import type { Kingdom } from '../kingdoms.js';
 import { NOTIFY_LEVELS, type NotifyLevel } from '../notify.js';
 import { BANNER_COLOURS, KINGDOM_ICONS } from '../theme/kingdomIcons.js';
 import { Credits } from './Credits.js';
+import { ThemedSelect } from './ThemedSelect.js';
 import { DevicePush, type PushState } from './DevicePush.js';
 import { KingdomIcon } from './KingdomIcon.js';
 
@@ -174,36 +175,30 @@ export function ConfigMenu({
           <h2 className="cb-display text-2xl leading-none">{w('config')}</h2>
 
           <section className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-neutral-500">
-              {w('kingdoms')} on this device
-            </h3>
+            <h3 className="cb-label">{w('kingdoms')} on this device</h3>
             <p className="text-xs text-neutral-500">
               {`Names, visibility and notifications apply to this device only; icons, banner colours and the tab style follow you to all your devices. Discreet notifications name only the ${w(
                 'kingdom',
               )}, never a ${w('quest')} or its content.`}
             </p>
             {onTabStyle && (
-              <label className="flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-xs">
                 <span className="text-neutral-500">Tab style</span>
-                <select
-                  aria-label="Tab style"
+                <ThemedSelect
+                  size="sm"
+                  label="Tab style"
                   value={tabStyle}
-                  onChange={(e) => onTabStyle(e.target.value as TabStyle)}
-                  className="rounded border border-neutral-300 bg-white px-1 py-0.5 dark:border-neutral-700 dark:bg-neutral-950"
-                >
-                  {TAB_STYLES.map((style) => (
-                    <option key={style.value} value={style.value}>
-                      {style.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  options={TAB_STYLES}
+                  onChange={(value) => onTabStyle(value as TabStyle)}
+                />
+              </div>
             )}
             {all.map((kingdom) => (
               <div key={kingdom.id} className="space-y-1">
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
+                    className="cb-check"
                     aria-label={`Show ${kingdom.id} on this device`}
                     checked={!hiddenIds.has(kingdom.id)}
                     onChange={() => onToggleHidden(kingdom.id)}
@@ -213,20 +208,15 @@ export function ConfigMenu({
                     placeholder={kingdom.id}
                     value={kingdom.name === kingdom.id ? '' : kingdom.name}
                     onChange={(e) => onRename(kingdom.id, e.target.value)}
-                    className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-2 py-0.5 dark:border-neutral-700 dark:bg-neutral-950"
+                    className="cb-field min-w-0 flex-1 py-0.5"
                   />
-                  <select
-                    aria-label={`Notifications for ${kingdom.id}`}
+                  <ThemedSelect
+                    size="sm"
+                    label={`Notifications for ${kingdom.id}`}
                     value={notify[kingdom.id] ?? 'full'}
-                    onChange={(e) => onNotify(kingdom.id, e.target.value as NotifyLevel)}
-                    className="rounded border border-neutral-300 bg-white px-1 py-0.5 text-xs dark:border-neutral-700 dark:bg-neutral-950"
-                  >
-                    {NOTIFY_LEVELS.map((level) => (
-                      <option key={level.value} value={level.value}>
-                        {level.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={NOTIFY_LEVELS}
+                    onChange={(value) => onNotify(kingdom.id, value as NotifyLevel)}
+                  />
                   {onLook && looks[kingdom.id] && (
                     <button
                       type="button"
@@ -248,7 +238,7 @@ export function ConfigMenu({
           </section>
 
           <section className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-neutral-500">Notifications</h3>
+            <h3 className="cb-label">Notifications</h3>
             {canNotify === 'default' && (
               <button
                 type="button"

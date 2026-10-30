@@ -14,8 +14,8 @@ flavour and never hides what something is.
   things that need attention (approval cards, dialogs), not the whole UI. The side panel's game sections (Party,
   Stats, Expedition) wear it only as a small plate on their titles, each in its own hue (blue, crimson, green), with
   plain bodies, so a full blue window still means "this needs you" (#24).
-- **Readability first.** A pixel-style display font only for the wordmark, tabs and headers. Chat and body text use a
-  clean UI font, and code uses a monospace font: people read a lot in a Quest.
+- **Readability first.** People read a lot in a Quest, so anything read at length stays in a clean UI font and code
+  in a monospace font; the pixel display font is for what you glance at or pick. See *Type and controls* below.
 - **Plain words where it matters.** Errors say what broke in plain words first; flavour text comes after. Allow and
   Deny stay readable even when the card looks like a battle menu. Fork and worktrees keep their plain names.
 - **The prompt box** (#15) is one rounded field: the text box starts one line tall and grows to five before it
@@ -26,6 +26,26 @@ flavour and never hides what something is.
 - **Opt-in complexity.** Show what you can act on now (active Quests, things waiting on you). History and detail are
   one or two clicks away and collapsed by default.
 - **Sprites are small and tasteful.** They never cost screen space or readability.
+
+## Type and controls
+
+Decided in #18. The test for each piece of text: is it read at length, or glanced at and picked?
+
+- **Read at length stays plain.** Chat, the prompt box's text, tool output, diffs, search results, help text and
+  anything multi-line use the sans face (Atkinson Hyperlegible). Never the display font.
+- **Glanced at or picked wears the theme.** Field labels (`.cb-label`), section titles, select values
+  (`ThemedSelect`), plates, badges, Stats labels and the wordmark use the display face (Jersey 15) at sizes where
+  it stays crisp (about 1rem and up).
+- **Mono means a literal value.** Paths, branches, commands and code use JetBrains Mono, the typed value as well as
+  its placeholder (the Project field).
+- **Controls are themed; pickers stay native.** A select wears the theme's face (`ThemedSelect`: icon, display-font
+  value, chevron) over the browser's own select, which opens the native picker (the better UI on a phone). Build a
+  custom list only where it needs icons or rich rows (the project picker, slash suggestions). Short text fields use
+  the field frame (`.cb-field`), checkboxes the accent colour (`.cb-check`).
+- **One frame per surface.** The prompt box, fields and selects share the `--prompt-*` tokens in theme.css; menu
+  windows and plates share the `--color-window-*` ones. No one-off borders or colours for a new control.
+- **Short choices sit side by side.** Values that are a word or two (Permission Mode, Engine) go in one row, in the
+  prompt box's bar where they set what's sent next.
 
 ## Words
 

@@ -4,7 +4,7 @@ import { Icon } from '../theme/icons.js';
 /**
  * The prompt box (#15): a text box that starts one line tall and grows to five before it scrolls, a bar of controls
  * under it (settings for what you send next), and one button that is Stop while a turn runs and the box is empty,
- * Send otherwise (a follow-up sent mid-turn queues), or Run for a shell command. It sits inside the caller's <form>,
+ * Send (or `sendLabel`) otherwise (a follow-up sent mid-turn queues), or Run for a shell command. It sits inside the caller's <form>,
  * which handles the send.
  */
 export function PromptBox({
@@ -18,6 +18,9 @@ export function PromptBox({
   running,
   onStop,
   controls,
+  sendLabel = 'Send',
+  minRows = 1,
+  sendDisabled = false,
 }: {
   /** The text box's accessible name. */
   label: string;
@@ -33,6 +36,12 @@ export function PromptBox({
   onStop: () => void;
   /** Left side of the bar under the box. */
   controls?: ReactNode;
+  /** What sending does, e.g. Start on New Quest. */
+  sendLabel?: string;
+  /** How tall the box is at rest, in lines. */
+  minRows?: number;
+  /** Sending isn't possible yet for a reason other than an empty box (e.g. no project picked). */
+  sendDisabled?: boolean;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   // Fit the text: one line at rest, up to the CSS max-height (five lines), then it scrolls.
@@ -45,14 +54,14 @@ export function PromptBox({
 
   const empty = value.trim() === '';
   const stop = running && empty;
-  const name = stop ? 'Stop' : shell ? 'Run' : 'Send';
+  const name = stop ? 'Stop' : shell ? 'Run' : sendLabel;
   return (
     <div className="cb-prompt" data-shell={shell ? 'true' : undefined}>
       <textarea
         ref={box}
         aria-label={label}
         data-shell={shell ? 'true' : undefined}
-        rows={1}
+        rows={minRows}
         placeholder={placeholder}
         disabled={disabled}
         value={value}
@@ -67,7 +76,7 @@ export function PromptBox({
           type={stop ? 'button' : 'submit'}
           aria-label={name}
           title={stop ? 'Stop this turn' : running ? `${name} (queues after this turn)` : name}
-          disabled={disabled || (!stop && empty)}
+          disabled={disabled || (!stop && (empty || sendDisabled))}
           onClick={stop ? onStop : undefined}
           data-kind={stop ? 'stop' : shell ? 'run' : 'send'}
           className="cb-prompt-go"

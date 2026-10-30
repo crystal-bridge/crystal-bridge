@@ -8,6 +8,30 @@ describe('NewSession', () => {
     localStorage.clear();
   });
 
+  it('puts the prompt in the prompt box, with Permission Mode and Engine side by side in its bar', () => {
+    render(
+      <NewSession
+        node="mac"
+        name="mac"
+        connected
+        projects={[]}
+        engines={['stream', 'interactive']}
+        onStart={vi.fn()}
+      />,
+    );
+    const box = screen.getByLabelText('Prompt').closest('.cb-prompt');
+    expect(box).toBeTruthy();
+    expect(screen.getByLabelText('Permission mode').closest('.cb-prompt')).toBe(box);
+    expect(screen.getByLabelText('Engine').closest('.cb-prompt')).toBe(box);
+    expect(screen.getByRole('button', { name: 'Start' }).closest('.cb-prompt')).toBe(box);
+  });
+
+  it('labels its fields in the theme style', () => {
+    render(<NewSession node="mac" name="mac" connected projects={[]} onStart={vi.fn()} />);
+    expect(screen.getByText('Project', { selector: 'span' }).className).toContain('cb-label');
+    expect(screen.getByText('Prompt', { selector: 'span' }).className).toContain('cb-label');
+  });
+
   it('keeps the unsent prompt and folder when the view is left and reopened, per Kingdom, until Start', () => {
     const onStart = fill();
     cleanup(); // e.g. switching to another tab in the app unmounts the form
