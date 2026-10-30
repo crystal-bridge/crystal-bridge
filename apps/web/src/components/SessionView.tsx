@@ -307,9 +307,13 @@ export function SessionView({
   useEffect(() => {
     if (session) saveDraft(`quest:${session}`, draft);
   }, [session, draft]);
-  // A pick from a split's shared Inventory, aimed at this pane.
+  // A pick from a split's shared Inventory, aimed at this pane. App keeps the last pick after it lands, so one
+  // already there when the pane opens is old and must not replace the kept draft.
+  const pickSeen = useRef(insertion?.seq);
   useEffect(() => {
-    if (insertion) setDraft(insertion.text);
+    if (!insertion || insertion.seq === pickSeen.current) return;
+    pickSeen.current = insertion.seq;
+    setDraft(insertion.text);
   }, [insertion]);
   const scroller = useRef<HTMLDivElement>(null);
   const loading = progress !== undefined && !progress.synced;
