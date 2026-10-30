@@ -8,7 +8,7 @@ import { MODES } from '../modes.js';
 import { type Concept, gameLook, hint, stepWord, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { bytes, duration, tokens } from '../format.js';
-import { formatUntil } from './NodeUsage.js';
+import { formatUntil, STALE_MS } from './NodeUsage.js';
 import { Gold } from './Gold.js';
 
 /** A Stats row: the theme's label, with the plain term on hover. */
@@ -211,12 +211,14 @@ export interface SessionPanelProps {
   activity?: Activity;
   /** The Kingdom's latest plan usage report, for HP. */
   plan?: UsageWindow[];
+  /** When that report came in: it only updates while a Quest runs on the Kingdom. */
+  planAt?: number;
   /** The current time (tests); otherwise each timer keeps its own clock. */
   now?: number;
 }
 
 /** The session's side panel: where it runs, how full its context is, what it cost, what it changed and started. */
-export function SessionPanel({ info, kingdom, party, relayedBytes, activity, plan, now }: SessionPanelProps) {
+export function SessionPanel({ info, kingdom, party, relayedBytes, activity, plan, planAt, now }: SessionPanelProps) {
   const open = useContext(FileOpenContext);
   const pct = info.context?.window ? Math.round((info.context.used / info.context.window) * 100) : undefined;
   // MP drains: what's left of the context window.
@@ -244,6 +246,9 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
           <>
             <Stat concept="hp">
               {hp.left}%{hp.resetsAt !== null && ` · rests in ${formatUntil(hp.resetsAt, now ?? Date.now())}`}
+              {planAt !== undefined &&
+                (now ?? Date.now()) - planAt > STALE_MS &&
+                ` · as of ${formatUntil(now ?? Date.now(), planAt)} ago`}
             </Stat>
             <Meter label="Plan left" left={hp.left} />
           </>
