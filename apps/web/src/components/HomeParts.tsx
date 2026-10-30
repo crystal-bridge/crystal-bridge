@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import type { HeroManifest, HeroState } from '../heroes.js';
+import { useContext, type ReactNode } from 'react';
+import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import type { TurnStats } from '../home.js';
 import { duration, tokens } from '../format.js';
 import { questTitle } from '../quests.js';
@@ -73,6 +73,7 @@ export function QuestCard({
   now: number;
   onOpen: () => void;
 }) {
+  const leaderOf = useContext(LeaderContext);
   const folder = session.cwd.split('/').filter(Boolean).at(-1) ?? session.cwd;
   const label = showDetail ? session.label || session.id : `A ${w('quest')}`;
   return (
@@ -84,7 +85,13 @@ export function QuestCard({
     >
       <span className="flex h-10 w-10 shrink-0 items-end justify-center">
         {heroes ? (
-          <HeroSprite manifest={heroes} classId={heroes.leader} state={state ?? 'resting'} size={40} decorative />
+          <HeroSprite
+            manifest={heroes}
+            classId={leaderOf(session.id) ?? heroes.leader}
+            state={state ?? 'resting'}
+            size={40}
+            decorative
+          />
         ) : (
           <span
             className={`mb-3 h-2.5 w-2.5 rounded-full ${session.status === 'running' ? 'bg-green-500' : 'bg-amber-400'}`}

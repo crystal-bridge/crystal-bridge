@@ -27,7 +27,16 @@ import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
 import type { PushState } from './components/DevicePush.js';
-import { type HeroState, type QuestOutcome, questState, useHeroManifest } from './heroes.js';
+import {
+  type HeroManifest,
+  type HeroState,
+  LeaderContext,
+  leaderFor,
+  type QuestOutcome,
+  questState,
+  useHeroManifest,
+  withLeader,
+} from './heroes.js';
 import { KingdomBar } from './components/KingdomBar.js';
 import { NewSession } from './components/NewSession.js';
 import { currentActivity } from './activity.js';
@@ -140,6 +149,26 @@ export function App({ hub }: { hub: HubClient }) {
   );
   const active = pickActive(visible, prefs.active);
   const kingdom = visible.find((k) => k.id === active);
+
+  // Who leads each Quest: its Kingdom's chosen Class, a pick per Quest, or the art pack's leader (#20).
+  const leaderOf = useCallback(
+    (quest: string) => {
+      if (!heroManifest) return undefined;
+      const node = sessions.find((s) => s.id === quest)?.node;
+      return leaderFor(heroManifest, quest, node ? appearance.looks?.[node]?.leader : undefined);
+    },
+    [heroManifest, sessions, appearance],
+  );
+  const questHeroes = (quest: string): HeroManifest | null =>
+    heroManifest && withLeader(heroManifest, leaderOf(quest) ?? heroManifest.leader);
+  const leaderChoices = heroManifest
+    ? [
+        heroManifest.leader,
+        ...Object.keys(heroManifest.classes)
+          .filter((id) => id !== heroManifest.leader)
+          .sort((a, b) => heroManifest.classes[a]!.name.localeCompare(heroManifest.classes[b]!.name)),
+      ].map((id) => ({ value: id, label: heroManifest.classes[id]!.name }))
+    : undefined;
   // Only the active Kingdom's sessions and usage render; others, hidden ones included, show nothing.
   const kingdomSessions = sessions.filter((s) => s.node === active);
   const kingdomUsage = usage.filter((row) => row.node === active);
@@ -591,7 +620,7 @@ export function App({ hub }: { hub: HubClient }) {
         onInterrupt={() => hub.send({ type: 'session.interrupt', session: id })}
         onMode={(mode) => hub.send({ type: 'session.mode', session: id, mode })}
         kingdom={visible.find((k) => k.id === node)?.name ?? node ?? ''}
-        party={heroManifest ? { manifest: heroManifest, leaderState: heroStates[id] ?? 'resting' } : undefined}
+        party={heroManifest ? { manifest: questHeroes(id)!, leaderState: heroStates[id] ?? 'resting' } : undefined}
         onClose={(removeWorktree) =>
           hub.send({ type: 'session.close', session: id, ...(removeWorktree ? { removeWorktree } : {}) })
         }
@@ -685,286 +714,289 @@ export function App({ hub }: { hub: HubClient }) {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      <header className="flex items-end gap-3 border-b border-neutral-300 bg-neutral-200 px-3 pt-2 sm:gap-6 sm:px-4 dark:border-neutral-700 dark:bg-neutral-800">
-        <button
-          type="button"
-          onClick={() => setPage('airship')}
-          title={hint('home')}
-          className="mb-1.5 flex shrink-0 items-center gap-2 rounded-md px-1 py-1 hover:bg-neutral-300 dark:hover:bg-neutral-700"
-        >
-          <img src="/favicon.svg" alt="" width={32} height={32} className="[image-rendering:pixelated]" />
-          <span className="cb-display hidden text-3xl leading-none sm:inline">Crystal Bridge</span>
-          <span className="sr-only sm:hidden">Crystal Bridge</span>
-        </button>
-        <div className="min-w-0 flex-1 pt-2">
-          <KingdomBar
-            visible={visible}
-            active={page === 'airship' ? null : active}
-            onSelect={selectKingdom}
-            waiting={waitingByKingdom}
-            looks={looks}
-            tabStyle={tabStyle(appearance)}
+    <LeaderContext.Provider value={leaderOf}>
+      <div className="flex h-dvh flex-col bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+        <header className="flex items-end gap-3 border-b border-neutral-300 bg-neutral-200 px-3 pt-2 sm:gap-6 sm:px-4 dark:border-neutral-700 dark:bg-neutral-800">
+          <button
+            type="button"
+            onClick={() => setPage('airship')}
+            title={hint('home')}
+            className="mb-1.5 flex shrink-0 items-center gap-2 rounded-md px-1 py-1 hover:bg-neutral-300 dark:hover:bg-neutral-700"
+          >
+            <img src="/favicon.svg" alt="" width={32} height={32} className="[image-rendering:pixelated]" />
+            <span className="cb-display hidden text-3xl leading-none sm:inline">Crystal Bridge</span>
+            <span className="sr-only sm:hidden">Crystal Bridge</span>
+          </button>
+          <div className="min-w-0 flex-1 pt-2">
+            <KingdomBar
+              visible={visible}
+              active={page === 'airship' ? null : active}
+              onSelect={selectKingdom}
+              waiting={waitingByKingdom}
+              looks={looks}
+              tabStyle={tabStyle(appearance)}
+              onMove={(id, index) =>
+                updatePrefs((prev) => ({
+                  ...prev,
+                  order: moveTo(
+                    visible.map((k) => k.id),
+                    id,
+                    index,
+                  ),
+                }))
+              }
+            />
+          </div>
+          <div className="mb-1.5">
+            <ConfigMenu
+              leaders={leaderChoices}
+              visible={visible}
+              hidden={hidden}
+              onRename={(id, name) =>
+                updatePrefs((prev) => {
+                  const names = { ...prev.names };
+                  if (name.trim()) names[id] = name;
+                  else delete names[id];
+                  return { ...prev, names };
+                })
+              }
+              onToggleHidden={(id) =>
+                updatePrefs((prev) => ({
+                  ...prev,
+                  hidden: prev.hidden.includes(id) ? prev.hidden.filter((h) => h !== id) : [...prev.hidden, id],
+                }))
+              }
+              notify={prefs.notify ?? {}}
+              onNotify={(id, level) => updatePrefs((prev) => ({ ...prev, notify: { ...prev.notify, [id]: level } }))}
+              looks={looks}
+              onLook={(id, change) => changeAppearance((prev) => withLook(prev, id, change))}
+              tabStyle={tabStyle(appearance)}
+              onTabStyle={(style) => changeAppearance((prev) => withTabStyle(prev, style))}
+              status={status}
+              canNotify={canNotify}
+              onEnableNotifications={() => void Notification.requestPermission().then(setCanNotify)}
+              push={push}
+              pushError={pushError}
+              onPush={(on) => void togglePush(on)}
+            />
+          </div>
+        </header>
+        {(status === 'closed' || (status === 'connecting' && everOpen.current)) && (
+          <div
+            role="status"
+            className="flex items-center gap-2 bg-amber-100 px-4 py-1.5 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+          >
+            Lost the connection to the hub. Reconnecting… What you see may be out of date until it's back.
+          </div>
+        )}
+        {isOutdated(BUILD_RELEASE, servedRelease) && (
+          <div className="flex items-center gap-3 bg-blue-600 px-4 py-1.5 text-sm text-white">
+            <span>Crystal Bridge was updated.</span>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded bg-white/20 px-2 font-medium hover:bg-white/30"
+            >
+              Reload
+            </button>
+          </div>
+        )}
+        {view !== 'airship' && kingdom && (
+          <QuestStrip
+            castleName={kingdom.name}
+            quests={tabs}
+            current={shown ?? page}
+            waiting={waitingIds}
+            heroes={heroManifest ? { manifest: heroManifest, states: heroStates } : undefined}
+            onCastle={() => {
+              setPage('castle');
+              setSelected(null);
+            }}
+            onSelect={openQuest}
+            onPutAway={putAwayQuest}
             onMove={(id, index) =>
               updatePrefs((prev) => ({
                 ...prev,
-                order: moveTo(
-                  visible.map((k) => k.id),
-                  id,
-                  index,
-                ),
+                questOrder: {
+                  ...prev.questOrder,
+                  [kingdom.id]: moveTo(
+                    tabs.map((t) => t.id),
+                    id,
+                    index,
+                  ),
+                },
               }))
             }
-          />
-        </div>
-        <div className="mb-1.5">
-          <ConfigMenu
-            visible={visible}
-            hidden={hidden}
-            onRename={(id, name) =>
-              updatePrefs((prev) => {
-                const names = { ...prev.names };
-                if (name.trim()) names[id] = name;
-                else delete names[id];
-                return { ...prev, names };
-              })
-            }
-            onToggleHidden={(id) =>
-              updatePrefs((prev) => ({
-                ...prev,
-                hidden: prev.hidden.includes(id) ? prev.hidden.filter((h) => h !== id) : [...prev.hidden, id],
-              }))
-            }
-            notify={prefs.notify ?? {}}
-            onNotify={(id, level) => updatePrefs((prev) => ({ ...prev, notify: { ...prev.notify, [id]: level } }))}
-            looks={looks}
-            onLook={(id, change) => changeAppearance((prev) => withLook(prev, id, change))}
-            tabStyle={tabStyle(appearance)}
-            onTabStyle={(style) => changeAppearance((prev) => withTabStyle(prev, style))}
-            status={status}
-            canNotify={canNotify}
-            onEnableNotifications={() => void Notification.requestPermission().then(setCanNotify)}
-            push={push}
-            pushError={pushError}
-            onPush={(on) => void togglePush(on)}
-          />
-        </div>
-      </header>
-      {(status === 'closed' || (status === 'connecting' && everOpen.current)) && (
-        <div
-          role="status"
-          className="flex items-center gap-2 bg-amber-100 px-4 py-1.5 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200"
-        >
-          Lost the connection to the hub. Reconnecting… What you see may be out of date until it's back.
-        </div>
-      )}
-      {isOutdated(BUILD_RELEASE, servedRelease) && (
-        <div className="flex items-center gap-3 bg-blue-600 px-4 py-1.5 text-sm text-white">
-          <span>Crystal Bridge was updated.</span>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="rounded bg-white/20 px-2 font-medium hover:bg-white/30"
-          >
-            Reload
-          </button>
-        </div>
-      )}
-      {view !== 'airship' && kingdom && (
-        <QuestStrip
-          castleName={kingdom.name}
-          quests={tabs}
-          current={shown ?? page}
-          waiting={waitingIds}
-          heroes={heroManifest ? { manifest: heroManifest, states: heroStates } : undefined}
-          onCastle={() => {
-            setPage('castle');
-            setSelected(null);
-          }}
-          onSelect={openQuest}
-          onPutAway={putAwayQuest}
-          onMove={(id, index) =>
-            updatePrefs((prev) => ({
-              ...prev,
-              questOrder: {
-                ...prev.questOrder,
-                [kingdom.id]: moveTo(
-                  tabs.map((t) => t.id),
-                  id,
-                  index,
-                ),
-              },
-            }))
-          }
-          onNew={() => {
-            setPage('new');
-            setSelected(null);
-          }}
-        />
-      )}
-      {errors.map((error) => (
-        <div
-          key={error.id}
-          className="flex items-center gap-2 bg-red-100 px-4 py-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-300"
-        >
-          <span className="flex-1">{error.message}</span>
-          <button
-            type="button"
-            aria-label="Dismiss"
-            onClick={() => setErrors((prev) => prev.filter((e) => e.id !== error.id))}
-            className="px-2 font-bold"
-          >
-            ×
-          </button>
-        </div>
-      ))}
-      <main className="min-h-0 flex-1">
-        {view === 'airship' ? (
-          <Airship
-            kingdoms={visible}
-            sessions={sessions}
-            waiting={waiting}
-            usage={usage}
-            notify={prefs.notify ?? {}}
-            looks={looks}
-            onKingdom={selectKingdom}
-            onQuest={openSession}
-            today={statsToday}
-            activity={activity}
-            heroes={heroManifest}
-            heroStates={heroStates}
-            onNewQuest={(node) => {
-              selectKingdom(node);
-              setSelected(null);
-              setNewCwd(undefined);
-              setPage('new');
-            }}
-          />
-        ) : !kingdom ? (
-          <p className="p-6 text-sm text-neutral-500">
-            {hidden.length > 0
-              ? `Every ${w('kingdom')} is hidden on this device. Show one from ${w('config')}.`
-              : `No ${w('kingdoms')} yet.`}
-          </p>
-        ) : view === 'quest' && shown ? (
-          splitShown ? (
-            <div className="flex h-full">
-              {inventoryOpen && (
-                // Shared by both panes, so only where three columns fit beside two chats.
-                <aside
-                  aria-label={w('inventory')}
-                  className="hidden w-60 shrink-0 overflow-y-auto border-r border-neutral-300 p-3 xl:block dark:border-neutral-700"
-                >
-                  <Inventory inventory={focusedInventory} onUse={pick} />
-                </aside>
-              )}
-              {pane(shown, questView(shown, envelopes, progress, true))}
-              {pane(splitShown, questView(splitShown, splitEnvelopes, splitProgress, false), () => setSplit(null))}
-              {fileViewer ? (
-                <aside aria-label={w('scroll')} className={FILE_ASIDE}>
-                  {fileViewer}
-                </aside>
-              ) : (
-                detailsOpen &&
-                focused && (
-                  <aside
-                    aria-label="Session details"
-                    className="hidden w-80 shrink-0 overflow-y-auto border-l border-neutral-300 p-3 lg:block dark:border-neutral-700"
-                  >
-                    <FileOpenContext.Provider value={openFileFor(focused)}>
-                      <SessionPanel
-                        info={focusedInfo}
-                        plan={usage.find((u) => u.node === sessions.find((s) => s.id === focused)?.node)?.windows}
-                        planAt={usage.find((u) => u.node === sessions.find((s) => s.id === focused)?.node)?.ts}
-                        kingdom={(() => {
-                          const node = sessions.find((s) => s.id === focused)?.node ?? '';
-                          return visible.find((k) => k.id === node)?.name ?? node;
-                        })()}
-                        party={
-                          heroManifest
-                            ? { manifest: heroManifest, leaderState: heroStates[focused] ?? 'resting' }
-                            : undefined
-                        }
-                        relayedBytes={sessions.find((s) => s.id === focused)?.relayedBytes}
-                        activity={focusedActivity}
-                      />
-                    </FileOpenContext.Provider>
-                  </aside>
-                )
-              )}
-            </div>
-          ) : (
-            questView(shown, envelopes, progress, true)
-          )
-        ) : view === 'new' ? (
-          <div className="h-full overflow-y-auto">
-            <NewSession
-              key={`${kingdom.id}:${newCwd ?? ''}`}
-              node={kingdom.id}
-              name={kingdom.name}
-              connected={kingdom.connected}
-              projects={kingdomProjects}
-              engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
-              initialCwd={newCwd}
-              onStart={start}
-            />
-          </div>
-        ) : (
-          <Castle
-            kingdom={kingdom}
-            look={looks[kingdom.id]}
-            sessions={kingdomSessions}
-            waiting={waitingIds}
-            usage={kingdomUsage}
-            found={kingdomFound}
-            engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
-            release={engineLists.find((row) => row.node === kingdom.id)?.release}
-            today={statsToday.find((row) => row.node === kingdom.id) ?? null}
-            week={statsWeek.find((row) => row.node === kingdom.id) ?? null}
-            heroes={heroManifest}
-            heroStates={heroStates}
-            onNewIn={(cwd) => {
-              setNewCwd(cwd);
-              setPage('new');
-            }}
-            onAdopt={adopt}
-            onSelect={openQuest}
             onNew={() => {
-              setNewCwd(undefined);
               setPage('new');
-            }}
-            query={query}
-            onQuery={setQuery}
-            hits={searching ? hits : []}
-            onOpenHit={(id) => {
-              openQuest(id);
-              setQuery('');
+              setSelected(null);
             }}
           />
         )}
-      </main>
-      {picking && shown && (
-        <SplitPicker
-          candidates={sessions
-            .filter((s) => s.status !== 'closed' && s.id !== shown && visibleIds.has(s.node))
-            .sort((a, b) => (b.lastActivity ?? b.createdAt) - (a.lastActivity ?? a.createdAt))
-            .map((s) => ({
-              id: s.id,
-              label: s.label || s.id,
-              kingdom: visible.find((k) => k.id === s.node)?.name ?? s.node,
-              look: looks[s.node] ?? lookFor(appearance, s.node),
-              state: heroStates[s.id],
-            }))}
-          heroes={heroManifest ?? undefined}
-          onPick={(session) => {
-            hub.subscribe(session);
-            setSplit(session);
-            setPicking(false);
-          }}
-          onCancel={() => setPicking(false)}
-        />
-      )}
-    </div>
+        {errors.map((error) => (
+          <div
+            key={error.id}
+            className="flex items-center gap-2 bg-red-100 px-4 py-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-300"
+          >
+            <span className="flex-1">{error.message}</span>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setErrors((prev) => prev.filter((e) => e.id !== error.id))}
+              className="px-2 font-bold"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <main className="min-h-0 flex-1">
+          {view === 'airship' ? (
+            <Airship
+              kingdoms={visible}
+              sessions={sessions}
+              waiting={waiting}
+              usage={usage}
+              notify={prefs.notify ?? {}}
+              looks={looks}
+              onKingdom={selectKingdom}
+              onQuest={openSession}
+              today={statsToday}
+              activity={activity}
+              heroes={heroManifest}
+              heroStates={heroStates}
+              onNewQuest={(node) => {
+                selectKingdom(node);
+                setSelected(null);
+                setNewCwd(undefined);
+                setPage('new');
+              }}
+            />
+          ) : !kingdom ? (
+            <p className="p-6 text-sm text-neutral-500">
+              {hidden.length > 0
+                ? `Every ${w('kingdom')} is hidden on this device. Show one from ${w('config')}.`
+                : `No ${w('kingdoms')} yet.`}
+            </p>
+          ) : view === 'quest' && shown ? (
+            splitShown ? (
+              <div className="flex h-full">
+                {inventoryOpen && (
+                  // Shared by both panes, so only where three columns fit beside two chats.
+                  <aside
+                    aria-label={w('inventory')}
+                    className="hidden w-60 shrink-0 overflow-y-auto border-r border-neutral-300 p-3 xl:block dark:border-neutral-700"
+                  >
+                    <Inventory inventory={focusedInventory} onUse={pick} />
+                  </aside>
+                )}
+                {pane(shown, questView(shown, envelopes, progress, true))}
+                {pane(splitShown, questView(splitShown, splitEnvelopes, splitProgress, false), () => setSplit(null))}
+                {fileViewer ? (
+                  <aside aria-label={w('scroll')} className={FILE_ASIDE}>
+                    {fileViewer}
+                  </aside>
+                ) : (
+                  detailsOpen &&
+                  focused && (
+                    <aside
+                      aria-label="Session details"
+                      className="hidden w-80 shrink-0 overflow-y-auto border-l border-neutral-300 p-3 lg:block dark:border-neutral-700"
+                    >
+                      <FileOpenContext.Provider value={openFileFor(focused)}>
+                        <SessionPanel
+                          info={focusedInfo}
+                          plan={usage.find((u) => u.node === sessions.find((s) => s.id === focused)?.node)?.windows}
+                          planAt={usage.find((u) => u.node === sessions.find((s) => s.id === focused)?.node)?.ts}
+                          kingdom={(() => {
+                            const node = sessions.find((s) => s.id === focused)?.node ?? '';
+                            return visible.find((k) => k.id === node)?.name ?? node;
+                          })()}
+                          party={
+                            heroManifest
+                              ? { manifest: questHeroes(focused)!, leaderState: heroStates[focused] ?? 'resting' }
+                              : undefined
+                          }
+                          relayedBytes={sessions.find((s) => s.id === focused)?.relayedBytes}
+                          activity={focusedActivity}
+                        />
+                      </FileOpenContext.Provider>
+                    </aside>
+                  )
+                )}
+              </div>
+            ) : (
+              questView(shown, envelopes, progress, true)
+            )
+          ) : view === 'new' ? (
+            <div className="h-full overflow-y-auto">
+              <NewSession
+                key={`${kingdom.id}:${newCwd ?? ''}`}
+                node={kingdom.id}
+                name={kingdom.name}
+                connected={kingdom.connected}
+                projects={kingdomProjects}
+                engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
+                initialCwd={newCwd}
+                onStart={start}
+              />
+            </div>
+          ) : (
+            <Castle
+              kingdom={kingdom}
+              look={looks[kingdom.id]}
+              sessions={kingdomSessions}
+              waiting={waitingIds}
+              usage={kingdomUsage}
+              found={kingdomFound}
+              engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
+              release={engineLists.find((row) => row.node === kingdom.id)?.release}
+              today={statsToday.find((row) => row.node === kingdom.id) ?? null}
+              week={statsWeek.find((row) => row.node === kingdom.id) ?? null}
+              heroes={heroManifest}
+              heroStates={heroStates}
+              onNewIn={(cwd) => {
+                setNewCwd(cwd);
+                setPage('new');
+              }}
+              onAdopt={adopt}
+              onSelect={openQuest}
+              onNew={() => {
+                setNewCwd(undefined);
+                setPage('new');
+              }}
+              query={query}
+              onQuery={setQuery}
+              hits={searching ? hits : []}
+              onOpenHit={(id) => {
+                openQuest(id);
+                setQuery('');
+              }}
+            />
+          )}
+        </main>
+        {picking && shown && (
+          <SplitPicker
+            candidates={sessions
+              .filter((s) => s.status !== 'closed' && s.id !== shown && visibleIds.has(s.node))
+              .sort((a, b) => (b.lastActivity ?? b.createdAt) - (a.lastActivity ?? a.createdAt))
+              .map((s) => ({
+                id: s.id,
+                label: s.label || s.id,
+                kingdom: visible.find((k) => k.id === s.node)?.name ?? s.node,
+                look: looks[s.node] ?? lookFor(appearance, s.node),
+                state: heroStates[s.id],
+              }))}
+            heroes={heroManifest ?? undefined}
+            onPick={(session) => {
+              hub.subscribe(session);
+              setSplit(session);
+              setPicking(false);
+            }}
+            onCancel={() => setPicking(false)}
+          />
+        )}
+      </div>
+    </LeaderContext.Provider>
   );
 }
 

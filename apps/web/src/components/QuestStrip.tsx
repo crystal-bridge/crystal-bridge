@@ -1,4 +1,5 @@
-import type { HeroManifest, HeroState } from '../heroes.js';
+import { useContext } from 'react';
+import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import { questTitle } from '../quests.js';
 import { reorderHandlers } from '../tabOrder.js';
 import { hint, w } from '../theme/words.js';
@@ -48,6 +49,7 @@ export function QuestStrip({
   onMove,
   heroes,
 }: QuestStripProps) {
+  const leaderOf = useContext(LeaderContext);
   const ids = quests.map((quest) => quest.id);
   return (
     <div
@@ -84,7 +86,7 @@ export function QuestStrip({
                 <span className="-my-1.5 flex h-7 w-7 shrink-0 items-end justify-center">
                   <HeroSprite
                     manifest={heroes.manifest}
-                    classId={heroes.manifest.leader}
+                    classId={leaderOf(quest.id) ?? heroes.manifest.leader}
                     state={heroes.states[quest.id] ?? 'resting'}
                     size={28}
                     decorative

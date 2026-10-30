@@ -8,6 +8,12 @@ describe('Appearance', () => {
     expect(Appearance.parse(full)).toEqual(full);
   });
 
+  it("keeps each Kingdom's party leader choice (a Class id, or varied)", () => {
+    const leaders = { looks: { n: { leader: 'rogue' }, m: { leader: 'varied' } } };
+    expect(Appearance.parse(leaders)).toEqual(leaders);
+    expect(Appearance.safeParse({ looks: { n: { leader: 'x'.repeat(100) } } }).success).toBe(false);
+  });
+
   it('refuses colours that are not #rrggbb and oversized values', () => {
     expect(Appearance.safeParse({ looks: { n: { colour: 'red; background:url(x)' } } }).success).toBe(false);
     expect(Appearance.safeParse({ looks: { n: { icon: 'x'.repeat(100) } } }).success).toBe(false);

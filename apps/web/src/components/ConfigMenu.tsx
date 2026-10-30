@@ -5,7 +5,8 @@ import type { Kingdom } from '../kingdoms.js';
 import { NOTIFY_LEVELS, type NotifyLevel } from '../notify.js';
 import { BANNER_COLOURS, KINGDOM_ICONS } from '../theme/kingdomIcons.js';
 import { Credits } from './Credits.js';
-import { ThemedSelect } from './ThemedSelect.js';
+import { type SelectOption, ThemedSelect } from './ThemedSelect.js';
+import { VARIED } from '../heroes.js';
 import { DevicePush, type PushState } from './DevicePush.js';
 import { KingdomIcon } from './KingdomIcon.js';
 
@@ -30,6 +31,8 @@ export interface ConfigMenuProps {
   /** Sets one field of a Kingdom's look on this device. */
   onLook?: (id: string, change: Partial<KingdomLook>) => void;
   tabStyle?: TabStyle;
+  /** The Classes a Kingdom can pick as its party leader, the art pack's own leader first (#20). */
+  leaders?: SelectOption[];
   onTabStyle?: (style: TabStyle) => void;
 }
 
@@ -38,13 +41,28 @@ function LookPicker({
   kingdom,
   look,
   onLook,
+  leaders,
 }: {
   kingdom: Kingdom;
   look: KingdomLook;
   onLook: (id: string, change: Partial<KingdomLook>) => void;
+  /** The Classes that can lead (the art pack's leader first); without them, no leader choice. */
+  leaders?: SelectOption[];
 }) {
   return (
     <div className="space-y-2 rounded-md bg-neutral-100 p-2 dark:bg-neutral-800">
+      {leaders && leaders.length > 0 && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-neutral-500">Party leader</span>
+          <ThemedSelect
+            size="sm"
+            label={`Party leader for ${kingdom.id}`}
+            value={look.leader ?? leaders[0]!.value}
+            options={[...leaders, { value: VARIED, label: 'A different Hero per Quest' }]}
+            onChange={(value) => onLook(kingdom.id, { leader: value })}
+          />
+        </div>
+      )}
       <div role="group" aria-label={`Icon for ${kingdom.id}`} className="flex flex-wrap gap-1">
         {KINGDOM_ICONS.map((icon) => (
           <button
@@ -127,6 +145,7 @@ export function ConfigMenu({
   onLook,
   tabStyle = 'underline',
   onTabStyle,
+  leaders,
 }: ConfigMenuProps) {
   const [open, setOpen] = useState(false);
   const [styling, setStyling] = useState<string | null>(null);
@@ -231,7 +250,7 @@ export function ConfigMenu({
                   )}
                 </div>
                 {onLook && styling === kingdom.id && looks[kingdom.id] && (
-                  <LookPicker kingdom={kingdom} look={looks[kingdom.id]!} onLook={onLook} />
+                  <LookPicker kingdom={kingdom} look={looks[kingdom.id]!} onLook={onLook} leaders={leaders} />
                 )}
               </div>
             ))}
