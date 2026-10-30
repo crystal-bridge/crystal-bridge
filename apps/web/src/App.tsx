@@ -700,6 +700,26 @@ export function App({ hub }: { hub: HubClient }) {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`);
     }
   }, [view, active, shown]);
+  // And the view follows the address when something else changes it (a link, an edited address), as on a reload.
+  const followRoute = useRef<(route: Route) => void>(() => {});
+  followRoute.current = (route) => {
+    if (route.page === 'airship') {
+      setPage('airship');
+      return;
+    }
+    if (prefs.hidden.includes(route.node)) return;
+    updatePrefs((prev) => ({ ...prev, active: route.node }));
+    setPage(route.page === 'new' ? 'new' : 'castle');
+    setSelected(route.page === 'quest' ? route.session : null);
+  };
+  useEffect(() => {
+    const onHash = () => {
+      const route = parseRoute(window.location.hash);
+      if (route) followRoute.current(route);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const now = Date.now();
   const heroStates: Record<string, HeroState> = {};
   // Every Quest's, not just this Kingdom's: a split can show another Kingdom's Quest.

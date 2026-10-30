@@ -211,6 +211,20 @@ describe('App Kingdom tabs', () => {
     expect(screen.getByRole('region', { name: 'Tavern' })).toBeTruthy();
   });
 
+  it('follows a change to the address while open (a link, or an edited address)', async () => {
+    await renderApp();
+    await act(async () => {
+      window.location.hash = `#/k/node-a/q/${sessions[1]!.id}`;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(screen.getByRole('tab', { name: /private work/, selected: true })).toBeTruthy();
+    await act(async () => {
+      window.location.hash = '#/airship';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(screen.getByRole('region', { name: 'Tavern' })).toBeTruthy();
+  });
+
   it('reopens New Quest on its Kingdom from the address, not the default one', async () => {
     window.history.replaceState(null, '', '/#/k/node-b/new');
     await renderApp();
