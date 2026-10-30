@@ -8,6 +8,7 @@ import { latestCliChecker } from './cli-release.js';
 import { createFirstRun } from './first-run.js';
 import { pendingMigrations } from './migrations.js';
 import { loadNodes } from './nodes.js';
+import { loadHubSettings } from './hub-settings.js';
 import { hubPaths } from './paths.js';
 import { createPusher, loadVapidKeys, webPushSender } from './push.js';
 import { buildServer } from './server.js';
@@ -21,6 +22,7 @@ const {
   nodes: NODES_PATH,
   tokens: TOKENS_PATH,
   vapid: VAPID_PATH,
+  settings: SETTINGS_PATH,
   backups: BACKUP_DIR,
 } = hubPaths(process.env);
 // Push services contact this if a sender misbehaves; any mailto: or https: URL will do.
@@ -95,6 +97,7 @@ async function main(): Promise<void> {
     nodes,
     ...(auth ? { auth } : {}),
     ...(firstRun ? { firstRun } : {}),
+    settings: loadHubSettings(SETTINGS_PATH),
     release: RELEASE,
     ...(VERSION ? { webRoot: fileURLToPath(new URL('web', import.meta.url)) } : {}),
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),

@@ -21,6 +21,7 @@ describe('LoginGate', () => {
     const calls = hub({
       '/api/me': () => json({ login: null, canLogIn: true, setup: true }),
       '/api/setup': () => json({ login: 'me', token: 'the-new-token' }),
+      '/api/hub': () => new Response(null, { status: 204 }),
     });
     render(<LoginGate>{app}</LoginGate>);
     fireEvent.change(await screen.findByLabelText('Setup code'), { target: { value: 'code-from-logs' } });
@@ -33,6 +34,10 @@ describe('LoginGate', () => {
     expect(JSON.parse(init.body as string)).toEqual({ code: 'code-from-logs', name: 'me' });
 
     fireEvent.click(screen.getByRole('button', { name: 'I saved it' }));
+    expect(screen.queryByText('the app')).toBeNull();
+    fireEvent.change(await screen.findByLabelText('Hub name'), { target: { value: 'Home fleet' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Finish' }));
     expect(await screen.findByText('the app')).toBeTruthy();
   });
 

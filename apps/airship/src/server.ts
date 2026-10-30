@@ -28,6 +28,7 @@ import {
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
+import { cleanHubName, type HubSettings } from './hub-settings.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
@@ -49,6 +50,8 @@ export interface BuildServerOptions {
   auth?: Authenticator;
   /** On a token-login hub that started with no logins: what lets the first one be made. */
   firstRun?: FirstRun;
+  /** The hub's own settings; without them it has no name. */
+  settings?: HubSettings;
   /** This release's id (the deployed commit), reported by /api/health so open tabs can tell they're outdated. */
   release?: string;
   /** The built web app; by default where a checkout builds it. */
@@ -168,6 +171,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     nodes: registry,
     auth,
     firstRun,
+    settings,
     release = 'dev',
     latestCli,
     webRoot,
@@ -411,6 +415,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     canLogIn: auth?.login !== undefined,
     setup: firstRun?.pending() ?? false,
   }));
+  app.get('/api/hub', async () => ({ name: settings?.name() ?? null }));
+  app.put('/api/hub', async (request, reply) => {
+    const { name } = (request.body ?? {}) as { name?: unknown };
+    const clean = typeof name === 'string' ? cleanHubName(name) : undefined;
+    if (clean === undefined) return reply.code(400).send({ error: 'use at most 40 characters, on one line' });
+    settings?.setName(clean || undefined);
+    return reply.code(204).send();
+  });
   // First-run setup: the code from the logs makes the first login, which also logs this browser in.
   app.post('/api/setup', { config: { rateLimit: GUESSES } }, async (request, reply) => {
     if (!firstRun?.pending()) return reply.code(409).send({ error: 'this hub is already set up' });

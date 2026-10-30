@@ -1,4 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { createJoinCode, refusal, saveHubName } from '../api.js';
+import { FirstRunSteps } from './FirstRunSteps.js';
 
 const FORM = 'w-full max-w-sm space-y-3';
 const SUBMIT = 'rounded-md bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700';
@@ -20,11 +22,6 @@ function Refusal({ error }: { error: string | null }) {
   );
 }
 
-async function refusal(response: Response): Promise<string> {
-  const body = (await response.json().catch(() => ({}))) as { error?: string };
-  return body.error ?? `The hub answered ${response.status}`;
-}
-
 /** A new hub's first login, made with the one-time code from its logs. */
 function FirstLogin({ onMade }: { onMade: (token: string) => void }) {
   const [code, setCode] = useState('');
@@ -40,7 +37,7 @@ function FirstLogin({ onMade }: { onMade: (token: string) => void }) {
       body: JSON.stringify({ code, name }),
     });
     if (response.ok) onMade(((await response.json()) as { token: string }).token);
-    else setError(await refusal(response));
+    else setError((await refusal(response)).message);
   }
 
   return (
@@ -98,7 +95,7 @@ function ShowToken({ token, onDone }: { token: string; onDone: () => void }) {
 
 /** Shows the app to anyone the hub knows, or to anyone at all on a hub with no login page; asks everyone else in. */
 export function LoginGate({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<'checking' | 'in' | 'out' | 'setup'>('checking');
+  const [state, setState] = useState<'checking' | 'in' | 'out' | 'setup' | 'steps'>('checking');
   const [newToken, setNewToken] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +117,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
       body: JSON.stringify({ token }),
     });
     if (response.ok) setState('in');
-    else setError(await refusal(response));
+    else setError((await refusal(response)).message);
   }
 
   if (newToken) {
@@ -130,7 +127,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
           token={newToken}
           onDone={() => {
             setNewToken(null);
-            setState('in');
+            setState('steps');
           }}
         />
       </Page>
@@ -138,6 +135,13 @@ export function LoginGate({ children }: { children: ReactNode }) {
   }
   if (state === 'in') return children;
   if (state === 'checking') return null;
+  if (state === 'steps') {
+    return (
+      <Page>
+        <FirstRunSteps onName={saveHubName} onCreateJoinCode={createJoinCode} onDone={() => setState('in')} />
+      </Page>
+    );
+  }
   if (state === 'setup') {
     return (
       <Page>
