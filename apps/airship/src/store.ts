@@ -112,7 +112,7 @@ export interface Store {
   getSession(id: string): SessionRow | undefined;
   /** The engine a session started on, from its session.started payload; undefined for the default or unknown. */
   sessionEngine(id: string): Engine | undefined;
-  /** The effort a session started with, read from its session.started; undefined when unset. */
+  /** The effort a session uses: its latest change, else what it started with; undefined for the CLI's default. */
   sessionEffort(id: string): Effort | undefined;
   /** Adds a device's Web Push subscription, or replaces its keys and prefs. */
   putPushSubscription(subscription: PushSubscriptionJson, prefs: PushPrefs): void;
@@ -190,6 +190,9 @@ export function openStore(path: string): Store {
           WHERE later.session = asked.session AND later.seq > asked.seq
             AND (later.type IN ('session.ended', 'session.closed')
               OR (later.type = 'terminal.screen' AND json_extract(later.payload, '$.open') = 0)))`);
+  const latestEffortStmt = db.prepare(
+    `SELECT payload FROM events WHERE session = ? AND type = 'session.effort' ORDER BY seq DESC LIMIT 1`,
+  );
   const setStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`);
   // A closed Quest is done for good: its process ending (or a stray resume) arrives after the close and mustn't reopen it.
   const setOpenStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ? AND status != 'closed'`);
@@ -449,7 +452,7 @@ export function openStore(path: string): Store {
       return engine.success && engine.data !== 'stream' ? engine.data : undefined;
     },
     sessionEffort(id) {
-      const row = startedPayloadStmt.get(id) as { payload: string } | undefined;
+      const row = (latestEffortStmt.get(id) ?? startedPayloadStmt.get(id)) as { payload: string } | undefined;
       if (!row) return undefined;
       const effort = Effort.safeParse((JSON.parse(row.payload) as { effort?: unknown }).effort);
       return effort.success ? effort.data : undefined;

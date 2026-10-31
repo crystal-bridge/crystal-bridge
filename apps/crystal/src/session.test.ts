@@ -724,6 +724,92 @@ describe('ClaudeSession idle stop', () => {
     expect(session.busy).toBe(true);
   });
 
+  describe('changing effort', () => {
+    const flag = (args: string[]) => args[args.indexOf('--effort') + 1];
+
+    it('moves the next message to a new process with the new effort, and ends nothing until then', async () => {
+      const { spawnFn, calls, children } = createSpawnMock();
+      const session = createSession(spawnFn, { idleMs: IDLE_MS, effort: 'high' });
+      session.start('hello');
+      const first = children[0]!;
+      await finishTurn(first);
+
+      session.setEffort('low');
+      expect(first.stdin.writableEnded).toBe(false);
+
+      session.send('next');
+      expect(first.stdin.writableEnded).toBe(true);
+      expect(session.busy).toBe(true);
+      finishExit(first, 0);
+      await flush();
+
+      expect(children).toHaveLength(2);
+      expect(flag(calls[1]!.args)).toBe('low');
+      expect(calls[1]!.args).toContain('--resume');
+    });
+
+    it('leaves the flag off when set back to the CLI default', async () => {
+      const { spawnFn, calls, children } = createSpawnMock();
+      const session = createSession(spawnFn, { idleMs: IDLE_MS, effort: 'high' });
+      session.start('hello');
+      await finishTurn(children[0]!);
+      session.setEffort(undefined);
+      session.send('next');
+      finishExit(children[0]!, 0);
+      await flush();
+      expect(calls[1]!.args).not.toContain('--effort');
+    });
+
+    it('keeps the process for a choice that changes nothing', async () => {
+      const { spawnFn, children } = createSpawnMock();
+      const session = createSession(spawnFn, { idleMs: IDLE_MS, effort: 'high' });
+      session.start('hello');
+      await finishTurn(children[0]!);
+      session.setEffort('low');
+      session.setEffort('high');
+      session.send('next');
+      expect(children[0]!.stdin.writableEnded).toBe(false);
+    });
+
+    it('never cuts off a running turn: a message sent during it stays on that process', async () => {
+      const { spawnFn, children } = createSpawnMock();
+      const session = createSession(spawnFn, { idleMs: IDLE_MS });
+      session.start('hello');
+      session.setEffort('low');
+      session.send('while it works');
+      expect(children[0]!.stdin.writableEnded).toBe(false);
+
+      await finishTurn(children[0]!);
+      session.send('after it finished');
+      expect(children[0]!.stdin.writableEnded).toBe(true);
+    });
+
+    it('leaves a process holding background work alone, which a restart would kill', async () => {
+      const { spawnFn, children } = createSpawnMock();
+      const session = createSession(spawnFn, { idleMs: IDLE_MS });
+      session.start('hello');
+      const block = { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'x', run_in_background: true } };
+      children[0]!.stdout.write(`${JSON.stringify({ type: 'assistant', message: { id: 'm', content: [block] } })}\n`);
+      await finishTurn(children[0]!);
+      session.setEffort('low');
+      session.send('next');
+      expect(children[0]!.stdin.writableEnded).toBe(false);
+    });
+
+    it('applies to the next process when none is running', async () => {
+      const { spawnFn, calls, children } = createSpawnMock();
+      const session = createSession(spawnFn, { idleMs: IDLE_MS });
+      session.start('hello');
+      await finishTurn(children[0]!);
+      vi.advanceTimersByTime(IDLE_MS);
+      finishExit(children[0]!, 0);
+      await flush();
+      session.setEffort('max');
+      session.send('next');
+      expect(flag(calls[1]!.args)).toBe('max');
+    });
+  });
+
   it('cancels the idle timer on send, and starts it again after the next result', async () => {
     const { spawnFn, children } = createSpawnMock();
     const session = createSession(spawnFn, { idleMs: IDLE_MS });

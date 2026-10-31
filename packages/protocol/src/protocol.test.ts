@@ -328,6 +328,13 @@ describe('external sessions', () => {
 });
 
 describe('permission modes', () => {
+  it('session.effort takes a level, or none for the CLI default, and nothing else', () => {
+    const session = '11111111-1111-4111-8111-111111111111';
+    expect(NodeCommand.safeParse({ type: 'session.effort', session, effort: 'low' }).success).toBe(true);
+    expect(NodeCommand.safeParse({ type: 'session.effort', session }).success).toBe(true);
+    expect(NodeCommand.safeParse({ type: 'session.effort', session, effort: 'ludicrous' }).success).toBe(false);
+  });
+
   it('session.start takes an optional mode, and session.mode changes it', () => {
     const start = { type: 'session.start', node: 'local', session, cwd: '/w', prompt: 'p' };
     expect(NodeCommand.safeParse({ ...start, mode: 'auto' }).success).toBe(true);

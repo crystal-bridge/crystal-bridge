@@ -411,6 +411,16 @@ export function sessionMode(envelopes: readonly Envelope[]): string | undefined 
   return undefined;
 }
 
+/** The effort a session uses: its latest change, else what it started with; undefined for the CLI's default. */
+export function sessionEffort(envelopes: readonly Envelope[]): string | undefined {
+  for (let i = envelopes.length - 1; i >= 0; i--) {
+    const { type, payload } = envelopes[i]!;
+    if (type !== 'session.effort' && type !== 'session.started') continue;
+    return isObj(payload) ? str(payload.effort) : undefined;
+  }
+  return undefined;
+}
+
 /** The worktree a session runs in, from its session.started, if it was started in one. */
 export function sessionWorktree(envelopes: readonly Envelope[]): { root: string; branch: string } | undefined {
   const started = envelopes.find((e) => e.type === 'session.started');

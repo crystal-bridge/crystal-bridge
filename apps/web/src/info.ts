@@ -32,7 +32,7 @@ export interface SessionStats {
 /** What the side panel shows about a session, derived from its stored events. */
 export interface SessionInfo {
   cwd?: string;
-  /** The effort the session started with, when it picked one (#32). */
+  /** The effort the session uses now, when it picked one (#32). */
   effort?: string;
   branch?: string;
   model?: string;
@@ -99,6 +99,11 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
       if (typeof payload.cwd === 'string') info.cwd = payload.cwd;
       if (typeof payload.effort === 'string') info.effort = payload.effort;
       if (isObj(payload.worktree) && typeof payload.worktree.branch === 'string') info.branch = payload.worktree.branch;
+      continue;
+    }
+    if (envelope.type === 'session.effort') {
+      if (typeof payload.effort === 'string') info.effort = payload.effort;
+      else delete info.effort;
       continue;
     }
     if (envelope.type === 'session.ended') {

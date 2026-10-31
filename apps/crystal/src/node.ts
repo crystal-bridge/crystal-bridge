@@ -13,6 +13,7 @@ import {
   type Envelope,
   type EventType,
   type NodeError,
+  type Resume,
   type SelfUpdate,
   type NodeExternal,
   NodeCli,
@@ -36,6 +37,8 @@ export interface SessionLike {
   send(text: string): void;
   interrupt(): void;
   setMode(mode: PermissionMode): void;
+  /** Changes the effort for later processes. */
+  setEffort?(effort: Effort | undefined): void;
   /** Answers a terminal that's asking something; only the interactive engine has one. */
   keys?(input: { keys?: string; retype?: boolean }): void;
   close(): void;
@@ -361,27 +364,41 @@ export function startNode(options: StartNodeOptions): CrystalNode {
    * no live process, so its first send resumes the conversation with `--resume`.
    */
 
-  function handleSessionSend(cmd: Extract<NodeCommand, { type: 'session.send' }>): void {
-    let state = sessions.get(cmd.session);
-    if (!state && cmd.resume) {
-      const { cwd, nextSeq, engine, effort } = cmd.resume;
+  /** The session a command names, rebuilt from the hub's `resume` after a restart; undefined after saying why not. */
+  function sessionFor({ session, resume }: { session: string; resume?: Resume | undefined }): SessionState | undefined {
+    let state = sessions.get(session);
+    if (!state && resume) {
+      const { cwd, nextSeq, engine, effort } = resume;
       // Resuming on another engine would quietly lose what the Quest was started for (e.g. artifacts).
       if (!runs(engine)) {
-        sendNodeError(cmd.session, `this node no longer runs the ${engine} engine this session started on`);
-        return;
+        sendNodeError(session, `this node no longer runs the ${engine} engine this session started on`);
+        return undefined;
       }
-      log(`rebuilding session ${cmd.session} in ${cwd} from seq ${nextSeq}`);
-      createSession(cmd.session, cwd, nextSeq, undefined, undefined, engine, effort);
-      state = sessions.get(cmd.session);
+      log(`rebuilding session ${session} in ${cwd} from seq ${nextSeq}`);
+      createSession(session, cwd, nextSeq, undefined, undefined, engine, effort);
+      state = sessions.get(session);
     }
     if (!state) {
-      sendNodeError(cmd.session, `unknown session: ${cmd.session}`);
-      return;
+      sendNodeError(session, `unknown session: ${session}`);
+      return undefined;
     }
     if (state.closed) {
-      sendNodeError(cmd.session, `session is closed: ${cmd.session}`);
-      return;
+      sendNodeError(session, `session is closed: ${session}`);
+      return undefined;
     }
+    return state;
+  }
+
+  function handleSessionEffort(cmd: Extract<NodeCommand, { type: 'session.effort' }>): void {
+    const state = sessionFor(cmd);
+    if (!state) return;
+    state.runtime.setEffort?.(cmd.effort);
+    sendEnvelope(cmd.session, 'session.effort', cmd.effort ? { effort: cmd.effort } : {});
+  }
+
+  function handleSessionSend(cmd: Extract<NodeCommand, { type: 'session.send' }>): void {
+    const state = sessionFor(cmd);
+    if (!state) return;
     const text = withFiles(cmd.session, cmd.text, cmd.attachments);
     if (text === undefined) return;
     // Recorded before the send, so the follow-up sorts ahead of anything the reply emits.
@@ -582,6 +599,9 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           break;
         case 'session.interrupt':
           handleSessionInterrupt(cmd);
+          break;
+        case 'session.effort':
+          handleSessionEffort(cmd);
           break;
         case 'session.keys': {
           const state = sessions.get(cmd.session);

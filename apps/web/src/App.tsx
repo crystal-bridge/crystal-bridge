@@ -730,6 +730,7 @@ export function App({ hub }: { hub: HubClient }) {
           hub.send({ type: 'permission.answer', session: id, requestId, behavior, ...(answers ? { answers } : {}) })
         }
         onKeys={(input) => hub.send({ type: 'session.keys', session: id, ...input })}
+        onEffort={(effort) => hub.send({ type: 'session.effort', session: id, ...(effort ? { effort } : {}) })}
         onSend={(text, attachments) =>
           hub.send({ type: 'session.send', session: id, text, ...(attachments?.length ? { attachments } : {}) })
         }

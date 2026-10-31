@@ -6,6 +6,7 @@ import {
   buildView,
   IncrementalView,
   insertBySeq,
+  sessionEffort,
   sessionMode,
   slashCommands,
   ViewBuilder,
@@ -382,6 +383,23 @@ describe('insertBySeq', () => {
     const list: Envelope[] = [];
     expect(insertBySeq(list, at(0))).toBe(true);
     expect(insertBySeq(list, at(0))).toBe(false);
+  });
+});
+
+describe('sessionEffort', () => {
+  it('is the Quest’s latest choice, or what it started with', () => {
+    const started: Envelope = {
+      node: 'n',
+      session: '11111111-1111-4111-8111-111111111111',
+      seq: 0,
+      ts: 0,
+      type: 'session.started',
+      payload: { cwd: '/w', prompt: 'p', label: 'p', effort: 'high' },
+    };
+    const changed = (seq: number, payload: unknown): Envelope => ({ ...started, seq, type: 'session.effort', payload });
+    expect(sessionEffort([started])).toBe('high');
+    expect(sessionEffort([started, changed(1, { effort: 'low' })])).toBe('low');
+    expect(sessionEffort([started, changed(1, { effort: 'low' }), changed(2, {})])).toBeUndefined();
   });
 });
 

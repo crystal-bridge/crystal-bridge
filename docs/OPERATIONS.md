@@ -104,6 +104,11 @@ needs `curl`. Recruits offers the same engine choice, and a Quest keeps its engi
 sends, so after a Crystal restart a follow-up resumes on the same engine (and a node that no longer runs that engine
 refuses rather than switching quietly). Not yet: cost and token Stats, the Inventory's Items, Relics, Guild and Abilities (it lists Spells and Equipment), and switching mode mid-session.
 
+A Quest's Effort can change from its prompt bar, on either engine. The CLI takes it only when a process starts, so nothing
+running changes: the next message moves to a new process with it and the conversation carries on, which shows as the
+usual idle stop and resume. A turn in progress finishes first, and a Quest holding background work stays on its process
+until that's gone, because a restart would kill the work.
+
 An interactive terminal can show screens the bridge can't read, such as a setup dialog or an offer, and new ones come
 with CLI updates. Crystal first tries Esc when a screen offers it, then one restart. If the terminal still won't take a
 message, or a new process doesn't reach its input box within 45 seconds, or the CLI says a prompt is terminal-only, the
@@ -212,7 +217,9 @@ The Kingdom takes only a version number from the hub. It then:
 4. Waits until no Quest there is busy, as a deploy does. A Quest with background work counts as busy.
 5. Swaps to it and restarts. Idle Quests resume on their next follow-up.
 
-The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour.
+The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour. That
+includes GitHub's limit of 60 anonymous API calls an hour per address, which machines sharing one address can reach
+("GitHub answered 403").
 
 A Kingdom never moves to an older version, whatever the hub names. To go back, run this on the machine:
 
