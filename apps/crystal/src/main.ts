@@ -11,7 +11,7 @@ import { ClaudeSession } from './session.js';
 import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
 import { resolveClaudeBin } from './claude-bin.js';
 import { cachedCliVersion, execCliUpdate, execCliVersion } from './cli-version.js';
-import { runJoin, runLeave, runRollback, type JoinDeps } from './join.js';
+import { runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.js';
 import { verifyRelease } from './provenance.js';
 import { activateRelease, heldVersions, releaseId, selfUpdateBase, stageRelease, type ReleaseDeps } from './release.js';
 import { createUpdater } from './self-update.js';
@@ -209,6 +209,7 @@ function joinDeps(): JoinDeps {
       }),
     kill: (pid) => process.kill(pid),
     log: (line) => console.log(line),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
 }
 
@@ -228,8 +229,10 @@ if (process.argv.includes('--version')) {
   runLeave(joinDeps()).catch(fail);
 } else if (command === 'rollback') {
   runRollback(joinDeps()).catch(fail);
+} else if (command === 'adopt') {
+  runAdopt(joinDeps()).catch(fail);
 } else if (command) {
-  fail('usage: crystal-bridge-kingdom [join <hub-url> <code> | leave | rollback | --version]');
+  fail('usage: crystal-bridge-kingdom [join <hub-url> <code> | leave | rollback | adopt | --version]');
 } else {
   main().catch((error: unknown) => {
     console.error('[crystal] fatal error during startup', error);

@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { accessRefusals, authMode } from './access.js';
 import { accessTokens, tailscaleServe } from './auth.js';
-import { backupStore } from './backup.js';
+import { backupStore, runBackup } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
 import { kingdomTarget } from './kingdom-target.js';
 import { createFirstRun } from './first-run.js';
@@ -130,6 +130,11 @@ if (command === '--version') {
 } else if (command === 'token') {
   mkdirSync(dirname(TOKENS_PATH), { recursive: true });
   runTokens(TOKENS_PATH, rest);
+} else if (command === 'backup') {
+  runBackup(process.env).catch((error: unknown) => {
+    console.error('[airship] backup failed', error);
+    process.exit(1);
+  });
 } else {
   main().catch((error: unknown) => {
     console.error('[airship] fatal error during startup', error);

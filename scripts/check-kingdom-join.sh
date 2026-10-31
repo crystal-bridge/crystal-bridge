@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs `join`, a self-update, `rollback` and `leave` from the packed tarball against a real hub and this machine's real
+# Runs `join`, a self-update, `rollback`, `leave` and `adopt` from the packed tarball against a real hub and this machine's real
 # service manager (systemd or launchd). Only `claude` is a stand-in: a login can't be copied. The update is the real
 # thing too: the build calls itself older, so it downloads and verifies a published release, which can't be faked and
 # is why the target stays a release that exists. CI only, because it replaces the machine's Crystal service: on a real
@@ -90,6 +90,7 @@ wait_for 'the Kingdom to connect through its service' connected
 curl -s "$hub/api/engines" | grep -q '"cli":"2.1.0"' || { echo 'check: no CLI version reported' >&2; exit 1; }
 echo 'check: the service connected'
 
+not_deployed() { ! curl -s "$hub/api/nodes" | grep -q ci-deployed; }
 base=$HOME/.local/share/crystal-bridge
 entry=node_modules/@crystal-bridge/kingdom/dist/main.js
 TRIES=360 wait_for "the Kingdom to update itself to $target" updated_or_limited || { service_log; exit 1; }
@@ -118,4 +119,27 @@ else
   ! launchctl print "gui/$(id -u)/dev.crystal-bridge.crystal" >/dev/null 2>&1 ||
     { echo 'check: the service survived leave' >&2; exit 1; }
 fi
-echo 'check: join, self-update, rollback and leave work on this machine'
+
+# A Kingdom the deploy scripts made: their layout and their service, still running from an earlier release.
+mkdir -p "$(dirname "$HOME/.config/crystal-bridge/crystal.env")" "$base/releases/abcdef123456"
+code=$(curl -s -X POST -H 'content-type: application/json' -d '{"node":"ci-deployed"}' "$hub/api/join-codes" |
+  node -p 'JSON.parse(require("fs").readFileSync(0)).code')
+token=$(curl -s -X POST -H 'content-type: application/json' -d "{\"code\":\"$code\"}" "$hub/api/join" |
+  node -p 'JSON.parse(require("fs").readFileSync(0)).token')
+env_file=$HOME/.config/crystal-bridge/crystal.env
+printf '%s\n' "CRYSTAL_HUB=${hub/http/ws}/node" CRYSTAL_NODE=ci-deployed "CRYSTAL_TOKEN=$token" CRYSTAL_SELF_UPDATE=off \
+  "PATH=$work/bin:$(dirname "$(command -v node)"):/usr/bin:/bin" >"$env_file"
+chmod 600 "$env_file"
+ln -s "$base/releases/abcdef123456" "$base/current"
+before=$(cat "$env_file")
+
+PATH=$work/bin:$PATH npx --yes --package="$tarball" crystal-bridge-kingdom adopt
+deployed() { curl -s "$hub/api/nodes" | grep -q ci-deployed; }
+wait_for 'the adopted Kingdom to connect through its service' deployed
+[[ $(cat "$env_file") == "$before" ]] || { echo 'check: adopt changed the env file' >&2; exit 1; }
+[[ $(readlink "$base/current") == */releases/$old ]] || { echo 'check: adopt left current alone' >&2; exit 1; }
+echo 'check: adopt moved a deployed Kingdom onto the package'
+node "$base/current/$entry" leave
+wait_for 'the adopted Kingdom to disconnect' not_deployed
+
+echo 'check: join, self-update, rollback, leave and adopt work on this machine'

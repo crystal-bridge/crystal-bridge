@@ -18,6 +18,11 @@ const SERVICE = 'crystal.service';
 const TASK = 'CrystalBridgeKingdom';
 /** Not the source default, so `pnpm dev` still runs on a machine that is also a Kingdom. */
 const MCP_PORT = '7711';
+/** The port of an agent that doesn't name one, which is every Linux Kingdom the deploy scripts made. */
+const DEFAULT_MCP_PORT = '7701';
+/** How long `adopt` waits for Quests, as a deploy scheduled for an idle moment does. */
+const ADOPT_WAIT_SECONDS = 3600;
+const ADOPT_POLL_SECONDS = 5;
 
 export interface ServicePaths {
   nodeBin: string;
@@ -197,6 +202,7 @@ export interface JoinDeps {
   exec: (file: string, args: string[]) => Promise<string>;
   kill: (pid: number) => void;
   log: (line: string) => void;
+  sleep: (ms: number) => Promise<void>;
 }
 
 interface Layout {
@@ -348,6 +354,28 @@ async function stopService(deps: JoinDeps, where: Layout): Promise<void> {
   if (deps.platform !== 'darwin') await deps.exec('systemctl', ['--user', 'daemon-reload']).catch(() => undefined);
 }
 
+/** PATH for the service: npx's temporary folders won't outlive this run. */
+function lastingPath(path: string): string {
+  return path
+    .split(':')
+    .filter((entry) => entry && !entry.includes('/_npx/'))
+    .join(':');
+}
+
+function writeService(mainJs: string, path: string, deps: JoinDeps, where: Layout): void {
+  mkdirSync(dirname(where.service), { recursive: true });
+  mkdirSync(dirname(where.logFile), { recursive: true });
+  const paths = { nodeBin: deps.nodeBin, mainJs, envFile: where.envFile, logFile: where.logFile, path };
+  if (deps.platform === 'win32') {
+    const script = join(where.base, 'crystal.cmd');
+    writeFileSync(script, windowsScript(deps.nodeBin));
+    // Task Scheduler reads the file as the UTF-16 its first line says it is.
+    writeFileSync(where.service, `\ufeff${windowsTask({ script, user: deps.user })}`, 'utf16le');
+  } else {
+    writeFileSync(where.service, deps.platform === 'darwin' ? launchdPlist(paths) : systemdUnit(paths));
+  }
+}
+
 /** Turns this machine into a Kingdom of the hub. Nothing is spent until everything that can be checked has passed. */
 export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Promise<void> {
   const where = layout(deps);
@@ -357,10 +385,7 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
   const { node, token } = await redeemCode(hub, code, deps);
 
   // Windows' task starts with the user's own PATH, so only these two need one written down.
-  const path = deps.path
-    .split(':')
-    .filter((entry) => entry && !entry.includes('/_npx/'))
-    .join(':');
+  const path = lastingPath(deps.path);
   mkdirSync(dirname(where.envFile), { recursive: true });
   writeFileSync(
     where.envFile,
@@ -377,17 +402,7 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
   );
   chmodSync(where.envFile, 0o600);
 
-  mkdirSync(dirname(where.service), { recursive: true });
-  mkdirSync(dirname(where.logFile), { recursive: true });
-  const paths = { nodeBin: deps.nodeBin, mainJs, envFile: where.envFile, logFile: where.logFile, path };
-  if (deps.platform === 'win32') {
-    const script = join(where.base, 'crystal.cmd');
-    writeFileSync(script, windowsScript(deps.nodeBin));
-    // Task Scheduler reads the file as the UTF-16 its first line says it is.
-    writeFileSync(where.service, `\ufeff${windowsTask({ script, user: deps.user })}`, 'utf16le');
-  } else {
-    writeFileSync(where.service, deps.platform === 'darwin' ? launchdPlist(paths) : systemdUnit(paths));
-  }
+  writeService(mainJs, path, deps, where);
   await startService(deps, where);
 
   deps.log(`Kingdom "${node}" joined ${hub}. It runs as a service and dials out to the hub.`);
@@ -418,6 +433,66 @@ export async function runLeave(deps: JoinDeps): Promise<void> {
   rmSync(where.base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   deps.log(
     left ? 'This Kingdom has left its hub.' : 'Removed here, but the hub did not answer: remove it from the app.',
+  );
+}
+
+/** Waits until the agent running here has no busy Quest, and gives up without having changed anything. */
+async function waitForQuiet(port: string, deps: JoinDeps): Promise<void> {
+  for (let waited = 0; ; waited += ADOPT_POLL_SECONDS) {
+    const status = await deps.fetch(`http://127.0.0.1:${port}/status`, {}).catch(() => undefined);
+    // No answer means no agent running, so nothing to cut off.
+    const { busy = [] } = ((await status?.json().catch(() => undefined)) ?? {}) as { busy?: string[] };
+    if (busy.length === 0) return;
+    if (waited >= ADOPT_WAIT_SECONDS) {
+      throw new Error(
+        `Still busy after an hour: ${busy.join(', ')}. Nothing changed; run this again when they finish.`,
+      );
+    }
+    if (waited === 0) deps.log(`Waiting for Quests to finish: ${busy.join(', ')}`);
+    await deps.sleep(ADOPT_POLL_SECONDS * 1000);
+  }
+}
+
+/** Swaps a running agent for the service just written. */
+async function replaceService(deps: JoinDeps): Promise<void> {
+  if (deps.platform !== 'darwin') {
+    await deps.exec('systemctl', ['--user', 'daemon-reload']);
+    await deps.exec('systemctl', ['--user', 'enable', SERVICE]);
+    await deps.exec('systemctl', ['--user', 'restart', SERVICE]);
+    return;
+  }
+  const job = `gui/${deps.uid}/${LABEL}`;
+  await deps.exec('launchctl', ['bootout', job]).catch(() => undefined);
+  // bootout returns before the old agent has gone, and starting one while it lingers fails.
+  for (let tries = 0; tries < 30; tries++) {
+    const gone = await deps.exec('launchctl', ['print', job]).then(
+      () => false,
+      () => true,
+    );
+    if (gone) break;
+    await deps.sleep(500);
+  }
+  await deps.exec('launchctl', ['bootstrap', `gui/${deps.uid}`, servicePath(deps.home, 'darwin')]);
+}
+
+/**
+ * Moves a Kingdom the deploy scripts installed onto this package, so it updates itself from now on. It's the same
+ * machine to the hub: the token, name and settings in its env file stay as they are, which `leave` and `join` can't do.
+ */
+export async function runAdopt(deps: JoinDeps): Promise<void> {
+  if (deps.platform !== 'linux' && deps.platform !== 'darwin') throw new Error('adopt runs on Linux and macOS.');
+  const where = layout(deps);
+  const env = existsSync(where.envFile) ? readFileSync(where.envFile, 'utf8') : '';
+  if (!envValue(env, 'CRYSTAL_TOKEN')) throw new Error('This machine is not a Kingdom. Add it from the app instead.');
+  const root = installRootOf(deps.mainPath);
+  if (!root) throw new Error('adopt has to run from the installed package, not from source.');
+
+  await waitForQuiet(envValue(env, 'CRYSTAL_MCP_PORT') ?? DEFAULT_MCP_PORT, deps);
+  const mainJs = installCopy(root, deps, where.base);
+  writeService(mainJs, lastingPath(envValue(env, 'PATH') ?? deps.path), deps, where);
+  await replaceService(deps);
+  deps.log(
+    `Kingdom "${envValue(env, 'CRYSTAL_NODE') ?? ''}" now runs ${deps.version} and updates itself from its hub.`,
   );
 }
 
