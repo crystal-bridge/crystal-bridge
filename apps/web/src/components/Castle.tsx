@@ -12,6 +12,7 @@ import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
+import { Garrison, type GarrisonProps } from './Garrison.js';
 import { HOME_PAGE, HOME_PAIR, QUEST_GRID, QuestCard, StatTiles } from './HomeParts.js';
 
 export interface CastleProps {
@@ -47,6 +48,8 @@ export interface CastleProps {
   onUpdateCli?: (id: string) => Promise<string | undefined>;
   /** Revokes this Kingdom's token and cuts its connection; without it, no Remove. */
   onRemove?: (id: string) => Promise<void>;
+  /** Who fights here; without it, as in the plain theme, no Garrison. */
+  garrison?: GarrisonProps | undefined;
   /** This Kingdom has no token and no connection: it can no longer be removed, only forgotten. */
   removed?: boolean;
   /** Deletes the hub's copy of a removed Kingdom's Quests. */
@@ -326,6 +329,7 @@ export function Castle({
   onRemove,
   removed,
   onForget,
+  garrison,
   today = null,
   week = null,
   heroes,
@@ -417,7 +421,9 @@ export function Castle({
           <StatTiles title={w('thisWeek')} plain={hint('thisWeek')} stats={week} />
         </div>
 
-        <div className={`grid items-start gap-5 ${haunts.length > 0 ? 'xl:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}>
+        <div
+          className={`grid items-start gap-5 ${haunts.length > 0 || garrison ? 'xl:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}
+        >
           <div className="min-w-0 space-y-5">
             {needsYou.length > 0 && (
               <Section title={w('needsYou')} plain={hint('needsYou')}>
@@ -467,32 +473,42 @@ export function Castle({
               </Folded>
             )}
           </div>
-          {haunts.length > 0 && (
-            <Section title={w('haunts')} plain={hint('haunts')}>
-              <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-                {haunts.map((haunt) => (
-                  <li key={haunt.cwd} className="flex items-center gap-3 py-1.5">
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{haunt.name}</span>
-                      <span className="block truncate text-xs text-neutral-500" title={haunt.cwd}>
-                        {haunt.cwd} · {haunt.count} {haunt.count === 1 ? w('quest') : w('quests')}
-                      </span>
-                    </span>
-                    {onNewIn && (
-                      <button
-                        type="button"
-                        aria-label={`${w('setOutHere')}: ${haunt.name}`}
-                        title={hint('setOutHere')}
-                        onClick={() => onNewIn(haunt.cwd)}
-                        className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                      >
-                        {w('setOutHere')}
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </Section>
+          {(haunts.length > 0 || garrison) && (
+            <div className="min-w-0 space-y-5">
+              {haunts.length > 0 && (
+                <Section title={w('haunts')} plain={hint('haunts')}>
+                  <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+                    {haunts.map((haunt) => (
+                      <li key={haunt.cwd} className="flex items-center gap-3 py-1.5">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{haunt.name}</span>
+                          <span className="block truncate text-xs text-neutral-500" title={haunt.cwd}>
+                            {haunt.cwd} · {haunt.count} {haunt.count === 1 ? w('quest') : w('quests')}
+                          </span>
+                        </span>
+                        {onNewIn && (
+                          <button
+                            type="button"
+                            aria-label={`${w('setOutHere')}: ${haunt.name}`}
+                            title={hint('setOutHere')}
+                            onClick={() => onNewIn(haunt.cwd)}
+                            className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                          >
+                            {w('setOutHere')}
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+              {garrison && (
+                // Decoration: it stays off a phone, along with other new panels.
+                <div className="hidden px-3 md:block">
+                  <Garrison {...garrison} />
+                </div>
+              )}
+            </div>
           )}
         </div>
 
