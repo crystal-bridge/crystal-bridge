@@ -257,6 +257,20 @@ To stop a Kingdom updating itself, add `CRYSTAL_SELF_UPDATE=off` to its `crystal
 any other way (the deploy scripts, npm, a checkout) never update themselves: the Castle only warns when one falls behind.
 [Moving onto packages](#moving-onto-packages) brings one over.
 
+### Choosing when Kingdoms update
+
+A packaged hub tells its Kingdoms to run its own version, so they follow it on their own. To decide when instead, set
+**Kingdom updates** to **When approved** in the Ship's Log's details. That freezes the version the hub names, so nothing
+moves. After you update the hub, the Ship's Log offers **Update Kingdoms to** that version, and the logo's badge counts
+it. Anyone logged in can do both, because a login already has the run of every Kingdom. The choice lives in `hub.json`,
+so it survives a restart and a move between releases, and setting it back to **Automatic** sends Kingdoms on to the hub's
+version.
+
+This only changes which version the hub names. Each Kingdom still checks that release itself and only moves forward, so
+approving can't make a Kingdom run anything but a genuine, newer release. It works alongside the two settings that stop
+updates outright: `AIRSHIP_KINGDOM_VERSION=off` on a hub, which removes the choice, and `CRYSTAL_SELF_UPDATE=off` on a
+Kingdom.
+
 ## Moving onto packages
 
 The deploy scripts above run a checkout of `main`. A host they set up can move to published releases in place, keeping

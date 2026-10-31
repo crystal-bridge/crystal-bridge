@@ -28,6 +28,26 @@ describe('hub settings', () => {
     expect(settings.name()).toBeUndefined();
   });
 
+  it('updates Kingdoms automatically until told otherwise', () => {
+    expect(loadHubSettings(path).kingdomUpdates()).toEqual({ mode: 'auto' });
+  });
+
+  it('keeps the approved version across a restart', () => {
+    loadHubSettings(path).setKingdomUpdates({ mode: 'approved', approved: '1.2.0' });
+    expect(loadHubSettings(path).kingdomUpdates()).toEqual({ mode: 'approved', approved: '1.2.0' });
+  });
+
+  it('keeps each setting when the other changes', () => {
+    const settings = loadHubSettings(path);
+    settings.setName('Home fleet');
+    settings.setKingdomUpdates({ mode: 'approved', approved: '1.2.0' });
+    expect(settings.name()).toBe('Home fleet');
+    settings.setName('New name');
+    expect(settings.kingdomUpdates()).toEqual({ mode: 'approved', approved: '1.2.0' });
+    settings.setName(undefined);
+    expect(settings.kingdomUpdates()).toEqual({ mode: 'approved', approved: '1.2.0' });
+  });
+
   it('trims a name, and refuses one too long or with control characters', () => {
     expect(cleanHubName('  Home fleet ')).toBe('Home fleet');
     expect(cleanHubName('   ')).toBe('');

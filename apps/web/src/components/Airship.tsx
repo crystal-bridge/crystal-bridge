@@ -11,7 +11,7 @@ import { isActiveQuest } from '../quests.js';
 import { KingdomIcon } from './KingdomIcon.js';
 import type { FleetRow } from '../fleet.js';
 import { Roster } from './Roster.js';
-import { type HubStatus, ShipsLog } from './ShipsLog.js';
+import { type HubStatus, type KingdomUpdateMode, ShipsLog } from './ShipsLog.js';
 import { NodeUsage, type NodeUsageRow } from './NodeUsage.js';
 import type { SessionSummary } from './SessionList.js';
 
@@ -42,6 +42,8 @@ export interface AirshipProps {
   hubStatus?: HubStatus | undefined;
   /** Each Kingdom's release and update, for the Ship's Log. */
   fleet?: FleetRow[];
+  onKingdomUpdates?: (mode: KingdomUpdateMode) => void;
+  onApproveKingdomUpdate?: () => void;
   now?: number;
 }
 
@@ -71,6 +73,8 @@ export function Airship({
   onNewQuest,
   hubStatus,
   fleet = [],
+  onKingdomUpdates,
+  onApproveKingdomUpdate,
   now = Date.now(),
 }: AirshipProps) {
   const [moreLog, setMoreLog] = useState(false);
@@ -130,7 +134,13 @@ export function Airship({
 
         {/* A new panel, so it stays off a phone for now. */}
         <div className="hidden md:block">
-          <ShipsLog status={hubStatus} fleet={fleet} now={now} />
+          <ShipsLog
+            status={hubStatus}
+            fleet={fleet}
+            now={now}
+            onChoice={onKingdomUpdates}
+            onApprove={onApproveKingdomUpdate}
+          />
         </div>
 
         <section

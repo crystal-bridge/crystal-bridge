@@ -7,6 +7,7 @@ then, everything is in Unreleased.
 
 ### Added
 
+- A hub can hold its Kingdoms back until you approve a release, with a hub-wide choice in the Ship's Log.
 - A Ship's Log on the Airship shows the hub's release, health and how its Kingdoms are getting on, and says when a
   newer release is out, with its notes and how to take it. The logo gets a badge for it.
 - A Castle's Garrison shows the Heroes who have led Quests in that Kingdom, with their levels there.
