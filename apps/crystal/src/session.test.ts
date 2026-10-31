@@ -949,7 +949,9 @@ describe('ClaudeSession usage', () => {
       { type: 'claude.event', payload: { engine: 'claude', raw } },
       {
         type: 'usage',
-        payload: { windows: [{ id: 'five_hour', label: '5h', usedPct: 25, resetsAt: 100000, status: 'allowed' }] },
+        payload: {
+          windows: [{ id: 'five_hour', label: '5h', spanHours: 5, usedPct: 25, resetsAt: 100000, status: 'allowed' }],
+        },
       },
     ]);
   });

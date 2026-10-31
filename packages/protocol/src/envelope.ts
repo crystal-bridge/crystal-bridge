@@ -35,6 +35,7 @@ export type Envelope = z.infer<typeof Envelope>;
 export const UsageWindow = z.object({
   id: z.string(), // the engine's window name, e.g. five_hour
   label: z.string(), // short display name, e.g. 5h
+  spanHours: z.number().positive().optional(), // the window's length, so limits can be ordered without knowing names
   usedPct: z.number(), // 0-100
   resetsAt: z.number().int().nullable(), // epoch ms
   status: z.string(), // the engine's own status, e.g. allowed

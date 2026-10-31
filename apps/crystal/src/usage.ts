@@ -4,7 +4,27 @@ type Obj = Record<string, unknown>;
 
 const isObj = (value: unknown): value is Obj => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const LABELS: Record<string, string> = { five_hour: '5h', seven_day: '7d' };
+const COUNTS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const UNITS: Record<string, { hours: number; short: string }> = {
+  hour: { hours: 1, short: 'h' },
+  day: { hours: 24, short: 'd' },
+  week: { hours: 168, short: 'w' },
+  month: { hours: 720, short: 'mo' },
+};
+
+/**
+ * A window's label and length from the engine's name for it, such as `five_hour` or `seven_day`. Whatever follows the
+ * length stays in the label, since it marks a narrower limit than the plan's own. A name that doesn't start with a
+ * length is passed on as it is, with none, so a new kind of window is shown rather than lost.
+ */
+function describeWindow(id: string): Pick<UsageWindow, 'label' | 'spanHours'> {
+  const match = /^([a-z]+|\d+)_(hour|day|week|month)s?(?:_(.+))?$/.exec(id);
+  const unit = match && UNITS[match[2]!];
+  const count = match && (/^\d+$/.test(match[1]!) ? Number(match[1]) : COUNTS.indexOf(match[1]!) + 1);
+  if (!match || !unit || !count) return { label: id };
+  const scope = match[3] ? ` ${match[3].replaceAll('_', ' ')}` : '';
+  return { label: `${count}${unit.short}${scope}`, spanHours: count * unit.hours };
+}
 
 /**
  * Translates the CLI's `rate_limit_event` line into the engine-neutral `usage` payload. The CLI
@@ -21,7 +41,7 @@ export function usageFromRaw(raw: unknown): UsagePayload | undefined {
     if (!isObj(window) || typeof window.utilization !== 'number') continue;
     out.push({
       id,
-      label: LABELS[id] ?? id,
+      ...describeWindow(id),
       usedPct: Math.round(window.utilization * 1000) / 10,
       resetsAt: typeof window.resetsAt === 'number' && window.resetsAt > 0 ? window.resetsAt * 1000 : null,
       status: typeof window.status === 'string' ? window.status : 'unknown',
@@ -42,7 +62,7 @@ export function usageFromStatusLine(input: unknown): UsagePayload | undefined {
     if (!isObj(window) || typeof window.used_percentage !== 'number') continue;
     out.push({
       id,
-      label: LABELS[id] ?? id,
+      ...describeWindow(id),
       usedPct: Math.round(window.used_percentage * 10) / 10,
       resetsAt: typeof window.resets_at === 'number' && window.resets_at > 0 ? window.resets_at * 1000 : null,
       status: 'unknown',

@@ -47,7 +47,7 @@ The default theme has its own words for things. Classic uses plain ones.
 | **Side Quest** | A background task or monitor running alongside its Quest |
 | **Recruit** | Adopt a session found outside the bridge |
 | **Chronicle** | History: closed Quests and search |
-| **HP, MP, Gold** | Plan usage left, context left, and cost |
+| **HP, Stamina, MP, Gold** | Plan usage left (short and long limits), context left, and cost |
 <!-- #endregion the-world -->
 
 ### The parts
