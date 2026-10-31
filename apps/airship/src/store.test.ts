@@ -462,6 +462,22 @@ describe('store', () => {
     const started = (session: string): Envelope =>
       makeEnvelope({ session, seq: 0, type: 'session.started', payload: { cwd: '/w', prompt: 'p', label: 'p' } });
 
+    it('lists a Quest whose terminal is asking, until it closes or the Quest ends', () => {
+      const session = randomUUID();
+      const screen = (seq: number, payload: unknown): Envelope =>
+        makeEnvelope({ session, seq, type: 'terminal.screen', payload });
+      store.appendEvent(started(session));
+      store.appendEvent(screen(1, { open: true, raised: true, held: false, text: 'Pick one' }));
+      store.appendEvent(screen(2, { open: true, text: 'Pick two' }));
+      expect(store.waiting()).toEqual([{ session, node: 'local' }]);
+      store.appendEvent(screen(3, { open: false }));
+      expect(store.waiting()).toEqual([]);
+      store.appendEvent(screen(4, { open: true, raised: true, held: false, text: 'Again' }));
+      expect(store.waiting()).toHaveLength(1);
+      store.appendEvent(makeEnvelope({ session, seq: 5, type: 'session.closed', payload: {} }));
+      expect(store.waiting()).toEqual([]);
+    });
+
     it('lists a Quest with a request nobody has answered, once', () => {
       const session = randomUUID();
       store.appendEvent(started(session));

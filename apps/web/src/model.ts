@@ -37,6 +37,8 @@ export type ViewItem =
   | { kind: 'ended'; id: string; exitCode: number | null; signal: string | null; reason: 'idle' | 'exit' | 'error' }
   | { kind: 'resumed'; id: string }
   | { kind: 'closed'; id: string; worktree: { removed: boolean; reason?: string } | undefined }
+  /** A terminal asking something only it shows. At most one, kept where it was raised and replaced as it changes. */
+  | { kind: 'terminal'; id: string; text: string; held: boolean }
   | { kind: 'error'; id: string; message: string };
 
 type Obj = Record<string, unknown>;
@@ -127,8 +129,23 @@ export class ViewBuilder {
         item.behavior = payload.behavior === 'allow' ? 'allow' : 'deny';
         return;
       }
+      case 'terminal.screen': {
+        const p = isObj(payload) ? payload : {};
+        const at = this.items.findIndex((item) => item.kind === 'terminal');
+        const shown = this.items[at];
+        if (p.open !== true) {
+          if (at >= 0) this.items.splice(at, 1);
+          return;
+        }
+        const text = str(p.text) ?? '';
+        if (shown?.kind === 'terminal') this.items[at] = { ...shown, text };
+        else this.items.push({ kind: 'terminal', id, text, held: p.held === true });
+        return;
+      }
       case 'session.ended': {
         const p = isObj(payload) ? payload : {};
+        const asking = this.items.findIndex((item) => item.kind === 'terminal');
+        if (asking >= 0) this.items.splice(asking, 1);
         this.items.push({
           kind: 'ended',
           id,

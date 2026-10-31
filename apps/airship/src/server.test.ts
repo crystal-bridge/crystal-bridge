@@ -616,6 +616,46 @@ describe('airship server', () => {
     expect(await cliOf()).toBe('2.1.314');
   });
 
+  it('calls for attention once when a terminal starts asking, not for each change of its screen', async () => {
+    const session = randomUUID();
+    const { socket } = await connectNode('node-a');
+    const client = await openSocket(`${wsUrl}/client`);
+    sockets.push(client);
+    const frames = new FrameRecorder(client);
+    send(
+      socket,
+      makeEnvelope({
+        session,
+        seq: 0,
+        node: 'node-a',
+        type: 'session.started',
+        payload: { cwd: '/w', prompt: 'p', label: 'p' },
+      }),
+    );
+    send(
+      socket,
+      makeEnvelope({
+        session,
+        seq: 1,
+        node: 'node-a',
+        type: 'terminal.screen',
+        payload: { open: true, raised: true, text: 'a' },
+      }),
+    );
+    send(
+      socket,
+      makeEnvelope({ session, seq: 2, node: 'node-a', type: 'terminal.screen', payload: { open: true, text: 'b' } }),
+    );
+    send(
+      socket,
+      makeEnvelope({ session, seq: 3, node: 'node-a', type: 'turn.finished', payload: { outcome: 'success' } }),
+    );
+    await frames.waitFor((f) => f.kind === 'attention' && f.reason === 'done');
+    const needs = frames.frames.filter((f) => f.kind === 'attention' && f.reason === 'needs-you');
+    expect(needs).toHaveLength(1);
+    expect(needs[0]).toMatchObject({ session, detail: 'Terminal' });
+  });
+
   describe('naming the Kingdom release to run', () => {
     const row = async () =>
       (

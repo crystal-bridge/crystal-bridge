@@ -10,7 +10,7 @@ import { usageFromRaw } from './usage.js';
 /** The subset of protocol event types a running `claude` process can emit on its own. */
 export type ClaudeSessionEventType = Extract<
   EventType,
-  'claude.event' | 'session.ended' | 'session.resumed' | 'turn.finished' | 'usage' | 'error'
+  'claude.event' | 'session.ended' | 'session.resumed' | 'turn.finished' | 'usage' | 'error' | 'terminal.screen'
 >;
 
 /** payload for `claude.event`, per `packages/protocol/src/envelope.ts`. */
@@ -91,12 +91,22 @@ export interface ErrorPayload {
   message: string;
 }
 
+/** An interactive Quest's screen while it needs a person; `raised` marks the first, which calls for attention. */
+export interface TerminalScreenPayload {
+  open: boolean;
+  text?: string;
+  raised?: boolean;
+  /** A typed message is waiting on this, and can be typed again from the card. */
+  held?: boolean;
+}
+
 export type ClaudeSessionEvent =
   | { type: 'claude.event'; payload: ClaudeEventPayload }
   | { type: 'session.ended'; payload: SessionEndedPayload }
   | { type: 'session.resumed'; payload: Record<string, never> }
   | { type: 'usage'; payload: UsagePayload }
   | { type: 'turn.finished'; payload: TurnFinishedPayload }
+  | { type: 'terminal.screen'; payload: TerminalScreenPayload }
   | { type: 'error'; payload: ErrorPayload };
 
 export interface ClaudeSessionOptions {

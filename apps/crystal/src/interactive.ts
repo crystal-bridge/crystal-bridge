@@ -21,7 +21,7 @@ import { usageFromStatusLine } from './usage.js';
 /**
  * The `interactive` engine: the real, unmodified interactive `claude` in a pseudo-terminal, under the machine's own
  * login, for the tools only an interactive session gets (artifacts above all). The screen is mirrored but only read
- * for the one-time workspace-trust dialog and to say what a terminal showed when it swallowed a typed message.
+ * for the one-time workspace-trust dialog, and passed to the app when a dialog needs a person.
  * Structure comes from documented hooks (code.claude.com/docs/en/hooks), which
  * Crystal adds through a generated `--settings` file and which POST to Crystal's local server:
  * - PermissionRequest: approvals and questions, answered from the client like the stream engine's (permissions.ts);
@@ -102,8 +102,14 @@ export interface InteractiveSessionOptions {
   changes?: TurnChanges;
   /** The size the model's context is held to, when one is configured. */
   compactWindow?: (model: string | undefined) => number | undefined;
-  /** How long a prompt typed into an idle terminal may go unsubmitted before the turn ends as stuck. */
+  /** How long a prompt typed into an idle terminal may go unsubmitted before something is done about it. */
   submitWaitMs?: number;
+  /** How long a process may take to reach its input box before the terminal is shown. */
+  startWaitMs?: number;
+  /** How long a shown terminal waits for keys before the turn ends as stuck. */
+  terminalWaitMs?: number;
+  /** The most often a shown terminal's screen is sent. */
+  screenUpdateMs?: number;
   /** Pause after Esc dismisses a dialog, before typing the message again. */
   dialogSettleMs?: number;
 }
@@ -120,6 +126,9 @@ const HOOK_EVENTS: Record<string, number> = {
 const TERMINAL_ONLY = new Set(['permission_prompt', 'elicitation_dialog']);
 const SUMMARY_CHARS = 140;
 const TRUST_ACCEPT_DELAY_MS = 300;
+const START_WAIT_MS = 45_000;
+const TERMINAL_WAIT_MS = 600_000;
+const SCREEN_UPDATE_MS = 1000;
 const COLS = 120;
 const ROWS = 40;
 /** How many of the screen's last non-empty lines an error quotes. */
@@ -283,6 +292,14 @@ export class InteractiveSession extends EventEmitter {
   private stopping: { reply: string; timer: NodeJS.Timeout; settling?: boolean } | null = null;
   /** Armed when a prompt is typed into an idle terminal; UserPromptSubmit disarms it. */
   private submitTimer: NodeJS.Timeout | null = null;
+  /** Armed when a process starts; reaching the input box disarms it. */
+  private startTimer: NodeJS.Timeout | null = null;
+  /** The app is showing this terminal, because something on it needs a person. */
+  private asking = false;
+  private lastShown = '';
+  private screenTimer: NodeJS.Timeout | null = null;
+  /** Gives up on a shown terminal nobody answers. */
+  private askTimer: NodeJS.Timeout | null = null;
 
   constructor(opts: InteractiveSessionOptions) {
     super();
@@ -303,6 +320,7 @@ export class InteractiveSession extends EventEmitter {
   /** Why `busy` holds, in words for whoever is waiting on it (a deploy). */
   get busyReason(): string | undefined {
     if (!this.busy) return undefined;
+    if (this.asking) return 'its terminal is asking something';
     if (!this.turnOpen) return 'background tasks running';
     const secs = Math.floor((Date.now() - this.turnSince) / 1000);
     const took = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m`;
@@ -342,9 +360,22 @@ export class InteractiveSession extends EventEmitter {
     } else this.pending.push(text);
   }
 
+  /** Keys for a shown terminal, or the held message typed again. Only while it's shown: otherwise that's `send`. */
+  keys({ keys, retype }: { keys?: string; retype?: boolean }): void {
+    if (!this.asking || !this.pty) {
+      this.emitEvent({ type: 'error', payload: { message: "This Quest's terminal isn't asking anything now." } });
+      return;
+    }
+    if (keys) this.pty.write(keys);
+    if (retype && this.awaiting !== null) this.type(this.awaiting);
+    this.armAskTimer();
+    this.showScreen();
+  }
+
   interrupt(): void {
     if (!this.pty) return;
     this.clearSubmitWatch();
+    this.closeTerminal();
     this.pty.write('\x1b');
     if (this.stopping) {
       this.finishTurn();
@@ -422,8 +453,16 @@ export class InteractiveSession extends EventEmitter {
     pty.onData((data) => {
       term.write(data);
       this.onScreen(data);
+      this.showScreen();
     });
     pty.onExit(({ exitCode }) => this.onExit(pty, exitCode));
+    this.clearStartWatch();
+    // A dialog before the input box stops SessionStart from ever coming.
+    this.startTimer = setTimeout(() => {
+      this.startTimer = null;
+      if (!this.ready && this.pty === pty && !this.closing) this.raiseTerminal();
+    }, this.opts.startWaitMs ?? START_WAIT_MS);
+    this.startTimer.unref?.();
   }
 
   private writeSettings(): void {
@@ -463,6 +502,7 @@ export class InteractiveSession extends EventEmitter {
       console.error(`[crystal:interactive] ${this.opts.session} ${event} hook (${state})`);
     }
     if (event === 'SessionStart') {
+      this.clearStartWatch();
       const transcript = typeof body.transcript_path === 'string' ? body.transcript_path : undefined;
       if (transcript && !this.tail) {
         // The skills and tools listed so far, e.g. a resumed session's, before the tail skips that part.
@@ -482,6 +522,7 @@ export class InteractiveSession extends EventEmitter {
       this.emitInit();
       setTimeout(() => {
         this.ready = true;
+        this.closeTerminal();
         const typed = this.pending.splice(0);
         for (const text of typed) this.type(text);
         if (typed.length > 0) {
@@ -497,6 +538,7 @@ export class InteractiveSession extends EventEmitter {
     }
     if (event === 'Stop') {
       this.clearSubmitWatch();
+      this.closeTerminal();
       const tasks = Array.isArray(body.background_tasks) ? body.background_tasks : [];
       // Documented as in-flight work, but each entry carries a status: a finished one mustn't hold deploys.
       // Monitors are passive watches (e.g. a live artifact subscription) that never end; a restart only drops a watch
@@ -520,15 +562,8 @@ export class InteractiveSession extends EventEmitter {
     }
     if (event === 'Notification') {
       const kind = body.notification_type ?? body.type;
-      if (typeof kind === 'string' && TERMINAL_ONLY.has(kind)) {
-        const what = typeof body.message === 'string' ? ` (${body.message})` : '';
-        this.emitEvent({
-          type: 'error',
-          payload: {
-            message: `This Quest is waiting on a prompt only its terminal shows${what}. Answer it with \`claude --resume ${this.opts.session}\` in a terminal, or Stop and try again.`,
-          },
-        });
-      }
+      // Like an approval this can wait on a person for as long as it takes, so nothing gives up on it.
+      if (typeof kind === 'string' && TERMINAL_ONLY.has(kind)) this.raiseTerminal({ patient: true });
     }
   }
 
@@ -734,18 +769,87 @@ export class InteractiveSession extends EventEmitter {
         this.pty.kill('SIGTERM');
         return;
       }
-      this.turnOpen = false;
-      this.awaiting = null;
-      const what = shown.length > 0 ? `\n\nThe terminal showed:\n${shown.join('\n')}` : '';
-      this.emitEvent({
-        type: 'error',
-        payload: {
-          message: `This Quest's terminal didn't take your message: it may be showing a screen only the terminal shows. Stop and send it again, or answer it with \`claude --resume ${this.opts.session}\` in a terminal.${what}`,
-        },
-      });
-      this.emitEvent({ type: 'turn.finished', payload: { outcome: 'error' } });
+      this.raiseTerminal();
     }, this.opts.submitWaitMs ?? 20_000);
     this.submitTimer.unref?.();
+  }
+
+  /**
+   * Shows the app what's on the terminal, because the automatic ways out are spent and it takes a person: the CLI's
+   * dialogs change with each release, so they're passed through rather than recognised. New in the turn's event stream,
+   * so a reload or a second device sees the same card.
+   */
+  private raiseTerminal({ patient = false }: { patient?: boolean } = {}): void {
+    if (this.asking || !this.pty) return;
+    this.asking = true;
+    this.lastShown = this.screenText();
+    this.emitEvent({
+      type: 'terminal.screen',
+      payload: { open: true, raised: true, held: this.awaiting !== null, text: this.lastShown },
+    });
+    if (!patient) this.armAskTimer();
+  }
+
+  /** Nobody can be relied on to answer, and a busy Quest holds deploys and updates, so a card doesn't wait forever. */
+  private armAskTimer(): void {
+    if (this.askTimer) clearTimeout(this.askTimer);
+    this.askTimer = setTimeout(() => this.giveUpAsking(), this.opts.terminalWaitMs ?? TERMINAL_WAIT_MS);
+    this.askTimer.unref?.();
+  }
+
+  private giveUpAsking(): void {
+    const shown = this.shownLines();
+    const started = this.ready;
+    this.closeTerminal();
+    if (!this.turnOpen) return;
+    this.turnOpen = false;
+    this.awaiting = null;
+    const what = shown.length > 0 ? `\n\nThe terminal showed:\n${shown.join('\n')}` : '';
+    this.emitEvent({
+      type: 'error',
+      payload: {
+        message: `This Quest's terminal didn't take your message: it may be showing a screen only the terminal shows. Stop and send it again, or answer it with \`claude --resume ${this.opts.session}\` in a terminal.${what}`,
+      },
+    });
+    this.emitEvent({ type: 'turn.finished', payload: { outcome: 'error' } });
+    // It never reached the input box, so only a new process can take the next message.
+    if (!started) this.pty?.kill('SIGTERM');
+  }
+
+  /** Sends the screen once it has settled for a moment, if it changed. */
+  private showScreen(): void {
+    if (!this.asking || this.screenTimer) return;
+    this.screenTimer = setTimeout(() => {
+      this.screenTimer = null;
+      if (!this.asking) return;
+      const text = this.screenText();
+      if (text === this.lastShown) return;
+      this.lastShown = text;
+      this.emitEvent({ type: 'terminal.screen', payload: { open: true, text } });
+    }, this.opts.screenUpdateMs ?? SCREEN_UPDATE_MS);
+    this.screenTimer.unref?.();
+  }
+
+  private closeTerminal(): void {
+    if (this.askTimer) clearTimeout(this.askTimer);
+    if (this.screenTimer) clearTimeout(this.screenTimer);
+    this.askTimer = null;
+    this.screenTimer = null;
+    if (!this.asking) return;
+    this.asking = false;
+    this.emitEvent({ type: 'terminal.screen', payload: { open: false } });
+  }
+
+  /** The whole mirrored screen as text, keeping its layout, without the blank rows below it. */
+  private screenText(): string {
+    const buffer = this.term?.buffer.active;
+    if (!buffer) return '';
+    const lines: string[] = [];
+    for (let row = buffer.baseY; row < buffer.baseY + ROWS; row++) {
+      lines.push(buffer.getLine(row)?.translateToString(true).trimEnd() ?? '');
+    }
+    while (lines.at(-1) === '') lines.pop();
+    return lines.join('\n');
   }
 
   /** The last non-empty lines on the mirrored screen, trimmed. */
@@ -763,6 +867,7 @@ export class InteractiveSession extends EventEmitter {
   /** The CLI took the typed message: it submitted a prompt or recorded one (a `!` command fires no hook). */
   private taken(): void {
     this.clearSubmitWatch();
+    this.closeTerminal();
     this.hasConversation = true;
     this.awaiting = null;
   }
@@ -770,6 +875,11 @@ export class InteractiveSession extends EventEmitter {
   private clearSubmitWatch(): void {
     if (this.submitTimer) clearTimeout(this.submitTimer);
     this.submitTimer = null;
+  }
+
+  private clearStartWatch(): void {
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = null;
   }
 
   private type(text: string): void {
@@ -780,6 +890,8 @@ export class InteractiveSession extends EventEmitter {
   private onExit(pty: PtyLike, exitCode: number): void {
     if (this.pty !== pty) return;
     this.clearSubmitWatch();
+    this.clearStartWatch();
+    this.closeTerminal();
     this.readTranscript();
     this.finishTurn();
     if (this.poll) clearInterval(this.poll);

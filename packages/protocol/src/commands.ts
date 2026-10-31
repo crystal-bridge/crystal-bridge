@@ -115,6 +115,17 @@ export const NodeCommand = z.discriminatedUnion('type', [
   }),
   z.object({
     /**
+     * Keystrokes for a terminal that's asking something (`terminal.screen`), or `retype` to type the held message
+     * again. Refused unless it's asking, so it stays an answer to a dialog and not a way to drive a Quest. It gives the
+     * same control as a prompt, so the same login and scopes apply.
+     */
+    type: z.literal('session.keys'),
+    session: z.uuid(),
+    keys: z.string().min(1).max(256).optional(),
+    retype: z.boolean().optional(),
+  }),
+  z.object({
+    /**
      * Reads one file inside a session's folder for the read-only viewer; the node answers with a `file` frame the hub
      * relays to the requesting client only. Relative paths resolve against the session's folder.
      */

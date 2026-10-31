@@ -465,3 +465,32 @@ describe('skills', () => {
     expect(items.filter((i) => i.kind === 'notice')).toHaveLength(1);
   });
 });
+
+describe('a terminal asking something', () => {
+  const screen = (seq: number, payload: unknown, type: Envelope['type'] = 'terminal.screen'): Envelope => ({
+    node: 'n',
+    session: '11111111-1111-4111-8111-111111111111',
+    seq,
+    ts: seq,
+    type,
+    payload,
+  });
+  const terminals = (events: Envelope[]) => buildView(events).filter((item) => item.kind === 'terminal');
+
+  it('keeps one card, following the screen and remembering a held message', () => {
+    const view = terminals([
+      screen(1, { open: true, raised: true, held: true, text: 'Pick one' }),
+      screen(2, { open: true, text: 'Pick two' }),
+    ]);
+    expect(view).toEqual([{ kind: 'terminal', id: expect.any(String), text: 'Pick two', held: true }]);
+  });
+
+  it('goes when it closes, so a replay ends the way the Quest did', () => {
+    expect(terminals([screen(1, { open: true, raised: true, text: 'x' }), screen(2, { open: false })])).toEqual([]);
+  });
+
+  it('goes with the process, even if the close was never sent', () => {
+    const ended = screen(2, { exitCode: 1, signal: null, reason: 'error' }, 'session.ended');
+    expect(terminals([screen(1, { open: true, raised: true, text: 'x' }), ended])).toEqual([]);
+  });
+});

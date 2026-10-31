@@ -303,6 +303,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (envelope.type === 'permission.request') {
       reason = 'needs-you';
       detail = typeof payload.toolName === 'string' ? payload.toolName : undefined;
+    } else if (envelope.type === 'terminal.screen' && payload.raised === true) {
+      reason = 'needs-you';
+      detail = 'Terminal';
     } else if (envelope.type === 'turn.finished' && payload.outcome !== 'interrupted') {
       reason = payload.outcome === 'success' ? 'done' : 'failed';
       detail = typeof payload.summary === 'string' ? payload.summary : undefined;

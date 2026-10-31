@@ -179,7 +179,17 @@ export function openStore(path: string): Store {
           WHERE later.session = asked.session AND later.seq > asked.seq
             AND (later.type IN ('session.ended', 'session.closed')
               OR (later.type = 'permission.resolved'
-                  AND json_extract(later.payload, '$.requestId') = json_extract(asked.payload, '$.requestId'))))`);
+                  AND json_extract(later.payload, '$.requestId') = json_extract(asked.payload, '$.requestId'))))
+    UNION
+    SELECT asked.session, asked.node
+      FROM events asked
+     WHERE asked.type = 'terminal.screen'
+       AND json_extract(asked.payload, '$.raised') = 1
+       AND NOT EXISTS (
+         SELECT 1 FROM events later
+          WHERE later.session = asked.session AND later.seq > asked.seq
+            AND (later.type IN ('session.ended', 'session.closed')
+              OR (later.type = 'terminal.screen' AND json_extract(later.payload, '$.open') = 0)))`);
   const setStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`);
   // A closed Quest is done for good: its process ending (or a stray resume) arrives after the close and mustn't reopen it.
   const setOpenStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ? AND status != 'closed'`);
