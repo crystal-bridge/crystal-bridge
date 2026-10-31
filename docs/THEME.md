@@ -218,5 +218,6 @@ fun measure of use. A battle won is 10 XP, a KO 2 (you learn from defeat), a com
 takes 50 × L × (L−1) XP (Lv 2 at 100, Lv 10 at 4,500). The hub counts each Quest's battles from engine-neutral
 `turn.finished` and `session.closed` events (`/api/xp`); the client credits them to the Quest's leader by the same
 rule as everywhere else (so changing a Kingdom's leader re-credits its Quests) and keeps the rules in
-`apps/web/src/levels.ts`. Shown as "Lv N" beside the party leader and in the Airship's **Roster**. Classic theme:
-hidden. Subagents don't earn XP yet: `turn.finished` doesn't say which were sent out.
+`apps/web/src/levels.ts`. Shown as "Lv N" beside the party leader and in the Airship's **Roster**. A Castle's
+**Garrison** counts only that Kingdom's Quests: it lists the Heroes with XP there, the Kingdom's leader first, and on a
+phone it's left out. Classic theme: hidden. Subagents don't earn XP yet: `turn.finished` doesn't say which were sent out.

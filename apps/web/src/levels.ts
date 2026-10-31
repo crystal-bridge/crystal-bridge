@@ -54,5 +54,22 @@ export function classXp(
   return xp;
 }
 
+/** The levels Classes have earned in one Kingdom, for the Garrison: a Class with no XP there isn't listed at all. */
+export function kingdomLevels(
+  quests: readonly QuestXp[],
+  node: string,
+  leaderOf: (session: string) => string | undefined,
+): Record<string, Level> {
+  const xp = classXp(
+    quests.filter((quest) => quest.node === node),
+    leaderOf,
+  );
+  return Object.fromEntries(
+    Object.entries(xp)
+      .filter(([, points]) => points > 0)
+      .map(([id, points]) => [id, levelFor(points)]),
+  );
+}
+
 /** Each Class's level, for the Party card and the Roster; empty when levels aren't shown. */
 export const LevelContext = createContext<Record<string, Level>>({});
