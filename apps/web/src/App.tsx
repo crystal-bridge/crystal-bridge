@@ -576,6 +576,14 @@ export function App({ hub }: { hub: HubClient }) {
     }
   }, []);
 
+  const changeKingdomUpdates = async (method: string, url: string, body?: unknown): Promise<void> => {
+    await fetch(url, {
+      method,
+      ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
+    });
+    await refresh();
+  };
+
   useEffect(() => {
     void refresh();
     const timer = setInterval(() => void refresh(), REFRESH_MS);
@@ -1038,6 +1046,12 @@ export function App({ hub }: { hub: HubClient }) {
                   const row = engineLists.find((engines) => engines.node === id);
                   return { id, name, connected, release: row?.release, selfUpdate: row?.selfUpdate };
                 })}
+                onKingdomUpdates={(mode) => {
+                  void changeKingdomUpdates('PUT', '/api/hub/kingdom-updates', { mode });
+                }}
+                onApproveKingdomUpdate={() => {
+                  void changeKingdomUpdates('POST', '/api/hub/kingdom-updates/approve');
+                }}
                 onNewQuest={(node) => {
                   selectKingdom(node);
                   setSelected(null);

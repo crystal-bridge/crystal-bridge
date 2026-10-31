@@ -198,6 +198,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     relayFlushMs = 30_000,
   } = options;
   const app = fastify({ logger });
+  /** The release to name to Kingdoms now: the hub's own, or under approvals the last approved, never past the hub's. */
+  const namedVersion = (): string | undefined => {
+    const choice = settings?.kingdomUpdates();
+    if (!kingdomVersion || choice?.mode !== 'approved' || !choice.approved) return kingdomVersion;
+    return isOlderVersion(choice.approved, kingdomVersion) ? choice.approved : kingdomVersion;
+  };
   // Only on the doors anyone can knock at, by route. Not on the whole API: behind a proxy every request shares an address,
   // so a global limit would throttle the app's own polling.
   await app.register(rateLimit, { global: false });
@@ -234,6 +240,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const cliVersions = new Map<string, string>();
   // Nodes whose hello said they can run the agent CLI's update; older ones would never answer.
   const cliUpdaters = new Set<string>();
+  // Kingdoms that update themselves, to tell when the version to run changes.
+  const selfUpdaters = new Set<string>();
+  const nameVersion = (socket: WebSocket): void => {
+    const version = namedVersion();
+    sendJson(socket, { kind: 'kingdom-version', ...(version ? { version } : {}) } satisfies HubKingdomVersion);
+  };
+  const announceVersion = (): void => {
+    for (const node of selfUpdaters) {
+      const socket = nodes.get(node);
+      if (socket) nameVersion(socket);
+    }
+  };
   // The update each node is running, by node: one at a time, and only that node's answer ends it.
   const cliUpdates = new Map<
     string,
@@ -592,13 +610,39 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   // The Ship's Log. Behind the login, unlike /api/health, since it says more about the hub than a monitor needs.
   app.get('/api/hub/status', async () => {
     const latest = await latestRelease?.();
+    const named = namedVersion();
     return {
       release,
       protocol: PROTOCOL_VERSION,
       uptimeMs: Math.round(process.uptime() * 1000),
       ...upkeep?.(),
       ...(latest && isOlderVersion(release, latest.version) ? { update: latest } : {}),
+      ...(named
+        ? {
+            kingdomUpdates: {
+              mode: settings?.kingdomUpdates().mode ?? 'auto',
+              named,
+              ...(named !== kingdomVersion ? { offered: kingdomVersion } : {}),
+            },
+          }
+        : {}),
     };
+  });
+  // Anyone logged in may do these: a login already has the run of every Kingdom, so there's no lesser role to protect.
+  app.put('/api/hub/kingdom-updates', async (request, reply) => {
+    if (!kingdomVersion || !settings) return reply.code(409).send({ error: 'this hub names no Kingdom version' });
+    const { mode } = (request.body ?? {}) as { mode?: unknown };
+    if (mode !== 'auto' && mode !== 'approved') return reply.code(400).send({ error: 'mode must be auto or approved' });
+    // Starting approvals freezes what's named now, so turning them on moves nothing.
+    settings.setKingdomUpdates(mode === 'approved' ? { mode, approved: namedVersion()! } : { mode });
+    announceVersion();
+    return reply.code(204).send();
+  });
+  app.post('/api/hub/kingdom-updates/approve', async (_request, reply) => {
+    if (!kingdomVersion || !settings) return reply.code(409).send({ error: 'this hub names no Kingdom version' });
+    settings.setKingdomUpdates({ mode: 'approved', approved: kingdomVersion });
+    announceVersion();
+    return reply.code(204).send();
   });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>
@@ -695,11 +739,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           if (hello.data.cliUpdate) cliUpdaters.add(helloNode);
           else cliUpdaters.delete(helloNode);
           selfUpdates.delete(helloNode);
+          selfUpdaters.delete(helloNode);
           if (hello.data.selfUpdate) {
-            sendJson(socket, {
-              kind: 'kingdom-version',
-              ...(kingdomVersion ? { version: kingdomVersion } : {}),
-            } satisfies HubKingdomVersion);
+            selfUpdaters.add(helloNode);
+            nameVersion(socket);
           }
           // A node that lists what it holds lets us release sessions whose process died with it.
           if (hello.data.sessions) {
@@ -822,6 +865,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           cliVersions.delete(helloNode);
           cliUpdaters.delete(helloNode);
           selfUpdates.delete(helloNode);
+          selfUpdaters.delete(helloNode);
           cliUpdates.get(helloNode)?.finish({ error: 'the Kingdom went offline during the update' });
         }
       });

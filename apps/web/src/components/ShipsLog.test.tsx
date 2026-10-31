@@ -1,5 +1,5 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FleetRow } from '../fleet.js';
 import { logAttention, ShipsLog, type HubStatus } from './ShipsLog.js';
 
@@ -76,10 +76,39 @@ describe('ShipsLog', () => {
   });
 });
 
+describe('ShipsLog Kingdom updates', () => {
+  afterEach(() => cleanup());
+  const auto = { mode: 'auto' as const, named: '1.0.0' };
+  const waiting = { mode: 'approved' as const, named: '0.9.0', offered: '1.0.0' };
+
+  it('offers the choice of automatic or approved', () => {
+    const onChoice = vi.fn();
+    render(<ShipsLog status={{ ...status, kingdomUpdates: auto }} fleet={fleet} now={NOW} onChoice={onChoice} />);
+    const select = within(log()).getByRole('combobox', { name: `${'Kingdom'} updates` }) as HTMLSelectElement;
+    expect(select.value).toBe('auto');
+    fireEvent.change(select, { target: { value: 'approved' } });
+    expect(onChoice).toHaveBeenCalledWith('approved');
+  });
+
+  it('has an approve button when a release is waiting, which opens the Log by itself', () => {
+    const onApprove = vi.fn();
+    render(<ShipsLog status={{ ...status, kingdomUpdates: waiting }} fleet={fleet} now={NOW} onApprove={onApprove} />);
+    fireEvent.click(within(log()).getByRole('button', { name: 'Update Kingdoms to 1.0.0' }));
+    expect(onApprove).toHaveBeenCalledOnce();
+  });
+
+  it('has no choice on a hub that names no version', () => {
+    render(<ShipsLog status={status} fleet={fleet} now={NOW} onChoice={vi.fn()} />);
+    expect(within(log()).queryByRole('combobox')).toBeNull();
+  });
+});
+
 describe('logAttention', () => {
-  it('counts an update, for the badge on the logo', () => {
+  it('counts an update and a release to approve, for the badge on the logo', () => {
     expect(logAttention(undefined)).toBe(0);
     expect(logAttention(status)).toBe(0);
     expect(logAttention({ ...status, update })).toBe(1);
+    const kingdomUpdates = { mode: 'approved' as const, named: '0.9.0', offered: '1.0.0' };
+    expect(logAttention({ ...status, update, kingdomUpdates })).toBe(2);
   });
 });

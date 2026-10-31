@@ -6,6 +6,7 @@ import { ClientMessage, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
 import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
+import type { HubSettings, KingdomUpdates } from './hub-settings.js';
 import { buildServer } from './server.js';
 import type { NodeRegistry } from './nodes.js';
 import { openStore, type SessionRow, type Store } from './store.js';
@@ -1256,6 +1257,127 @@ describe('airship server checking the latest agent CLI', () => {
   });
 });
 
+describe('airship server choosing what Kingdoms run', () => {
+  let store: Store;
+  let app: Awaited<ReturnType<typeof buildServer>>;
+  let baseUrl: string;
+  let wsUrl: string;
+  let choice: KingdomUpdates;
+  const sockets: WebSocket[] = [];
+  const settings: HubSettings = {
+    name: () => undefined,
+    setName: () => undefined,
+    kingdomUpdates: () => choice,
+    setKingdomUpdates: (next) => {
+      choice = next;
+    },
+  };
+
+  async function start(kingdomVersion: string | undefined = '1.1.0') {
+    store = openStore(':memory:');
+    app = await buildServer({ store, settings, ...(kingdomVersion ? { kingdomVersion } : {}) });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const { port } = app.server.address() as AddressInfo;
+    baseUrl = `http://127.0.0.1:${port}`;
+    wsUrl = `ws://127.0.0.1:${port}`;
+  }
+  const status = async () =>
+    ((await (await fetch(`${baseUrl}/api/hub/status`)).json()) as { kingdomUpdates?: unknown }).kingdomUpdates;
+  const choose = (mode: string) =>
+    fetch(`${baseUrl}/api/hub/kingdom-updates`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+  const approve = () => fetch(`${baseUrl}/api/hub/kingdom-updates/approve`, { method: 'POST' });
+  async function kingdom(node: string) {
+    const socket = await openSocket(`${wsUrl}/node`);
+    sockets.push(socket);
+    const frames = new FrameRecorder(socket);
+    send(socket, { kind: 'hello', node, selfUpdate: true });
+    return frames;
+  }
+  const versions = (frames: FrameRecorder) =>
+    frames.frames.filter((f) => f.kind === 'kingdom-version').map((f) => (f as { version?: string }).version);
+
+  beforeEach(() => {
+    choice = { mode: 'auto' };
+  });
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) socket.close();
+    await app.close();
+    store.close();
+  });
+
+  it('names the hub’s version automatically, as it always has', async () => {
+    await start();
+    expect(await status()).toEqual({ mode: 'auto', named: '1.1.0' });
+    const frames = await kingdom('a');
+    await frames.waitFor((f) => f.kind === 'kingdom-version');
+    expect(versions(frames)).toEqual(['1.1.0']);
+  });
+
+  it('stays on the version approved, and offers the newer one', async () => {
+    choice = { mode: 'approved', approved: '1.0.0' };
+    await start();
+    expect(await status()).toEqual({ mode: 'approved', named: '1.0.0', offered: '1.1.0' });
+    const frames = await kingdom('a');
+    await frames.waitFor((f) => f.kind === 'kingdom-version');
+    expect(versions(frames)).toEqual(['1.0.0']);
+  });
+
+  it('tells connected Kingdoms as soon as a release is approved', async () => {
+    choice = { mode: 'approved', approved: '1.0.0' };
+    await start();
+    const frames = await kingdom('a');
+    await frames.waitFor((f) => f.kind === 'kingdom-version');
+    expect((await approve()).status).toBe(204);
+    await frames.waitFor((f) => (f as { version?: string }).version === '1.1.0');
+    expect(await status()).toEqual({ mode: 'approved', named: '1.1.0' });
+  });
+
+  it('freezes on what it names when approvals start, so nothing moves', async () => {
+    await start();
+    expect((await choose('approved')).status).toBe(204);
+    expect(choice).toEqual({ mode: 'approved', approved: '1.1.0' });
+  });
+
+  it('goes back to the hub’s version, and tells Kingdoms, when approvals stop', async () => {
+    choice = { mode: 'approved', approved: '1.0.0' };
+    await start();
+    const frames = await kingdom('a');
+    await frames.waitFor((f) => f.kind === 'kingdom-version');
+    expect((await choose('auto')).status).toBe(204);
+    await frames.waitFor((f) => (f as { version?: string }).version === '1.1.0');
+    expect(choice).toEqual({ mode: 'auto' });
+  });
+
+  it('never names a version past the hub’s, after the hub has gone back', async () => {
+    choice = { mode: 'approved', approved: '2.0.0' };
+    await start();
+    expect(await status()).toEqual({ mode: 'approved', named: '1.1.0' });
+  });
+
+  it('refuses a mode it doesn’t know', async () => {
+    await start();
+    expect((await choose('sometimes')).status).toBe(400);
+    expect(choice).toEqual({ mode: 'auto' });
+  });
+
+  it('has no choice to offer when it names no version', async () => {
+    await start(undefined);
+    await app.close();
+    store.close();
+    store = openStore(':memory:');
+    app = await buildServer({ store, settings });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    expect(await status()).toBeUndefined();
+    expect((await choose('approved')).status).toBe(409);
+    expect((await approve()).status).toBe(409);
+  });
+});
+
 describe('airship server reporting on itself', () => {
   async function status(options: Partial<Parameters<typeof buildServer>[0]>) {
     const store = openStore(':memory:');
@@ -1501,6 +1623,8 @@ describe('airship server hub name', () => {
       setName(next: string | undefined) {
         name = next;
       },
+      kingdomUpdates: () => ({ mode: 'auto' as const }),
+      setKingdomUpdates: () => undefined,
     };
     app = await buildServer({ store, settings });
     await app.listen({ port: 0, host: '127.0.0.1' });
