@@ -217,7 +217,9 @@ The Kingdom takes only a version number from the hub. It then:
 4. Waits until no Quest there is busy, as a deploy does. A Quest with background work counts as busy.
 5. Swaps to it and restarts. Idle Quests resume on their next follow-up.
 
-The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour.
+The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour. That
+includes GitHub's limit of 60 anonymous API calls an hour per address, which machines sharing one address can reach
+("GitHub answered 403").
 
 A Kingdom never moves to an older version, whatever the hub names. To go back, run this on the machine:
 

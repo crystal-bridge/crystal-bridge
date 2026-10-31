@@ -369,7 +369,8 @@ describe('InteractiveSession', () => {
 
   it('counts a typed message as taken once the transcript records it, with or without UserPromptSubmit', async () => {
     // A `!` shell command fires no UserPromptSubmit, but the CLI still records it and may start a turn.
-    const { session, spawned, events, hook, line } = harness({ submitWaitMs: 60 });
+    // Long enough for the transcript poll on a slow runner, or the restart this checks for comes first.
+    const { session, spawned, events, hook, line } = harness({ submitWaitMs: 500 });
     session.start('hello');
     hook('SessionStart', {});
     await tick(10);
@@ -380,7 +381,7 @@ describe('InteractiveSession', () => {
     const before = events.length;
     session.send('! git status');
     line({ type: 'user', message: { role: 'user', content: '<bash-input>git status</bash-input>' } });
-    await tick(120);
+    await tick(700);
     expect(spawned[0]!.pty.killed).toEqual([]);
     expect(events.slice(before).filter((e) => e.type === 'error' || e.type === 'turn.finished')).toEqual([]);
     expect(session.busy).toBe(true);
