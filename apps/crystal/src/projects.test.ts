@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { listProjects } from './projects.js';
 
@@ -48,7 +48,7 @@ describe('listProjects', () => {
           { cwd: join(root, 'deleted'), updatedAt: 20 },
         ],
       );
-      expect(projects).toEqual([{ path: elsewhere, name: elsewhere.split('/').at(-1)!, lastUsed: 10 }]);
+      expect(projects).toEqual([{ path: elsewhere, name: basename(elsewhere), lastUsed: 10 }]);
     } finally {
       rmSync(elsewhere, { recursive: true, force: true });
     }

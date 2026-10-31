@@ -53,7 +53,8 @@ export async function readSessionFile(
     return { ok: false, reason: 'no such file' };
   }
   if (!within(root, target)) return { ok: false, reason: OUTSIDE };
-  const path = relative(root, target);
+  // The viewer's form on every system.
+  const path = relative(root, target).split(sep).join('/');
 
   let size: number;
   try {

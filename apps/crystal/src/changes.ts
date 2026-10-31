@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { devNull } from 'node:os';
 import type { ClaudeEventPayload } from './session.js';
 
 /** What a turn changed in its folder, however it changed it: file tools, a shell, a formatter or a generator. */
@@ -16,7 +15,7 @@ const MAX_FILES = 500;
 
 function git(cwd: string, ...args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       'git',
       args,
       {
@@ -28,6 +27,7 @@ function git(cwd: string, ...args: string[]): Promise<string> {
       },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
+    child.stdin?.end();
   });
 }
 
@@ -47,7 +47,7 @@ async function startingPoint(cwd: string): Promise<string> {
   try {
     return await git(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD');
   } catch {
-    return git(cwd, 'hash-object', '-t', 'tree', devNull);
+    return git(cwd, 'hash-object', '-t', 'tree', '--stdin');
   }
 }
 

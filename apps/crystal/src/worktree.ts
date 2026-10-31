@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 /** Where a session's worktree went: its folder, the repository it belongs to, and its branch. */
 export interface Worktree {
@@ -10,11 +10,16 @@ export interface Worktree {
 }
 
 function git(cwd: string, ...args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise((done, reject) => {
     execFile('git', args, { cwd }, (error, stdout, stderr) =>
-      error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout.trim()),
+      error ? reject(new Error(stderr.trim() || error.message)) : done(stdout.trim()),
     );
   });
+}
+
+/** A path git printed, in this system's own form: on Windows git prints forward slashes. */
+async function gitPath(cwd: string, ...args: string[]): Promise<string> {
+  return resolve(await git(cwd, ...args));
 }
 
 const EXCLUDE = '/.worktrees/';
@@ -28,7 +33,7 @@ const EXCLUDE = '/.worktrees/';
 export async function createWorktree(cwd: string, session: string): Promise<Worktree> {
   let root: string;
   try {
-    root = await git(cwd, 'rev-parse', '--show-toplevel');
+    root = await gitPath(cwd, 'rev-parse', '--show-toplevel');
   } catch {
     throw new Error(`${cwd} is not a git repository`);
   }
@@ -36,7 +41,7 @@ export async function createWorktree(cwd: string, session: string): Promise<Work
   const path = join(root, '.worktrees', id);
   const branch = `cb/${id}`;
 
-  const exclude = join(await git(root, 'rev-parse', '--absolute-git-dir'), 'info', 'exclude');
+  const exclude = join(await gitPath(root, 'rev-parse', '--absolute-git-dir'), 'info', 'exclude');
   const current = await readFile(exclude, 'utf8').catch(() => '');
   if (!current.split('\n').includes(EXCLUDE)) {
     await mkdir(join(exclude, '..'), { recursive: true });
@@ -57,18 +62,20 @@ export async function removeWorktree(path: string): Promise<{ removed: true } | 
   let gitDir: string;
   let commonDir: string;
   try {
-    top = await git(path, 'rev-parse', '--show-toplevel');
-    gitDir = await git(path, 'rev-parse', '--absolute-git-dir');
-    commonDir = await git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+    top = await gitPath(path, 'rev-parse', '--show-toplevel');
+    gitDir = await gitPath(path, 'rev-parse', '--absolute-git-dir');
+    commonDir = await gitPath(path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
   } catch {
     return { removed: false, reason: 'not a session worktree' };
   }
   const linked = gitDir !== commonDir;
-  if (!linked || top !== path || !/\/\.worktrees\/[0-9a-f]{8}$/.test(path)) {
+  const ours = basename(dirname(path)) === '.worktrees' && /^[0-9a-f]{8}$/.test(basename(path));
+  if (!linked || top !== resolve(path) || !ours) {
     return { removed: false, reason: 'not a session worktree' };
   }
   if ((await git(path, 'status', '--porcelain')) !== '')
     return { removed: false, reason: 'it has uncommitted changes' };
-  await git(path, 'worktree', 'remove', path);
+  // From outside it: Windows won't delete the folder a process is running in.
+  await git(commonDir, 'worktree', 'remove', path);
   return { removed: true };
 }

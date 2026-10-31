@@ -70,6 +70,10 @@ describe('hub URLs', () => {
 });
 
 describe('installRootOf', () => {
+  it('reads a Windows path', () => {
+    expect(installRootOf('C:\\c\\node_modules\\@crystal-bridge\\kingdom\\dist\\main.js')).toBe('C:/c');
+  });
+
   it('finds the folder holding the installed package', () => {
     expect(installRootOf('/c/_npx/ab/node_modules/@crystal-bridge/kingdom/dist/main.js')).toBe('/c/_npx/ab');
   });

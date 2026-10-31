@@ -46,7 +46,8 @@ describe('cachedCliVersion', () => {
   });
 });
 
-describe('execCliUpdate', () => {
+// Its fake CLI is a shell script.
+describe.skipIf(process.platform === 'win32')('execCliUpdate', () => {
   const script = (body: string) => {
     const dir = mkdtempSync(join(tmpdir(), 'cb-cli-update-'));
     const bin = join(dir, 'fake-cli');

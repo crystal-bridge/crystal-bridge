@@ -108,6 +108,7 @@ export function hubHttpUrl(socket: string): string {
 /** The folder holding the `node_modules` this package runs from; undefined when running from source. */
 export function installRootOf(mainPath: string): string | undefined {
   const marker = '/node_modules/@crystal-bridge/kingdom/';
+  mainPath = mainPath.replaceAll('\\', '/');
   const at = mainPath.lastIndexOf(marker);
   return at === -1 ? undefined : mainPath.slice(0, at);
 }

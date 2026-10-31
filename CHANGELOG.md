@@ -7,6 +7,7 @@ then, everything is in Unreleased.
 
 ### Added
 
+- Crystal runs on Windows: both engines start `claude` from a native or npm install, and Stop ends a turn cleanly.
 - The Castle offers Update Claude Code when a Kingdom's CLI is behind, running the CLI's own update while no Quest
   there is busy.
 - A Quest's tab shows its project under the title.

@@ -107,6 +107,8 @@ export interface ClaudeSessionOptions {
   permissionUrl: string;
   spawn?: typeof nodeSpawn;
   claudeBin?: string;
+  /** The system this runs on (default: this one). */
+  platform?: NodeJS.Platform;
   /** Stop the process this long after a `result` with no `send`; defaults to `CRYSTAL_IDLE_MS`, then 10 minutes. */
   idleMs?: number;
   /** `--permission-mode` for every process this session starts; `setMode` changes it. Default: manual. */
@@ -227,6 +229,7 @@ export class ClaudeSession extends EventEmitter {
   private readonly permissionUrl: string;
   private readonly spawnFn: typeof nodeSpawn;
   private readonly claudeBin: string;
+  private readonly platform: NodeJS.Platform;
   private readonly changes: TurnChanges | undefined;
   private readonly compactWindow: ClaudeSessionOptions['compactWindow'];
   /** The size last announced, so the init line each turn repeats sends it once. */
@@ -266,6 +269,7 @@ export class ClaudeSession extends EventEmitter {
     this.cwd = opts.cwd;
     this.permissionUrl = opts.permissionUrl;
     this.spawnFn = opts.spawn ?? nodeSpawn;
+    this.platform = opts.platform ?? process.platform;
     this.claudeBin = opts.claudeBin ?? process.env.CLAUDE_BIN ?? 'claude';
     this.idleMs = opts.idleMs ?? (Number(process.env.CRYSTAL_IDLE_MS) || DEFAULT_IDLE_MS);
     // Hooks can check CRYSTAL_SESSION to tell they run headless under the bridge, e.g. to skip terminal bells.
@@ -316,14 +320,21 @@ export class ClaudeSession extends EventEmitter {
     const rec = this.current;
     if (!rec || rec.ended || rec.idleStopped || this.hasExited(rec)) return;
     const request = { subtype: 'set_permission_mode', mode };
+    this.control(rec, 'mode', request);
+  }
+
+  private control(rec: ChildRecord, kind: string, request: Record<string, unknown>): void {
     rec.proc.stdin.write(
-      `${JSON.stringify({ type: 'control_request', request_id: `mode-${++this.controlSeq}`, request })}\n`,
+      `${JSON.stringify({ type: 'control_request', request_id: `${kind}-${++this.controlSeq}`, request })}\n`,
     );
   }
 
   interrupt(): void {
     const rec = this.current;
-    if (rec && !rec.ended) rec.proc.kill('SIGINT');
+    if (!rec || rec.ended) return;
+    // Windows has no signals: `kill` would end the process on the spot, without the result that closes the turn.
+    if (this.platform === 'win32') this.control(rec, 'stop', { subtype: 'interrupt' });
+    else rec.proc.kill('SIGINT');
   }
 
   private stopWaiters: Array<() => void> = [];
