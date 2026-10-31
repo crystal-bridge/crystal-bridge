@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import { hubPaths } from './paths.js';
 
 const BACKUP_NAME = /^airship-\d{8}-\d{6}\.db$/;
 
@@ -33,4 +34,12 @@ export async function backupStore(
     .sort();
   for (const name of copies.slice(0, Math.max(0, copies.length - keep))) rmSync(join(dir, name));
   return target;
+}
+
+/** One backup with the hub's own settings: the nightly job, and `crystal-bridge-airship backup`. */
+export async function runBackup(env: NodeJS.ProcessEnv): Promise<void> {
+  const { db, backups } = hubPaths(env);
+  const keep = Number(env.AIRSHIP_BACKUP_KEEP ?? '14');
+  const path = await backupStore(db, backups, { keep });
+  console.log(`[airship] backed up ${db} to ${path} (keeping ${keep})`);
 }

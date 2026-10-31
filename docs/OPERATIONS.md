@@ -148,7 +148,11 @@ npx --yes --package=<tarball-url> crystal-bridge-airship
 ```
 
 Everything the hub keeps is in `AIRSHIP_DATA`, so back up that folder and keep it across upgrades. The hub refuses to
-listen on anything but loopback without token login.
+listen on anything but loopback without token login. `crystal-bridge-airship backup` copies the database into its backups
+folder safely while the hub runs, keeping the newest `AIRSHIP_BACKUP_KEEP`.
+
+Updating a packaged hub is a step outside the app: pull the newer image and recreate the container, or start the newer
+tarball. A browser tab then offers to reload, and Kingdoms made by `join` follow on their own.
 
 ## Logging in
 
@@ -234,6 +238,38 @@ a release that loads and then fails needs that command, so keep a way onto the m
 
 To stop a Kingdom updating itself, add `CRYSTAL_SELF_UPDATE=off` to its `crystal.env` and restart it. Kingdoms installed
 any other way (the deploy scripts, npm, a checkout) never update themselves: the Castle only warns when one falls behind.
+[Moving onto packages](#moving-onto-packages) brings one over.
+
+## Moving onto packages
+
+The deploy scripts above run a checkout of `main`. A host they set up can move to published releases in place, keeping
+its data, logins, token and Kingdom name. Kingdoms then follow the hub, and updating the hub is the one step left.
+Nothing needs this: a checkout deploy keeps working, and suits running `main` ahead of the releases.
+
+Move the hub first. Run this from a checkout, which needs `gh` signed in, to fetch a release, check its provenance and
+put it on the host:
+
+```sh
+scripts/deploy-airship-package.sh hub-host <version>
+```
+
+It keeps the env file, `/var/lib/airship`, the nightly backups and `tailscale serve`, so the address and every browser's
+settings stay as they are. Only the program changes. If the new hub doesn't come up, it restores the old one. Run it with
+a newer version to update the hub, or an older one to go back, as long as the database is no newer than that version.
+
+Then move each Kingdom, on that machine:
+
+```sh
+npx --yes --package=<kingdom-tarball-url> crystal-bridge-kingdom adopt
+```
+
+`adopt` waits up to an hour for Quests to finish, swaps the service to the package and restarts. The env file stays as it
+is, so the token, name and settings such as `CRYSTAL_ENGINES` carry over, and Quests resume on their next follow-up. Run it
+over SSH or from a terminal, not from a Quest on that machine, which would wait for itself. Use the same PATH the machine's
+own shell has, so `npx` is found: over SSH, `bash -lic '...'`. It's for Linux and macOS, the deploy scripts' platforms.
+
+To go back to a checkout, run `deploy-airship.sh` or `deploy-crystal.sh` as usual: each rewrites the service. `--rollback`
+doesn't, so it can't cross between the two.
 
 ## Rolling back
 

@@ -33,4 +33,6 @@ status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 [[ $(status -H "Authorization: Bearer $token" "$base/api/sessions") == 200 ]] ||
   { echo 'check: a good token was refused' >&2; exit 1; }
 curl -sf "$base/api/health" | grep -q "\"release\":\"$want\"" || { echo 'check: wrong release reported' >&2; exit 1; }
+AIRSHIP_BACKUP_KEEP=2 "$bin" backup >/dev/null
+ls "$AIRSHIP_DATA"/backups/airship-*.db >/dev/null || { echo 'check: backup wrote no copy' >&2; exit 1; }
 echo "check: @crystal-bridge/airship $got installs and runs"

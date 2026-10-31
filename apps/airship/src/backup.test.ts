@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { backupStore } from './backup.js';
+import { backupStore, runBackup } from './backup.js';
 import { openStore } from './store.js';
 
 describe('backupStore', () => {
@@ -48,5 +48,11 @@ describe('backupStore', () => {
       'airship-20261006-000000.db',
       'notes.txt',
     ]);
+  });
+
+  it('runBackup finds the store and the backups in the same places the hub does', async () => {
+    openStore(join(dir, 'airship.db')).close();
+    await runBackup({ AIRSHIP_DATA: dir, AIRSHIP_BACKUP_KEEP: '3' });
+    expect(readdirSync(join(dir, 'backups'))).toHaveLength(1);
   });
 });

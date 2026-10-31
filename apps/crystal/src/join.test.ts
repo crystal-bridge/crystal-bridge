@@ -20,6 +20,7 @@ import {
   hubHttpUrl,
   hubSocketUrl,
   launchdPlist,
+  runAdopt,
   runJoin,
   runLeave,
   runRollback,
@@ -124,6 +125,7 @@ describe('join and leave', () => {
       },
       log: (line) => lines.push(line),
       kill: (pid) => killed.push(pid),
+      sleep: async () => undefined,
     };
   }
 
@@ -407,6 +409,75 @@ describe('join and leave', () => {
     await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/already a Kingdom/);
     expect(fetchHub).not.toHaveBeenCalled();
     expect(readFileSync(envFile(), 'utf8')).toBe('CRYSTAL_TOKEN=old\n');
+  });
+
+  describe('adopt', () => {
+    const quiet = { ok: true, status: 200, json: async () => ({ busy: [] }) };
+
+    function deployedKingdom(): void {
+      mkdirSync(join(home, '.config/crystal-bridge'), { recursive: true });
+      writeFileSync(
+        envFile(),
+        'CRYSTAL_HUB=wss://hub/node\nCRYSTAL_NODE=mine\nCRYSTAL_TOKEN=keep\nCRYSTAL_CHROME=1\nCRYSTAL_ENGINES=stream,interactive\n' +
+          'CRYSTAL_MCP_PORT=7711\nPATH=/from/env:/usr/bin\n',
+      );
+    }
+
+    onUnix('moves a deployed Kingdom onto the package, keeping its token, name and settings', async () => {
+      deployedKingdom();
+      const env = readFileSync(envFile(), 'utf8');
+      fetchHub.mockResolvedValue(quiet);
+      await runAdopt(deps());
+      expect(readFileSync(envFile(), 'utf8')).toBe(env);
+      expect(readlinkSync(join(home, '.local/share/crystal-bridge/current'))).toMatch(/releases\/0\.2\.0$/);
+      const unit = readFileSync(servicePath(home, 'linux'), 'utf8');
+      expect(unit).toContain('crystal-bridge/current/node_modules/@crystal-bridge/kingdom/dist/main.js');
+      expect(unit).toContain('Environment=PATH=/from/env:/usr/bin');
+      expect(calls).toContain('systemctl --user restart crystal.service');
+      expect(fetchHub.mock.calls[0]?.[0]).toBe('http://127.0.0.1:7711/status');
+      expect(fetchHub).toHaveBeenCalledTimes(1);
+    });
+
+    onUnix('waits for the agent to go idle before changing anything', async () => {
+      deployedKingdom();
+      fetchHub
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ busy: ['q1'] }) })
+        .mockResolvedValue(quiet);
+      const sleep = vi.fn(async () => {
+        expect(existsSync(join(home, '.local/share/crystal-bridge/current'))).toBe(false);
+      });
+      await runAdopt({ ...deps(), sleep });
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(calls).toContain('systemctl --user restart crystal.service');
+    });
+
+    onUnix('gives up unchanged when a Quest stays busy', async () => {
+      deployedKingdom();
+      fetchHub.mockResolvedValue({ ok: true, status: 200, json: async () => ({ busy: ['q1'] }) });
+      await expect(runAdopt(deps())).rejects.toThrow(/still busy.*q1/i);
+      expect(existsSync(join(home, '.local/share/crystal-bridge/current'))).toBe(false);
+      expect(calls).toEqual([]);
+    });
+
+    onUnix('on macOS waits for the old agent to go before starting the new one', async () => {
+      deployedKingdom();
+      fetchHub.mockResolvedValue(quiet);
+      answers['launchctl print'] = new Error('not loaded');
+      await runAdopt(deps('darwin'));
+      expect(calls.findIndex((call) => call.includes('launchctl bootout'))).toBeLessThan(
+        calls.findIndex((call) => call.includes('launchctl print')),
+      );
+      expect(calls.at(-1)).toContain('launchctl bootstrap gui/501');
+      expect(readFileSync(servicePath(home, 'darwin'), 'utf8')).toContain('/from/env:/usr/bin');
+    });
+
+    onUnix(
+      'refuses a machine that is not a Kingdom, and Windows, which the deploy scripts never installed',
+      async () => {
+        await expect(runAdopt(deps())).rejects.toThrow(/not a Kingdom/);
+        await expect(runAdopt(deps('win32'))).rejects.toThrow(/Linux and macOS/);
+      },
+    );
   });
 
   onUnix('refuses a machine without the CLI, without spending the code', async () => {
