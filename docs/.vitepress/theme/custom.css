@@ -1,0 +1,49 @@
+/*
+ * The site's few accents, taken from the crystal logo. Deliberately light: the app has a plain version too, so the
+ * docs read as ordinary documentation with a little colour.
+ */
+:root {
+  --vp-c-brand-1: #0369a1;
+  --vp-c-brand-2: #0284c7;
+  --vp-c-brand-3: #0284c7;
+  --vp-c-brand-soft: rgb(56 189 248 / 0.16);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #0284c7, #6d28d9);
+  --vp-home-hero-image-background-image: linear-gradient(135deg, rgb(56 189 248 / 0.35), rgb(109 40 217 / 0.25));
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+.dark {
+  --vp-c-brand-1: #7dd3fc;
+  --vp-c-brand-2: #38bdf8;
+  --vp-c-brand-3: #0284c7;
+  --vp-home-hero-name-background: linear-gradient(120deg, #7dd3fc, #c4b5fd);
+}
+
+/* The logo is pixel art, so it scales in steps rather than blurring. */
+.VPHero .image-src,
+.VPImage.logo {
+  image-rendering: pixelated;
+}
+
+.cb-tour {
+  max-width: 960px;
+  margin: 0 auto 2rem;
+}
+.cb-tour img {
+  width: 100%;
+  border-radius: 8px;
+  box-shadow: var(--vp-shadow-3);
+}
+.cb-caption {
+  margin-top: 0.5rem;
+  color: var(--vp-c-text-2);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+/* The diagram on the concepts page has its own light card, so it reads the same in both schemes. */
+.vp-doc img[src*='how-it-fits'] {
+  width: 100%;
+  border-radius: 8px;
+}
