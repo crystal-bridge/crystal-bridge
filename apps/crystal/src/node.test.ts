@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { MAX_CLI_UPDATE_REASON } from '@crystal-bridge/protocol';
+import { MAX_CLI_UPDATE_REASON, type Effort } from '@crystal-bridge/protocol';
 import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
@@ -193,6 +193,70 @@ describe('startNode', () => {
     createNode({ cliVersion: async () => '2.1.314' });
     const conn = await nextConnection(harness, 0);
     expect(await waitForFrame(conn, (frame) => frame.kind === 'cli')).toEqual({ kind: 'cli', version: '2.1.314' });
+  });
+
+  describe('changing effort', () => {
+    const SESSION = '44444444-4444-4444-8444-444444444444';
+    const fakeWith = (setEffort: (effort?: Effort) => void): SessionLike => ({
+      start() {},
+      send() {},
+      interrupt() {},
+      setMode() {},
+      close() {},
+      busy: false,
+      on() {},
+      setEffort,
+    });
+    const hello = async () => {
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      return conn;
+    };
+
+    it('applies it to the session and records it, so the hub and every device follow', async () => {
+      const setEffort = vi.fn();
+      createNode({ sessionFactory: () => fakeWith(setEffort) });
+      const conn = await hello();
+      conn.socket.send(
+        JSON.stringify({ type: 'session.start', node: 'test', session: SESSION, cwd: tmpdir(), prompt: 'p' }),
+      );
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      conn.socket.send(JSON.stringify({ type: 'session.effort', session: SESSION, effort: 'low' }));
+      expect(await waitForFrame(conn, (frame) => frame.type === 'session.effort')).toMatchObject({
+        session: SESSION,
+        payload: { effort: 'low' },
+      });
+      expect(setEffort).toHaveBeenCalledWith('low');
+    });
+
+    it('rebuilds a session it lost to a restart, numbering on from what the hub holds', async () => {
+      const setEffort = vi.fn();
+      const factory = vi.fn(() => fakeWith(setEffort));
+      createNode({ sessionFactory: factory });
+      const conn = await hello();
+      conn.socket.send(
+        JSON.stringify({
+          type: 'session.effort',
+          session: SESSION,
+          resume: { cwd: tmpdir(), nextSeq: 7, effort: 'high' },
+        }),
+      );
+      expect(await waitForFrame(conn, (frame) => frame.type === 'session.effort')).toMatchObject({
+        seq: 7,
+        payload: {},
+      });
+      expect(factory).toHaveBeenCalledWith(expect.objectContaining({ effort: 'high' }));
+      expect(setEffort).toHaveBeenCalledWith(undefined);
+    });
+
+    it('says so for a session it can’t find', async () => {
+      createNode();
+      const conn = await hello();
+      conn.socket.send(JSON.stringify({ type: 'session.effort', session: SESSION, effort: 'low' }));
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'node-error')).toMatchObject({
+        message: expect.stringContaining('unknown session'),
+      });
+    });
   });
 
   describe('answering a terminal', () => {

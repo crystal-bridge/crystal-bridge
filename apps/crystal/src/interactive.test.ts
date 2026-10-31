@@ -474,6 +474,58 @@ describe('InteractiveSession', () => {
     expect(session.busyReason).toBe('background tasks running');
   });
 
+  describe('changing effort', () => {
+    async function afterATurn(overrides: Parameters<typeof harness>[0] = {}) {
+      const test = harness({ effort: 'high', ...overrides });
+      test.session.start('hello');
+      test.hook('SessionStart', {});
+      await tick(10);
+      test.hook('UserPromptSubmit', { prompt: 'hello' });
+      return test;
+    }
+    const finish = async ({ hook }: ReturnType<typeof harness>, extra = {}) => {
+      hook('Stop', { last_assistant_message: '', ...extra });
+      await tick(5);
+    };
+
+    it('moves the next message to a new process with the new effort, typing it there', async () => {
+      const test = await afterATurn({ stopWaitMs: 1 });
+      const { session, spawned, hook, events } = test;
+      await finish(test);
+      session.setEffort('low');
+      expect(spawned[0]!.pty.killed).toEqual([]);
+
+      session.send('next');
+      expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
+      spawned[0]!.pty.emitExit(143);
+      expect(spawned[1]!.args).toEqual(expect.arrayContaining(['--resume', '--effort', 'low']));
+      expect(events.find((e) => e.type === 'session.ended')).toBeUndefined();
+      hook('SessionStart', { source: 'resume' });
+      await tick(10);
+      expect(spawned[1]!.pty.written).toContain('\x1b[200~next\x1b[201~');
+    });
+
+    it('leaves a turn that’s running alone, and keeps a process for an unchanged choice', async () => {
+      const test = await afterATurn({ stopWaitMs: 1 });
+      const { session, spawned } = test;
+      session.setEffort('low');
+      session.send('while it works');
+      expect(spawned[0]!.pty.killed).toEqual([]);
+      session.setEffort('high');
+      await finish(test);
+      session.send('after');
+      expect(spawned[0]!.pty.killed).toEqual([]);
+    });
+
+    it('leaves a process holding background work alone', async () => {
+      const test = await afterATurn({ stopWaitMs: 1 });
+      await finish(test, { background_tasks: [{ type: 'subagent', status: 'running' }] });
+      test.session.setEffort('low');
+      test.session.send('next');
+      expect(test.spawned[0]!.pty.killed).toEqual([]);
+    });
+  });
+
   describe('asking through the app', () => {
     /** A terminal that swallowed a follow-up and so is asking, after its restart. */
     async function asking(overrides: Parameters<typeof harness>[0] = {}) {

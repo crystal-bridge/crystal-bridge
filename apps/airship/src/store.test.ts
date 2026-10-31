@@ -299,6 +299,24 @@ describe('store', () => {
     expect(store.sessionEffort(odd)).toBeUndefined();
   });
 
+  it('follows a Quest’s latest choice of effort, including back to the CLI default', () => {
+    const session = randomUUID();
+    const change = (seq: number, payload: unknown) =>
+      store.appendEvent(makeEnvelope({ session, seq, type: 'session.effort', payload }));
+    store.appendEvent(
+      makeEnvelope({
+        session,
+        type: 'session.started',
+        payload: { cwd: '/w', prompt: 'p', label: 'p', effort: 'high' },
+      }),
+    );
+    change(1, { effort: 'low' });
+    change(2, { effort: 'max' });
+    expect(store.sessionEffort(session)).toBe('max');
+    change(3, {});
+    expect(store.sessionEffort(session)).toBeUndefined();
+  });
+
   it('reports the next free seq of a session', () => {
     const session = randomUUID();
     expect(store.nextSeq(session)).toBe(0);

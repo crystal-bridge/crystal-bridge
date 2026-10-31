@@ -396,7 +396,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       sendToClient(clientSocket, { kind: 'error', message: `unknown session: ${command.session}` });
       return;
     }
-    if (command.type === 'session.send' || command.type === 'session.close') {
+    if (command.type === 'session.send' || command.type === 'session.close' || command.type === 'session.effort') {
       // Always the store's values, so a client can't point a node at another directory.
       const engine = store.sessionEngine(command.session);
       const effort = store.sessionEffort(command.session);

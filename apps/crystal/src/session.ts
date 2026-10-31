@@ -249,7 +249,9 @@ export class ClaudeSession extends EventEmitter {
   private mode: PermissionMode;
   private readonly forkFrom: string | undefined;
   private readonly chrome: boolean;
-  private readonly effort: Effort | undefined;
+  private effort: Effort | undefined;
+  /** The effort the live process started with, to tell when a new one is needed. */
+  private processEffort: Effort | undefined;
   private readonly addDirs: readonly string[];
   private controlSeq = 0;
 
@@ -308,6 +310,11 @@ export class ClaudeSession extends EventEmitter {
     const rec = this.current;
     if (rec && !rec.ended) {
       this.clearIdleTimer(rec);
+      // A new effort needs a new process, which is only safe between turns with nothing running in the background.
+      if (this.effort !== this.processEffort && !this.turnOpen && !rec.background && this.isLive(rec)) {
+        rec.idleStopped = true;
+        this.endChild(rec);
+      }
       // An idle-stopped child has had its stdin ended; the text waits for the --resume process.
       if (rec.idleStopped || this.hasExited(rec)) {
         this.queued.push(text);
@@ -331,6 +338,11 @@ export class ClaudeSession extends EventEmitter {
     if (!rec || rec.ended || rec.idleStopped || this.hasExited(rec)) return;
     const request = { subtype: 'set_permission_mode', mode };
     this.control(rec, 'mode', request);
+  }
+
+  /** Changes the effort for later processes; `send` moves to one when it can. A running process can't change. */
+  setEffort(effort: Effort | undefined): void {
+    this.effort = effort;
   }
 
   private control(rec: ChildRecord, kind: string, request: Record<string, unknown>): void {
@@ -416,6 +428,7 @@ export class ClaudeSession extends EventEmitter {
   private spawnChild(resume: boolean): ChildRecord {
     let sessionArgs = resume ? ['--resume', this.session] : ['--session-id', this.session];
     if (!resume && this.forkFrom) sessionArgs = ['--resume', this.forkFrom, '--fork-session', ...sessionArgs];
+    this.processEffort = this.effort;
     const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome, this.effort, this.addDirs);
 
     const child = this.spawnFn(this.claudeBin, args, {

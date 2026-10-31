@@ -237,6 +237,9 @@ export class InteractiveSession extends EventEmitter {
   private readonly spawnPty: PtySpawn;
   private readonly settingsFile: string;
   private mode: PermissionMode;
+  private effort: Effort | undefined;
+  /** The effort the live process started with, to tell when a new one is needed. */
+  private processEffort: Effort | undefined;
   private pty: PtyLike | null = null;
   private stopWaiters: Array<() => void> = [];
 
@@ -306,6 +309,7 @@ export class InteractiveSession extends EventEmitter {
     this.opts = opts;
     this.spawnPty = opts.spawnPty ?? defaultSpawn;
     this.mode = opts.permissionMode ?? 'manual';
+    this.effort = opts.effort;
     const dir = opts.settingsDir ?? join(tmpdir(), 'crystal-bridge');
     mkdirSync(dir, { recursive: true });
     this.settingsFile = join(dir, `${opts.session}.settings.json`);
@@ -346,6 +350,12 @@ export class InteractiveSession extends EventEmitter {
       this.spawn(true);
       this.emitEvent({ type: 'session.resumed', payload: {} });
       this.pending.push(text);
+      return;
+    }
+    // A new effort needs a new process, which is only safe between turns with nothing running in the background.
+    if (idle && this.ready && this.effort !== this.processEffort && !this.background && this.hasConversation) {
+      this.restartWith = text;
+      this.pty.kill('SIGTERM');
       return;
     }
     if (this.ready) {
@@ -404,6 +414,11 @@ export class InteractiveSession extends EventEmitter {
     });
   }
 
+  /** Changes the effort for later processes; `send` moves to one when it can. A running process can't change. */
+  setEffort(effort: Effort | undefined): void {
+    this.effort = effort;
+  }
+
   close(): void {
     this.closing = true;
     const pty = this.pty;
@@ -428,13 +443,14 @@ export class InteractiveSession extends EventEmitter {
       '--permission-mode',
       this.mode === 'manual' ? 'default' : this.mode,
       ...(this.opts.chrome ? ['--chrome'] : []),
-      ...(this.opts.effort ? ['--effort', this.opts.effort] : []),
+      ...(this.effort ? ['--effort', this.effort] : []),
       // One folder per flag, each followed by another flag: --add-dir takes a list.
       ...(this.opts.addDirs ?? []).flatMap((dir) => ['--add-dir', dir]),
       '--settings',
       this.settingsFile,
     ];
     this.ready = false;
+    this.processEffort = this.effort;
     this.resumed = resume;
     if (resume) this.hasConversation = true;
     this.trustAnswered = false;

@@ -16,6 +16,7 @@ import {
   IncrementalView,
   sessionEngine,
   sessionForkedFrom,
+  sessionEffort,
   sessionMode,
   sessionWorktree,
   slashCommands,
@@ -31,7 +32,8 @@ import { hint, w } from '../theme/words.js';
 import { Inventory } from './Inventory.js';
 import { MODES } from '../modes.js';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel.js';
-import type { PermissionMode } from '@crystal-bridge/protocol';
+import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
+import { EFFORTS } from '../effort.js';
 import { PermissionCard } from './PermissionCard.js';
 import { TerminalCard } from './TerminalCard.js';
 import { QuestionCard } from './QuestionCard.js';
@@ -67,6 +69,8 @@ export interface SessionViewProps {
   onSend: (text: string, attachments?: Attachment[]) => void;
   onInterrupt: () => void;
   onMode: (mode: PermissionMode) => void;
+  /** Sets the Quest's effort from the next message on; undefined is the CLI's default. */
+  onEffort?: (effort: Effort | undefined) => void;
   /** Closes the session for good; true also removes its worktree if it has one. */
   onClose?: (removeWorktree: boolean) => void;
   /** Starts a fork of this session: a copy of the conversation so far that continues separately from this prompt. */
@@ -322,6 +326,7 @@ export function SessionView({
   onSend,
   onInterrupt,
   onMode,
+  onEffort,
   onClose = () => {},
   onFork,
   onOpen,
@@ -496,6 +501,7 @@ export function SessionView({
   }
 
   const mode = sessionMode(envelopes);
+  const effort = sessionEffort(envelopes);
   const worktree = sessionWorktree(envelopes);
   const forkedFrom = sessionForkedFrom(envelopes);
   // The interactive CLI runs a leading `!` as a shell command; the stream engine sends it as text.
@@ -805,21 +811,34 @@ export function SessionView({
                   if (e.key === 'Enter' && !e.shiftKey) send(e);
                 }}
                 controls={
-                  <ThemedSelect
-                    id={modeId}
-                    label="Permission mode"
-                    icon="mode"
-                    title="Permission mode: how much the Quest may do without asking"
-                    value={mode ?? ''}
-                    options={[
-                      ...(mode === undefined ? [{ value: '', label: '…' }] : []),
-                      ...MODES,
-                      ...(mode !== undefined && !MODES.some((m) => m.value === mode)
-                        ? [{ value: mode, label: mode }]
-                        : []),
-                    ]}
-                    onChange={(value) => onMode(value as PermissionMode)}
-                  />
+                  <>
+                    <ThemedSelect
+                      id={modeId}
+                      label="Permission mode"
+                      icon="mode"
+                      title="Permission mode: how much the Quest may do without asking"
+                      value={mode ?? ''}
+                      options={[
+                        ...(mode === undefined ? [{ value: '', label: '…' }] : []),
+                        ...MODES,
+                        ...(mode !== undefined && !MODES.some((m) => m.value === mode)
+                          ? [{ value: mode, label: mode }]
+                          : []),
+                      ]}
+                      onChange={(value) => onMode(value as PermissionMode)}
+                    />
+                    {onEffort && (
+                      <ThemedSelect
+                        id={`effort-${session ?? 'quest'}`}
+                        label="Effort"
+                        icon="effort"
+                        title="Effort: how hard the Quest thinks. Takes effect from your next message once this turn and any background work are done."
+                        value={effort ?? ''}
+                        options={EFFORTS}
+                        onChange={(value) => onEffort((value as Effort) || undefined)}
+                      />
+                    )}
+                  </>
                 }
               />
             </div>

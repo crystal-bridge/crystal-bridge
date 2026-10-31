@@ -616,6 +616,34 @@ describe('airship server', () => {
     expect(await cliOf()).toBe('2.1.314');
   });
 
+  it('gives a change of effort what a node needs to rebuild the session, from its own store', async () => {
+    const session = randomUUID();
+    const { socket, frames } = await connectNode('node-a');
+    send(
+      socket,
+      makeEnvelope({
+        session,
+        seq: 0,
+        node: 'node-a',
+        type: 'session.started',
+        payload: { cwd: '/w', prompt: 'p', label: 'p', effort: 'high' },
+      }),
+    );
+    const client = await openSocket(`${wsUrl}/client`);
+    sockets.push(client);
+    const start = Date.now();
+    while (!((await (await fetch(`${baseUrl}/api/sessions`)).json()) as unknown[]).length && Date.now() - start < 2000)
+      await new Promise((r) => setTimeout(r, 10));
+    send(client, {
+      kind: 'command',
+      command: { type: 'session.effort', session, effort: 'low', resume: { cwd: '/evil', nextSeq: 0 } },
+    });
+    expect(await frames.waitFor((f) => f.type === 'session.effort')).toMatchObject({
+      effort: 'low',
+      resume: { cwd: '/w', nextSeq: 1, effort: 'high' },
+    });
+  });
+
   it('calls for attention once when a terminal starts asking, not for each change of its screen', async () => {
     const session = randomUUID();
     const { socket } = await connectNode('node-a');

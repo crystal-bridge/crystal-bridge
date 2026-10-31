@@ -189,6 +189,36 @@ describe('SessionView permission mode', () => {
     fireEvent.change(select, { target: { value: 'plan' } });
     expect(onMode).toHaveBeenCalledWith('plan');
   });
+
+  it('changes effort from the prompt bar, starting from what the Quest uses', () => {
+    const onEffort = vi.fn();
+    const started: Envelope = {
+      node: 'n',
+      session: 's',
+      seq: 0,
+      ts: 0,
+      type: 'session.started',
+      payload: { cwd: '/w', prompt: 'p', label: 'p', effort: 'high' },
+    };
+    render(
+      <SessionView
+        session="s"
+        envelopes={[started]}
+        onAnswer={vi.fn()}
+        onSend={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMode={vi.fn()}
+        onEffort={onEffort}
+        subscribeErrors={() => () => {}}
+      />,
+    );
+    const select = screen.getByLabelText('Effort') as HTMLSelectElement;
+    expect(select.value).toBe('high');
+    fireEvent.change(select, { target: { value: 'low' } });
+    expect(onEffort).toHaveBeenCalledWith('low');
+    fireEvent.change(select, { target: { value: '' } });
+    expect(onEffort).toHaveBeenLastCalledWith(undefined);
+  });
 });
 
 describe('SessionView worktree', () => {

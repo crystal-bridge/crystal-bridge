@@ -44,7 +44,7 @@ const Attachments = z.array(Attachment).max(MAX_ATTACHMENTS);
  * Filled in by the hub from its store, never by clients: lets a node that restarted and no longer holds a session
  * rebuild it, on the same engine, numbering its events after the ones the hub already has.
  */
-const Resume = z.object({
+export const Resume = z.object({
   cwd: z.string(),
   nextSeq: z.number().int().nonnegative(),
   /** The engine the session started on; unset is `stream`. */
@@ -52,6 +52,7 @@ const Resume = z.object({
   /** The effort the session started with; unset is the CLI's default. */
   effort: Effort.optional(),
 });
+export type Resume = z.infer<typeof Resume>;
 
 // client -> hub -> node
 export const NodeCommand = z.discriminatedUnion('type', [
@@ -112,6 +113,17 @@ export const NodeCommand = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('session.interrupt'),
     session: z.uuid(),
+  }),
+  z.object({
+    /**
+     * Sets a session's effort, or back to the CLI's default with none. Nothing running is touched: the next message
+     * moves to a new process with it, if that's safe, and the conversation carries on there.
+     */
+    type: z.literal('session.effort'),
+    session: z.uuid(),
+    effort: Effort.optional(),
+    /** Filled in by the hub from its store, never by clients; see `Resume`. */
+    resume: Resume.optional(),
   }),
   z.object({
     /**
