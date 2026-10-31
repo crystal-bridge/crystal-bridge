@@ -9,13 +9,14 @@ import { listProjects } from './projects.js';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { ClaudeSession } from './session.js';
 import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
+import { resolveClaudeBin } from './claude-bin.js';
 import { cachedCliVersion, execCliUpdate, execCliVersion } from './cli-version.js';
 import { runJoin, runLeave, type JoinDeps } from './join.js';
 import { releaseId } from './release.js';
 import { execFile } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The package version, written in by the build (scripts/build.ts); undefined when running from source. */
@@ -40,8 +41,10 @@ const DEFAULT_MODE = PermissionMode.catch('manual').parse(process.env.CRYSTAL_DE
 // The CLI's own session transcripts (never its credential files): CLAUDE_CONFIG_DIR, else ~/.claude.
 const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const PROJECTS_DIR = join(CONFIG_DIR, 'projects');
-// Where the New session picker looks for git repos: CRYSTAL_PROJECT_ROOTS (colon-separated), else ~/code.
-const PROJECT_ROOTS = (process.env.CRYSTAL_PROJECT_ROOTS ?? join(homedir(), 'code')).split(':').filter(Boolean);
+// Where the New session picker looks for git repos: CRYSTAL_PROJECT_ROOTS (the system's PATH separator), else ~/code.
+const PROJECT_ROOTS = (process.env.CRYSTAL_PROJECT_ROOTS ?? join(homedir(), 'code')).split(delimiter).filter(Boolean);
+
+const CLAUDE_BIN = resolveClaudeBin(process.env);
 
 async function main(): Promise<void> {
   // What a terminal session would see, so tools from shell startup files (cargo, pyenv, ...) are on PATH.
@@ -83,8 +86,8 @@ async function main(): Promise<void> {
         return summary ? { summary, events: await transcriptEvents(file) } : undefined;
       },
     },
-    cliVersion: cachedCliVersion({ exec: execCliVersion(process.env.CLAUDE_BIN ?? 'claude', sessionEnv) }),
-    updateCli: execCliUpdate(process.env.CLAUDE_BIN ?? 'claude', sessionEnv),
+    cliVersion: cachedCliVersion({ exec: execCliVersion(CLAUDE_BIN, sessionEnv) }),
+    updateCli: execCliUpdate(CLAUDE_BIN, sessionEnv),
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
@@ -94,6 +97,7 @@ async function main(): Promise<void> {
       return engine === 'interactive'
         ? new InteractiveSession({
             ...opts,
+            claudeBin: CLAUDE_BIN,
             env: sessionEnv,
             chrome: CHROME,
             changes,
@@ -101,7 +105,14 @@ async function main(): Promise<void> {
             hooks,
             hookUrl: permissionServer.hookUrl(opts.session),
           })
-        : new ClaudeSession({ ...opts, env: sessionEnv, chrome: CHROME, changes, compactWindow: compactWindowFor });
+        : new ClaudeSession({
+            ...opts,
+            claudeBin: CLAUDE_BIN,
+            env: sessionEnv,
+            chrome: CHROME,
+            changes,
+            compactWindow: compactWindowFor,
+          });
     },
     permissionServer,
   });
@@ -136,7 +147,7 @@ function joinDeps(): JoinDeps {
     mainPath: realpathSync(fileURLToPath(import.meta.url)),
     nodeBin: process.execPath,
     path: process.env.PATH ?? '',
-    claudeBin: process.env.CLAUDE_BIN ?? 'claude',
+    claudeBin: CLAUDE_BIN,
     shell: process.env.SHELL ?? '/bin/bash',
     fetch,
     exec: (file, args) =>

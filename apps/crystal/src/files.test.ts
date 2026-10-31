@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readSessionFile } from './files.js';
 
+// Windows lets only administrators and developer mode make them.
+const noSymlinks = process.platform === 'win32';
+
 describe('readSessionFile', () => {
   let root: string;
   let quest: string;
@@ -31,7 +34,7 @@ describe('readSessionFile', () => {
     expect(result).toMatchObject({ ok: true, path: 'docs/README.md' });
   });
 
-  it('refuses .. traversal, absolute paths elsewhere, and symlinks that lead out', async () => {
+  it.skipIf(noSymlinks)('refuses .. traversal, absolute paths elsewhere, and symlinks that lead out', async () => {
     symlinkSync(join(outside, 'secret.txt'), join(quest, 'escape.txt'));
     symlinkSync(outside, join(quest, 'escape-dir'));
     for (const path of ['../outside/secret.txt', join(outside, 'secret.txt'), 'escape.txt', 'escape-dir/secret.txt']) {
@@ -48,7 +51,7 @@ describe('readSessionFile', () => {
     }
   });
 
-  it('follows a symlink that stays inside the Quest folder', async () => {
+  it.skipIf(noSymlinks)('follows a symlink that stays inside the Quest folder', async () => {
     symlinkSync(join(quest, 'docs', 'README.md'), join(quest, 'link.md'));
     expect(await readSessionFile(quest, 'link.md')).toMatchObject({ ok: true, content: '# Hello\n' });
   });
@@ -58,11 +61,13 @@ describe('readSessionFile', () => {
       ok: false,
       reason: expect.stringMatching(/not a file/),
     });
-    execFileSync('mkfifo', [join(quest, 'pipe')]);
-    expect(await readSessionFile(quest, 'pipe')).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/not a file/),
-    });
+    if (process.platform !== 'win32') {
+      execFileSync('mkfifo', [join(quest, 'pipe')]);
+      expect(await readSessionFile(quest, 'pipe')).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/not a file/),
+      });
+    }
     expect(await readSessionFile(quest, 'nope.md')).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/no such/),

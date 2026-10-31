@@ -65,8 +65,16 @@ const execText: Exec = (file, args) =>
     );
   });
 
-/** The environment of an interactive login shell (`-lic`), or nothing if the shell fails or times out. */
-export async function readLoginEnv(shell: string, exec: Exec = execText): Promise<Record<string, string>> {
+/**
+ * The environment of an interactive login shell (`-lic`), or nothing if the shell fails or times out. Windows has no
+ * such thing, and a task started at sign-in already has the user's environment.
+ */
+export async function readLoginEnv(
+  shell: string,
+  exec: Exec = execText,
+  platform: NodeJS.Platform = process.platform,
+): Promise<Record<string, string>> {
+  if (platform === 'win32') return {};
   try {
     return parseEnv0(await exec(shell, ['-lic', 'env -0']));
   } catch {

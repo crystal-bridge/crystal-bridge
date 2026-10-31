@@ -21,8 +21,10 @@ describe('attachments', () => {
     expect(dirname(paths[0]!)).toBe(join(base, SESSION));
     expect(readFileSync(paths[0]!, 'utf8')).toBe('png bytes');
     expect(basename(paths[1]!)).toMatch(/notes\.txt$/);
-    expect(statSync(paths[0]!).mode & 0o777).toBe(0o600);
-    expect(statSync(join(base, SESSION)).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') {
+      expect(statSync(paths[0]!).mode & 0o777).toBe(0o600);
+      expect(statSync(join(base, SESSION)).mode & 0o777).toBe(0o700);
+    }
 
     removeAttachments(SESSION, base);
     expect(existsSync(join(base, SESSION))).toBe(false);

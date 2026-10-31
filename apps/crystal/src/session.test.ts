@@ -122,6 +122,7 @@ function createSession(
   spawnFn: typeof nodeSpawn,
   overrides: Partial<{
     claudeBin: string;
+    platform: NodeJS.Platform;
     idleMs: number;
     cwd: string;
     permissionMode: 'manual' | 'acceptEdits' | 'auto' | 'plan';
@@ -320,9 +321,21 @@ describe('ClaudeSession', () => {
     expect(child.stdin.writes.at(-1)).toBe('{"type":"user","message":{"role":"user","content":"hi"}}\n');
   });
 
+  it('interrupt() asks the CLI over stdin on Windows, where a signal would simply kill it', () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { platform: 'win32' });
+    session.send('hi');
+    session.interrupt();
+    expect(children[0]!.killSignals).toEqual([]);
+    expect(JSON.parse(children[0]!.stdin.writes.at(-1)!)).toMatchObject({
+      type: 'control_request',
+      request: { subtype: 'interrupt' },
+    });
+  });
+
   it('interrupt() sends SIGINT to the running child', () => {
     const { spawnFn, children } = createSpawnMock();
-    const session = createSession(spawnFn);
+    const session = createSession(spawnFn, { platform: 'linux' });
 
     session.start('hello');
     const child = children[0]!;
@@ -371,7 +384,7 @@ describe('ClaudeSession', () => {
 
   it('emits session.ended with a signal and null exit code when killed', async () => {
     const { spawnFn, children } = createSpawnMock();
-    const session = createSession(spawnFn);
+    const session = createSession(spawnFn, { platform: 'linux' });
     const events = collect(session);
 
     session.start('hello');

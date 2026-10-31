@@ -16,7 +16,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_MCP_PORT` | `7701`; `join` and the macOS deploy write `7711` | Crystal: its local port (permission tool, hooks, status) |
 | `CRYSTAL_IDLE_MS` | `600000` | Crystal: stop an idle session's process after this long; the next follow-up resumes it |
 | `CRYSTAL_DEFAULT_MODE` | `manual`; `join` and the deploy scripts write `auto` | Crystal: permission mode for new sessions. An unknown value also means `manual`. So `pnpm dev` asks for every action, and a joined or deployed Kingdom asks only when the CLI is unsure |
-| `CRYSTAL_PROJECT_ROOTS` | `~/code` | Crystal: where the New Quest picker looks for repos (`:`-separated) |
+| `CRYSTAL_PROJECT_ROOTS` | `~/code` | Crystal: where the New Quest picker looks for repos (separated like `PATH`: `:`, or `;` on Windows) |
 | `CRYSTAL_CHROME` | unset | Crystal: `1` starts sessions with `--chrome` |
 | `CRYSTAL_ENGINES` | `stream` | Crystal: `stream,interactive` enables the interactive engine; `stream` is always on |
 | `CRYSTAL_LOGIN_SHELL` | `$SHELL`, then `/bin/bash` | Crystal: the shell whose login environment sessions get; `join` writes it |

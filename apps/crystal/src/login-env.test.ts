@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { mergeEnv, parseEnv0, readLoginEnv } from './login-env.js';
 
 describe('login environment', () => {
+  it('has nothing to read on Windows, and never runs a shell there', async () => {
+    const exec = () => Promise.reject(new Error('should not run'));
+    expect(await readLoginEnv('cmd.exe', exec, 'win32')).toEqual({});
+  });
+
   it('parses env -0 output, ignoring anything a noisy shell printed first', () => {
     const output =
       'Welcome to the shell!\nnvm: using node\n' +
@@ -39,17 +44,25 @@ describe('login environment', () => {
 
   it('reads the login shell with -lic, and falls back to nothing when the shell fails', async () => {
     const calls: string[][] = [];
-    const ok = await readLoginEnv('/bin/bash', async (file, args) => {
-      calls.push([file, ...args]);
-      return 'A=1\0B=2\0';
-    });
+    const ok = await readLoginEnv(
+      '/bin/bash',
+      async (file, args) => {
+        calls.push([file, ...args]);
+        return 'A=1\0B=2\0';
+      },
+      'linux',
+    );
     expect(ok).toEqual({ A: '1', B: '2' });
     expect(calls).toEqual([['/bin/bash', '-lic', 'env -0']]);
 
     expect(
-      await readLoginEnv('/bin/bash', async () => {
-        throw new Error('timed out');
-      }),
+      await readLoginEnv(
+        '/bin/bash',
+        async () => {
+          throw new Error('timed out');
+        },
+        'linux',
+      ),
     ).toEqual({});
   });
 });
