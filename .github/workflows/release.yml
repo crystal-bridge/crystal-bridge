@@ -41,14 +41,24 @@ jobs:
           pnpm --filter @crystal-bridge/kingdom pack --pack-destination "$RUNNER_TEMP/release"
           pnpm --filter @crystal-bridge/airship pack --pack-destination "$RUNNER_TEMP/release"
       - uses: actions/attest-build-provenance@v4
+        id: attest
         with:
           subject-path: ${{ runner.temp }}/release/*.tgz
+      # In the shape of GitHub's attestations API, so a Kingdom reads it the same way without that API's rate limit.
+      - name: Keep the attestations in the release
+        env:
+          BUNDLES: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          out=$RUNNER_TEMP/release/crystal-bridge-attestations-$version.json
+          jq -s '{attestations: map({bundle: .})}' "$BUNDLES" > "$out"
+          jq -e '.attestations | length > 0' "$out"
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           prerelease=$([[ $GITHUB_REF_NAME == *-* ]] && echo --prerelease || true)
-          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/release/*.tgz --generate-notes --verify-tag $prerelease
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/release/* --generate-notes --verify-tag $prerelease
 
   # The hub image for both common architectures. `latest` is only for full releases, never a pre-release.
   image:

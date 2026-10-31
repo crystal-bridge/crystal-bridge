@@ -45,6 +45,8 @@ then, everything is in Unreleased.
 
 ### Fixed
 
+- A release carries its own attestation, so a Kingdom updating to it doesn't depend on GitHub's API or its rate limit.
+
 - Background subagents stay in the Party until they finish, on both engines, and count as Side Quests on battle cards.
   A Quest whose only work is a background agent no longer idles out.
 
