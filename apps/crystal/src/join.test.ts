@@ -227,28 +227,32 @@ describe('join and leave', () => {
 
   // The real thing: conhost rewrites the command line it hands on, which once left a task reporting success with no
   // Crystal behind it. A space in the path is the usual case, since a Windows folder is named after its user.
-  it.runIf(process.platform === 'win32')('starts from the task exactly as Task Scheduler would run it', async () => {
-    const deep = join(dir, 'a user');
-    const windows = { ...windowsDeps(), home: deep, nodeBin: process.execPath };
-    mkdirSync(deep);
-    await runJoin('https://hub.example.com', 'CODE', windows);
-    const base = join(deep, 'AppData/Local/crystal-bridge');
-    writeFileSync(
-      join(base, 'current/node_modules/@crystal-bridge/kingdom/dist/main.js'),
-      `console.log('started as', process.env.CRYSTAL_NODE, process.env.CRYSTAL_PID_FILE !== undefined);`,
-    );
-    const task = readFileSync(join(base, 'task.xml')).toString('utf16le');
-    const args = /<Arguments>(.*)<\/Arguments>/.exec(task)?.[1] ?? '';
-    spawn('conhost.exe', [args], { windowsVerbatimArguments: true, stdio: 'ignore' });
+  it.runIf(process.platform === 'win32')(
+    'starts from the task exactly as Task Scheduler would run it',
+    async () => {
+      const deep = join(dir, 'a user');
+      const windows = { ...windowsDeps(), home: deep, nodeBin: process.execPath };
+      mkdirSync(deep);
+      await runJoin('https://hub.example.com', 'CODE', windows);
+      const base = join(deep, 'AppData/Local/crystal-bridge');
+      writeFileSync(
+        join(base, 'current/node_modules/@crystal-bridge/kingdom/dist/main.js'),
+        `console.log('started as', process.env.CRYSTAL_NODE, process.env.CRYSTAL_PID_FILE !== undefined);`,
+      );
+      const task = readFileSync(join(base, 'task.xml')).toString('utf16le');
+      const args = /<Arguments>(.*)<\/Arguments>/.exec(task)?.[1] ?? '';
+      spawn('conhost.exe', [args], { windowsVerbatimArguments: true, stdio: 'ignore' });
 
-    await vi.waitFor(
-      () => expect(readFileSync(join(base, 'crystal.log'), 'utf8')).toContain('started as node-c true'),
-      {
-        timeout: 15_000,
-        interval: 200,
-      },
-    );
-  });
+      await vi.waitFor(
+        () => expect(readFileSync(join(base, 'crystal.log'), 'utf8')).toContain('started as node-c true'),
+        {
+          timeout: 15_000,
+          interval: 200,
+        },
+      );
+    },
+    20_000,
+  );
 
   const current = () => join(home, '.local/share/crystal-bridge/current');
 
