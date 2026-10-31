@@ -14,7 +14,7 @@ hub=http://127.0.0.1:$port
 hub_pid=''
 old=0.1.0
 target=0.2.0-alpha.1
-manifest=apps/crystal/package.json
+manifest=$repo/apps/crystal/package.json
 cp "$manifest" "$work/manifest"
 cleanup() {
   [[ -z $hub_pid ]] || kill "$hub_pid" 2>/dev/null || true
