@@ -26,6 +26,8 @@ export interface IconSource {
 }
 
 export const ICON_SOURCES = {
+  // App bar
+  settings: { pack: 'game-icons', icon: 'gear-hammer', author: 'Lorc' },
   // Quest toolbar
   fork: { pack: 'ph', icon: 'git-fork-fill' },
   split: { pack: 'ph', icon: 'columns-fill' },

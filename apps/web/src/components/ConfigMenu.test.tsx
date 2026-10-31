@@ -8,8 +8,8 @@ const visible = [
 ];
 const hidden = [{ id: 'secret', name: 'secret', connected: true, sessions: 1 }];
 
-function renderMenu(overrides: Partial<Parameters<typeof ConfigMenu>[0]> = {}) {
-  const props = {
+function props(overrides: Partial<Parameters<typeof ConfigMenu>[0]> = {}) {
+  return {
     visible,
     hidden,
     onRename: vi.fn(),
@@ -23,10 +23,27 @@ function renderMenu(overrides: Partial<Parameters<typeof ConfigMenu>[0]> = {}) {
     onPush: vi.fn(),
     ...overrides,
   };
-  render(<ConfigMenu {...props} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Config' }));
-  return props;
 }
+
+function renderMenu(overrides: Partial<Parameters<typeof ConfigMenu>[0]> = {}) {
+  const menu = props(overrides);
+  render(<ConfigMenu {...menu} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Config' }));
+  return menu;
+}
+
+describe('ConfigMenu button', () => {
+  afterEach(() => cleanup());
+
+  it("draws the theme's settings icon and explains itself with a themed tooltip", () => {
+    render(<ConfigMenu {...props()} />);
+    const button = screen.getByRole('button', { name: 'Config' });
+    expect(button.querySelector('svg.cb-icon-settings')).not.toBeNull();
+    expect(button.getAttribute('title')).toBeNull();
+    expect(screen.getByRole('tooltip').textContent).toBe('Config (settings)');
+    expect(button.getAttribute('aria-describedby')).toBe(screen.getByRole('tooltip').id);
+  });
+});
 
 describe('ConfigMenu hub name', () => {
   afterEach(() => cleanup());
