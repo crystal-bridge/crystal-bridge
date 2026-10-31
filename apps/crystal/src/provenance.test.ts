@@ -41,11 +41,11 @@ describe('verifyRelease', () => {
   });
 
   it('asks GitHub’s API when the release can’t be reached', async () => {
-    const fetch = vi.fn(async (url: string) => {
+    const offline = vi.fn(async (url: string) => {
       if (url === ASSET) throw new Error('offline');
       return json(attestations)();
-    }) as unknown as typeof fetch;
-    await expect(verifyRelease(tarball, VERSION, { fetch, trustedRoot })).resolves.toBeUndefined();
+    }) as unknown as typeof globalThis.fetch;
+    await expect(verifyRelease(tarball, VERSION, { fetch: offline, trustedRoot })).resolves.toBeUndefined();
   });
 
   it('says what stopped it when neither place answers', async () => {
