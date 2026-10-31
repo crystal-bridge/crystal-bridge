@@ -52,7 +52,7 @@ import { KingdomBar } from './components/KingdomBar.js';
 import { NewSession } from './components/NewSession.js';
 import { currentActivity } from './activity.js';
 import { formatRoute, parseRoute, type Route } from './route.js';
-import { classXp, LevelContext, levelFor, type QuestXp } from './levels.js';
+import { classXp, kingdomLevels, LevelContext, levelFor, type QuestXp } from './levels.js';
 import type { NodeUsageRow } from './components/NodeUsage.js';
 import { QuestStrip } from './components/QuestStrip.js';
 import type { SearchHit } from './components/SearchResults.js';
@@ -1117,6 +1117,15 @@ export function App({ hub }: { hub: HubClient }) {
                 engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
                 release={engineLists.find((row) => row.node === kingdom.id)?.release}
                 hubRelease={servedRelease}
+                garrison={
+                  heroManifest
+                    ? {
+                        manifest: heroManifest,
+                        levels: kingdomLevels(questXp, kingdom.id, leaderOf),
+                        leader: looks[kingdom.id]?.leader ?? heroManifest.leader,
+                      }
+                    : undefined
+                }
                 onRemove={async (id) => {
                   await removeKingdom(id);
                   setRemoved(kingdom.name);

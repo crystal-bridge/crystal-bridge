@@ -44,6 +44,7 @@ The default theme has its own words for things. Classic uses plain ones.
 | **Quest** | A session |
 | **Hero** | An agent: the party leader runs the Quest, and subagents join for a task |
 | **Side Quest** | A background task or monitor running alongside its Quest |
+| **Garrison** | The Heroes who have led Quests in a Kingdom, with their levels there |
 | **Recruit** | Adopt a session found outside the bridge |
 | **Chronicle** | History: closed Quests and search |
 | **HP, Stamina, MP, Gold** | Plan usage left (short and long limits), context left, and cost |

@@ -38,6 +38,7 @@ export type Concept =
   | 'hp'
   | 'stamina'
   | 'roster'
+  | 'garrison'
   | 'expedition'
   | 'mp'
   | 'gold'
@@ -98,6 +99,7 @@ export const CRYSTAL: Words = {
   stamina: { themed: 'Stamina', plain: "plan usage left in this Kingdom's longer limit, shared by its Quests" },
   expedition: { themed: 'Expedition', plain: 'where and how the session runs' },
   roster: { themed: 'Roster', plain: 'each Hero Class and its level, from the Quests it led' },
+  garrison: { themed: 'Garrison', plain: 'the Hero Classes that have led Quests here, with their levels here' },
   mp: { themed: 'MP', plain: 'context left before it compacts' },
   gold: { themed: 'Gold', plain: 'cost' },
   tokens: { themed: 'Tokens', plain: 'tokens used' },
@@ -156,6 +158,7 @@ export const CLASSIC: Words = {
   stamina: { themed: 'Longer limit left', plain: "Plan usage left in this node's longer limit" },
   expedition: { themed: 'Environment', plain: 'Environment' },
   roster: { themed: 'Agent levels', plain: 'Agent levels' },
+  garrison: { themed: 'Agent levels here', plain: 'Agent levels from this node' },
   mp: { themed: 'Context', plain: 'Context left' },
   gold: { themed: 'Cost', plain: 'Cost' },
   tokens: { themed: 'Tokens', plain: 'Tokens' },

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { levelFor } from '../levels.js';
 import { RECENT_MS } from '../quests.js';
 import { Castle } from './Castle.js';
 import type { SessionSummary } from './SessionList.js';
@@ -301,5 +302,22 @@ describe('Castle', () => {
     expect(haunts.textContent).toContain('docs');
     fireEvent.click(screen.getByRole('button', { name: 'Set out here: docs' }));
     expect(props.onNewIn).toHaveBeenCalledWith('/w/docs');
+  });
+});
+
+describe('Castle Garrison', () => {
+  afterEach(() => cleanup());
+
+  it('shows the Heroes of this Kingdom when the theme has Heroes', () => {
+    const manifest = { leader: 'mage', classes: { mage: { name: 'Mage', keywords: [], animations: {} } } };
+    renderCastle({
+      garrison: { manifest: manifest as never, levels: { mage: levelFor(100) }, leader: 'mage' },
+    });
+    expect(screen.getByRole('region', { name: 'Garrison' }).textContent).toContain('Mage');
+  });
+
+  it('has no Garrison with no Heroes, as in the plain theme', () => {
+    renderCastle();
+    expect(screen.queryByRole('region', { name: 'Garrison' })).toBeNull();
   });
 });
