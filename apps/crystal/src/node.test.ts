@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { MAX_CLI_UPDATE_REASON } from '@crystal-bridge/protocol';
 import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
@@ -192,6 +193,55 @@ describe('startNode', () => {
     createNode({ cliVersion: async () => '2.1.314' });
     const conn = await nextConnection(harness, 0);
     expect(await waitForFrame(conn, (frame) => frame.kind === 'cli')).toEqual({ kind: 'cli', version: '2.1.314' });
+  });
+
+  describe('updating this Kingdom', () => {
+    it('offers it in hello only when it can, and passes on the version the hub names', async () => {
+      const onKingdomVersion = vi.fn();
+      createNode({ onKingdomVersion });
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'hello')).toMatchObject({ selfUpdate: true });
+      conn.socket.send(JSON.stringify({ kind: 'kingdom-version', version: '1.2.3' }));
+      await waitUntil(() => onKingdomVersion.mock.calls.length > 0);
+      expect(onKingdomVersion).toHaveBeenCalledWith('1.2.3');
+    });
+
+    it('passes on that the hub names nothing', async () => {
+      const onKingdomVersion = vi.fn();
+      createNode({ onKingdomVersion });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      conn.socket.send(JSON.stringify({ kind: 'kingdom-version' }));
+      await waitUntil(() => onKingdomVersion.mock.calls.length > 0);
+      expect(onKingdomVersion).toHaveBeenCalledWith(undefined);
+    });
+
+    it('stays quiet about it when it cannot, as a deployed or npm-installed Kingdom does', async () => {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'hello')).not.toHaveProperty('selfUpdate');
+    });
+
+    it('ignores a version it can’t make a safe path from', async () => {
+      const onKingdomVersion = vi.fn();
+      createNode({ onKingdomVersion });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      conn.socket.send(JSON.stringify({ kind: 'kingdom-version', version: '../../evil' }));
+      conn.socket.send(JSON.stringify({ kind: 'kingdom-version', version: '1.0.0' }));
+      await waitUntil(() => onKingdomVersion.mock.calls.length > 0);
+      expect(onKingdomVersion.mock.calls).toEqual([['1.0.0']]);
+    });
+
+    it('tells the hub how it’s going', async () => {
+      const crystal = createNode({ onKingdomVersion: () => undefined });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      crystal.reportSelfUpdate({ version: '1.2.3', state: 'failed', reason: 'x'.repeat(5000) });
+      const frame = await waitForFrame(conn, (f) => f.kind === 'self-update');
+      expect(frame).toMatchObject({ version: '1.2.3', state: 'failed' });
+      expect((frame as { reason: string }).reason).toHaveLength(MAX_CLI_UPDATE_REASON);
+    });
   });
 
   describe('updating the agent CLI', () => {

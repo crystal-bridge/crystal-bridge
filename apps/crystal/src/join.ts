@@ -11,13 +11,13 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { LEAVE_COMMAND, LEAVE_COMMAND_WINDOWS } from '@crystal-bridge/protocol';
+import { ENTRY, installRootOf, rollbackRelease } from './release.js';
 
 const LABEL = 'dev.crystal-bridge.crystal';
 const SERVICE = 'crystal.service';
 const TASK = 'CrystalBridgeKingdom';
 /** Not the source default, so `pnpm dev` still runs on a machine that is also a Kingdom. */
 const MCP_PORT = '7711';
-const ENTRY = 'node_modules/@crystal-bridge/kingdom/dist/main.js';
 
 export interface ServicePaths {
   nodeBin: string;
@@ -102,6 +102,18 @@ export function windowsScript(nodeBin: string): string {
     'rem Written by `crystal-bridge-kingdom join`; its `leave` removes this.',
     'set "CRYSTAL_PID_FILE=%~dp0crystal.pid"',
     ':run',
+    // A self-update exits to get here: Windows won't rename a folder while a program runs from it.
+    // First what a swap cut off in the middle left behind: without `current` nothing below can run.
+    'if not exist "%~dp0current\\" if exist "%~dp0next\\" move "%~dp0next" "%~dp0current" >nul',
+    'if not exist "%~dp0current\\" if exist "%~dp0previous\\" move "%~dp0previous" "%~dp0current" >nul',
+    'if not exist "%~dp0next\\" goto start',
+    // The last release to go back to is deleted only once the new one is in place.
+    'if exist "%~dp0previous.old\\" rmdir /s /q "%~dp0previous.old"',
+    'if exist "%~dp0previous\\" move "%~dp0previous" "%~dp0previous.old" >nul || goto start',
+    'move "%~dp0current" "%~dp0previous" >nul || goto start',
+    'move "%~dp0next" "%~dp0current" >nul || move "%~dp0previous" "%~dp0current" >nul',
+    'if exist "%~dp0previous.old\\" rmdir /s /q "%~dp0previous.old"',
+    ':start',
     `"${nodeBin.replaceAll('%', '%%')}" --env-file="%~dp0crystal.env" "%~dp0current\\${entry}" >> "%~dp0crystal.log" 2>&1`,
     'if %errorlevel% equ 0 exit /b 0',
     'ping -n 6 127.0.0.1 >nul',
@@ -167,14 +179,6 @@ export function hubSocketUrl(hub: string): string {
 /** The web address of a hub given by its node socket. */
 export function hubHttpUrl(socket: string): string {
   return socket.replace(/\/node$/, '').replace(/^ws/, 'http');
-}
-
-/** The folder holding the `node_modules` this package runs from; undefined when running from source. */
-export function installRootOf(mainPath: string): string | undefined {
-  const marker = '/node_modules/@crystal-bridge/kingdom/';
-  mainPath = mainPath.replaceAll('\\', '/');
-  const at = mainPath.lastIndexOf(marker);
-  return at === -1 ? undefined : mainPath.slice(0, at);
 }
 
 export interface JoinDeps {
@@ -311,16 +315,21 @@ async function startService(deps: JoinDeps, where: Layout): Promise<void> {
   await deps.exec('systemctl', ['--user', 'enable', '--now', SERVICE]);
 }
 
-/** Ending the task ends only its console, so Crystal goes by the id it recorded, if that is still Crystal. */
-async function stopWindowsCrystal(deps: JoinDeps, where: Layout): Promise<void> {
+/**
+ * Ending the task ends only its console, so Crystal goes by the id it recorded, if that is still Crystal. Says whether
+ * it stopped one: the id goes stale once that process has gone.
+ */
+async function stopWindowsCrystal(deps: JoinDeps, where: Layout): Promise<boolean> {
   const pidFile = join(where.base, 'crystal.pid');
   const pid = existsSync(pidFile) ? Number(readFileSync(pidFile, 'utf8')) : 0;
-  if (!pid) return;
+  if (!pid) return false;
   // tasklist and taskkill are refused over SSH, where `leave` may well run.
   const name = await deps
     .exec('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${pid}).ProcessName`])
     .catch(() => '');
-  if (name.trim().toLowerCase() === 'node') deps.kill(pid);
+  if (name.trim().toLowerCase() !== 'node') return false;
+  deps.kill(pid);
+  return true;
 }
 
 async function stopService(deps: JoinDeps, where: Layout): Promise<void> {
@@ -409,5 +418,29 @@ export async function runLeave(deps: JoinDeps): Promise<void> {
   rmSync(where.base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   deps.log(
     left ? 'This Kingdom has left its hub.' : 'Removed here, but the hub did not answer: remove it from the app.',
+  );
+}
+
+/** Restarts the running service so it picks up the release; false when nothing was running to restart. */
+async function restartService(deps: JoinDeps, where: Layout): Promise<boolean> {
+  if (deps.platform === 'win32') return stopWindowsCrystal(deps, where); // `crystal.cmd` brings it back
+  if (deps.platform === 'darwin') {
+    await deps.exec('launchctl', ['kickstart', '-k', `gui/${deps.uid}/${LABEL}`]);
+    return true;
+  }
+  await deps.exec('systemctl', ['--user', 'restart', SERVICE]);
+  return true;
+}
+
+/** Goes back to the release before the last self-update, and stays there until the hub names a newer one still. */
+export async function runRollback(deps: JoinDeps): Promise<void> {
+  const where = layout(deps);
+  if (!existsSync(where.envFile)) throw new Error('This machine is not a Kingdom.');
+  const version = rollbackRelease({ base: where.base, platform: deps.platform });
+  const restarted = await restartService(deps, where);
+  deps.log(
+    restarted
+      ? `Back on ${version}. This Kingdom won't take the release it left again.`
+      : `${version} runs at the next start, and this Kingdom won't take the release it left again. Crystal could not be found to restart it now.`,
   );
 }

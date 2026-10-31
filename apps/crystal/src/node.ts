@@ -1,16 +1,19 @@
 import {
   HubAck,
   HubCliUpdate,
+  HubKingdomVersion,
   MAX_CLI_UPDATE_REASON,
   NodeCliUpdated,
   NodeCommand,
   NodeHello,
+  NodeSelfUpdate,
   PROTOCOL_VERSION,
   type Attachment,
   type Effort,
   type Envelope,
   type EventType,
   type NodeError,
+  type SelfUpdate,
   type NodeExternal,
   NodeCli,
   type NodeProjects,
@@ -86,6 +89,8 @@ export interface StartNodeOptions {
   cliVersion?: (fresh?: boolean) => Promise<string | undefined>;
   /** Runs the agent CLI's own update (`cli-version.ts` in production); without it, the hub isn't offered one. */
   updateCli?: () => Promise<void>;
+  /** Follows the release the hub names (`self-update.ts` in production); without it, hello doesn't offer to. */
+  onKingdomVersion?: (version: string | undefined) => void;
   /** Mode for sessions started without one, and for ones rebuilt after a restart. Default: manual. */
   defaultMode?: PermissionMode;
   /** Engines this node runs sessions on, advertised in hello; unset means just `stream` (and hello omits it). */
@@ -116,6 +121,8 @@ export interface CrystalNode {
   /** Wired as a Task 4 `onRequest`: turns a prompt into a `permission.request` envelope. */
   handlePermissionRequest(request: PermissionRequest): Promise<PermissionDecision>;
   status(): NodeStatus;
+  /** Tells the hub how this Kingdom's own update is going, for the Castle. */
+  reportSelfUpdate(state: SelfUpdate): void;
   /**
    * Closes every session, stops reconnecting and closes the socket. Resolves once the sessions' processes have
    * stopped (each engine escalates to SIGTERM after its grace period), or after `CLOSE_WAIT_MS` regardless, so a
@@ -645,6 +652,12 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const kingdomVersion = HubKingdomVersion.safeParse(parsed);
+    if (kingdomVersion.success) {
+      options.onKingdomVersion?.(kingdomVersion.data.version);
+      return;
+    }
+
     log('dropped unrecognized frame from hub', parsed);
   }
 
@@ -674,6 +687,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(engines ? { engines } : {}),
           ...(options.release ? { release: options.release } : {}),
           ...(options.updateCli ? { cliUpdate: true } : {}),
+          ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
         }),
       );
       resendUnacked();
@@ -776,5 +790,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
   connect();
 
-  return { handlePermissionRequest, status, close };
+  function reportSelfUpdate({ version, state, reason }: SelfUpdate): void {
+    const short = reason?.slice(-MAX_CLI_UPDATE_REASON);
+    wsSend(NodeSelfUpdate.parse({ kind: 'self-update', version, state, ...(short ? { reason: short } : {}) }));
+  }
+
+  return { handlePermissionRequest, status, reportSelfUpdate, close };
 }

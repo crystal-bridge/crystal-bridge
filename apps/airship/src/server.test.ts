@@ -616,6 +616,71 @@ describe('airship server', () => {
     expect(await cliOf()).toBe('2.1.314');
   });
 
+  describe('naming the Kingdom release to run', () => {
+    const row = async () =>
+      (
+        (await (await fetch(`${baseUrl}/api/engines`)).json()) as {
+          node: string;
+          selfUpdate?: { version: string; state: string; reason?: string };
+        }[]
+      )[0];
+
+    /** The suite's hub is replaced by one that names this version; its `afterEach` closes it. */
+    async function restartWith(kingdomVersion?: string): Promise<void> {
+      await app.close();
+      app = await buildServer({ store, ...(kingdomVersion ? { kingdomVersion } : {}) });
+      await app.listen({ port: 0, host: '127.0.0.1' });
+      const { port } = app.server.address() as AddressInfo;
+      baseUrl = `http://127.0.0.1:${port}`;
+      wsUrl = `ws://127.0.0.1:${port}`;
+    }
+
+    it('tells a Kingdom that offers self-update, and only that one', async () => {
+      await restartWith('1.2.3');
+      const offering = await openSocket(`${wsUrl}/node`);
+      const other = await openSocket(`${wsUrl}/node`);
+      sockets.push(offering, other);
+      const offeringFrames = new FrameRecorder(offering);
+      const otherFrames = new FrameRecorder(other);
+      send(other, { kind: 'hello', node: 'node-b' });
+      send(offering, { kind: 'hello', node: 'node-a', selfUpdate: true });
+      expect(await offeringFrames.waitFor((f) => f.kind === 'kingdom-version')).toEqual({
+        kind: 'kingdom-version',
+        version: '1.2.3',
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(otherFrames.frames.filter((f) => f.kind === 'kingdom-version')).toEqual([]);
+    });
+
+    it('says so when it names nothing, so a Kingdom partway through an update stops', async () => {
+      await restartWith();
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: 'node-a', selfUpdate: true });
+      expect(await frames.waitFor((f) => f.kind === 'kingdom-version')).toEqual({ kind: 'kingdom-version' });
+    });
+
+    it('shows how a Kingdom’s update is going until it reconnects', async () => {
+      await restartWith('1.2.3');
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      send(socket, { kind: 'hello', node: 'node-a', selfUpdate: true });
+      send(socket, { kind: 'self-update', version: '1.2.3', state: 'failed', reason: 'no attestation' });
+      const start = Date.now();
+      while (!(await row())?.selfUpdate && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 10));
+      expect((await row())?.selfUpdate).toEqual({ version: '1.2.3', state: 'failed', reason: 'no attestation' });
+
+      socket.close();
+      const again = await openSocket(`${wsUrl}/node`);
+      sockets.push(again);
+      send(again, { kind: 'hello', node: 'node-a', selfUpdate: true });
+      const restarted = Date.now();
+      while ((await row())?.selfUpdate && Date.now() - restarted < 2000) await new Promise((r) => setTimeout(r, 10));
+      expect((await row())?.selfUpdate).toBeUndefined();
+    });
+  });
+
   describe('updating a Kingdom-s agent CLI', () => {
     const update = (node: string) => fetch(`${baseUrl}/api/nodes/${node}/cli-update`, { method: 'POST' });
     const engineRow = async () =>

@@ -5,6 +5,7 @@ import { accessRefusals, authMode } from './access.js';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { backupStore } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
+import { kingdomTarget } from './kingdom-target.js';
 import { createFirstRun } from './first-run.js';
 import { pendingMigrations } from './migrations.js';
 import { loadNodes } from './nodes.js';
@@ -33,6 +34,7 @@ const VERSION = typeof __AIRSHIP_VERSION__ === 'string' ? __AIRSHIP_VERSION__ : 
 // Deploys write the commit id to RELEASE at the release root; a checkout without one is a dev build.
 const RELEASE_FILE = new URL('../../../RELEASE', import.meta.url);
 const RELEASE = VERSION ?? (existsSync(RELEASE_FILE) ? readFileSync(RELEASE_FILE, 'utf8').trim() : 'dev');
+const KINGDOM_TARGET = kingdomTarget(process.env.AIRSHIP_KINGDOM_VERSION, VERSION);
 const AUTH = process.env.AIRSHIP_AUTH || undefined;
 const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
   .split(',')
@@ -99,6 +101,7 @@ async function main(): Promise<void> {
     ...(firstRun ? { firstRun } : {}),
     settings: loadHubSettings(SETTINGS_PATH),
     release: RELEASE,
+    ...(KINGDOM_TARGET ? { kingdomVersion: KINGDOM_TARGET } : {}),
     ...(VERSION ? { webRoot: fileURLToPath(new URL('web', import.meta.url)) } : {}),
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
     push: { publicKey: vapid.publicKey, pusher },

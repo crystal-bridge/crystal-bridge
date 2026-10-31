@@ -20,4 +20,6 @@ npm init -y >/dev/null
 npm install --silent --no-audit --no-fund "$tarball"
 got=$(node_modules/.bin/crystal-bridge-kingdom --version)
 [[ $got == "$want" ]] || { echo "check: installed package says $got, expected $want" >&2; exit 1; }
+# The update path loads these only when it needs them, so running the package above wouldn't show one missing.
+node --input-type=module -e "await import('@sigstore/verify'); await import('@sigstore/bundle'); await import('@sigstore/tuf')"
 echo "check: @crystal-bridge/kingdom $got installs and runs"

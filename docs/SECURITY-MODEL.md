@@ -51,6 +51,23 @@ front of the hub, or a proxy that deletes any incoming `Tailscale-User-Login` be
 | A shell on a Kingdom as Crystal's user | Everything that user can already do, including running `claude` and answering Crystal's local permission port. Crystal adds no protection inside one user account. |
 | The hub's disk or a backup | Every stored conversation, including any secret ever pasted into one. |
 | A shell on the hub host | All of the above for the hub, plus serving a modified web app to users. |
+| Control of the hub, on self-updating Kingdoms | Name a newer real release, which those Kingdoms would install. Not run its own code that way, and not move a Kingdom to an older release. It still has every power of an allowed login. |
+
+## Self-updating Kingdoms
+
+The hub tells a Kingdom only which version to run. That version has to fit a strict pattern, since it becomes part of a URL
+and a folder name, and it has to be newer than the running one. The Kingdom fetches the package from this project's
+GitHub Releases, then checks the attestation itself: Sigstore's signature, whose root comes through Sigstore's own
+TUF repository, on a certificate naming `release.yml` in this repository at that version's own tag, over a statement
+naming that exact file and digest. So one release can't pass as another, and the hub's package can't pass as the
+Kingdom's. Nothing the hub says is part of the proof.
+
+What this doesn't cover:
+
+- **Who can push a release tag.** Whoever can run the release workflow can publish a release that passes.
+- **Dependencies.** The proof covers this project's package. `npm install` resolves its dependencies from npm at
+  install time, by the ranges in the package, as `join` does. Install scripts are off, but a dependency's code still runs.
+- **The first install.** `join` runs through `npx` from a URL and verifies nothing itself.
 
 ## What is out of scope
 

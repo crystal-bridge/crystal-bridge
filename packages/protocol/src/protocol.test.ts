@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   KINGDOM_PACKAGE,
+  ReleaseVersion,
+  isOlderVersion,
   joinCommand,
   ClientMessage,
   Envelope,
@@ -457,5 +459,35 @@ describe('installing a Kingdom', () => {
     expect(command).toBe(
       `npx --yes --package=${KINGDOM_PACKAGE} crystal-bridge-kingdom join https://hub.example.com CODE`,
     );
+  });
+});
+
+describe('ReleaseVersion', () => {
+  it.each(['1.2.3', '0.2.0-alpha.1', '10.0.0-rc-2'])('takes %s', (version) => {
+    expect(ReleaseVersion.safeParse(version).success).toBe(true);
+  });
+
+  it.each(['', 'latest', 'v1.2.3', '1.2', '1.2.3/../..', '../1.2.3', '1.2.3-..', '1.2.3-a/b', '1.2.3\n', '1.2.3 x'])(
+    'refuses %j, which could leave the releases folder or the URL',
+    (version) => {
+      expect(ReleaseVersion.safeParse(version).success).toBe(false);
+    },
+  );
+});
+
+describe('isOlderVersion', () => {
+  it('orders versions, pre-releases before their release, numbers as numbers', () => {
+    expect(isOlderVersion('1.2.3', '1.2.4')).toBe(true);
+    expect(isOlderVersion('1.9.0', '1.10.0')).toBe(true);
+    expect(isOlderVersion('1.0.0-alpha.2', '1.0.0-alpha.10')).toBe(true);
+    expect(isOlderVersion('1.0.0-rc.1', '1.0.0')).toBe(true);
+    expect(isOlderVersion('1.0.0', '1.0.0-rc.1')).toBe(false);
+    expect(isOlderVersion('1.0.0', '1.0.0')).toBe(false);
+  });
+
+  it('never calls a commit, a dev build or nothing older', () => {
+    expect(isOlderVersion('0d821f4', '1.0.0')).toBe(false);
+    expect(isOlderVersion('1.0.0', 'dev')).toBe(false);
+    expect(isOlderVersion(undefined, '1.0.0')).toBe(false);
   });
 });

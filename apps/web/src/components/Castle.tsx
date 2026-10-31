@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactNode, useState } from 'react';
 import type { KingdomLook } from '../appearance.js';
 import { KingdomIcon } from './KingdomIcon.js';
 import { hint, w } from '../theme/words.js';
-import type { Engine, ExternalSession } from '@crystal-bridge/protocol';
+import type { Engine, ExternalSession, SelfUpdate } from '@crystal-bridge/protocol';
 import type { Kingdom } from '../kingdoms.js';
 import { isActiveQuest } from '../quests.js';
 import { FoundSessions } from './FoundSessions.js';
@@ -38,6 +38,8 @@ export interface CastleProps {
   release?: string;
   /** The hub's own release, to tell when this Kingdom is behind it. */
   hubRelease?: string;
+  /** How this Kingdom's own move to the hub's release is going, when it updates itself. */
+  selfUpdate?: SelfUpdate;
   /** The agent CLI version this Kingdom runs, and the latest published one when the hub checks. */
   cli?: string;
   latestCli?: string;
@@ -101,6 +103,27 @@ function Folded({
       </button>
       {open && <div className="pt-1">{children}</div>}
     </section>
+  );
+}
+
+/** Where a Kingdom's update of itself stands. It keeps running its version until the swap, so a failure costs nothing. */
+function SelfUpdateLine({ update: { version, state, reason } }: { update: SelfUpdate }) {
+  if (state === 'failed') {
+    return (
+      <p role="alert" className="whitespace-pre-wrap text-sm text-red-600 dark:text-red-400">
+        Could not update to {version}, so it stays on its version and tries again later. {reason}
+      </p>
+    );
+  }
+  const words = {
+    installing: `Updating to ${version}…`,
+    waiting: `${version} is ready: this Kingdom restarts on it once no Quest here is busy.`,
+    restarting: `Restarting on ${version}…`,
+  };
+  return (
+    <p role="status" className="text-sm text-neutral-500">
+      {words[state]}
+    </p>
   );
 }
 
@@ -296,6 +319,7 @@ export function Castle({
   look,
   release,
   hubRelease,
+  selfUpdate,
   cli,
   latestCli,
   onUpdateCli,
@@ -357,10 +381,14 @@ export function Castle({
                   <span title="engines this Kingdom runs"> · {engines.join(', ')}</span>
                 )}
               </p>
-              {isBehind(release, hubRelease) && (
-                <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
-                  Behind the Airship ({hubRelease}): update this Kingdom.
-                </p>
+              {selfUpdate ? (
+                <SelfUpdateLine update={selfUpdate} />
+              ) : (
+                isBehind(release, hubRelease) && (
+                  <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+                    Behind the Airship ({hubRelease}): update this Kingdom.
+                  </p>
+                )
               )}
               {cli && kingdom.connected && onUpdateCli && (
                 <UpdateCli
