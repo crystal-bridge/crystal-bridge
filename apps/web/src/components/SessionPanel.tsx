@@ -13,13 +13,14 @@ import { COMPANIONS, companionFor } from '../theme/companions.js';
 import { LevelContext } from '../levels.js';
 import { bytes, duration, tokens } from '../format.js';
 import { formatUntil, STALE_MS } from './NodeUsage.js';
+import { type PlanBar, planBars } from '../plan.js';
 import { Gold } from './Gold.js';
 
-/** A Stats row: the theme's label, with the plain term on hover. */
-function Stat({ concept, children }: { concept: Concept; children: ReactNode }) {
+/** A Stats row: the theme's label, with the plain term on hover, and `detail` where one word can't say it all. */
+function Stat({ concept, detail, children }: { concept: Concept; detail?: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-2 py-0.5 text-xs">
-      <span title={hint(concept)} className="shrink-0 text-neutral-500">
+      <span title={detail ? `${hint(concept)}: ${detail}` : hint(concept)} className="shrink-0 text-neutral-500">
         {w(concept)}
       </span>
       <span className="min-w-0 text-right">{children}</span>
@@ -28,8 +29,10 @@ function Stat({ concept, children }: { concept: Concept; children: ReactNode }) 
 }
 
 /** A draining bar (HP, MP), coloured in five steps from full (green) to empty (red): `--meter-<level>` in theme.css. */
-function Meter({ label, left }: { label: string; left: number }) {
-  const level = left > 80 ? 5 : left > 60 ? 4 : left > 40 ? 3 : left > 20 ? 2 : 1;
+function Meter({ label, left, warning }: { label: string; left: number; warning?: PlanBar['warning'] }) {
+  const step = left > 80 ? 5 : left > 60 ? 4 : left > 40 ? 3 : left > 20 ? 2 : 1;
+  // The window's own warning wins over its percentage: the tightest limit is what stops you.
+  const level = warning === 'out' ? 1 : warning === 'low' ? Math.min(step, 2) : step;
   return (
     <div
       role="meter"
@@ -45,12 +48,29 @@ function Meter({ label, left }: { label: string; left: number }) {
   );
 }
 
-/** HP: what's left of the Kingdom's five-hour plan window (full again once it resets), and when it resets. */
-function planLeft(plan: UsageWindow[] | undefined, now: number): { left: number; resetsAt: number | null } | undefined {
-  const window = plan?.find((w) => w.id === 'five_hour') ?? plan?.[0];
-  if (!window) return undefined;
-  if (window.resetsAt !== null && window.resetsAt <= now) return { left: 100, resetsAt: null };
-  return { left: Math.max(0, Math.min(100, Math.round(100 - window.usedPct))), resetsAt: window.resetsAt };
+/** One plan bar: what's left, when it rests, and which limit it is, since a weekly HP is not a five-hour one. */
+function PlanMeter({
+  concept,
+  bar,
+  label,
+  now,
+  asOf,
+}: {
+  concept: Concept;
+  bar: PlanBar;
+  label: string;
+  now: number;
+  asOf?: number | undefined;
+}) {
+  return (
+    <>
+      <Stat concept={concept} detail={`the ${bar.limit} limit`}>
+        {bar.left}%{bar.resetsAt !== null && ` · rests in ${formatUntil(bar.resetsAt, now)}`}
+        {asOf !== undefined && now - asOf > STALE_MS && ` · as of ${formatUntil(now, asOf)} ago`}
+      </Stat>
+      <Meter label={label} left={bar.left} warning={bar.warning} />
+    </>
+  );
 }
 
 /** The game sections whose titles sit on a menu-window plate, each in its own hue (`.cb-plate` in theme.css). */
@@ -259,7 +279,8 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
   // MP drains: what's left of the context window.
   const left = pct === undefined ? undefined : Math.max(0, 100 - pct);
   const mode = MODES.find((m) => m.value === info.mode)?.label ?? info.mode;
-  const hp = planLeft(plan, now ?? Date.now());
+  const clock = now ?? Date.now();
+  const { hp, stamina } = planBars(plan, clock);
   const { stats } = info;
 
   return (
@@ -277,17 +298,8 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
       )}
 
       <Section title={w('stats')} tooltip={hint('stats')} plate="stats">
-        {hp && (
-          <>
-            <Stat concept="hp">
-              {hp.left}%{hp.resetsAt !== null && ` · rests in ${formatUntil(hp.resetsAt, now ?? Date.now())}`}
-              {planAt !== undefined &&
-                (now ?? Date.now()) - planAt > STALE_MS &&
-                ` · as of ${formatUntil(now ?? Date.now(), planAt)} ago`}
-            </Stat>
-            <Meter label="Plan left" left={hp.left} />
-          </>
-        )}
+        {hp && <PlanMeter concept="hp" bar={hp} label="Plan left" now={clock} asOf={planAt} />}
+        {stamina && <PlanMeter concept="stamina" bar={stamina} label="Longer plan limit left" now={clock} />}
         <Stat concept="mp">
           {info.context ? (
             <>

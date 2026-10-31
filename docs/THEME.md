@@ -105,12 +105,14 @@ it. Words in `useLine` (`apps/web/src/theme/words.ts`); Classic: "Used skill: de
 
 ### Stats
 
-HP and MP bars drain in five colour steps, green when full through yellow and orange to red near empty
+HP, Stamina and MP bars drain in five colour steps, green when full through yellow and orange to red near empty
 (`--meter-1` to `--meter-5` in theme.css); the percentage stays in text, so colour is never the only signal.
 
 | Theme | Claude concept |
 |---|---|
-| **HP** | the Kingdom's plan usage left in its five-hour window, as a draining bar; full again when it resets (*Resting at the Inn*). Shared by the Kingdom's Quests |
+| **HP** | the Kingdom's plan usage left in the shortest limit its plan has, as a draining bar; full again when it resets (*Resting at the Inn*). That's the 5-hour limit on most plans and the weekly one on a plan without it. Shared by the Kingdom's Quests. Its tooltip names the limit |
+| **Stamina** | the same for a longer limit, only when the plan has one as well as HP's: the weekly limit on most plans, and if there are several, whichever has the least left. A plan with one limit has no Stamina bar |
+| **Bars that warn** | when the plan reports a limit is nearly out or used up, its bar turns orange or red however much it shows left: the tightest limit is what stops you |
 | **MP** | context left before compaction, as a draining bar: measured to the configured `autoCompactWindow` when there is one, else to the window's end. The CLI compacts a little before that size, so MP can read a few percent at that moment |
 | **Gold** | cost, one coin per US cent (118 Gold is $1.18), grouped by locale; a tiny info icon shows the dollars (hover, focus or tap). Classic: dollars |
 | **Command Rune** | shell mode: a follow-up starting with `!` on an interactive Quest (the prompt box turns rose) |

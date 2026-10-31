@@ -180,10 +180,11 @@ function plan(fiveHourUsed: number, sevenDayUsed: number): UsagePayload {
   const resetsAt = Date.now() + 2 * 60 * MINUTE;
   return {
     windows: [
-      { id: 'five_hour', label: '5h', usedPct: fiveHourUsed, resetsAt, status: 'allowed' },
+      { id: 'five_hour', label: '5h', spanHours: 5, usedPct: fiveHourUsed, resetsAt, status: 'allowed' },
       {
         id: 'seven_day',
         label: '7d',
+        spanHours: 168,
         usedPct: sevenDayUsed,
         resetsAt: resetsAt + 3 * 24 * 60 * MINUTE,
         status: 'allowed',
