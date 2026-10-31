@@ -13,4 +13,5 @@ ssh_dir=/var/lib/airship/.ssh
 rsync -a --delete \
   -e "ssh -i $ssh_dir/id_ed25519 -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes" \
   "${AIRSHIP_BACKUP_DIR:?}/" "$AIRSHIP_BACKUP_SSH:/"
+date +%s >"$AIRSHIP_BACKUP_DIR/last-mirror" # the Ship's Log reads this
 echo "[airship] mirrored $AIRSHIP_BACKUP_DIR to $AIRSHIP_BACKUP_SSH"

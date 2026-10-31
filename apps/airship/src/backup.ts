@@ -1,9 +1,10 @@
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { hubPaths } from './paths.js';
 
 const BACKUP_NAME = /^airship-\d{8}-\d{6}\.db$/;
+const BACKUP_STAMP = /^airship-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.db$/;
 
 function stamp(now: Date): string {
   const iso = now.toISOString(); // 2026-10-29T03:04:05.000Z
@@ -34,6 +35,22 @@ export async function backupStore(
     .sort();
   for (const name of copies.slice(0, Math.max(0, copies.length - keep))) rmSync(join(dir, name));
   return target;
+}
+
+/** When the newest copy was made, and when the mirror last ran (`push-backups.sh` leaves `last-mirror`); only what's known. */
+export function backupRecord(dir: string): { lastBackupAt?: number; lastMirrorAt?: number } {
+  if (!existsSync(dir)) return {};
+  const newest = readdirSync(dir)
+    .filter((name) => BACKUP_NAME.test(name))
+    .sort()
+    .at(-1);
+  const [y, mo, d, h, mi, sec] = (BACKUP_STAMP.exec(newest ?? '') ?? []).slice(1).map(Number);
+  const mirror = join(dir, 'last-mirror');
+  const mirrored = existsSync(mirror) ? Number(readFileSync(mirror, 'utf8').trim()) : NaN;
+  return {
+    ...(newest ? { lastBackupAt: Date.UTC(y!, mo! - 1, d, h, mi, sec) } : {}),
+    ...(Number.isFinite(mirrored) ? { lastMirrorAt: mirrored * 1000 } : {}),
+  };
 }
 
 /** One backup with the hub's own settings: the nightly job, and `crystal-bridge-airship backup`. */

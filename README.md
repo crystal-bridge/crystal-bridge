@@ -38,6 +38,7 @@ The default theme has its own words for things. Classic uses plain ones.
 | Term | What it is |
 |---|---|
 | **Airship** | The hub every machine connects to, and the app's home page |
+| **Ship's Log** | The hub's own release, health and updates, on the Airship |
 | **Tavern** | The room on the Airship that lists everything waiting on you, across Kingdoms |
 | **Kingdom** | A machine and the Claude account signed in on it |
 | **Crystal** | The agent that runs on a Kingdom and connects it to the Airship |
@@ -84,8 +85,8 @@ If you need API-key billing or want to offer it to others, read those terms firs
   the CLI documents as internal, so a CLI update can break it. The default stream engine uses the documented
   `stream-json` output.
 - **No telemetry.** The web app talks only to your hub. The hub talks to your machines, to npm's public registry to
-  see the latest Claude Code version (`AIRSHIP_CLI_CHECK=off` stops that), and, if you turn on Web Push, to your
-  browsers' push services. A Kingdom that updates itself talks to GitHub, Sigstore and npm to fetch and check a
+  see the latest Claude Code version (`AIRSHIP_CLI_CHECK=off` stops that), to GitHub to see this project's latest
+  release (`AIRSHIP_RELEASE_CHECK=off` stops that), and, if you turn on Web Push, to your browsers' push services. A Kingdom that updates itself talks to GitHub, Sigstore and npm to fetch and check a
   release (`CRYSTAL_SELF_UPDATE=off` stops that). Nothing about you or your sessions is sent. Fonts and art are bundled.
 - **Where it runs:** the hub on Linux and macOS, and Kingdoms on those and Windows, with Node 22 or newer; the web app
   in current Chrome, Firefox and Safari, including as an [installed app](docs/INSTALL-APP.md) on a phone.

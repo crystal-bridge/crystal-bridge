@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import { ClientMessage } from '@crystal-bridge/protocol';
+import { ClientMessage, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
 import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
@@ -1253,6 +1253,46 @@ describe('airship server checking the latest agent CLI', () => {
     expect(await (await fetch(url)).json()).toEqual({ latest: '2.1.320' });
     await app.close();
     store.close();
+  });
+});
+
+describe('airship server reporting on itself', () => {
+  async function status(options: Partial<Parameters<typeof buildServer>[0]>) {
+    const store = openStore(':memory:');
+    const app = await buildServer({ store, release: '1.0.0', ...options });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const url = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/hub/status`;
+    const body = (await (await fetch(url)).json()) as Record<string, unknown>;
+    await app.close();
+    store.close();
+    return body;
+  }
+  const notes = { version: '1.1.0', url: 'https://example.invalid/r', notes: 'What changed' };
+
+  it('says what it runs, and how long it has been up', async () => {
+    const body = await status({});
+    expect(body).toMatchObject({ release: '1.0.0', protocol: PROTOCOL_VERSION });
+    expect(body.uptimeMs).toEqual(expect.any(Number));
+    expect(body).not.toHaveProperty('update');
+  });
+
+  it('offers a newer release', async () => {
+    expect((await status({ latestRelease: async () => notes })).update).toEqual(notes);
+  });
+
+  it('offers nothing when the hub is on the latest release or past it', async () => {
+    expect(await status({ latestRelease: async () => ({ ...notes, version: '1.0.0' }) })).not.toHaveProperty('update');
+    expect(await status({ latestRelease: async () => ({ ...notes, version: '0.9.0' }) })).not.toHaveProperty('update');
+  });
+
+  it('never offers one to a hub run from git, which has no version to compare', async () => {
+    const body = await status({ release: '0123456789ab', latestRelease: async () => notes });
+    expect(body).not.toHaveProperty('update');
+  });
+
+  it('adds what the running hub reports about its files', async () => {
+    const body = await status({ upkeep: () => ({ databaseBytes: 2048, lastBackupAt: 5, lastMirrorAt: 6 }) });
+    expect(body).toMatchObject({ databaseBytes: 2048, lastBackupAt: 5, lastMirrorAt: 6 });
   });
 });
 

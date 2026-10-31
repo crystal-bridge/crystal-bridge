@@ -34,6 +34,7 @@ import {
   withLook,
   withTabStyle,
 } from './appearance.js';
+import { type HubStatus, logAttention } from './components/ShipsLog.js';
 import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
@@ -143,6 +144,7 @@ export function App({ hub }: { hub: HubClient }) {
   const [external, setExternal] = useState<{ node: string; sessions: ExternalSession[] }[]>([]);
   const [projectLists, setProjectLists] = useState<{ node: string; projects: Project[] }[]>([]);
   const [latestCli, setLatestCli] = useState<string | undefined>(undefined);
+  const [hubStatus, setHubStatus] = useState<HubStatus | undefined>(undefined);
   const [removed, setRemoved] = useState<string | null>(null);
   const [canLogOut, setCanLogOut] = useState(false);
   const [hubName, setHubName] = useState<string | null>(null);
@@ -533,7 +535,7 @@ export function App({ hub }: { hub: HubClient }) {
 
   const refresh = useCallback(async () => {
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
-    const [s, n, u, x, h, p, e, l, a, t, b] = await Promise.all([
+    const [s, n, u, x, h, p, e, l, a, t, b, g] = await Promise.all([
       tryJson<SessionSummary[]>('/api/sessions'),
       tryJson<string[]>('/api/nodes'),
       tryJson<NodeUsageRow[]>('/api/usage'),
@@ -545,11 +547,13 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<{ session: string; node: string }[]>('/api/waiting'),
       tryJson<string[]>('/api/nodes/enrolled'),
       tryJson<{ name?: string | null }>('/api/hub'),
+      tryJson<HubStatus>('/api/hub/status'),
     ]);
     keep(setSessions, s);
     keep(setNodes, n);
     if (t) setEnrolled(t);
     if (b) setHubName(b.name ?? null);
+    if (g) setHubStatus(g);
     keep(setUsage, u);
     keep(setExternal, x);
     if (h) setServedRelease(h.release);
@@ -872,6 +876,14 @@ export function App({ hub }: { hub: HubClient }) {
               <img src="/favicon.svg" alt="" width={32} height={32} className="[image-rendering:pixelated]" />
               <span className="cb-display hidden text-3xl leading-none sm:inline">{title}</span>
               <span className="sr-only sm:hidden">{title}</span>
+              {logAttention(hubStatus) > 0 && (
+                <span
+                  title={`An update is out: see the ${w('shipsLog')}`}
+                  className="hidden rounded-full bg-amber-500 px-1.5 font-sans text-xs font-bold leading-4 text-white md:inline"
+                >
+                  {logAttention(hubStatus)}
+                </span>
+              )}
             </button>
             <div className="min-w-0 flex-1 pt-2">
               <KingdomBar
@@ -1021,6 +1033,11 @@ export function App({ hub }: { hub: HubClient }) {
                 heroes={heroManifest}
                 heroStates={heroStates}
                 levels={levels}
+                hubStatus={hubStatus}
+                fleet={visible.map(({ id, name, connected }) => {
+                  const row = engineLists.find((engines) => engines.node === id);
+                  return { id, name, connected, release: row?.release, selfUpdate: row?.selfUpdate };
+                })}
                 onNewQuest={(node) => {
                   selectKingdom(node);
                   setSelected(null);

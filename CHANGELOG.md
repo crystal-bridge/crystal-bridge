@@ -7,6 +7,8 @@ then, everything is in Unreleased.
 
 ### Added
 
+- A Ship's Log on the Airship shows the hub's release, health and how its Kingdoms are getting on, and says when a
+  newer release is out, with its notes and how to take it. The logo gets a badge for it.
 - A Quest's Stats fit every plan: HP is the shortest limit the plan has, a new Stamina bar shows a longer one when
   there is one, a bar's tooltip names its limit, and a bar warns when its limit says it's nearly out.
 - The docs site opens with what Crystal Bridge is and why you'd want it, explains the model on one short page, and has

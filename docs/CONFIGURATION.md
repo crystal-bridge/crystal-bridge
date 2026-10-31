@@ -39,6 +39,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `AIRSHIP_PUSH_SUBJECT` | `mailto:crystal-bridge@example.invalid` | Airship: the contact URL push services may use (`mailto:` or `https:`) |
 | `AIRSHIP_KINGDOM_VERSION` | the hub's own version | Airship: the release self-updating Kingdoms move to, or `off` for none. A hub run from git has no version of its own |
 | `AIRSHIP_CLI_CHECK` | on | Airship: `off` stops it asking npm for the latest Claude Code version |
+| `AIRSHIP_RELEASE_CHECK` | on | Airship: `off` stops a packaged hub asking GitHub for this project's latest release |
 | `AIRSHIP_BACKUP_DIR` | `./backups`, or in `AIRSHIP_DATA` | Airship: where database backups go |
 | `AIRSHIP_BACKUP_KEEP` | `14` | Airship: how many backups to keep |
 | `AIRSHIP_BACKUP_SSH` | unset | Backup mirror (`deploy/airship/push-backups.sh`): the off-box `user@host`; unset keeps backups local |

@@ -379,6 +379,11 @@ export function kingdomTarballUrl(version: string): string {
   return `https://github.com/${RELEASE_REPO}/releases/download/v${version}/${kingdomTarballName(version)}`;
 }
 
+/** The hub's container image at a release, under the same owner as the repository. */
+export function hubImage(version: string): string {
+  return `ghcr.io/${RELEASE_REPO.split('/')[0]}/airship:${version}`;
+}
+
 /**
  * What Add Kingdom installs: this release's tarball on GitHub until the package is on npm. A fork points this at its own
  * release. A test keeps it on the Kingdom package's version.

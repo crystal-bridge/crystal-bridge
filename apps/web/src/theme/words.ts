@@ -38,6 +38,7 @@ export type Concept =
   | 'hp'
   | 'stamina'
   | 'roster'
+  | 'shipsLog'
   | 'expedition'
   | 'mp'
   | 'gold'
@@ -69,7 +70,7 @@ export type Words = Record<Concept, Word>;
 
 /** Crystal Bridge's own theme: old-school JRPG words over plain concepts. */
 export const CRYSTAL: Words = {
-  home: { themed: 'The Airship', plain: 'Home' },
+  home: { themed: 'The Airship', plain: 'Home: every Kingdom at a glance, and the hub itself' },
   tavern: { themed: 'Tavern', plain: "What's waiting on you" },
   kingdom: { themed: 'Kingdom', plain: 'node' },
   kingdoms: { themed: 'Kingdoms', plain: 'nodes' },
@@ -97,6 +98,7 @@ export const CRYSTAL: Words = {
   hp: { themed: 'HP', plain: "plan usage left in this Kingdom's shortest limit, shared by its Quests" },
   stamina: { themed: 'Stamina', plain: "plan usage left in this Kingdom's longer limit, shared by its Quests" },
   expedition: { themed: 'Expedition', plain: 'where and how the session runs' },
+  shipsLog: { themed: "Ship's Log", plain: "the hub's release, health and updates" },
   roster: { themed: 'Roster', plain: 'each Hero Class and its level, from the Quests it led' },
   mp: { themed: 'MP', plain: 'context left before it compacts' },
   gold: { themed: 'Gold', plain: 'cost' },
@@ -127,7 +129,7 @@ export const CRYSTAL: Words = {
 
 /** A plain theme: the same concepts with everyday words. */
 export const CLASSIC: Words = {
-  home: { themed: 'Home', plain: 'Home' },
+  home: { themed: 'Home', plain: 'Home: every node at a glance, and the hub itself' },
   tavern: { themed: 'Waiting on you', plain: 'Waiting on you' },
   kingdom: { themed: 'Node', plain: 'Node' },
   kingdoms: { themed: 'Nodes', plain: 'Nodes' },
@@ -155,6 +157,7 @@ export const CLASSIC: Words = {
   hp: { themed: 'Plan left', plain: "Plan usage left in this node's shortest limit" },
   stamina: { themed: 'Longer limit left', plain: "Plan usage left in this node's longer limit" },
   expedition: { themed: 'Environment', plain: 'Environment' },
+  shipsLog: { themed: 'Hub', plain: "The hub's release, health and updates" },
   roster: { themed: 'Agent levels', plain: 'Agent levels' },
   mp: { themed: 'Context', plain: 'Context left' },
   gold: { themed: 'Cost', plain: 'Cost' },
