@@ -36,6 +36,7 @@ export type Concept =
   | 'jumpToLatest'
   | 'stats'
   | 'hp'
+  | 'stamina'
   | 'roster'
   | 'expedition'
   | 'mp'
@@ -93,7 +94,8 @@ export const CRYSTAL: Words = {
   loadingHistory: { themed: 'Unrolling the Chronicle…', plain: 'Loading history…' },
   jumpToLatest: { themed: 'Jump to latest', plain: 'Jump to latest' },
   stats: { themed: 'Stats', plain: "this session's numbers" },
-  hp: { themed: 'HP', plain: "plan usage left in this Kingdom's 5-hour window, shared by its Quests" },
+  hp: { themed: 'HP', plain: "plan usage left in this Kingdom's shortest limit, shared by its Quests" },
+  stamina: { themed: 'Stamina', plain: "plan usage left in this Kingdom's longer limit, shared by its Quests" },
   expedition: { themed: 'Expedition', plain: 'where and how the session runs' },
   roster: { themed: 'Roster', plain: 'each Hero Class and its level, from the Quests it led' },
   mp: { themed: 'MP', plain: 'context left before it compacts' },
@@ -150,7 +152,8 @@ export const CLASSIC: Words = {
   loadingHistory: { themed: 'Loading history…', plain: 'Loading history…' },
   jumpToLatest: { themed: 'Jump to latest', plain: 'Jump to latest' },
   stats: { themed: 'Usage', plain: 'Usage' },
-  hp: { themed: 'Plan left', plain: "Plan usage left in this node's 5-hour window" },
+  hp: { themed: 'Plan left', plain: "Plan usage left in this node's shortest limit" },
+  stamina: { themed: 'Longer limit left', plain: "Plan usage left in this node's longer limit" },
   expedition: { themed: 'Environment', plain: 'Environment' },
   roster: { themed: 'Agent levels', plain: 'Agent levels' },
   mp: { themed: 'Context', plain: 'Context left' },

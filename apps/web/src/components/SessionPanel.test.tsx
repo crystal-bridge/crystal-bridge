@@ -91,11 +91,11 @@ describe('SessionPanel', () => {
     expect(names.indexOf('Stats')).toBeLessThan(names.indexOf('Expedition'));
   });
 
-  it("shows HP above MP: the Kingdom's five-hour plan usage left, and when it rests", () => {
+  it("shows HP above MP: the Kingdom's shortest plan limit left, and when it rests", () => {
     const now = Date.UTC(2026, 9, 30, 12);
     const plan = [
-      { id: 'seven_day', label: '7d', usedPct: 10, resetsAt: now + 86_400_000, status: 'allowed' },
-      { id: 'five_hour', label: '5h', usedPct: 28, resetsAt: now + 72 * 60_000, status: 'allowed' },
+      { id: 'seven_day', label: '7d', spanHours: 168, usedPct: 10, resetsAt: now + 86_400_000, status: 'allowed' },
+      { id: 'five_hour', label: '5h', spanHours: 5, usedPct: 28, resetsAt: now + 72 * 60_000, status: 'allowed' },
     ];
     render(<SessionPanel info={info} kingdom="node-b" plan={plan} now={now} />);
     const stats = screen.getByRole('region', { name: 'Stats' });
@@ -104,6 +104,52 @@ describe('SessionPanel', () => {
     expect(within(stats).getByTitle(/^HP/).closest('div')?.textContent).toContain('72% · rests in 1h12m');
     const meters = within(stats).getAllByRole('meter');
     expect(meters.indexOf(hp)).toBeLessThan(meters.indexOf(within(stats).getByRole('meter', { name: 'Context left' })));
+  });
+
+  it('adds Stamina for a longer limit, between HP and MP, and says which limit each bar is showing', () => {
+    const now = Date.UTC(2026, 9, 30, 12);
+    const plan = [
+      { id: 'five_hour', label: '5h', spanHours: 5, usedPct: 28, resetsAt: now + 72 * 60_000, status: 'allowed' },
+      { id: 'seven_day', label: '7d', spanHours: 168, usedPct: 60, resetsAt: now + 2 * 86_400_000, status: 'allowed' },
+    ];
+    render(<SessionPanel info={info} kingdom="node-b" plan={plan} now={now} />);
+    const stats = screen.getByRole('region', { name: 'Stats' });
+    const meters = within(stats).getAllByRole('meter');
+    expect(meters.map((m) => m.getAttribute('aria-label'))).toEqual([
+      'Plan left',
+      'Longer plan limit left',
+      'Context left',
+    ]);
+    expect(meters[1]?.getAttribute('aria-valuenow')).toBe('40');
+    expect(within(stats).getByTitle(/^HP/).getAttribute('title')).toMatch(/the 5-hour limit$/);
+    const stamina = within(stats).getByTitle(/^Stamina/);
+    expect(stamina.getAttribute('title')).toMatch(/the weekly limit$/);
+    expect(stamina.closest('div')?.textContent).toContain('40% · rests in 2d0h');
+  });
+
+  it('looks the same as ever with one window, which on a weekly-only plan is HP', () => {
+    const now = Date.UTC(2026, 9, 30, 12);
+    const plan = [
+      { id: 'seven_day', label: '7d', spanHours: 168, usedPct: 25, resetsAt: now + 86_400_000, status: 'allowed' },
+    ];
+    render(<SessionPanel info={info} kingdom="node-b" plan={plan} now={now} />);
+    expect(screen.queryByTitle(/^Stamina/)).toBeNull();
+    expect(screen.getAllByRole('meter').map((m) => m.getAttribute('aria-label'))).toEqual([
+      'Plan left',
+      'Context left',
+    ]);
+    expect(screen.getByTitle(/^HP/).getAttribute('title')).toMatch(/the weekly limit$/);
+  });
+
+  it('colours a bar for its own warning, even with room left', () => {
+    const plan = (status: string) => [{ id: 'five_hour', label: '5h', usedPct: 10, resetsAt: null, status }];
+    const level = (status: string) => {
+      render(<SessionPanel info={info} kingdom="node-b" plan={plan(status)} />);
+      const value = screen.getByRole('meter', { name: 'Plan left' }).getAttribute('data-level');
+      cleanup();
+      return value;
+    };
+    expect([level('allowed'), level('allowed_warning'), level('rejected')]).toEqual(['5', '2', '1']);
   });
 
   it("says how old the Kingdom's report is once it's stale, since it only updates while a Quest runs there", () => {

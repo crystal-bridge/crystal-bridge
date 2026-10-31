@@ -67,7 +67,8 @@ These also appear, and a parser must tolerate them: `system/hook_started` and `s
 hook from the user's settings runs even in `-p` mode), `system/status` (`{"status":"requesting"}` before each API
 call), `system/task_summary` (`detail`: a short progress string, or `null`), `system/post_turn_summary`
 (`status_category`, `status_detail`, `needs_action`, `summarizes_uuid`) and `rate_limit_event` (`rate_limit_info`
-with `status`, `resetsAt`, `rateLimitType` and `unifiedWindows`; the recorded values are neutral placeholders). Every
+with `status`, `resetsAt`, `rateLimitType` and `unifiedWindows`; the recorded values are neutral placeholders; see
+[Plan windows](#plan-windows)). Every
 line carries `session_id` and `uuid`.
 
 ### Text delta (`stream_event`)
@@ -245,6 +246,15 @@ holding UUIDs become zero UUIDs. Model identifiers become `claude-model` (`claud
 distinct models). Each `rate_limit_event`'s `rate_limit_info` keeps its keys but gets fixed values: `status` is `allowed`,
 every `resetsAt` and `utilization` is `0`, `overageStatus` is `rejected`, and `overageDisabledReason` is dropped.
 `--rescrub` re-applies all of this to the existing fixtures without running the CLI. Session ids, message uuids and tool-use ids are kept as recorded.
+
+## Plan windows
+
+Recorded from a plan with both limits (2.1.312, and again on 2026-10-31): `unifiedWindows` has `five_hour` and
+`seven_day`, in that order, each with `utilization`, `resetsAt` and `status`. `rateLimitType` names one of them. A plan
+with only weekly limits has not been recorded: nothing here shows what its window names are. `src/usage.ts` therefore
+reads the length from the name (`seven_day`, `seven_day_<scope>`, `30_day`) rather than expecting set names, and passes
+on any other name with no length. `status` is scrubbed to `allowed`; the app also handles `allowed_warning` and
+`rejected`.
 
 ## The interactive engine (2.1.312, observed 2026-10-29)
 
