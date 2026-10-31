@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,9 +12,11 @@ import {
   Envelope,
   FileReply,
   HubAck,
+  type HubCliUpdate,
   type HubToClient,
   NodeCommand,
   NodeCli,
+  NodeCliUpdated,
   NodeError,
   NodeExternal,
   NodeProjects,
@@ -78,6 +81,8 @@ const CLOSE_TOKEN_REVOKED = 4007;
 
 /** How long the file viewer waits for a node's answer before telling the client it didn't come. */
 const FILE_TIMEOUT_MS = 15_000;
+/** A little past the node's own limit on the update, so the node's answer normally comes first. */
+const CLI_UPDATE_WAIT_MS = 6 * 60 * 1000;
 
 /**
  * Sends an error and, for a refused WebSocket upgrade, closes the connection afterwards: an upgrade
@@ -211,6 +216,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const releases = new Map<string, string>();
   // The agent CLI version each node last reported, for the Castle.
   const cliVersions = new Map<string, string>();
+  // Nodes whose hello said they can run the agent CLI's update; older ones would never answer.
+  const cliUpdaters = new Set<string>();
+  // The update each node is running, by node: one at a time, and only that node's answer ends it.
+  const cliUpdates = new Map<
+    string,
+    { requestId: string; timer: NodeJS.Timeout; finish: (answer: { version?: string; error?: string }) => void }
+  >();
   // Every connected client, for errors that aren't about one session.
   const clients = new Set<WebSocket>();
   // Each client's tailnet login, so a user's appearance change reaches only their own other tabs.
@@ -481,6 +493,28 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     nodes.get(node)?.close(CLOSE_TOKEN_REVOKED, 'node token revoked');
     return reply.code(204).send();
   });
+  // Updating a Kingdom's agent CLI: the node runs the CLI's own update, and refuses while a Quest there is busy.
+  app.post('/api/nodes/:node/cli-update', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!cliUpdaters.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    if (cliUpdates.has(node)) return reply.code(409).send({ error: 'an update is already running' });
+    const requestId = randomUUID();
+    const answer = await new Promise<{ version?: string; error?: string }>((resolve) => {
+      const finish = (result: { version?: string; error?: string }) => {
+        clearTimeout(cliUpdates.get(node)?.timer);
+        cliUpdates.delete(node);
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish({ error: 'the Kingdom did not answer in time' }), CLI_UPDATE_WAIT_MS);
+      cliUpdates.set(node, { requestId, timer, finish });
+      sendJson(socket, { kind: 'cli-update', requestId } satisfies HubCliUpdate);
+    });
+    if (answer.error !== undefined) return reply.code(409).send({ error: answer.error });
+    return answer.version ? { version: answer.version } : {};
+  });
   // Forgetting a Kingdom: deletes the hub's copy of its Quests for good, so only one that was removed first.
   app.delete('/api/nodes/:node/quests', async (request, reply) => {
     const { node } = request.params as { node: string };
@@ -544,7 +578,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       .map(([node, list]) => {
         const nodeRelease = releases.get(node);
         const cli = cliVersions.get(node);
-        return { node, engines: list, ...(nodeRelease ? { release: nodeRelease } : {}), ...(cli ? { cli } : {}) };
+        return {
+          node,
+          engines: list,
+          ...(nodeRelease ? { release: nodeRelease } : {}),
+          ...(cli ? { cli } : {}),
+          ...(cliUpdaters.has(node) ? { cliUpdate: true } : {}),
+        };
       }),
   );
   // Home-page data: turn totals per node since a time the client picks (its own midnight, its week), and recent
@@ -620,6 +660,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           engines.set(helloNode, known.length > 0 ? known : ['stream']);
           if (hello.data.release) releases.set(helloNode, hello.data.release);
           else releases.delete(helloNode);
+          if (hello.data.cliUpdate) cliUpdaters.add(helloNode);
+          else cliUpdaters.delete(helloNode);
           // A node that lists what it holds lets us release sessions whose process died with it.
           if (hello.data.sessions) {
             const released = store.releaseOrphans(helloNode, hello.data.sessions);
@@ -631,6 +673,19 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         const cli = NodeCli.safeParse(parsed);
         if (cli.success) {
           cliVersions.set(helloNode, cli.data.version);
+          return;
+        }
+
+        const cliUpdated = NodeCliUpdated.safeParse(parsed);
+        if (cliUpdated.success) {
+          const running = cliUpdates.get(helloNode);
+          if (running?.requestId !== cliUpdated.data.requestId) {
+            app.log.warn({ node: helloNode }, 'dropped a CLI update answer nobody is waiting for from this node');
+            return;
+          }
+          const { ok, version, reason } = cliUpdated.data;
+          if (version) cliVersions.set(helloNode, version);
+          running.finish(ok ? (version ? { version } : {}) : { error: reason ?? 'the update failed' });
           return;
         }
 
@@ -719,6 +774,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           projects.delete(helloNode);
           releases.delete(helloNode);
           cliVersions.delete(helloNode);
+          cliUpdaters.delete(helloNode);
+          cliUpdates.get(helloNode)?.finish({ error: 'the Kingdom went offline during the update' });
         }
       });
     },

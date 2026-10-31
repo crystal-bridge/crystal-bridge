@@ -194,6 +194,75 @@ describe('startNode', () => {
     expect(await waitForFrame(conn, (frame) => frame.kind === 'cli')).toEqual({ kind: 'cli', version: '2.1.314' });
   });
 
+  describe('updating the agent CLI', () => {
+    const REQUEST = '11111111-1111-4111-8111-111111111111';
+    const ask = (conn: ConnRecorder) => conn.socket.send(JSON.stringify({ kind: 'cli-update', requestId: REQUEST }));
+
+    it('says in hello that it can, only when it can', async () => {
+      createNode({ updateCli: async () => undefined });
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'hello')).toMatchObject({ cliUpdate: true });
+    });
+
+    it('stays quiet about it when it cannot', async () => {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'hello')).not.toHaveProperty('cliUpdate');
+    });
+
+    it('updates, then answers with a version asked for afresh', async () => {
+      const updateCli = vi.fn(async () => undefined);
+      const cliVersion = vi.fn(async (fresh?: boolean) => (fresh ? '2.1.320' : '2.1.314'));
+      createNode({ updateCli, cliVersion });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'cli');
+      ask(conn);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'cli-updated')).toEqual({
+        kind: 'cli-updated',
+        requestId: REQUEST,
+        ok: true,
+        version: '2.1.320',
+      });
+      expect(updateCli).toHaveBeenCalledOnce();
+    });
+
+    it('passes on why an update failed', async () => {
+      createNode({ updateCli: async () => Promise.reject(new Error('no permission to write')) });
+      const conn = await nextConnection(harness, 0);
+      ask(conn);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'cli-updated')).toMatchObject({
+        ok: false,
+        reason: 'no permission to write',
+      });
+    });
+
+    it('refuses while a Quest is busy, and runs nothing', async () => {
+      const updateCli = vi.fn(async () => undefined);
+      createNode({ updateCli });
+      const conn = await nextConnection(harness, 0);
+      const { fake } = await startSession(conn);
+      fake.busy = true;
+      ask(conn);
+      const refused = await waitForFrame(conn, (frame) => frame.kind === 'cli-updated');
+      expect(refused).toMatchObject({ ok: false });
+      expect(String((refused as { reason?: string }).reason)).toMatch(/busy/);
+      expect(updateCli).not.toHaveBeenCalled();
+    });
+
+    it('runs one update at a time', async () => {
+      let finish = () => {};
+      const updateCli = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+      createNode({ updateCli });
+      const conn = await nextConnection(harness, 0);
+      ask(conn);
+      await waitUntil(() => updateCli.mock.calls.length === 1);
+      ask(conn);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'cli-updated')).toMatchObject({ ok: false });
+      finish();
+      expect(updateCli).toHaveBeenCalledOnce();
+    });
+  });
+
   it('logs why the hub refused it, and keeps trying in case the hub is updated', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     createNode();

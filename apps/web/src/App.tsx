@@ -93,6 +93,13 @@ async function removeKingdom(node: string): Promise<void> {
   if (!response.ok) throw await refusal(response);
 }
 
+/** Runs the CLI's own update on a Kingdom, and resolves to the version it ended on; this can take minutes. */
+async function updateKingdomCli(node: string): Promise<string | undefined> {
+  const response = await fetch(`/api/nodes/${encodeURIComponent(node)}/cli-update`, { method: 'POST' });
+  if (!response.ok) throw await refusal(response);
+  return ((await response.json()) as { version?: string }).version;
+}
+
 /** Clears this browser's cookie, then reloads into the login page. */
 function logOut(): void {
   void fetch('/api/logout', { method: 'POST' }).finally(() => window.location.reload());
@@ -131,9 +138,9 @@ export function App({ hub }: { hub: HubClient }) {
   const title = hubName ?? 'Crystal Bridge';
   // Who holds a token; undefined until the hub has said, so a Kingdom never looks removed while the page loads.
   const [enrolled, setEnrolled] = useState<string[] | undefined>(undefined);
-  const [engineLists, setEngineLists] = useState<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>(
-    [],
-  );
+  const [engineLists, setEngineLists] = useState<
+    { node: string; engines: Engine[]; release?: string; cli?: string; cliUpdate?: boolean }[]
+  >([]);
   // Where the address says the user was (a reload, or a link on this device); a hidden Kingdom's is ignored.
   const [startRoute] = useState(() => {
     const route = parseRoute(window.location.hash);
@@ -524,7 +531,9 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<{ node: string; sessions: ExternalSession[] }[]>('/api/external'),
       tryJson<{ release?: string }>('/api/health'),
       tryJson<{ node: string; projects: Project[] }[]>('/api/projects'),
-      tryJson<{ node: string; engines: Engine[]; release?: string; cli?: string }[]>('/api/engines'),
+      tryJson<{ node: string; engines: Engine[]; release?: string; cli?: string; cliUpdate?: boolean }[]>(
+        '/api/engines',
+      ),
       tryJson<{ latest?: string }>('/api/cli-latest'),
       tryJson<{ session: string; node: string }[]>('/api/waiting'),
       tryJson<string[]>('/api/nodes/enrolled'),
@@ -1111,6 +1120,15 @@ export function App({ hub }: { hub: HubClient }) {
                 }}
                 cli={engineLists.find((row) => row.node === kingdom.id)?.cli}
                 latestCli={latestCli}
+                onUpdateCli={
+                  engineLists.find((row) => row.node === kingdom.id)?.cliUpdate
+                    ? async (id) => {
+                        const version = await updateKingdomCli(id);
+                        await refresh();
+                        return version;
+                      }
+                    : undefined
+                }
                 today={statsToday.find((row) => row.node === kingdom.id) ?? null}
                 week={statsWeek.find((row) => row.node === kingdom.id) ?? null}
                 heroes={heroManifest}

@@ -1,5 +1,8 @@
 import {
   HubAck,
+  HubCliUpdate,
+  MAX_CLI_UPDATE_REASON,
+  NodeCliUpdated,
   NodeCommand,
   NodeHello,
   PROTOCOL_VERSION,
@@ -79,8 +82,10 @@ export interface StartNodeOptions {
   permissionServer: PermissionServerLike;
   /** Sessions the engine ran outside the bridge, reported to the hub and adoptable from it. */
   transcripts?: TranscriptSource;
-  /** The agent CLI's version, reported to the hub; asked often, so it should cache. */
-  cliVersion?: () => Promise<string | undefined>;
+  /** The agent CLI's version, reported to the hub; asked often, so it should cache unless `fresh`. */
+  cliVersion?: (fresh?: boolean) => Promise<string | undefined>;
+  /** Runs the agent CLI's own update (`cli-version.ts` in production); without it, the hub isn't offered one. */
+  updateCli?: () => Promise<void>;
   /** Mode for sessions started without one, and for ones rebuilt after a restart. Default: manual. */
   defaultMode?: PermissionMode;
   /** Engines this node runs sessions on, advertised in hello; unset means just `stream` (and hello omits it). */
@@ -194,6 +199,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   let lastExternal: string | null = null;
   let lastProjects: string | null = null;
   let lastCli: string | undefined;
+  let updatingCli = false;
 
   function log(message: string, detail?: unknown): void {
     if (detail !== undefined) {
@@ -396,6 +402,35 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     if (!version || (!force && version === lastCli)) return;
     lastCli = version;
     wsSend(NodeCli.parse({ kind: 'cli', version }));
+  }
+
+  /** Runs the CLI's own update when no Quest here is busy, one at a time, and tells the hub how it went. */
+  async function handleCliUpdate({ requestId }: HubCliUpdate): Promise<void> {
+    const answer = (reply: { ok: boolean; version?: string; reason?: string }) =>
+      wsSend(NodeCliUpdated.parse({ kind: 'cli-updated', requestId, ...reply }));
+    const { updateCli } = options;
+    if (!updateCli) return answer({ ok: false, reason: 'this Kingdom cannot update its CLI' });
+    if (updatingCli) return answer({ ok: false, reason: 'an update is already running' });
+    const busy = status().busy.length;
+    if (busy > 0) {
+      return answer({
+        ok: false,
+        reason: `${busy} ${busy === 1 ? 'Quest is' : 'Quests are'} busy here: try when idle`,
+      });
+    }
+    updatingCli = true;
+    try {
+      await updateCli();
+      const version = await options.cliVersion?.(true);
+      if (version) lastCli = version;
+      answer({ ok: true, ...(version ? { version } : {}) });
+    } catch (error) {
+      log('agent CLI update failed', error);
+      const reason = error instanceof Error ? error.message : String(error);
+      answer({ ok: false, reason: reason.slice(-MAX_CLI_UPDATE_REASON) });
+    } finally {
+      updatingCli = false;
+    }
   }
 
   async function reportProjects(force: boolean): Promise<void> {
@@ -604,6 +639,12 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const cliUpdate = HubCliUpdate.safeParse(parsed);
+    if (cliUpdate.success) {
+      void handleCliUpdate(cliUpdate.data);
+      return;
+    }
+
     log('dropped unrecognized frame from hub', parsed);
   }
 
@@ -632,6 +673,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           sessions: [...sessions].filter(([, st]) => !st.closed).map(([id]) => id),
           ...(engines ? { engines } : {}),
           ...(options.release ? { release: options.release } : {}),
+          ...(options.updateCli ? { cliUpdate: true } : {}),
         }),
       );
       resendUnacked();

@@ -31,8 +31,14 @@ Kingdom or hub deployed from git. `GET /api/health` reports the hub's release an
 Each Kingdom reports the version of its `claude` CLI on connecting, then within about an hour of a change. The Castle
 shows it and says when a newer one is out. To know that, the hub asks npm's public registry for the latest version at
 most every six hours, sending nothing about you or your sessions. If the registry can't be reached it keeps the last
-answer. `AIRSHIP_CLI_CHECK=off` stops the check. Updating stays yours to do on that machine, as Claude Code's own docs
-describe.
+answer. `AIRSHIP_CLI_CHECK=off` stops the check.
+
+When a Kingdom is behind, its Castle offers **Update Claude Code**. That runs the CLI's own `claude update` on that
+machine, under that machine's login, which also hands off to a package manager if one installed the CLI. The Kingdom
+refuses while a Quest there is busy, and runs one update at a time. A Quest that's already running keeps its version
+until its process next starts. The update gets five minutes and can't take input, so one that needs a password, such
+as a package manager asking for `sudo`, fails with its last output: update that machine by hand. Kingdoms older than
+this button don't offer it.
 
 ## Deploying
 
