@@ -35,6 +35,36 @@ function renderCastle(overrides: Partial<Parameters<typeof Castle>[0]> = {}) {
 describe('Castle', () => {
   afterEach(() => cleanup());
 
+  describe('a Kingdom updating itself', () => {
+    const update = (state: 'installing' | 'waiting' | 'restarting' | 'failed', reason?: string) => ({
+      release: '1.0.0',
+      hubRelease: '1.1.0',
+      selfUpdate: { version: '1.1.0', state, ...(reason ? { reason } : {}) },
+    });
+
+    it.each([
+      ['installing', /Updating to 1\.1\.0/],
+      ['waiting', /1\.1\.0 is ready.*no Quest here is busy/],
+      ['restarting', /Restarting on 1\.1\.0/],
+    ] as const)('says where it stands while %s, instead of asking you to update it', (state, words) => {
+      renderCastle(update(state));
+      expect(screen.getByRole('status').textContent).toMatch(words);
+      expect(screen.queryByText(/update this Kingdom/)).toBeNull();
+    });
+
+    it('shows why an update failed, and that it stays on its version', () => {
+      renderCastle(update('failed', 'no attestation'));
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('Could not update to 1.1.0');
+      expect(alert.textContent).toContain('no attestation');
+    });
+
+    it('still asks you to update a Kingdom that doesn’t do it itself', () => {
+      renderCastle({ release: '1.0.0', hubRelease: '1.1.0' });
+      expect(screen.getByRole('status').textContent).toContain('update this Kingdom');
+    });
+  });
+
   it('puts what needs you first, then the active Quests, and keeps old ones in the closed Chronicle', () => {
     renderCastle();
     const needs = screen.getByRole('region', { name: 'Needs you' });

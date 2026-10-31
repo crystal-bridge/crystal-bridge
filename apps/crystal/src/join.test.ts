@@ -1,3 +1,4 @@
+import { installRootOf } from './release.js';
 import { execFile } from 'node:child_process';
 import {
   existsSync,
@@ -11,17 +12,17 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { LEAVE_COMMAND, LEAVE_COMMAND_WINDOWS } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   hubHttpUrl,
   hubSocketUrl,
-  installRootOf,
   launchdPlist,
   runJoin,
   runLeave,
+  runRollback,
   servicePath,
   systemdUnit,
   type JoinDeps,
@@ -228,6 +229,37 @@ describe('join and leave', () => {
     expect(killed).toEqual([]);
   });
 
+  describe('rollback on Windows', () => {
+    function afterAnUpdate(): string {
+      const base = windowsBase();
+      for (const [folder, version] of Object.entries({ current: '1.1.0', previous: '1.0.0' })) {
+        const root = join(base, folder, 'node_modules/@crystal-bridge/kingdom');
+        mkdirSync(root, { recursive: true });
+        writeFileSync(join(root, 'package.json'), JSON.stringify({ version }));
+      }
+      writeFileSync(join(base, 'crystal.env'), 'CRYSTAL_TOKEN=t\n');
+      return base;
+    }
+
+    it('says it’s back once the running Crystal has been stopped for the script to restart', async () => {
+      const base = afterAnUpdate();
+      writeFileSync(join(base, 'crystal.pid'), '4242');
+      answers['Get-Process -Id 4242'] = 'node\r\n';
+      await runRollback(windowsDeps());
+      expect(killed).toEqual([4242]);
+      expect(lines.join('\n')).toContain('Back on 1.0.0');
+    });
+
+    it('doesn’t claim that when no Crystal was there to stop: the id can be stale', async () => {
+      const base = afterAnUpdate();
+      writeFileSync(join(base, 'crystal.pid'), '4242');
+      await runRollback(windowsDeps());
+      expect(killed).toEqual([]);
+      expect(lines.join('\n')).not.toContain('Back on');
+      expect(lines.join('\n')).toContain('1.0.0 runs at the next start');
+    });
+  });
+
   // The script for real: a space in the path is the usual case, since a Windows folder is named after its user, and a
   // crash exits with a negative code. The console around it is left out, as it only runs under Task Scheduler.
   it.runIf(process.platform === 'win32')(
@@ -249,6 +281,56 @@ describe('join and leave', () => {
       await run('cmd.exe', ['/c', join(base, 'crystal.cmd')]);
 
       expect(readFileSync(join(base, 'crystal.log'), 'utf8').match(/started as node-c/g)).toHaveLength(2);
+    },
+    20_000,
+  );
+
+  // A self-update exits so the script comes round again: it swaps the folders between runs, while nothing holds them.
+  it.runIf(process.platform === 'win32')(
+    'swaps in the next release between runs and keeps the last one',
+    async () => {
+      const deep = join(dir, 'a user');
+      const windows = { ...windowsDeps(), home: deep, nodeBin: process.execPath };
+      mkdirSync(deep);
+      await runJoin('https://hub.example.com', 'CODE', windows);
+      const base = join(deep, 'AppData/Local/crystal-bridge');
+      const entry = 'node_modules/@crystal-bridge/kingdom/dist/main.js';
+      const says = (name: string, code: number) => `console.log('release ${name}'); process.exitCode = ${code};`;
+      writeFileSync(join(base, 'current', entry), says('old', 75));
+      mkdirSync(join(base, 'next', dirname(entry)), { recursive: true });
+      writeFileSync(join(base, 'next', entry), says('new', 0));
+      await run('cmd.exe', ['/c', join(base, 'crystal.cmd')]);
+
+      expect(readFileSync(join(base, 'crystal.log'), 'utf8')).toContain('release new');
+      expect(readFileSync(join(base, 'current', entry), 'utf8')).toContain('release new');
+      expect(readFileSync(join(base, 'previous', entry), 'utf8')).toContain('release old');
+      expect(existsSync(join(base, 'next'))).toBe(false);
+    },
+    20_000,
+  );
+
+  // A power cut can land between two of those moves, and it must not leave a Kingdom that can't start.
+  it.runIf(process.platform === 'win32')(
+    'starts from what is there when a swap was cut off',
+    async () => {
+      const deep = join(dir, 'a user');
+      const windows = { ...windowsDeps(), home: deep, nodeBin: process.execPath };
+      mkdirSync(deep);
+      await runJoin('https://hub.example.com', 'CODE', windows);
+      const base = join(deep, 'AppData/Local/crystal-bridge');
+      const entry = 'node_modules/@crystal-bridge/kingdom/dist/main.js';
+      const says = (name: string) => `console.log('release ${name}');`;
+      rmSync(join(base, 'current'), { recursive: true });
+      mkdirSync(join(base, 'previous', dirname(entry)), { recursive: true });
+      writeFileSync(join(base, 'previous', entry), says('old'));
+      mkdirSync(join(base, 'next', dirname(entry)), { recursive: true });
+      writeFileSync(join(base, 'next', entry), says('new'));
+
+      await run('cmd.exe', ['/c', join(base, 'crystal.cmd')]);
+
+      expect(readFileSync(join(base, 'crystal.log'), 'utf8')).toContain('release new');
+      expect(readFileSync(join(base, 'previous', entry), 'utf8')).toContain('release old');
+      expect(existsSync(join(base, 'next'))).toBe(false);
     },
     20_000,
   );

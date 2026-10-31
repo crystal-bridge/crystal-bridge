@@ -18,6 +18,7 @@ import {
   type ExternalSession,
   type PermissionMode,
   type Project,
+  type SelfUpdate,
 } from '@crystal-bridge/protocol';
 import {
   type Appearance,
@@ -124,6 +125,16 @@ function keep<T>(set: (value: T) => void, value: T | undefined): void {
   if (value !== undefined) set(value);
 }
 
+/** A Kingdom's row in `/api/engines`. */
+interface EngineRow {
+  node: string;
+  engines: Engine[];
+  release?: string;
+  cli?: string;
+  cliUpdate?: boolean;
+  selfUpdate?: SelfUpdate;
+}
+
 export function App({ hub }: { hub: HubClient }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [nodes, setNodes] = useState<string[]>([]);
@@ -138,9 +149,7 @@ export function App({ hub }: { hub: HubClient }) {
   const title = hubName ?? 'Crystal Bridge';
   // Who holds a token; undefined until the hub has said, so a Kingdom never looks removed while the page loads.
   const [enrolled, setEnrolled] = useState<string[] | undefined>(undefined);
-  const [engineLists, setEngineLists] = useState<
-    { node: string; engines: Engine[]; release?: string; cli?: string; cliUpdate?: boolean }[]
-  >([]);
+  const [engineLists, setEngineLists] = useState<EngineRow[]>([]);
   // Where the address says the user was (a reload, or a link on this device); a hidden Kingdom's is ignored.
   const [startRoute] = useState(() => {
     const route = parseRoute(window.location.hash);
@@ -531,9 +540,7 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<{ node: string; sessions: ExternalSession[] }[]>('/api/external'),
       tryJson<{ release?: string }>('/api/health'),
       tryJson<{ node: string; projects: Project[] }[]>('/api/projects'),
-      tryJson<{ node: string; engines: Engine[]; release?: string; cli?: string; cliUpdate?: boolean }[]>(
-        '/api/engines',
-      ),
+      tryJson<EngineRow[]>('/api/engines'),
       tryJson<{ latest?: string }>('/api/cli-latest'),
       tryJson<{ session: string; node: string }[]>('/api/waiting'),
       tryJson<string[]>('/api/nodes/enrolled'),
@@ -1118,6 +1125,7 @@ export function App({ hub }: { hub: HubClient }) {
                   setRemoved(null);
                   await refresh();
                 }}
+                selfUpdate={engineLists.find((row) => row.node === kingdom.id)?.selfUpdate}
                 cli={engineLists.find((row) => row.node === kingdom.id)?.cli}
                 latestCli={latestCli}
                 onUpdateCli={

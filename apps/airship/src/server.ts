@@ -13,10 +13,13 @@ import {
   FileReply,
   HubAck,
   type HubCliUpdate,
+  type HubKingdomVersion,
+  type SelfUpdate,
   type HubToClient,
   NodeCommand,
   NodeCli,
   NodeCliUpdated,
+  NodeSelfUpdate,
   NodeError,
   NodeExternal,
   NodeProjects,
@@ -55,6 +58,8 @@ export interface BuildServerOptions {
   firstRun?: FirstRun;
   /** The hub's own settings; without them it has no name. */
   settings?: HubSettings;
+  /** The Kingdom release to name to Kingdoms that update themselves. Unset: they're left where they are. */
+  kingdomVersion?: string;
   /** This release's id (the deployed commit), reported by /api/health so open tabs can tell they're outdated. */
   release?: string;
   /** The built web app; by default where a checkout builds it. */
@@ -179,6 +184,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     settings,
     release = 'dev',
     latestCli,
+    kingdomVersion,
     webRoot,
     push,
     relayFlushMs = 30_000,
@@ -214,6 +220,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const engines = new Map<string, Engine[]>();
   // The release each node said in hello, for the Castle.
   const releases = new Map<string, string>();
+  // How each Kingdom's move to `kingdomVersion` is going, for the Castle. Gone once it reconnects.
+  const selfUpdates = new Map<string, SelfUpdate>();
   // The agent CLI version each node last reported, for the Castle.
   const cliVersions = new Map<string, string>();
   // Nodes whose hello said they can run the agent CLI's update; older ones would never answer.
@@ -578,12 +586,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       .map(([node, list]) => {
         const nodeRelease = releases.get(node);
         const cli = cliVersions.get(node);
+        const selfUpdate = selfUpdates.get(node);
         return {
           node,
           engines: list,
           ...(nodeRelease ? { release: nodeRelease } : {}),
           ...(cli ? { cli } : {}),
           ...(cliUpdaters.has(node) ? { cliUpdate: true } : {}),
+          ...(selfUpdate ? { selfUpdate } : {}),
         };
       }),
   );
@@ -662,6 +672,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else releases.delete(helloNode);
           if (hello.data.cliUpdate) cliUpdaters.add(helloNode);
           else cliUpdaters.delete(helloNode);
+          selfUpdates.delete(helloNode);
+          if (hello.data.selfUpdate) {
+            sendJson(socket, {
+              kind: 'kingdom-version',
+              ...(kingdomVersion ? { version: kingdomVersion } : {}),
+            } satisfies HubKingdomVersion);
+          }
           // A node that lists what it holds lets us release sessions whose process died with it.
           if (hello.data.sessions) {
             const released = store.releaseOrphans(helloNode, hello.data.sessions);
@@ -673,6 +690,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         const cli = NodeCli.safeParse(parsed);
         if (cli.success) {
           cliVersions.set(helloNode, cli.data.version);
+          return;
+        }
+
+        const selfUpdate = NodeSelfUpdate.safeParse(parsed);
+        if (selfUpdate.success) {
+          const { version, state, reason } = selfUpdate.data;
+          selfUpdates.set(helloNode, { version, state, ...(reason ? { reason } : {}) });
           return;
         }
 
@@ -775,6 +799,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           releases.delete(helloNode);
           cliVersions.delete(helloNode);
           cliUpdaters.delete(helloNode);
+          selfUpdates.delete(helloNode);
           cliUpdates.get(helloNode)?.finish({ error: 'the Kingdom went offline during the update' });
         }
       });

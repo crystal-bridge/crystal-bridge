@@ -186,6 +186,39 @@ that Kingdom's Quests from the hub (sessions, events and relay counts), and the 
 while the Kingdom holds a token or a connection. It deletes only the hub's copy: transcripts stay on the machine, and
 existing backups keep the Quests until they age out.
 
+## Kingdoms that update themselves
+
+A Kingdom made by `join` follows its hub. A packaged hub names its own version to its Kingdoms, and each one moves to
+it alone, so updating the hub brings them along. A hub run from git has no version and names none unless you set
+`AIRSHIP_KINGDOM_VERSION`, which also picks another version, or `off` to name none. Naming none also stops an update
+that hasn't swapped yet, once that Kingdom next connects.
+
+The Kingdom takes only a version number from the hub. It then:
+
+1. Downloads that release's package from this project's GitHub Releases.
+2. Checks its build provenance itself: GitHub's attestation for that exact file, signed through Sigstore, has to name
+   this project's release workflow at that version's tag. See [the security model](./SECURITY-MODEL.md).
+3. Installs it beside the running release with `npm install --ignore-scripts`, and runs the new copy once to see that
+   it loads. Everything so far leaves the running Kingdom alone, and needs `npm` on its PATH.
+4. Waits until no Quest there is busy, as a deploy does. A Quest with background work counts as busy.
+5. Swaps to it and restarts. Idle Quests resume on their next follow-up.
+
+The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour.
+
+A Kingdom never moves to an older version, whatever the hub names. To go back, run this on the machine:
+
+```sh
+node ~/.local/share/crystal-bridge/current/node_modules/@crystal-bridge/kingdom/dist/main.js rollback
+cmd /c node "%LOCALAPPDATA%\crystal-bridge\current\node_modules\@crystal-bridge\kingdom\dist\main.js" rollback
+```
+
+The first line is Linux and macOS, the second Windows. That returns to the release kept by the last update and restarts.
+The Kingdom won't take a release it left this way again, but it will take a newer one. There's no automatic rollback:
+a release that loads and then fails needs that command, so keep a way onto the machine.
+
+To stop a Kingdom updating itself, add `CRYSTAL_SELF_UPDATE=off` to its `crystal.env` and restart it. Kingdoms installed
+any other way (the deploy scripts, npm, a checkout) never update themselves: the Castle only warns when one falls behind.
+
 ## Rolling back
 
 ```sh

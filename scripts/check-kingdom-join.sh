@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Runs `join` and `leave` from the packed tarball against a real hub and this machine's real service manager (systemd
-# or launchd). Only `claude` is a stand-in: a login can't be copied. CI only, because it replaces the machine's
-# Crystal service: on a real Kingdom it would stop the real one.
+# Runs `join`, a self-update, `rollback` and `leave` from the packed tarball against a real hub and this machine's real
+# service manager (systemd or launchd). Only `claude` is a stand-in: a login can't be copied. The update is the real
+# thing too: the build calls itself older, so it downloads and verifies a published release, which can't be faked and
+# is why the target stays a release that exists. CI only, because it replaces the machine's Crystal service: on a real
+# Kingdom it would stop the real one.
 set -euo pipefail
 [[ ${CI:-} == true ]] || { echo "check: CI only; this would replace this machine's Crystal service" >&2; exit 2; }
 cd "$(dirname "$0")/.."
@@ -10,13 +12,21 @@ work=$(mktemp -d)
 port=7795
 hub=http://127.0.0.1:$port
 hub_pid=''
-cleanup() { [[ -z $hub_pid ]] || kill "$hub_pid" 2>/dev/null || true; rm -rf "$work"; }
+old=0.1.0
+target=0.2.0-alpha.1
+manifest=apps/crystal/package.json
+cp "$manifest" "$work/manifest"
+cleanup() {
+  [[ -z $hub_pid ]] || kill "$hub_pid" 2>/dev/null || true
+  cp "$work/manifest" "$manifest"
+  rm -rf "$work"
+}
 trap cleanup EXIT
 
-wait_for() { # <what> <command...>
+wait_for() { # <what> <command...>; TRIES overrides the usual 30 s
   local what=$1 i
   shift
-  for i in $(seq 1 60); do
+  for i in $(seq 1 "${TRIES:-60}"); do
     if "$@" >/dev/null 2>&1; then return 0; fi
     sleep 0.5
   done
@@ -25,7 +35,21 @@ wait_for() { # <what> <command...>
 }
 connected() { curl -s "$hub/api/nodes" | grep -q ci-kingdom; }
 disconnected() { ! connected; }
+runs() { curl -s "$hub/api/engines" | grep -q "\"release\":\"$1\""; }
+service_log() {
+  curl -s "$hub/api/engines" >&2 || true
+  if [[ $(uname) == Linux ]]; then
+    journalctl --user -u crystal.service --no-pager -n 40 >&2 || true
+  else
+    tail -n 40 "$HOME/Library/Logs/crystal-bridge/crystal.log" >&2 || true
+  fi
+}
 
+node -e '
+  const fs = require("fs");
+  const [path, version] = process.argv.slice(1);
+  fs.writeFileSync(path, JSON.stringify({ ...JSON.parse(fs.readFileSync(path, "utf8")), version }));
+' "$manifest" "$old"
 pnpm --filter @crystal-bridge/kingdom build
 pnpm --filter @crystal-bridge/kingdom pack --pack-destination "$work" >/dev/null
 tarball=$(echo "$work"/*.tgz)
@@ -47,6 +71,7 @@ if [[ $(uname) == Linux ]]; then
 fi
 
 (cd apps/airship && AIRSHIP_DEV=1 AIRSHIP_NODES=$work/nodes.json AIRSHIP_DB=$work/hub.db AIRSHIP_PORT=$port \
+  AIRSHIP_KINGDOM_VERSION=$target \
   exec "$repo/node_modules/.bin/tsx" src/main.ts) >"$work/hub.log" 2>&1 &
 hub_pid=$!
 wait_for 'the hub' curl -sf "$hub/api/health"
@@ -62,8 +87,18 @@ wait_for 'the Kingdom to connect through its service' connected
 curl -s "$hub/api/engines" | grep -q '"cli":"2.1.0"' || { echo 'check: no CLI version reported' >&2; exit 1; }
 echo 'check: the service connected'
 
-main=$HOME/.local/share/crystal-bridge/current/node_modules/@crystal-bridge/kingdom/dist/main.js
-node "$main" leave
+base=$HOME/.local/share/crystal-bridge
+entry=node_modules/@crystal-bridge/kingdom/dist/main.js
+TRIES=360 wait_for "the Kingdom to update itself to $target" runs "$target" || { service_log; exit 1; }
+[[ $(readlink "$base/current") == */releases/$target ]] || { echo 'check: current is not the new release' >&2; exit 1; }
+echo 'check: the Kingdom updated itself, verified, through its service'
+
+node "$base/previous/$entry" rollback
+TRIES=120 wait_for "the Kingdom to roll back to $old" runs "$old" || { service_log; exit 1; }
+[[ $(cat "$base/held-version") == "$target" ]] || { echo 'check: rollback held nothing' >&2; exit 1; }
+echo 'check: rollback went back and held the release it left'
+
+node "$base/current/$entry" leave
 wait_for 'the Kingdom to disconnect' disconnected
 grep -q ci-kingdom "$work/nodes.json" && { echo 'check: the token survived leave' >&2; exit 1; }
 [[ ! -e $HOME/.config/crystal-bridge/crystal.env ]] || { echo 'check: the env file survived leave' >&2; exit 1; }
@@ -74,4 +109,4 @@ else
   ! launchctl print "gui/$(id -u)/dev.crystal-bridge.crystal" >/dev/null 2>&1 ||
     { echo 'check: the service survived leave' >&2; exit 1; }
 fi
-echo 'check: join and leave work on this machine'
+echo 'check: join, self-update, rollback and leave work on this machine'

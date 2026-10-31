@@ -22,6 +22,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_PID_FILE` | unset; Windows' `crystal.cmd` sets it | Crystal: where to record its process id, so `leave` can stop it |
 | `CRYSTAL_LOGIN_SHELL` | `$SHELL`, then `/bin/bash` | Crystal: the shell whose login environment sessions get; `join` writes it |
 | `CRYSTAL_SESSION` | set by Crystal | Not a setting: the session id on each `claude` process, so a hook can tell it runs under the bridge |
+| `CRYSTAL_SELF_UPDATE` | on | Crystal: `off` stops a Kingdom installed by `join` updating itself |
 | `CRYSTAL_DRAIN_SECONDS` | `600` | Crystal deploy scripts: how long to wait for running turns before giving up |
 | `CLAUDE_BIN` | `claude` | Crystal: the CLI it runs |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Crystal: where the CLI keeps its session transcripts, for finding sessions |
@@ -36,6 +37,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `AIRSHIP_DEV` | unset | Airship: `1` starts a development hub open (no allow list or node tokens); `pnpm dev` does this itself |
 | `AIRSHIP_VAPID_PATH` | next to the database, or in `AIRSHIP_DATA` | Airship: Web Push keys |
 | `AIRSHIP_PUSH_SUBJECT` | `mailto:crystal-bridge@example.invalid` | Airship: the contact URL push services may use (`mailto:` or `https:`) |
+| `AIRSHIP_KINGDOM_VERSION` | the hub's own version | Airship: the release self-updating Kingdoms move to, or `off` for none. A hub run from git has no version of its own |
 | `AIRSHIP_CLI_CHECK` | on | Airship: `off` stops it asking npm for the latest Claude Code version |
 | `AIRSHIP_BACKUP_DIR` | `./backups`, or in `AIRSHIP_DATA` | Airship: where database backups go. The `pnpm` `backup` script ignores `AIRSHIP_DATA`, so set this and `AIRSHIP_DB` for it |
 | `AIRSHIP_BACKUP_KEEP` | `14` | Airship: how many backups to keep |

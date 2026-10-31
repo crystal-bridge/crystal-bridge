@@ -73,7 +73,7 @@ jobs:
       - run: pnpm install --frozen-lockfile --filter @crystal-bridge/kingdom...
       - run: pnpm --filter @crystal-bridge/kingdom test
 
-  # join and leave against each OS's real service manager, with only `claude` faked.
+  # join, a real self-update, rollback and leave against each OS's real service manager, with only `claude` faked.
   kingdom-install:
     strategy:
       fail-fast: false
@@ -91,7 +91,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Join and leave through the real service manager
+      - name: Join, update, roll back and leave through the real service manager
         run: bash scripts/check-kingdom-join.sh
 
   # The hub image, built and run for real.

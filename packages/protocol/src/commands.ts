@@ -157,6 +157,8 @@ export const NodeHello = z.object({
   release: z.string().max(64).optional(),
   /** This node can run the agent CLI's own update when asked (`HubCliUpdate`); older nodes leave it out. */
   cliUpdate: z.boolean().optional(),
+  /** This node installs releases itself and wants the version to run (`HubKingdomVersion`); older nodes leave it out. */
+  selfUpdate: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
@@ -214,6 +216,61 @@ export const NodeCliUpdated = z.object({
   reason: z.string().max(MAX_CLI_UPDATE_REASON).optional(),
 });
 export type NodeCliUpdated = z.infer<typeof NodeCliUpdated>;
+
+/** A release's version. Kingdoms make a URL and a folder name of it, so this is strict about what it lets through. */
+export const ReleaseVersion = z
+  .string()
+  .max(64)
+  .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/);
+
+/**
+ * Hub -> node: the Kingdom release to run, sent after a `hello` that offers `selfUpdate`. It's only ever a version: the
+ * Kingdom fetches that release from the project and proves it's genuine by itself, and it never moves backwards. No
+ * version means none is wanted, which stops an update under way.
+ */
+export const HubKingdomVersion = z.object({ kind: z.literal('kingdom-version'), version: ReleaseVersion.optional() });
+export type HubKingdomVersion = z.infer<typeof HubKingdomVersion>;
+
+export const SelfUpdateStep = z.enum(['installing', 'waiting', 'restarting', 'failed']);
+export type SelfUpdateStep = z.infer<typeof SelfUpdateStep>;
+
+/** Node -> hub: how the move to a `kingdom-version` is going, for the Castle. Lasts as long as the connection. */
+export const NodeSelfUpdate = z.object({
+  kind: z.literal('self-update'),
+  version: ReleaseVersion,
+  state: SelfUpdateStep,
+  reason: z.string().max(MAX_CLI_UPDATE_REASON).optional(),
+});
+export type NodeSelfUpdate = z.infer<typeof NodeSelfUpdate>;
+/** Where a Kingdom's own update stands, without the frame around it. */
+export type SelfUpdate = Omit<NodeSelfUpdate, 'kind'>;
+
+const VERSION_PARTS = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/;
+
+/** Dot-separated pre-release parts, numbers as numbers, as semver orders them. */
+function comparePrerelease(a: string, b: string): number {
+  const left = a.split('.');
+  const right = b.split('.');
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const order = (left[i] ?? '').localeCompare(right[i] ?? '', 'en', { numeric: true });
+    if (order !== 0) return order;
+  }
+  return 0;
+}
+
+/** Whether release `a` is older than `b`. Only versions can be ordered, so anything else (a commit, `dev`) never is. */
+export function isOlderVersion(a: string | undefined, b: string | undefined): boolean {
+  const left = a && VERSION_PARTS.exec(a);
+  const right = b && VERSION_PARTS.exec(b);
+  if (!left || !right) return false;
+  for (const part of [1, 2, 3]) {
+    const order = Number(left[part]) - Number(right[part]);
+    if (order !== 0) return order < 0;
+  }
+  if (left[4] === undefined) return false;
+  if (right[4] === undefined) return true;
+  return comparePrerelease(left[4], right[4]) < 0;
+}
 
 export const NodeProjects = z.object({ kind: z.literal('projects'), projects: z.array(Project) });
 export type NodeProjects = z.infer<typeof NodeProjects>;
@@ -286,12 +343,24 @@ export const HubToClient = z.discriminatedUnion('kind', [
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
 
+/** The repository whose releases Kingdoms run. A fork changes this. */
+export const RELEASE_REPO = 'crystal-bridge/crystal-bridge';
+
+/** The Kingdom package's file name in a release. */
+export function kingdomTarballName(version: string): string {
+  return `crystal-bridge-kingdom-${version}.tgz`;
+}
+
+/** Where a release keeps the Kingdom package. */
+export function kingdomTarballUrl(version: string): string {
+  return `https://github.com/${RELEASE_REPO}/releases/download/v${version}/${kingdomTarballName(version)}`;
+}
+
 /**
  * What Add Kingdom installs: this release's tarball on GitHub until the package is on npm. A fork points this at its own
  * release. A test keeps it on the Kingdom package's version.
  */
-export const KINGDOM_PACKAGE =
-  'https://github.com/crystal-bridge/crystal-bridge/releases/download/v0.2.0-alpha.1/crystal-bridge-kingdom-0.2.0-alpha.1.tgz';
+export const KINGDOM_PACKAGE = kingdomTarballUrl('0.2.0-alpha.1');
 
 /** The one command that turns a machine into a Kingdom of this hub. */
 export function joinCommand(hub: string, code: string): string {

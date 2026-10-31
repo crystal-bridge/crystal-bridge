@@ -11,8 +11,10 @@ import { ClaudeSession } from './session.js';
 import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
 import { resolveClaudeBin } from './claude-bin.js';
 import { cachedCliVersion, execCliUpdate, execCliVersion } from './cli-version.js';
-import { runJoin, runLeave, type JoinDeps } from './join.js';
-import { releaseId } from './release.js';
+import { runJoin, runLeave, runRollback, type JoinDeps } from './join.js';
+import { verifyRelease } from './provenance.js';
+import { activateRelease, heldVersions, releaseId, selfUpdateBase, stageRelease, type ReleaseDeps } from './release.js';
+import { createUpdater } from './self-update.js';
 import { execFile } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { realpathSync, writeFileSync } from 'node:fs';
@@ -46,6 +48,30 @@ const PROJECT_ROOTS = (process.env.CRYSTAL_PROJECT_ROOTS ?? join(homedir(), 'cod
 
 const CLAUDE_BIN = resolveClaudeBin(process.env);
 
+/** Exiting with a failure is what makes every service manager, and `crystal.cmd`, start Crystal again. */
+const EXIT_RESTART = 75;
+
+/** What installing a release touches, for real. It gets the sessions' environment, which holds no token. */
+function releaseDeps(base: string, env: Record<string, string | undefined>): ReleaseDeps {
+  return {
+    base,
+    platform: process.platform,
+    nodeBin: process.execPath,
+    fetch,
+    verify: (tarball, version) =>
+      verifyRelease(tarball, version, {
+        fetch,
+        trustedRoot: async () => (await import('@sigstore/tuf')).getTrustedRoot({ cachePath: join(base, 'tuf') }),
+      }),
+    exec: (file, args, cwd) =>
+      new Promise((resolve, reject) => {
+        execFile(file, args, { cwd, env, timeout: 300_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) =>
+          error ? reject(new Error(`${error.message}\n${stderr}`.trim())) : resolve(stdout),
+        );
+      }),
+  };
+}
+
 async function main(): Promise<void> {
   // What a terminal session would see, so tools from shell startup files (cargo, pyenv, ...) are on PATH.
   const shell = process.env.CRYSTAL_LOGIN_SHELL ?? process.env.SHELL ?? '/bin/bash';
@@ -56,6 +82,25 @@ async function main(): Promise<void> {
   // always after `startNode` below has assigned it.
   let node: CrystalNode;
   const hooks = new HookBus();
+
+  // Only a copy `join` installed: anything else is updated by whatever installed it.
+  const updateBase =
+    VERSION && process.env.CRYSTAL_SELF_UPDATE !== 'off'
+      ? selfUpdateBase(realpathSync(fileURLToPath(import.meta.url)), process.platform)
+      : undefined;
+  const updater =
+    VERSION && updateBase
+      ? createUpdater({
+          current: VERSION,
+          held: () => heldVersions(updateBase),
+          stage: (version) => stageRelease(version, releaseDeps(updateBase, sessionEnv)),
+          activate: (version) => activateRelease(version, { base: updateBase, platform: process.platform }),
+          busy: () => node.status().busy.length > 0,
+          report: (state) => node.reportSelfUpdate(state),
+          restart: () => void shutdown('self-update', EXIT_RESTART),
+          log: (line) => console.log(line),
+        })
+      : undefined;
 
   const permissionServer = await createPermissionServer({
     port: MCP_PORT,
@@ -88,6 +133,7 @@ async function main(): Promise<void> {
     },
     cliVersion: cachedCliVersion({ exec: execCliVersion(CLAUDE_BIN, sessionEnv) }),
     updateCli: execCliUpdate(CLAUDE_BIN, sessionEnv),
+    ...(updater ? { onKingdomVersion: updater.target } : {}),
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
@@ -125,14 +171,15 @@ async function main(): Promise<void> {
   if (process.env.CRYSTAL_PID_FILE) writeFileSync(process.env.CRYSTAL_PID_FILE, String(process.pid));
 
   let shuttingDown = false;
-  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+  const shutdown = async (reason: string, code = 0): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[crystal] received ${signal}, shutting down`);
+    console.log(`[crystal] ${reason}, shutting down`);
+    updater?.close();
     // Wait for the claude processes to stop: with KillMode=process nothing else would end them.
     await node.close();
     await permissionServer.close();
-    process.exit(0);
+    process.exit(code);
   };
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
@@ -179,8 +226,10 @@ if (process.argv.includes('--version')) {
   runJoin(hub, code, joinDeps()).catch(fail);
 } else if (command === 'leave') {
   runLeave(joinDeps()).catch(fail);
+} else if (command === 'rollback') {
+  runRollback(joinDeps()).catch(fail);
 } else if (command) {
-  fail('usage: crystal-bridge-kingdom [join <hub-url> <code> | leave | --version]');
+  fail('usage: crystal-bridge-kingdom [join <hub-url> <code> | leave | rollback | --version]');
 } else {
   main().catch((error: unknown) => {
     console.error('[crystal] fatal error during startup', error);
