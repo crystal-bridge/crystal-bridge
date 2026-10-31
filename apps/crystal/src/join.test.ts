@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import {
   existsSync,
   lstatSync,
@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { LEAVE_COMMAND, LEAVE_COMMAND_WINDOWS } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -25,6 +26,8 @@ import {
   systemdUnit,
   type JoinDeps,
 } from './join.js';
+
+const run = promisify(execFile);
 
 const paths = {
   nodeBin: '/opt/node/bin/node',
@@ -225,31 +228,27 @@ describe('join and leave', () => {
     expect(killed).toEqual([]);
   });
 
-  // The real thing: conhost rewrites the command line it hands on, which once left a task reporting success with no
-  // Crystal behind it. A space in the path is the usual case, since a Windows folder is named after its user.
+  // The script for real: a space in the path is the usual case, since a Windows folder is named after its user, and a
+  // crash exits with a negative code. The console around it is left out, as it only runs under Task Scheduler.
   it.runIf(process.platform === 'win32')(
-    'starts from the task exactly as Task Scheduler would run it',
+    'runs Crystal from a spaced path and restarts it after a crash',
     async () => {
       const deep = join(dir, 'a user');
       const windows = { ...windowsDeps(), home: deep, nodeBin: process.execPath };
       mkdirSync(deep);
       await runJoin('https://hub.example.com', 'CODE', windows);
       const base = join(deep, 'AppData/Local/crystal-bridge');
+      const crashed = join(base, 'crashed');
       writeFileSync(
         join(base, 'current/node_modules/@crystal-bridge/kingdom/dist/main.js'),
-        `console.log('started as', process.env.CRYSTAL_NODE, process.env.CRYSTAL_PID_FILE !== undefined);`,
+        `const fs = process.getBuiltinModule('fs');
+       console.log('started as', process.env.CRYSTAL_NODE);
+       if (!fs.existsSync(${JSON.stringify(crashed)})) { fs.writeFileSync(${JSON.stringify(crashed)}, ''); process.exit(-1); }`,
       );
-      const task = readFileSync(join(base, 'task.xml')).toString('utf16le');
-      const args = /<Arguments>(.*)<\/Arguments>/.exec(task)?.[1] ?? '';
-      spawn('conhost.exe', [args], { windowsVerbatimArguments: true, stdio: 'ignore' });
 
-      await vi.waitFor(
-        () => expect(readFileSync(join(base, 'crystal.log'), 'utf8')).toContain('started as node-c true'),
-        {
-          timeout: 15_000,
-          interval: 200,
-        },
-      );
+      await run('cmd.exe', ['/c', join(base, 'crystal.cmd')]);
+
+      expect(readFileSync(join(base, 'crystal.log'), 'utf8').match(/started as node-c/g)).toHaveLength(2);
     },
     20_000,
   );
