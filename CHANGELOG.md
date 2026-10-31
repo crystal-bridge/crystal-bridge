@@ -1,9 +1,11 @@
 # Changelog
 
-Notable changes, newest first. Versions follow [semantic versioning](https://semver.org) once releases start; until
-then, everything is in Unreleased.
+Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
+one entry.
 
 ## Unreleased
+
+## 0.3.0
 
 ### Added
 
@@ -15,6 +17,19 @@ then, everything is in Unreleased.
   there is one, a bar's tooltip names its limit, and a bar warns when its limit says it's nearly out.
 - The docs site opens with what Crystal Bridge is and why you'd want it, explains the model on one short page, and has
   a guide to installing the app; the reference pages are grouped by what you're trying to do.
+
+### Changed
+
+- The Settings button uses a gear-and-hammer from the icon set, in place of a hand-drawn pixel gear.
+
+### Fixed
+
+- A release carries its own attestation, so a Kingdom updating to it doesn't depend on GitHub's API or its rate limit.
+
+## 0.2.0 and earlier
+
+### Added
+
 - Windows Kingdoms: `join` and `leave` work there through a sign-in task that needs no administrator, which restarts
   Crystal after a crash, and both engines run Quests, whether `claude` came from the native or the npm install.
 - The Castle offers Update Claude Code when a Kingdom's CLI is behind, running the CLI's own update while no Quest
@@ -49,12 +64,9 @@ then, everything is in Unreleased.
 
 ### Changed
 
-- The Settings button uses a gear-and-hammer from the icon set, in place of a hand-drawn pixel gear.
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".
 
 ### Fixed
-
-- A release carries its own attestation, so a Kingdom updating to it doesn't depend on GitHub's API or its rate limit.
 
 - Background subagents stay in the Party until they finish, on both engines, and count as Side Quests on battle cards.
   A Quest whose only work is a background agent no longer idles out.
