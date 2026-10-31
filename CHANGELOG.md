@@ -41,6 +41,7 @@ then, everything is in Unreleased.
 
 ### Changed
 
+- The Settings button uses a gear-and-hammer from the icon set, in place of a hand-drawn pixel gear.
 - Theme words: Gold for cost; Wizard, Cleric and Rogue Classes; a finished turn reads "Battle won".
 
 ### Fixed

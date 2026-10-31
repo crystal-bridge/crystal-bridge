@@ -588,6 +588,11 @@ li:hover > .cb-belt-toggle,
   visibility: visible;
   transition-delay: 0.35s;
 }
+/* A menu that's open already says what it is, and its tooltip would sit on top of it. */
+.cb-tip-anchor:has(> [aria-expanded='true']) > .cb-tip {
+  opacity: 0;
+  visibility: hidden;
+}
 
 /*
  * The prompt box (components/PromptBox.tsx): a rounded field holding a text box that grows from one line to five and
