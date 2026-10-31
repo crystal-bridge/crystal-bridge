@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
+import { ClientMessage } from '@crystal-bridge/protocol';
 import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
@@ -613,6 +614,99 @@ describe('airship server', () => {
     const start = Date.now();
     while ((await cliOf()) !== '2.1.314' && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 10));
     expect(await cliOf()).toBe('2.1.314');
+  });
+
+  describe('updating a Kingdom-s agent CLI', () => {
+    const update = (node: string) => fetch(`${baseUrl}/api/nodes/${node}/cli-update`, { method: 'POST' });
+    const engineRow = async () =>
+      (
+        (await (await fetch(`${baseUrl}/api/engines`)).json()) as { node: string; cli?: string; cliUpdate?: boolean }[]
+      )[0];
+
+    async function updaterNode(nodeId: string): Promise<{ socket: WebSocket; frames: FrameRecorder }> {
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: nodeId, cliUpdate: true });
+      const start = Date.now();
+      while (!(await engineRow())?.cliUpdate && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 10));
+      return { socket, frames };
+    }
+
+    it('says which Kingdoms can do it', async () => {
+      await updaterNode('node-a');
+      expect((await engineRow())?.cliUpdate).toBe(true);
+    });
+
+    it('asks the node, and answers with the version the node reports', async () => {
+      const { socket, frames } = await updaterNode('node-a');
+      const answer = update('node-a');
+      const asked = (await frames.waitFor((f) => f.kind === 'cli-update')) as { requestId: string };
+      send(socket, { kind: 'cli-updated', requestId: asked.requestId, ok: true, version: '2.1.320' });
+      const response = await answer;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ version: '2.1.320' });
+      expect((await engineRow())?.cli).toBe('2.1.320');
+    });
+
+    it('passes on why the node refused', async () => {
+      const { socket, frames } = await updaterNode('node-a');
+      const answer = update('node-a');
+      const asked = (await frames.waitFor((f) => f.kind === 'cli-update')) as { requestId: string };
+      send(socket, { kind: 'cli-updated', requestId: asked.requestId, ok: false, reason: '2 Quests are busy' });
+      const response = await answer;
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: '2 Quests are busy' });
+    });
+
+    it('refuses a second update while one runs', async () => {
+      const { socket, frames } = await updaterNode('node-a');
+      const first = update('node-a');
+      const asked = (await frames.waitFor((f) => f.kind === 'cli-update')) as { requestId: string };
+      expect((await update('node-a')).status).toBe(409);
+      send(socket, { kind: 'cli-updated', requestId: asked.requestId, ok: true });
+      expect((await first).status).toBe(200);
+    });
+
+    it('ignores an answer it did not ask for, or from another node', async () => {
+      const { socket, frames } = await updaterNode('node-a');
+      const answer = update('node-a');
+      const asked = (await frames.waitFor((f) => f.kind === 'cli-update')) as { requestId: string };
+      const other = await openSocket(`${wsUrl}/node`);
+      sockets.push(other);
+      send(other, { kind: 'hello', node: 'node-b', cliUpdate: true });
+      send(other, { kind: 'cli-updated', requestId: asked.requestId, ok: true, version: '9.9.9' });
+      send(socket, { kind: 'cli-updated', requestId: randomUUID(), ok: true, version: '9.9.9' });
+      send(socket, { kind: 'cli-updated', requestId: asked.requestId, ok: true, version: '2.1.320' });
+      expect(await (await answer).json()).toEqual({ version: '2.1.320' });
+    });
+
+    it('answers when the node drops mid-update', async () => {
+      const { socket, frames } = await updaterNode('node-a');
+      const answer = update('node-a');
+      await frames.waitFor((f) => f.kind === 'cli-update');
+      socket.terminate();
+      const response = await answer;
+      expect(response.status).toBe(409);
+      expect(((await response.json()) as { error: string }).error).toMatch(/offline/);
+    });
+
+    it('refuses an offline Kingdom', async () => {
+      expect((await update('nobody')).status).toBe(404);
+    });
+
+    it('refuses a Crystal too old to do it, rather than waiting on it', async () => {
+      await connectNode('node-a');
+      const start = Date.now();
+      while (!(await engineRow()) && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 10));
+      expect((await update('node-a')).status).toBe(409);
+    });
+
+    it('takes no such command over the client socket', async () => {
+      expect(
+        ClientMessage.safeParse({ kind: 'command', command: { type: 'cli-update', node: 'node-a' } }).success,
+      ).toBe(false);
+    });
   });
 
   it('GET /api/cli-latest is empty when the hub does not check', async () => {

@@ -112,6 +112,55 @@ describe('Castle', () => {
     expect(screen.getByRole('banner').textContent).not.toContain('update available');
   });
 
+  it('offers to update a CLI that is behind, and says what happened', async () => {
+    const onUpdateCli = vi.fn(async () => '2.1.320');
+    renderCastle({ cli: '2.1.314', latestCli: '2.1.320', onUpdateCli });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Claude Code' }));
+    expect(onUpdateCli).toHaveBeenCalledWith('k');
+    expect((await screen.findByRole('status')).textContent).toContain('Updated to 2.1.320');
+  });
+
+  it('says so when an update changed nothing', async () => {
+    renderCastle({ cli: '2.1.314', latestCli: '2.1.320', onUpdateCli: vi.fn(async () => '2.1.314') });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Claude Code' }));
+    expect((await screen.findByRole('status')).textContent).toContain('Still on 2.1.314');
+  });
+
+  it('shows why an update was refused', async () => {
+    const onUpdateCli = vi.fn(async () => Promise.reject(new Error('2 Quests are busy')));
+    renderCastle({ cli: '2.1.314', latestCli: '2.1.320', onUpdateCli });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Claude Code' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('2 Quests are busy');
+  });
+
+  it('holds the button while an update runs', async () => {
+    let finish = (_version: string) => {};
+    const onUpdateCli = vi.fn(() => new Promise<string>((resolve) => (finish = resolve)));
+    renderCastle({ cli: '2.1.314', latestCli: '2.1.320', onUpdateCli });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Claude Code' }));
+    const running = screen.getByRole<HTMLButtonElement>('button', { name: /Updating/ });
+    expect(running.disabled).toBe(true);
+    finish('2.1.320');
+    await screen.findByRole('status');
+  });
+
+  it('offers no update without a way to run one, when current, or offline', () => {
+    const button = () => screen.queryByRole('button', { name: 'Update Claude Code' });
+    renderCastle({ cli: '2.1.314', latestCli: '2.1.320' });
+    expect(button()).toBeNull();
+    cleanup();
+    renderCastle({ cli: '2.1.320', latestCli: '2.1.320', onUpdateCli: vi.fn() });
+    expect(button()).toBeNull();
+    cleanup();
+    renderCastle({
+      cli: '2.1.314',
+      latestCli: '2.1.320',
+      onUpdateCli: vi.fn(),
+      kingdom: { id: 'k', name: 'Lantern', connected: false, sessions: 3 },
+    });
+    expect(button()).toBeNull();
+  });
+
   it('removes a Kingdom only after a confirm', () => {
     const onRemove = vi.fn(async () => undefined);
     renderCastle({ onRemove });

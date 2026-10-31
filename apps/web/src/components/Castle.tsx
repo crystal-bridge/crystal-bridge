@@ -41,6 +41,8 @@ export interface CastleProps {
   /** The agent CLI version this Kingdom runs, and the latest published one when the hub checks. */
   cli?: string;
   latestCli?: string;
+  /** Runs the CLI's own update on this Kingdom and resolves to its version; without it, no Update button. */
+  onUpdateCli?: (id: string) => Promise<string | undefined>;
   /** Revokes this Kingdom's token and cuts its connection; without it, no Remove. */
   onRemove?: (id: string) => Promise<void>;
   /** This Kingdom has no token and no connection: it can no longer be removed, only forgotten. */
@@ -99,6 +101,67 @@ function Folded({
       </button>
       {open && <div className="pt-1">{children}</div>}
     </section>
+  );
+}
+
+/**
+ * Updates the Kingdom's CLI. The Kingdom itself refuses while a Quest there is busy, and that reason shows here. It stays
+ * mounted after the update catches up, so the outcome outlives the button.
+ */
+function UpdateCli({
+  kingdom,
+  cli,
+  behind,
+  onUpdateCli,
+}: {
+  kingdom: Kingdom;
+  cli: string;
+  behind: boolean;
+  onUpdateCli: (id: string) => Promise<string | undefined>;
+}) {
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function update(): Promise<void> {
+    setRunning(true);
+    setDone(null);
+    setError(null);
+    try {
+      const version = await onUpdateCli(kingdom.id);
+      if (!version) setDone('Update finished');
+      else setDone(version === cli ? `Still on ${cli}` : `Updated to ${version}`);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  if (!behind && !done && !error) return null;
+  return (
+    <div className="mt-1 space-y-1 text-xs">
+      {behind && (
+        <button
+          type="button"
+          disabled={running}
+          onClick={() => void update()}
+          className="rounded border border-neutral-300 px-2 py-1 hover:bg-neutral-200 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+        >
+          {running ? 'Updating…' : 'Update Claude Code'}
+        </button>
+      )}
+      {done && (
+        <p role="status" className="text-neutral-500">
+          {done}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="whitespace-pre-wrap text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -235,6 +298,7 @@ export function Castle({
   hubRelease,
   cli,
   latestCli,
+  onUpdateCli,
   onRemove,
   removed,
   onForget,
@@ -297,6 +361,9 @@ export function Castle({
                 <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
                   Behind the Airship ({hubRelease}): update this Kingdom.
                 </p>
+              )}
+              {cli && kingdom.connected && onUpdateCli && (
+                <UpdateCli kingdom={kingdom} cli={cli} behind={isBehind(cli, latestCli)} onUpdateCli={onUpdateCli} />
               )}
             </div>
           </div>

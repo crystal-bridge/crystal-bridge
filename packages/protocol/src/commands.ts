@@ -155,6 +155,8 @@ export const NodeHello = z.object({
   engines: z.array(z.string()).optional(),
   /** The node agent's release (e.g. the deployed commit), for display. */
   release: z.string().max(64).optional(),
+  /** This node can run the agent CLI's own update when asked (`HubCliUpdate`); older nodes leave it out. */
+  cliUpdate: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
@@ -192,6 +194,26 @@ export type Project = z.infer<typeof Project>;
 /** The agent CLI's version on this node, sent on connecting and whenever it changes. */
 export const NodeCli = z.object({ kind: z.literal('cli'), version: z.string().max(64) });
 export type NodeCli = z.infer<typeof NodeCli>;
+
+/**
+ * Hub -> node: run the agent CLI's own update. A frame of its own rather than a `NodeCommand`, so a client can't send
+ * it over the socket: the hub's route is the only way in, and the node takes nothing from it but this id.
+ */
+export const HubCliUpdate = z.object({ kind: z.literal('cli-update'), requestId: z.uuid() });
+export type HubCliUpdate = z.infer<typeof HubCliUpdate>;
+
+/** The longest `reason` a `cli-updated` frame carries, in characters. */
+export const MAX_CLI_UPDATE_REASON = 1000;
+
+/** Node -> hub: a `cli-update` answered. `version` is the CLI's version afterwards; `reason` says why it failed. */
+export const NodeCliUpdated = z.object({
+  kind: z.literal('cli-updated'),
+  requestId: z.uuid(),
+  ok: z.boolean(),
+  version: z.string().max(64).optional(),
+  reason: z.string().max(MAX_CLI_UPDATE_REASON).optional(),
+});
+export type NodeCliUpdated = z.infer<typeof NodeCliUpdated>;
 
 export const NodeProjects = z.object({ kind: z.literal('projects'), projects: z.array(Project) });
 export type NodeProjects = z.infer<typeof NodeProjects>;
