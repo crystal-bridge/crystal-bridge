@@ -144,6 +144,17 @@ describe('Castle', () => {
     await screen.findByRole('status');
   });
 
+  it('keeps an update-s outcome on its own Kingdom', async () => {
+    const props = renderCastle({ cli: '2.1.314', latestCli: '2.1.320', onUpdateCli: vi.fn(async () => '2.1.320') });
+    cleanup();
+    const { rerender } = render(<Castle {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Update Claude Code' }));
+    await screen.findByRole('status');
+    const other = { id: 'other', name: 'Harbour', connected: true, sessions: 0 };
+    rerender(<Castle {...props} kingdom={other} />);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('offers no update without a way to run one, when current, or offline', () => {
     const button = () => screen.queryByRole('button', { name: 'Update Claude Code' });
     renderCastle({ cli: '2.1.314', latestCli: '2.1.320' });

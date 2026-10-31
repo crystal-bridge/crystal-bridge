@@ -40,6 +40,9 @@ until its process next starts. The update gets five minutes and can't take input
 as a package manager asking for `sudo`, fails with its last output: update that machine by hand. Kingdoms older than
 this button don't offer it.
 
+The notice reads npm, and `claude update` reads the install's own release channel, which can trail npm for a while
+after a release. The button then says "Still on" that version and stays until the channel catches up.
+
 ## Deploying
 
 The simplest way is one command, driven by a config file outside the repo (so your host names are never committed,
