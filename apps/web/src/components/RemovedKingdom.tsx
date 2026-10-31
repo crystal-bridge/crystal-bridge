@@ -1,4 +1,4 @@
-import { LEAVE_COMMAND } from '@crystal-bridge/protocol';
+import { LEAVE_COMMAND, LEAVE_COMMAND_WINDOWS } from '@crystal-bridge/protocol';
 import { w } from '../theme/words.js';
 
 /**
@@ -14,6 +14,8 @@ export function RemovedKingdom({ name, onDismiss }: { name: string; onDismiss: (
       <p className="min-w-0 flex-1">
         {`${name} is no longer a ${w('kingdom')}. To uninstall it from that machine, run there: `}
         <code className="select-all break-all text-xs">{LEAVE_COMMAND}</code>
+        {' On Windows: '}
+        <code className="select-all break-all text-xs">{LEAVE_COMMAND_WINDOWS}</code>
       </p>
       <button
         type="button"

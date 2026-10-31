@@ -15,7 +15,7 @@ import { runJoin, runLeave, type JoinDeps } from './join.js';
 import { releaseId } from './release.js';
 import { execFile } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
-import { realpathSync } from 'node:fs';
+import { realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -121,6 +121,9 @@ async function main(): Promise<void> {
     `[crystal] node "${NODE_ID}" dialing ${HUB_URL}, permission server on http://127.0.0.1:${permissionServer.port}`,
   );
 
+  // On Windows `leave` has no service manager that can stop this process, so it needs the id.
+  if (process.env.CRYSTAL_PID_FILE) writeFileSync(process.env.CRYSTAL_PID_FILE, String(process.pid));
+
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) return;
@@ -157,6 +160,7 @@ function joinDeps(): JoinDeps {
         );
         if (file === 'sudo') child.stderr?.pipe(process.stderr);
       }),
+    kill: (pid) => process.kill(pid),
     log: (line) => console.log(line),
   };
 }

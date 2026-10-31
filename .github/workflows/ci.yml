@@ -57,6 +57,22 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose .
 
+  # Crystal's tests only. join's real task runs in a signed-in desktop session, which a runner doesn't promise.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @crystal-bridge/kingdom...
+      - run: pnpm --filter @crystal-bridge/kingdom test
+
   # join and leave against each OS's real service manager, with only `claude` faked.
   kingdom-install:
     strategy:

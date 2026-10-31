@@ -12,7 +12,7 @@ describe('createWorktree', () => {
   let repo: string;
   beforeEach(() => {
     // Real path: on macOS the temp dir is behind a symlink, and git reports resolved paths.
-    dir = realpathSync(mkdtempSync(join(tmpdir(), 'crystal-worktree-')));
+    dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'crystal-worktree-')));
     repo = join(dir, 'repo');
     mkdirSync(join(repo, 'sub'), { recursive: true });
     git(repo, 'init', '-q');
