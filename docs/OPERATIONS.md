@@ -214,16 +214,17 @@ that hasn't swapped yet, once that Kingdom next connects.
 The Kingdom takes only a version number from the hub. It then:
 
 1. Downloads that release's package from this project's GitHub Releases.
-2. Checks its build provenance itself: GitHub's attestation for that exact file, signed through Sigstore, has to name
-   this project's release workflow at that version's tag. See [the security model](./SECURITY-MODEL.md).
+2. Checks its build provenance itself: the attestation published with the release, signed through Sigstore, has to
+   name this project's release workflow at that version's tag and that exact file. See
+   [the security model](./SECURITY-MODEL.md).
 3. Installs it beside the running release with `npm install --ignore-scripts`, and runs the new copy once to see that
    it loads. Everything so far leaves the running Kingdom alone, and needs `npm` on its PATH.
 4. Waits until no Quest there is busy, as a deploy does. A Quest with background work counts as busy.
 5. Swaps to it and restarts. Idle Quests resume on their next follow-up.
 
-The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour. That
-includes GitHub's limit of 60 anonymous API calls an hour per address, which machines sharing one address can reach
-("GitHub answered 403").
+The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour.
+Releases before 0.3.0 don't carry the attestation, so a Kingdom updating to one asks GitHub's API, where machines
+sharing an address can reach the limit of 60 anonymous calls an hour ("GitHub answered 403").
 
 A Kingdom never moves to an older version, whatever the hub names. To go back, run this on the machine:
 

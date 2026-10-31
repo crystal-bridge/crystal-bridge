@@ -60,7 +60,8 @@ and a folder name, and it has to be newer than the running one. The Kingdom fetc
 GitHub Releases, then checks the attestation itself: Sigstore's signature, whose root comes through Sigstore's own
 TUF repository, on a certificate naming `release.yml` in this repository at that version's own tag, over a statement
 naming that exact file and digest. So one release can't pass as another, and the hub's package can't pass as the
-Kingdom's. Nothing the hub says is part of the proof.
+Kingdom's. Nothing the hub says is part of the proof. Where the attestation came from doesn't matter either: the
+release carries a copy, GitHub's API is the fallback, and both have to pass the same check.
 
 What this doesn't cover:
 

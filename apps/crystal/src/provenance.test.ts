@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { TrustedRoot } from '@sigstore/protobuf-specs';
 import { describe, expect, it, vi } from 'vitest';
-import { releaseIdentity, statementCovers, verifyRelease } from './provenance.js';
+import { attestationsName, releaseIdentity, statementCovers, verifyRelease } from './provenance.js';
 
 /** The real, public v0.2.0-alpha.1 tarball, its attestation from GitHub, and Sigstore's root, so this runs offline. */
 const fixture = (name: string) => new URL(`../test/fixtures/provenance/${name}`, import.meta.url);
@@ -13,13 +13,62 @@ const trustedRoot = async () => TrustedRoot.fromJSON(JSON.parse(readFileSync(fix
 const answering = (body: unknown, status = 200) =>
   vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
 
+const ASSET = `https://github.com/crystal-bridge/crystal-bridge/releases/download/v${VERSION}/crystal-bridge-attestations-${VERSION}.json`;
+const API =
+  'https://api.github.com/repos/crystal-bridge/crystal-bridge/attestations/sha256:34ddcdd06023611d73dfdb5af84bc7e5a54d94742b20211600c76b995215f2f0';
+
+/** Answers by URL; anything else is a 404. */
+const routes = (table: Record<string, () => Response>) =>
+  vi.fn(async (url: string) => table[url]?.() ?? new Response('Not Found', { status: 404 })) as unknown as typeof fetch;
+const json = (body: unknown) => () => new Response(JSON.stringify(body));
+
 describe('verifyRelease', () => {
   it('accepts a release built by this repository’s release workflow at its own tag', async () => {
-    const fetch = answering(attestations);
+    const fetch = routes({ [ASSET]: json(attestations) });
     await expect(verifyRelease(tarball, VERSION, { fetch, trustedRoot })).resolves.toBeUndefined();
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
-      'https://api.github.com/repos/crystal-bridge/crystal-bridge/attestations/sha256:34ddcdd06023611d73dfdb5af84bc7e5a54d94742b20211600c76b995215f2f0',
-    );
+  });
+
+  it('needs no call to GitHub’s API when the release carries its attestation', async () => {
+    const fetch = routes({ [ASSET]: json(attestations) });
+    await verifyRelease(tarball, VERSION, { fetch, trustedRoot });
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([ASSET]);
+  });
+
+  it('asks GitHub’s API for a release from before it carried one', async () => {
+    const fetch = routes({ [API]: json(attestations) });
+    await expect(verifyRelease(tarball, VERSION, { fetch, trustedRoot })).resolves.toBeUndefined();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([ASSET, API]);
+  });
+
+  it('asks GitHub’s API when the release can’t be reached', async () => {
+    const offline = vi.fn(async (url: string) => {
+      if (url === ASSET) throw new Error('offline');
+      return json(attestations)();
+    }) as unknown as typeof globalThis.fetch;
+    await expect(verifyRelease(tarball, VERSION, { fetch: offline, trustedRoot })).resolves.toBeUndefined();
+  });
+
+  it('says what stopped it when neither place answers', async () => {
+    const fetch = routes({ [API]: () => new Response('limited', { status: 403 }) });
+    await expect(verifyRelease(tarball, VERSION, { fetch, trustedRoot })).rejects.toThrow('GitHub answered 403');
+  });
+
+  it('gives an attestation in the release no more trust than one from the API', async () => {
+    const forged = structuredClone(attestations) as {
+      attestations: { bundle: { dsseEnvelope: { payload: string } } }[];
+    };
+    const envelope = forged.attestations[0]!.bundle.dsseEnvelope;
+    const payload = Buffer.from(envelope.payload, 'base64');
+    payload[10] = payload[10]! ^ 1;
+    envelope.payload = payload.toString('base64');
+    const fetch = routes({ [ASSET]: json(forged), [API]: json(attestations) });
+    await expect(verifyRelease(tarball, VERSION, { fetch, trustedRoot })).rejects.toThrow(/provenance/);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([ASSET]);
+  });
+
+  it('publishes the file under the name it looks for', () => {
+    const workflow = readFileSync(new URL('../../../.github/workflows/release.yml', import.meta.url), 'utf8');
+    expect(workflow).toContain(attestationsName('$version'));
   });
 
   it('refuses a changed tarball', async () => {
