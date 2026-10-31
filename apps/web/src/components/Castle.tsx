@@ -363,7 +363,13 @@ export function Castle({
                 </p>
               )}
               {cli && kingdom.connected && onUpdateCli && (
-                <UpdateCli kingdom={kingdom} cli={cli} behind={isBehind(cli, latestCli)} onUpdateCli={onUpdateCli} />
+                <UpdateCli
+                  key={kingdom.id}
+                  kingdom={kingdom}
+                  cli={cli}
+                  behind={isBehind(cli, latestCli)}
+                  onUpdateCli={onUpdateCli}
+                />
               )}
             </div>
           </div>
