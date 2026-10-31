@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { accessRefusals, authMode } from './access.js';
 import { accessTokens, tailscaleServe } from './auth.js';
-import { backupStore, runBackup } from './backup.js';
+import { backupRecord, backupStore, runBackup } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
+import { latestReleaseChecker } from './hub-release.js';
 import { kingdomTarget } from './kingdom-target.js';
 import { createFirstRun } from './first-run.js';
 import { pendingMigrations } from './migrations.js';
@@ -104,6 +105,12 @@ async function main(): Promise<void> {
     ...(KINGDOM_TARGET ? { kingdomVersion: KINGDOM_TARGET } : {}),
     ...(VERSION ? { webRoot: fileURLToPath(new URL('web', import.meta.url)) } : {}),
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
+    // A hub run from git has no version to compare, and follows `main` anyway.
+    ...(VERSION && process.env.AIRSHIP_RELEASE_CHECK !== 'off' ? { latestRelease: latestReleaseChecker() } : {}),
+    upkeep: () => ({
+      ...(existsSync(DB_PATH) ? { databaseBytes: statSync(DB_PATH).size } : {}),
+      ...backupRecord(BACKUP_DIR),
+    }),
     push: { publicKey: vapid.publicKey, pusher },
   });
 

@@ -9,7 +9,9 @@ import { hint, w } from '../theme/words.js';
 import type { NotifyLevel } from '../notify.js';
 import { isActiveQuest } from '../quests.js';
 import { KingdomIcon } from './KingdomIcon.js';
+import type { FleetRow } from '../fleet.js';
 import { Roster } from './Roster.js';
+import { type HubStatus, ShipsLog } from './ShipsLog.js';
 import { NodeUsage, type NodeUsageRow } from './NodeUsage.js';
 import type { SessionSummary } from './SessionList.js';
 
@@ -36,6 +38,10 @@ export interface AirshipProps {
   levels?: Record<string, Level>;
   /** Starts a New Quest on that Kingdom. */
   onNewQuest?: (node: string) => void;
+  /** The hub on itself; without it, no Ship's Log. */
+  hubStatus?: HubStatus | undefined;
+  /** Each Kingdom's release and update, for the Ship's Log. */
+  fleet?: FleetRow[];
   now?: number;
 }
 
@@ -63,6 +69,8 @@ export function Airship({
   heroStates = {},
   levels,
   onNewQuest,
+  hubStatus,
+  fleet = [],
   now = Date.now(),
 }: AirshipProps) {
   const [moreLog, setMoreLog] = useState(false);
@@ -118,6 +126,11 @@ export function Airship({
           </section>
 
           <StatTiles title={w('today')} plain={hint('today')} stats={sumStats(today, new Set(shown.keys()))} />
+        </div>
+
+        {/* A new panel, so it stays off a phone for now. */}
+        <div className="hidden md:block">
+          <ShipsLog status={hubStatus} fleet={fleet} now={now} />
         </div>
 
         <section

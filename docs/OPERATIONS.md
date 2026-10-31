@@ -151,8 +151,24 @@ Everything the hub keeps is in `AIRSHIP_DATA`, so back up that folder and keep i
 listen on anything but loopback without token login. `crystal-bridge-airship backup` copies the database into its backups
 folder safely while the hub runs, keeping the newest `AIRSHIP_BACKUP_KEEP`.
 
-Updating a packaged hub is a step outside the app: pull the newer image and recreate the container, or start the newer
-tarball. A browser tab then offers to reload, and Kingdoms made by `join` follow on their own.
+Updating a packaged hub is a step outside the app, because a hub can't replace what's running it: pull the newer image
+and recreate the container, or start the newer tarball. A browser tab then offers to reload, and Kingdoms made by `join`
+follow on their own.
+
+## The Ship's Log
+
+The **Ship's Log** on the Airship shows the hub itself: its release, how its Kingdoms are getting on and, one click
+further, its protocol version, uptime, database size, and last backup and mirror. It stays one line until something
+needs a look. It's left off phones for now.
+
+A packaged hub asks GitHub for this project's latest full release at most every six hours, sending nothing about you or
+your sessions, and keeps the last answer if GitHub can't be reached. When a newer one is out, the Ship's Log shows its
+notes and how to take it, and the logo that leads to the Airship gets a count badge. `AIRSHIP_RELEASE_CHECK=off` stops the
+check. A hub run from git has no version to compare, so it never asks.
+
+Each Kingdom's line shows when it's behind, when it has a release ready and is waiting for its Quests to finish, and why
+an update failed. The mirror's age turns amber after two days, which needs `push-backups.sh` from this release or newer:
+it leaves a `last-mirror` file in the backups folder.
 
 ## Logging in
 

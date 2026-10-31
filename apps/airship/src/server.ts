@@ -25,6 +25,7 @@ import {
   NodeProjects,
   NodeHello,
   PROTOCOL_VERSION,
+  isOlderVersion,
   PushSubscriptionPut,
   Appearance,
   type Attention,
@@ -34,6 +35,7 @@ import {
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
+import type { LatestRelease } from './hub-release.js';
 import { cleanHubName, type HubSettings } from './hub-settings.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
@@ -66,6 +68,10 @@ export interface BuildServerOptions {
   webRoot?: string;
   /** Finds the latest agent CLI version, for "update available". Unset: the hub doesn't check. */
   latestCli?: () => Promise<string | undefined>;
+  /** Finds this project's latest release, for the Ship's Log. Unset: the hub doesn't check. */
+  latestRelease?: () => Promise<LatestRelease | undefined>;
+  /** What this hub can say about its database and backups, for the Ship's Log. */
+  upkeep?: () => { databaseBytes?: number; lastBackupAt?: number; lastMirrorAt?: number };
   /** How often relayed-byte counts are written to the store (default 30 s); they're also written on close. */
   relayFlushMs?: number;
   /** Web Push: the VAPID public key browsers subscribe with, and what sends each attention to subscribed devices. */
@@ -184,6 +190,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     settings,
     release = 'dev',
     latestCli,
+    latestRelease,
+    upkeep,
     kingdomVersion,
     webRoot,
     push,
@@ -580,6 +588,17 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   app.get('/api/cli-latest', async () => {
     const latest = await latestCli?.();
     return latest ? { latest } : {};
+  });
+  // The Ship's Log. Behind the login, unlike /api/health, since it says more about the hub than a monitor needs.
+  app.get('/api/hub/status', async () => {
+    const latest = await latestRelease?.();
+    return {
+      release,
+      protocol: PROTOCOL_VERSION,
+      uptimeMs: Math.round(process.uptime() * 1000),
+      ...upkeep?.(),
+      ...(latest && isOlderVersion(release, latest.version) ? { update: latest } : {}),
+    };
   });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>

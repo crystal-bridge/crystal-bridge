@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { backupStore, runBackup } from './backup.js';
+import { backupRecord, backupStore, runBackup } from './backup.js';
 import { openStore } from './store.js';
 
 describe('backupStore', () => {
@@ -54,5 +54,24 @@ describe('backupStore', () => {
     openStore(join(dir, 'airship.db')).close();
     await runBackup({ AIRSHIP_DATA: dir, AIRSHIP_BACKUP_KEEP: '3' });
     expect(readdirSync(join(dir, 'backups'))).toHaveLength(1);
+  });
+});
+
+describe('backupRecord', () => {
+  it('reads the newest copy from its name, and when the mirror last ran', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'airship-record-'));
+    writeFileSync(join(dir, 'airship-20261029-030405.db'), '');
+    writeFileSync(join(dir, 'airship-20261030-030405.db'), '');
+    writeFileSync(join(dir, 'last-mirror'), '1793400000\n');
+    expect(backupRecord(dir)).toEqual({
+      lastBackupAt: Date.UTC(2026, 9, 30, 3, 4, 5),
+      lastMirrorAt: 1793400000_000,
+    });
+  });
+
+  it('says nothing about a backup or a mirror that has never run', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'airship-record-'));
+    expect(backupRecord(dir)).toEqual({});
+    expect(backupRecord(join(dir, 'missing'))).toEqual({});
   });
 });

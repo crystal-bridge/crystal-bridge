@@ -11,26 +11,37 @@ export interface LatestCliOptions {
 }
 
 /**
- * What asks for the latest agent CLI version: at most once per period, whoever is asking, and with the last good answer
- * kept through a failure, so an offline hub only stops saying an update is available.
+ * Runs a check at most once per period, whoever is asking, and keeps the last good answer through a failure, so an
+ * offline hub only stops saying an update is available.
  */
-export function latestCliChecker({
-  fetch: request = fetch,
-  now = Date.now,
-  ttlMs = TTL_MS,
-}: LatestCliOptions = {}): () => Promise<string | undefined> {
-  let latest: string | undefined;
+export function periodically<T>(
+  check: () => Promise<T | undefined>,
+  { now = Date.now, ttlMs = TTL_MS }: { now?: () => number; ttlMs?: number } = {},
+): () => Promise<T | undefined> {
+  let latest: T | undefined;
   let checkedAt: number | undefined;
   return async () => {
     if (checkedAt !== undefined && now() - checkedAt <= ttlMs) return latest;
     checkedAt = now();
     try {
-      const response = await request(LATEST_URL, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-      const body = response.ok ? ((await response.json()) as { version?: unknown }) : {};
-      if (typeof body.version === 'string') latest = body.version;
+      latest = (await check()) ?? latest;
     } catch {
       // Keeps the last answer.
     }
     return latest;
   };
+}
+
+/** What asks for the latest agent CLI version. */
+export function latestCliChecker({ fetch: request = fetch, now, ttlMs }: LatestCliOptions = {}): () => Promise<
+  string | undefined
+> {
+  return periodically(
+    async () => {
+      const response = await request(LATEST_URL, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+      const body = response.ok ? ((await response.json()) as { version?: unknown }) : {};
+      return typeof body.version === 'string' ? body.version : undefined;
+    },
+    { ...(now ? { now } : {}), ...(ttlMs ? { ttlMs } : {}) },
+  );
 }
