@@ -7,6 +7,7 @@ steps live in the [README](../README.md#one-machine), which also says what the a
 
 ## Next
 
+- Learn the words the app uses: [How it fits together](./CONCEPTS.md).
 - Put the hub on an always-on host and connect more machines: [Several machines](./SEVERAL-MACHINES.md).
 - Read the [security model](./SECURITY-MODEL.md) before exposing it beyond your own private network.
 - Change a setting: the [configuration reference](./CONFIGURATION.md).

@@ -373,7 +373,9 @@ identity. Old revisions and commit metadata stay behind.
 
 `docs/` builds into a VitePress site. It's its own pnpm workspace with its own lockfile, so its dependencies never
 reach a hub or Kingdom install. `.github/workflows/docs.yml` builds it on every pull request and on `main`, and a dead
-link fails the build. Links out of `docs/` work on GitHub, and on the site go to the same file on GitHub.
+link fails the build. Links out of `docs/` work on GitHub, and on the site go to the same file on GitHub. The logo is a
+copy of the app's `favicon.svg`. `scripts/docs-site.test.ts` holds that, and other things a build can't see, such as
+every page being in the sidebar.
 
 The workflow publishes only when the repository's **Settings > Pages > Build and deployment > Source** is **GitHub
 Actions**. Until then it builds and stops there, on any fork too. It reads the address from that setting, so nothing

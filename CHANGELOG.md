@@ -9,6 +9,8 @@ then, everything is in Unreleased.
 
 - A Quest's Stats fit every plan: HP is the shortest limit the plan has, a new Stamina bar shows a longer one when
   there is one, a bar's tooltip names its limit, and a bar warns when its limit says it's nearly out.
+- The docs site opens with what Crystal Bridge is and why you'd want it, explains the model on one short page, and has
+  a guide to installing the app; the reference pages are grouped by what you're trying to do.
 - Windows Kingdoms: `join` and `leave` work there through a sign-in task that needs no administrator, which restarts
   Crystal after a crash, and both engines run Quests, whether `claude` came from the native or the npm install.
 - The Castle offers Update Claude Code when a Kingdom's CLI is behind, running the CLI's own update while no Quest

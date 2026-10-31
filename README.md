@@ -34,6 +34,7 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 
 The default theme has its own words for things. Classic uses plain ones.
 
+<!-- #region the-world -->
 | Term | What it is |
 |---|---|
 | **Airship** | The hub every machine connects to, and the app's home page |
@@ -47,6 +48,7 @@ The default theme has its own words for things. Classic uses plain ones.
 | **Recruit** | Adopt a session found outside the bridge |
 | **Chronicle** | History: closed Quests and search |
 | **HP, Stamina, MP, Gold** | Plan usage left (short and long limits), context left, and cost |
+<!-- #endregion the-world -->
 
 ### The parts
 
@@ -86,7 +88,7 @@ If you need API-key billing or want to offer it to others, read those terms firs
   browsers' push services. A Kingdom that updates itself talks to GitHub, Sigstore and npm to fetch and check a
   release (`CRYSTAL_SELF_UPDATE=off` stops that). Nothing about you or your sessions is sent. Fonts and art are bundled.
 - **Where it runs:** the hub on Linux and macOS, and Kingdoms on those and Windows, with Node 22 or newer; the web app
-  in current Chrome, Firefox and Safari, including as an installed app on a phone.
+  in current Chrome, Firefox and Safari, including as an [installed app](docs/INSTALL-APP.md) on a phone.
 - **A personal project.** Pull requests are welcome (see `CONTRIBUTING.md`); there are no support promises.
 
 ## Quick Start
@@ -128,7 +130,9 @@ its default.
 
 The guides are in [`docs/`](docs), and the same pages build into a site (`pnpm docs:dev` to preview it):
 
+- [How it fits together](docs/CONCEPTS.md), the short version of the model and its words
 - [Getting started on one machine](docs/GETTING-STARTED.md) and [several machines](docs/SEVERAL-MACHINES.md)
+- [Install the app](docs/INSTALL-APP.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Operations](docs/OPERATIONS.md)
 - [Security model](docs/SECURITY-MODEL.md) and [what the hub stores](docs/HUB-DATA.md)

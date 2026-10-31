@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="t">How the parts of Crystal Bridge connect</title>
+  <desc id="d">Browsers on a laptop and a phone connect to the Airship hub. Each Kingdom's Crystal agent also connects out to the hub, and runs the claude CLI on its own machine.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+  </defs>
+  <rect width="760" height="330" rx="10" fill="#f8fafc"/>
+
+  <g fill="#fff" stroke="#cbd5e1" stroke-width="1.5">
+    <rect x="24" y="66" width="150" height="74" rx="8"/>
+    <rect x="24" y="190" width="150" height="74" rx="8"/>
+  </g>
+  <g text-anchor="middle" fill="#0f172a">
+    <text x="99" y="98" font-size="15" font-weight="600">Laptop</text>
+    <text x="99" y="118" font-size="13" fill="#475569">the web app</text>
+    <text x="99" y="222" font-size="15" font-weight="600">Phone</text>
+    <text x="99" y="242" font-size="13" fill="#475569">the web app</text>
+  </g>
+
+  <rect x="262" y="96" width="196" height="138" rx="8" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5"/>
+  <g text-anchor="middle">
+    <text x="360" y="130" font-size="16" font-weight="700" fill="#0c4a6e">Airship</text>
+    <text x="360" y="150" font-size="13" fill="#0c4a6e">the hub, always on</text>
+    <text x="360" y="182" font-size="13" fill="#334155">serves the app</text>
+    <text x="360" y="200" font-size="13" fill="#334155">stores every session's events</text>
+    <text x="360" y="218" font-size="13" fill="#334155">relays commands</text>
+  </g>
+
+  <g fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5">
+    <rect x="546" y="34" width="190" height="118" rx="8"/>
+    <rect x="546" y="178" width="190" height="118" rx="8"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="641" y="62" font-size="15" font-weight="700" fill="#3b0764">Kingdom: a machine</text>
+    <text x="641" y="82" font-size="13" fill="#3b0764">and its Claude login</text>
+    <text x="641" y="206" font-size="15" font-weight="700" fill="#3b0764">Kingdom: a machine</text>
+    <text x="641" y="226" font-size="13" fill="#3b0764">and its Claude login</text>
+  </g>
+  <g fill="#fff" stroke="#6d28d9">
+    <rect x="560" y="96" width="70" height="40" rx="5"/>
+    <rect x="652" y="96" width="70" height="40" rx="5"/>
+    <rect x="560" y="240" width="70" height="40" rx="5"/>
+    <rect x="652" y="240" width="70" height="40" rx="5"/>
+  </g>
+  <g text-anchor="middle" font-size="13" fill="#0f172a">
+    <text x="595" y="121">Crystal</text>
+    <text x="595" y="265">Crystal</text>
+  </g>
+  <g text-anchor="middle" font-size="13" fill="#0f172a" font-family="ui-monospace, Menlo, Consolas, monospace">
+    <text x="687" y="121">claude</text>
+    <text x="687" y="265">claude</text>
+  </g>
+  <g stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#a)">
+    <path d="M630 116H650"/>
+    <path d="M630 260H650"/>
+    <path d="M174 103L260 140"/>
+    <path d="M174 227L260 190"/>
+    <path d="M546 93L460 140"/>
+    <path d="M546 237L460 190"/>
+  </g>
+  <g font-size="12" fill="#475569" text-anchor="middle">
+    <text x="99" y="300">You connect in</text>
+    <text x="360" y="300">Kingdoms dial out, so they need no open ports</text>
+  </g>
+</svg>
