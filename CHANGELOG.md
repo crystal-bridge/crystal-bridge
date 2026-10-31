@@ -7,8 +7,8 @@ then, everything is in Unreleased.
 
 ### Added
 
-- Windows Kingdoms: `join` and `leave` work there through a sign-in task that needs no administrator, and both engines
-  run Quests, whether `claude` came from the native or the npm install.
+- Windows Kingdoms: `join` and `leave` work there through a sign-in task that needs no administrator, which restarts
+  Crystal after a crash, and both engines run Quests, whether `claude` came from the native or the npm install.
 - The Castle offers Update Claude Code when a Kingdom's CLI is behind, running the CLI's own update while no Quest
   there is busy.
 - A Quest's tab shows its project under the title.

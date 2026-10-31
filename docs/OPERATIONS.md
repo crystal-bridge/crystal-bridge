@@ -171,9 +171,10 @@ agent. It refuses a machine that's already a Kingdom. On Linux it runs `sudo log
 so the service survives logging out.
 
 On Windows the same steps use `%LOCALAPPDATA%\crystal-bridge`: the copy goes in `current`, the token in `crystal.env`
-and the log in `crystal.log`. Crystal starts from a Task Scheduler task at the user's sign-in, in a headless console.
-That needs no administrator, and it means the Kingdom runs only while that user is signed in. The folder is private to
-the user by default.
+and the log in `crystal.log`. A Task Scheduler task runs `crystal.cmd` at the user's sign-in, in a headless console, and
+that script restarts Crystal after a crash. This needs no administrator, and it means the Kingdom runs only while that
+user is signed in. The folder is private to the user by default. To start it again by hand, run
+`schtasks /Run /TN CrystalBridgeKingdom`. `schtasks /End` won't stop Crystal, because it ends only the console.
 
 `leave` (`LEAVE_COMMAND`, or `LEAVE_COMMAND_WINDOWS`, in `packages/protocol`) gives up the token and removes the service, the env file and the
 install. It works even if the hub can't be reached, and then says to remove the Kingdom from the app as well. Remove on

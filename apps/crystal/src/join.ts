@@ -92,17 +92,30 @@ export function launchdPlist({ nodeBin, mainJs, envFile, logFile, path }: Servic
 const xmlText = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 /**
- * A Task Scheduler task that starts Crystal at this user's sign-in. It needs no administrator, which is also why it
- * runs only while they're signed in. A headless console keeps a window from opening on their desktop.
+ * What the Windows task runs. It restarts Crystal after a crash, because the headless console hides the exit code from
+ * Task Scheduler, and it names its own files by its folder, so nothing here depends on how the user's name is spelled.
  */
-export function windowsTask({
-  nodeBin,
-  mainJs,
-  envFile,
-  logFile,
-  user,
-}: Omit<ServicePaths, 'path'> & { user: string }) {
-  const run = `"${nodeBin}" --env-file="${envFile}" "${mainJs}" >> "${logFile}" 2>&1`;
+export function windowsScript(nodeBin: string): string {
+  const entry = ENTRY.replaceAll('/', '\\');
+  return [
+    '@echo off',
+    'rem Written by `crystal-bridge-kingdom join`; its `leave` removes this.',
+    'set "CRYSTAL_PID_FILE=%~dp0crystal.pid"',
+    ':run',
+    `"${nodeBin.replaceAll('%', '%%')}" --env-file="%~dp0crystal.env" "%~dp0current\\${entry}" >> "%~dp0crystal.log" 2>&1`,
+    'if %errorlevel% equ 0 exit /b 0',
+    'ping -n 6 127.0.0.1 >nul',
+    'goto run',
+    '',
+  ].join('\r\n');
+}
+
+/**
+ * A Task Scheduler task that starts Crystal at this user's sign-in. It needs no administrator, which is also why it
+ * runs only while they're signed in. A headless console keeps a window from opening on their desktop; it rewrites the
+ * command line it passes on, so that line stays this plain and the work lives in the script.
+ */
+export function windowsTask({ script, user }: { script: string; user: string }) {
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
@@ -123,15 +136,11 @@ export function windowsTask({
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
-    </RestartOnFailure>
   </Settings>
   <Actions>
     <Exec>
       <Command>conhost.exe</Command>
-      <Arguments>--headless cmd.exe /c "${xmlText(run)}"</Arguments>
+      <Arguments>--headless "${xmlText(script)}"</Arguments>
     </Exec>
   </Actions>
 </Task>
@@ -182,6 +191,7 @@ export interface JoinDeps {
   shell: string;
   fetch: (url: string, init: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
   exec: (file: string, args: string[]) => Promise<string>;
+  kill: (pid: number) => void;
   log: (line: string) => void;
 }
 
@@ -301,10 +311,23 @@ async function startService(deps: JoinDeps, where: Layout): Promise<void> {
   await deps.exec('systemctl', ['--user', 'enable', '--now', SERVICE]);
 }
 
+/** Ending the task ends only its console, so Crystal goes by the id it recorded, if that is still Crystal. */
+async function stopWindowsCrystal(deps: JoinDeps, where: Layout): Promise<void> {
+  const pidFile = join(where.base, 'crystal.pid');
+  const pid = existsSync(pidFile) ? Number(readFileSync(pidFile, 'utf8')) : 0;
+  if (!pid) return;
+  // tasklist and taskkill are refused over SSH, where `leave` may well run.
+  const name = await deps
+    .exec('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${pid}).ProcessName`])
+    .catch(() => '');
+  if (name.trim().toLowerCase() === 'node') deps.kill(pid);
+}
+
 async function stopService(deps: JoinDeps, where: Layout): Promise<void> {
   if (deps.platform === 'win32') {
     await deps.exec('schtasks', ['/End', '/TN', TASK]).catch(() => undefined);
     await deps.exec('schtasks', ['/Delete', '/TN', TASK, '/F']).catch(() => undefined);
+    await stopWindowsCrystal(deps, where);
     return;
   }
   if (deps.platform === 'darwin') {
@@ -349,8 +372,10 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
   mkdirSync(dirname(where.logFile), { recursive: true });
   const paths = { nodeBin: deps.nodeBin, mainJs, envFile: where.envFile, logFile: where.logFile, path };
   if (deps.platform === 'win32') {
+    const script = join(where.base, 'crystal.cmd');
+    writeFileSync(script, windowsScript(deps.nodeBin));
     // Task Scheduler reads the file as the UTF-16 its first line says it is.
-    writeFileSync(where.service, `\ufeff${windowsTask({ ...paths, user: deps.user })}`, 'utf16le');
+    writeFileSync(where.service, `\ufeff${windowsTask({ script, user: deps.user })}`, 'utf16le');
   } else {
     writeFileSync(where.service, deps.platform === 'darwin' ? launchdPlist(paths) : systemdUnit(paths));
   }
@@ -380,7 +405,8 @@ export async function runLeave(deps: JoinDeps): Promise<void> {
 
   await stopService(deps, where);
   rmSync(where.envFile, { force: true });
-  rmSync(where.base, { recursive: true, force: true });
+  // A stopped process lets go of its files a moment after it's gone.
+  rmSync(where.base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   deps.log(
     left ? 'This Kingdom has left its hub.' : 'Removed here, but the hub did not answer: remove it from the app.',
   );

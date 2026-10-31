@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import {
   existsSync,
   lstatSync,
@@ -92,6 +93,7 @@ describe('join and leave', () => {
   let npx: string;
   let calls: string[];
   let lines: string[];
+  let killed: number[];
   let answers: Record<string, string | Error>;
   let reply: { status: number; body: unknown };
   let fetchHub: ReturnType<typeof vi.fn>;
@@ -117,6 +119,7 @@ describe('join and leave', () => {
         return answer;
       },
       log: (line) => lines.push(line),
+      kill: (pid) => killed.push(pid),
     };
   }
 
@@ -129,6 +132,7 @@ describe('join and leave', () => {
     writeFileSync(join(npx, 'node_modules/@crystal-bridge/kingdom/dist/main.js'), '// agent');
     calls = [];
     lines = [];
+    killed = [];
     answers = {
       '--version': '2.1.314 (Claude Code)',
       'auth status': JSON.stringify({ loggedIn: true, email: 'someone@example.com' }),
@@ -162,10 +166,22 @@ describe('join and leave', () => {
     expect(task).toContain('<LogonType>InteractiveToken</LogonType>');
     expect(task).toContain('<RunLevel>LeastPrivilege</RunLevel>');
     expect(task).toContain('<UserId>me</UserId>');
-    expect(task).toContain('--env-file=');
-    expect(task).toContain(join('crystal-bridge', 'current', 'node_modules'));
-    expect(task).toContain('&gt;&gt;');
     expect(task).not.toContain('the-token');
+
+    const script = readFileSync(join(windowsBase(), 'crystal.cmd'), 'utf8');
+    expect(task).toContain(`<Arguments>--headless "${join(windowsBase(), 'crystal.cmd')}"</Arguments>`);
+    expect(script).toContain('"C:\\node\\node.exe" --env-file="%~dp0crystal.env" "%~dp0current\\node_modules\\');
+    expect(script).toContain('>> "%~dp0crystal.log" 2>&1');
+    expect(script).toContain('set "CRYSTAL_PID_FILE=%~dp0crystal.pid"');
+    // A crash exits with a negative code, which `errorlevel 1` would take for success.
+    expect(script).toContain('if %errorlevel% equ 0 exit /b 0');
+    expect(script).not.toContain('the-token');
+    expect(
+      script
+        .split('\n')
+        .slice(0, -1)
+        .every((line) => line.endsWith('\r')),
+    ).toBe(true);
 
     expect(calls).toContain(`schtasks /Create /TN CrystalBridgeKingdom /XML ${file} /F`);
     expect(calls).toContain('schtasks /Run /TN CrystalBridgeKingdom');
@@ -186,7 +202,52 @@ describe('join and leave', () => {
     await runLeave(windowsDeps());
 
     expect(calls).toEqual(['schtasks /End /TN CrystalBridgeKingdom', 'schtasks /Delete /TN CrystalBridgeKingdom /F']);
+    expect(killed).toEqual([]);
     expect(existsSync(windowsBase())).toBe(false);
+  });
+
+  it('stops Crystal itself on leaving on Windows, since ending the task only ends its console', async () => {
+    await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+    writeFileSync(join(windowsBase(), 'crystal.pid'), '4242');
+    answers['Get-Process -Id 4242'] = 'node\r\n';
+    await runLeave(windowsDeps());
+
+    expect(killed).toEqual([4242]);
+    expect(existsSync(windowsBase())).toBe(false);
+  });
+
+  it('leaves alone whatever now has the recorded process id', async () => {
+    await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+    writeFileSync(join(windowsBase(), 'crystal.pid'), '4242');
+    answers['Get-Process -Id 4242'] = 'notepad\r\n';
+    await runLeave(windowsDeps());
+
+    expect(killed).toEqual([]);
+  });
+
+  // The real thing: conhost rewrites the command line it hands on, which once left a task reporting success with no
+  // Crystal behind it. A space in the path is the usual case, since a Windows folder is named after its user.
+  it.runIf(process.platform === 'win32')('starts from the task exactly as Task Scheduler would run it', async () => {
+    const deep = join(dir, 'a user');
+    const windows = { ...windowsDeps(), home: deep, nodeBin: process.execPath };
+    mkdirSync(deep);
+    await runJoin('https://hub.example.com', 'CODE', windows);
+    const base = join(deep, 'AppData/Local/crystal-bridge');
+    writeFileSync(
+      join(base, 'current/node_modules/@crystal-bridge/kingdom/dist/main.js'),
+      `console.log('started as', process.env.CRYSTAL_NODE, process.env.CRYSTAL_PID_FILE !== undefined);`,
+    );
+    const task = readFileSync(join(base, 'task.xml')).toString('utf16le');
+    const args = /<Arguments>(.*)<\/Arguments>/.exec(task)?.[1] ?? '';
+    spawn('conhost.exe', [args], { windowsVerbatimArguments: true, stdio: 'ignore' });
+
+    await vi.waitFor(
+      () => expect(readFileSync(join(base, 'crystal.log'), 'utf8')).toContain('started as node-c true'),
+      {
+        timeout: 15_000,
+        interval: 200,
+      },
+    );
   });
 
   const current = () => join(home, '.local/share/crystal-bridge/current');
