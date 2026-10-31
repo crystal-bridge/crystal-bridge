@@ -13,7 +13,7 @@ port=7795
 hub=http://127.0.0.1:$port
 hub_pid=''
 old=0.1.0
-target=0.2.0-alpha.1
+target=0.3.0
 manifest=$repo/apps/crystal/package.json
 cp "$manifest" "$work/manifest"
 cleanup() {
@@ -36,9 +36,6 @@ wait_for() { # <what> <command...>; TRIES overrides the usual 30 s
 connected() { curl -s "$hub/api/nodes" | grep -q ci-kingdom; }
 disconnected() { ! connected; }
 runs() { curl -s "$hub/api/engines" | grep -q "\"release\":\"$1\""; }
-# GitHub limits anonymous API calls per address, and hosted runners share addresses. Only this exact failure passes.
-rate_limited() { curl -s "$hub/api/engines" | grep -q 'failed its provenance check: GitHub answered 403'; }
-updated_or_limited() { runs "$target" || rate_limited; }
 service_log() {
   curl -s "$hub/api/engines" >&2 || true
   if [[ $(uname) == Linux ]]; then
@@ -93,20 +90,15 @@ echo 'check: the service connected'
 not_deployed() { ! curl -s "$hub/api/nodes" | grep -q ci-deployed; }
 base=$HOME/.local/share/crystal-bridge
 entry=node_modules/@crystal-bridge/kingdom/dist/main.js
-TRIES=360 wait_for "the Kingdom to update itself to $target" updated_or_limited || { service_log; exit 1; }
-if rate_limited; then
-  echo '::warning::GitHub rate-limited this runner, so the self-update and rollback checks were skipped'
-  runs "$old" || { echo 'check: a failed update moved the Kingdom' >&2; exit 1; }
-else
-  [[ $(readlink "$base/current") == */releases/$target ]] ||
-    { echo 'check: current is not the new release' >&2; exit 1; }
-  echo 'check: the Kingdom updated itself, verified, through its service'
+TRIES=360 wait_for "the Kingdom to update itself to $target" runs "$target" || { service_log; exit 1; }
+[[ $(readlink "$base/current") == */releases/$target ]] ||
+  { echo 'check: current is not the new release' >&2; exit 1; }
+echo 'check: the Kingdom updated itself, verified, through its service'
 
-  node "$base/previous/$entry" rollback
-  TRIES=120 wait_for "the Kingdom to roll back to $old" runs "$old" || { service_log; exit 1; }
-  [[ $(cat "$base/held-version") == "$target" ]] || { echo 'check: rollback held nothing' >&2; exit 1; }
-  echo 'check: rollback went back and held the release it left'
-fi
+node "$base/previous/$entry" rollback
+TRIES=120 wait_for "the Kingdom to roll back to $old" runs "$old" || { service_log; exit 1; }
+[[ $(cat "$base/held-version") == "$target" ]] || { echo 'check: rollback held nothing' >&2; exit 1; }
+echo 'check: rollback went back and held the release it left'
 
 node "$base/current/$entry" leave
 wait_for 'the Kingdom to disconnect' disconnected
