@@ -195,6 +195,41 @@ describe('startNode', () => {
     expect(await waitForFrame(conn, (frame) => frame.kind === 'cli')).toEqual({ kind: 'cli', version: '2.1.314' });
   });
 
+  describe('answering a terminal', () => {
+    const SESSION = '22222222-2222-4222-8222-222222222222';
+
+    it('passes keys to the session, and says so for one with no terminal', async () => {
+      const keys = vi.fn();
+      const fake: SessionLike = {
+        start() {},
+        send() {},
+        interrupt() {},
+        setMode() {},
+        close() {},
+        busy: false,
+        on() {},
+        keys,
+      };
+      createNode({ sessionFactory: () => fake });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      conn.socket.send(
+        JSON.stringify({ type: 'session.start', node: 'test', session: SESSION, cwd: tmpdir(), prompt: 'hi' }),
+      );
+      await delay(20);
+      conn.socket.send(JSON.stringify({ type: 'session.keys', session: SESSION, keys: '1' }));
+      await waitUntil(() => keys.mock.calls.length > 0);
+      expect(keys).toHaveBeenCalledWith({ keys: '1' });
+
+      conn.socket.send(
+        JSON.stringify({ type: 'session.keys', session: '33333333-3333-4333-8333-333333333333', retype: true }),
+      );
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'node-error')).toMatchObject({
+        message: expect.stringContaining('no terminal'),
+      });
+    });
+  });
+
   describe('updating this Kingdom', () => {
     it('offers it in hello only when it can, and passes on the version the hub names', async () => {
       const onKingdomVersion = vi.fn();

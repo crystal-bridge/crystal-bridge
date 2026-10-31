@@ -36,6 +36,8 @@ export interface SessionLike {
   send(text: string): void;
   interrupt(): void;
   setMode(mode: PermissionMode): void;
+  /** Answers a terminal that's asking something; only the interactive engine has one. */
+  keys?(input: { keys?: string; retype?: boolean }): void;
   close(): void;
   /** Resolves once the session's process has exited (at once if none is running). */
   stopped?(): Promise<void>;
@@ -581,6 +583,16 @@ export function startNode(options: StartNodeOptions): CrystalNode {
         case 'session.interrupt':
           handleSessionInterrupt(cmd);
           break;
+        case 'session.keys': {
+          const state = sessions.get(cmd.session);
+          if (state?.runtime.keys) {
+            state.runtime.keys({
+              ...(cmd.keys ? { keys: cmd.keys } : {}),
+              ...(cmd.retype ? { retype: true } : {}),
+            });
+          } else sendNodeError(cmd.session, `this session has no terminal to answer: ${cmd.session}`);
+          break;
+        }
         case 'session.mode': {
           const state = sessions.get(cmd.session);
           if (state) state.runtime.setMode(cmd.mode);

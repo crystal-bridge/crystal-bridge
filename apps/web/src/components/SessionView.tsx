@@ -33,6 +33,7 @@ import { MODES } from '../modes.js';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel.js';
 import type { PermissionMode } from '@crystal-bridge/protocol';
 import { PermissionCard } from './PermissionCard.js';
+import { TerminalCard } from './TerminalCard.js';
 import { QuestionCard } from './QuestionCard.js';
 import { PromptBox } from './PromptBox.js';
 import { SkillLine, ToolCard } from './ToolCard.js';
@@ -60,6 +61,8 @@ export interface SessionViewProps {
   /** How far the history has loaded; until synced, a loading screen stands in for the chat. Unset: loaded. */
   progress?: ReplayProgress;
   onAnswer: (requestId: string, behavior: 'allow' | 'deny', answers?: Record<string, string>) => void;
+  /** Answers a terminal that's asking something: keystrokes, or the held message typed again. */
+  onKeys?: (input: { keys?: string; retype?: boolean }) => void;
   /** Sends a follow-up, with any files attached to it (#14). */
   onSend: (text: string, attachments?: Attachment[]) => void;
   onInterrupt: () => void;
@@ -147,6 +150,7 @@ function Item({
   item,
   sending,
   onAnswer,
+  onKeys,
   battle,
   latest,
   manifest,
@@ -157,6 +161,7 @@ function Item({
   ts?: number;
   sending: boolean;
   onAnswer: SessionViewProps['onAnswer'];
+  onKeys: NonNullable<SessionViewProps['onKeys']>;
   /** A turn's results under its `result`, or the Quest's under `closed`. */
   battle?: BattleResult;
   /** This `result` is the Quest's latest turn, with nothing after it yet. */
@@ -236,6 +241,8 @@ function Item({
           onAnswer={(behavior) => onAnswer(item.requestId, behavior)}
         />
       );
+    case 'terminal':
+      return <TerminalCard text={item.text} held={item.held} onKeys={onKeys} />;
     case 'result':
       return battle ? (
         <BattleCard result={battle} kind="turn" manifest={manifest} latest={latest} />
@@ -311,6 +318,7 @@ export function SessionView({
   progress,
   envelopes,
   onAnswer,
+  onKeys,
   onSend,
   onInterrupt,
   onMode,
@@ -470,6 +478,9 @@ export function SessionView({
     (requestId, behavior, answers) => latestAnswer.current(requestId, behavior, answers),
     [],
   );
+  const latestKeys = useRef(onKeys);
+  latestKeys.current = onKeys;
+  const stableKeys = useCallback<NonNullable<SessionViewProps['onKeys']>>((input) => latestKeys.current?.(input), []);
 
   // Files picked for the next follow-up; kept only while the Quest is open.
   const [files, setFiles] = useState<File[]>([]);
@@ -706,6 +717,7 @@ export function SessionView({
                       item={item}
                       sending={item.kind === 'permission' && sending.has(item.requestId)}
                       onAnswer={stableAnswer}
+                      onKeys={stableKeys}
                       battle={
                         item.kind === 'result'
                           ? stableBattle(item.id, battles.turns.get(item.id))

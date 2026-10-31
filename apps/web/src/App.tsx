@@ -729,6 +729,7 @@ export function App({ hub }: { hub: HubClient }) {
         onAnswer={(requestId, behavior, answers) =>
           hub.send({ type: 'permission.answer', session: id, requestId, behavior, ...(answers ? { answers } : {}) })
         }
+        onKeys={(input) => hub.send({ type: 'session.keys', session: id, ...input })}
         onSend={(text, attachments) =>
           hub.send({ type: 'session.send', session: id, text, ...(attachments?.length ? { attachments } : {}) })
         }

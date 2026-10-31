@@ -12,6 +12,7 @@ export const EventType = z.enum([
   'session.closed', // payload: { worktree?: { removed, reason? } }  closed on purpose; no more follow-ups
   'turn.finished', // payload: { outcome, summary?, costUsd?, durationMs?, tokens? }  a turn ended, engine-neutral
   'usage', // payload: UsagePayload  the node account's plan limits, as last reported by its engine
+  'terminal.screen', // payload: { open, text?, raised?, held? }  an interactive Quest's screen, while it needs a person
   'error', // payload: { message }
 ]);
 export type EventType = z.infer<typeof EventType>;

@@ -411,8 +411,8 @@ describe('InteractiveSession', () => {
     expect(session.busy).toBe(true);
   });
 
-  it('says what the terminal showed and ends the turn when the restarted one also never takes it', async () => {
-    const { session, spawned, events, hook } = harness({ submitWaitMs: 30 });
+  it('asks through the app when the restarted terminal also never takes it, then gives up if nobody answers', async () => {
+    const { session, spawned, events, hook } = harness({ submitWaitMs: 30, terminalWaitMs: 40 });
     session.start('hello');
     hook('SessionStart', {});
     await tick(10);
@@ -425,7 +425,16 @@ describe('InteractiveSession', () => {
     spawned[0]!.pty.emitExit(143);
     hook('SessionStart', { source: 'resume' });
     spawned[1]!.pty.emitData('Some earlier output\r\n\r\n  A dialog the bridge cannot see\r\n  1. Yes  2. No\r\n');
-    await tick(80);
+    await tick(50);
+    expect(events.find((e) => e.type === 'terminal.screen')?.payload).toEqual({
+      open: true,
+      raised: true,
+      held: true,
+      text: expect.stringContaining('A dialog the bridge cannot see'),
+    });
+    expect(events.find((e) => e.type === 'error')).toBeUndefined();
+    expect(session.busy).toBe(true);
+    await tick(60);
     expect(spawned[1]!.pty.killed).toEqual([]);
     const error = events.find((e) => e.type === 'error');
     expect(error?.payload).toEqual({
@@ -436,7 +445,7 @@ describe('InteractiveSession', () => {
   });
 
   it('only reports a message the terminal never takes while background work would die with a restart', async () => {
-    const { session, spawned, events, hook } = harness({ submitWaitMs: 30 });
+    const { session, spawned, events, hook } = harness({ submitWaitMs: 30, terminalWaitMs: 10 });
     session.start('hello');
     hook('SessionStart', {});
     await tick(10);
@@ -445,7 +454,7 @@ describe('InteractiveSession', () => {
     await tick();
 
     session.send('are you there?');
-    await tick(80);
+    await tick(100);
     expect(spawned[0]!.pty.killed).toEqual([]);
     expect(events.at(-2)).toMatchObject({ type: 'error', payload: { message: expect.stringContaining('terminal') } });
     expect(events.at(-1)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
@@ -463,6 +472,114 @@ describe('InteractiveSession', () => {
     hook('Stop', { last_assistant_message: '', background_tasks: [{ type: 'shell', status: 'running' }] });
     await tick();
     expect(session.busyReason).toBe('background tasks running');
+  });
+
+  describe('asking through the app', () => {
+    /** A terminal that swallowed a follow-up and so is asking, after its restart. */
+    async function asking(overrides: Parameters<typeof harness>[0] = {}) {
+      const test = harness({ submitWaitMs: 20, screenUpdateMs: 5, ...overrides });
+      const { session, spawned, hook } = test;
+      session.start('hello');
+      hook('SessionStart', {});
+      await tick(10);
+      hook('UserPromptSubmit', { prompt: 'hello' });
+      hook('Stop', { last_assistant_message: '', background_tasks: [{ type: 'subagent', status: 'running' }] });
+      await tick();
+      session.send('are you there?');
+      spawned[0]!.pty.emitData('  Pick a theme\r\n  1. Light  2. Dark\r\n');
+      await tick(40);
+      return test;
+    }
+    const screens = (events: { type: string; payload: unknown }[]) =>
+      events.filter((e) => e.type === 'terminal.screen').map((e) => e.payload as Record<string, unknown>);
+
+    it('follows the screen, only when it changes', async () => {
+      const { spawned, events } = await asking();
+      expect(screens(events)).toHaveLength(1);
+      spawned[0]!.pty.emitData('\x1b[2J\x1b[H  Pick a colour\r\n');
+      await tick(20);
+      expect(screens(events).at(-1)).toEqual({ open: true, text: expect.stringContaining('Pick a colour') });
+      await tick(20);
+      expect(screens(events)).toHaveLength(2);
+    });
+
+    it('sends keys to the terminal, and keeps waiting while someone answers', async () => {
+      const { session, spawned, events } = await asking({ terminalWaitMs: 300 });
+      const written = spawned[0]!.pty.written.length;
+      await tick(200);
+      session.keys({ keys: '2' });
+      expect(spawned[0]!.pty.written.slice(written)).toEqual(['2']);
+      await tick(200);
+      expect(events.find((e) => e.type === 'error')).toBeUndefined();
+      expect(session.busy).toBe(true);
+    });
+
+    it('types the held message again when asked, and closes once the CLI takes it', async () => {
+      const { session, spawned, events, hook } = await asking();
+      const written = spawned[0]!.pty.written.length;
+      session.keys({ retype: true });
+      expect(spawned[0]!.pty.written.slice(written)).toEqual(['\x1b[200~are you there?\x1b[201~', '\r']);
+      hook('UserPromptSubmit', { prompt: 'are you there?' });
+      expect(screens(events).at(-1)).toEqual({ open: false });
+      expect(session.busyReason).toMatch(/^turn open/);
+    });
+
+    it('takes no keys unless it is asking: this is not a way to type into a Quest', () => {
+      const { session, spawned, events, hook } = harness();
+      session.start('hello');
+      hook('SessionStart', {});
+      const written = spawned[0]!.pty.written.length;
+      session.keys({ keys: 'rm -rf /\r' });
+      expect(spawned[0]!.pty.written.length).toBe(written);
+      expect(events.at(-1)?.type).toBe('error');
+    });
+
+    it('closes on Stop, and says why the Quest is busy until then', async () => {
+      const { session, events } = await asking();
+      expect(session.busyReason).toMatch(/^its terminal is asking something/);
+      session.interrupt();
+      expect(screens(events).at(-1)).toEqual({ open: false });
+    });
+
+    it('closes when the process exits', async () => {
+      const { spawned, events } = await asking();
+      spawned[0]!.pty.emitExit(0);
+      expect(screens(events).at(-1)).toEqual({ open: false });
+    });
+
+    it('asks when a start never reaches the input box, and types the prompt once it does', async () => {
+      const { session, spawned, events, hook } = harness({ startWaitMs: 15, screenUpdateMs: 5 });
+      session.start('hello');
+      spawned[0]!.pty.emitData('  Sign in to continue\r\n');
+      await tick(30);
+      expect(screens(events)[0]).toEqual({
+        open: true,
+        raised: true,
+        held: false,
+        text: expect.stringContaining('Sign in to continue'),
+      });
+      session.keys({ keys: '\r' });
+      hook('SessionStart', {});
+      await tick(10);
+      expect(screens(events).at(-1)).toEqual({ open: false });
+      expect(spawned[0]!.pty.written).toContain('\x1b[200~hello\x1b[201~');
+    });
+
+    it('stops a start nobody answered, so the next message can begin again', async () => {
+      const { spawned, events, session } = harness({ startWaitMs: 5, terminalWaitMs: 10 });
+      session.start('hello');
+      await tick(40);
+      expect(events.at(-1)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+      expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
+    });
+
+    it('does not ask about a start that reached the input box in time', async () => {
+      const { events, hook, session } = harness({ startWaitMs: 15 });
+      session.start('hello');
+      hook('SessionStart', {});
+      await tick(30);
+      expect(screens(events)).toEqual([]);
+    });
   });
 
   it('keeps the turn once the CLI takes the typed prompt', async () => {
@@ -490,12 +607,25 @@ describe('InteractiveSession', () => {
     expect(session.busy).toBe(false);
   });
 
-  it('says so when the terminal shows a prompt the bridge cannot answer', async () => {
-    const { session, events, hook } = harness();
+  it('shows a prompt the CLI says only its terminal has, for as long as it stays open', async () => {
+    const { session, spawned, events, hook } = harness({ terminalWaitMs: 5 });
     session.start('hello');
+    hook('SessionStart', {});
+    await tick(5);
+    hook('UserPromptSubmit', { prompt: 'hello' });
+    spawned[0]!.pty.emitData('  Pick one\r\n');
+    await tick(30);
     hook('Notification', { notification_type: 'elicitation_dialog', message: 'Pick one' });
-    await tick();
-    expect(events.at(-1)).toMatchObject({ type: 'error', payload: { message: expect.stringContaining('terminal') } });
+    expect(events.at(-1)).toEqual({
+      type: 'terminal.screen',
+      payload: { open: true, raised: true, held: false, text: expect.stringContaining('Pick one') },
+    });
+    // It can wait on a person like an approval does, so nothing gives up on it.
+    await tick(30);
+    expect(session.busy).toBe(true);
+    expect(events.find((e) => e.type === 'error')).toBeUndefined();
+    hook('Stop', { last_assistant_message: '' });
+    expect(events.filter((e) => e.type === 'terminal.screen').at(-1)?.payload).toEqual({ open: false });
   });
 
   it('closes with /exit, then a signal if it lingers', async () => {
