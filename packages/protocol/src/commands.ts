@@ -383,7 +383,7 @@ export function kingdomTarballUrl(version: string): string {
  * What Add Kingdom installs: this release's tarball on GitHub until the package is on npm. A fork points this at its own
  * release. A test keeps it on the Kingdom package's version.
  */
-export const KINGDOM_PACKAGE = kingdomTarballUrl('0.2.0-alpha.1');
+export const KINGDOM_PACKAGE = kingdomTarballUrl('0.2.0-alpha.2');
 
 /** The one command that turns a machine into a Kingdom of this hub. */
 export function joinCommand(hub: string, code: string): string {

@@ -28,17 +28,18 @@ Kingdom runs while that user is signed in, and starts again at each sign-in.
 
 ## Without Tailscale
 
-From `v0.2.0-alpha.1`, the hub also comes as a container with its own login:
+The hub also comes as a container with its own login:
 
 ```sh
-docker run -d --name crystal-bridge -p 7700:7700 -v crystal-bridge:/data ghcr.io/crystal-bridge/airship:0.2.0-alpha.1
-docker exec crystal-bridge crystal-bridge-airship token add me   # shows your login token once
+docker run -d --name crystal-bridge -p 7700:7700 -v crystal-bridge:/data ghcr.io/crystal-bridge/airship:0.2.0-alpha.2
+docker logs crystal-bridge   # shows a one-time setup code
 ```
 
-Put HTTPS in front of it (Caddy, nginx or a tunnel), because tokens travel in the clear without it. Then log in and add
-Kingdoms from the app as above. Releases after `v0.2.0-alpha.1` can skip `token add`: the hub prints a one-time setup
-code to its logs, and you make your login in the browser ([First run](./OPERATIONS.md#first-run)). The same hub runs without Docker from the release's tarball, with `AIRSHIP_AUTH=token`
-and `AIRSHIP_DATA` set; see [Running a packaged hub](./OPERATIONS.md#running-a-packaged-hub).
+Put HTTPS in front of it (Caddy, nginx or a tunnel), because tokens travel in the clear without it. Then open the hub,
+enter the code and make your login in the browser ([First run](./OPERATIONS.md#first-run)), and add Kingdoms from the
+app as above. For a scripted setup, `crystal-bridge-airship token add <name>` still makes a login. The same hub runs
+without Docker from the release's tarball, with `AIRSHIP_AUTH=token` and `AIRSHIP_DATA` set; see
+[Running a packaged hub](./OPERATIONS.md#running-a-packaged-hub).
 
 ## Pushing Crystal over SSH
 
