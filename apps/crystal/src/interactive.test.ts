@@ -875,8 +875,8 @@ describe('InteractiveSession stats and inventory', () => {
     expect(usage).toHaveLength(1);
     expect(usage[0]!.payload).toEqual({
       windows: [
-        { id: 'five_hour', label: '5h', usedPct: 23.5, resetsAt: 1800000000000, status: 'unknown' },
-        { id: 'seven_day', label: '7d', usedPct: 41.2, resetsAt: null, status: 'unknown' },
+        { id: 'five_hour', label: '5h', spanHours: 5, usedPct: 23.5, resetsAt: 1800000000000, status: 'unknown' },
+        { id: 'seven_day', label: '7d', spanHours: 168, usedPct: 41.2, resetsAt: null, status: 'unknown' },
       ],
     });
   });
