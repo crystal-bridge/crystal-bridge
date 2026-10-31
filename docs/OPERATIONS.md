@@ -170,7 +170,12 @@ code, write the token to `~/.config/crystal-bridge/crystal.env` (mode 0600) and 
 agent. It refuses a machine that's already a Kingdom. On Linux it runs `sudo loginctl enable-linger` once, and says so,
 so the service survives logging out.
 
-`leave` (`LEAVE_COMMAND` in `packages/protocol`) gives up the token and removes the service, the env file and the
+On Windows the same steps use `%LOCALAPPDATA%\crystal-bridge`: the copy goes in `current`, the token in `crystal.env`
+and the log in `crystal.log`. Crystal starts from a Task Scheduler task at the user's sign-in, in a headless console.
+That needs no administrator, and it means the Kingdom runs only while that user is signed in. The folder is private to
+the user by default.
+
+`leave` (`LEAVE_COMMAND`, or `LEAVE_COMMAND_WINDOWS`, in `packages/protocol`) gives up the token and removes the service, the env file and the
 install. It works even if the hub can't be reached, and then says to remove the Kingdom from the app as well. Remove on
 a Castle does the hub's half: it revokes the token and cuts the connection, and shows that command to run on the
 machine. A removed Kingdom's Quests stay as history, so its tab stays until you hide it in Config or forget it.

@@ -301,3 +301,7 @@ export function joinCommand(hub: string, code: string): string {
 /** What removes a joined Kingdom from its machine. Run with node: an npx install leaves no command on the PATH. */
 export const LEAVE_COMMAND =
   'node ~/.local/share/crystal-bridge/current/node_modules/@crystal-bridge/kingdom/dist/main.js leave';
+
+/** The same on Windows. `cmd /c` expands the folder in any shell, PowerShell included. */
+export const LEAVE_COMMAND_WINDOWS =
+  'cmd /c node "%LOCALAPPDATA%\\crystal-bridge\\current\\node_modules\\@crystal-bridge\\kingdom\\dist\\main.js" leave';

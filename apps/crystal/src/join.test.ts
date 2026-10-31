@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LEAVE_COMMAND } from '@crystal-bridge/protocol';
+import { LEAVE_COMMAND, LEAVE_COMMAND_WINDOWS } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   hubHttpUrl,
@@ -83,6 +83,9 @@ describe('installRootOf', () => {
   });
 });
 
+// A symlink needs an administrator on Windows, and these install the Unix way.
+const onUnix = it.skipIf(process.platform === 'win32');
+
 describe('join and leave', () => {
   let dir: string;
   let home: string;
@@ -141,9 +144,54 @@ describe('join and leave', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   const envFile = () => join(home, '.config/crystal-bridge/crystal.env');
+  const windowsBase = () => join(home, 'AppData/Local/crystal-bridge');
+  const windowsDeps = () => ({ ...deps('win32'), nodeBin: 'C:\\node\\node.exe' });
+
+  it('registers a sign-in task on Windows, keeping the token out of it', async () => {
+    await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+
+    const env = readFileSync(join(windowsBase(), 'crystal.env'), 'utf8');
+    expect(env).toContain('CRYSTAL_TOKEN=the-token');
+    expect(env).not.toContain('CRYSTAL_LOGIN_SHELL');
+
+    const file = join(windowsBase(), 'task.xml');
+    const bytes = readFileSync(file);
+    expect([bytes[0], bytes[1]]).toEqual([0xff, 0xfe]);
+    const task = bytes.toString('utf16le');
+    expect(task).toContain('<LogonTrigger>');
+    expect(task).toContain('<LogonType>InteractiveToken</LogonType>');
+    expect(task).toContain('<RunLevel>LeastPrivilege</RunLevel>');
+    expect(task).toContain('<UserId>me</UserId>');
+    expect(task).toContain('--env-file=');
+    expect(task).toContain(join('crystal-bridge', 'current', 'node_modules'));
+    expect(task).toContain('&gt;&gt;');
+    expect(task).not.toContain('the-token');
+
+    expect(calls).toContain(`schtasks /Create /TN CrystalBridgeKingdom /XML ${file} /F`);
+    expect(calls).toContain('schtasks /Run /TN CrystalBridgeKingdom');
+    expect(lines.join('\n')).toMatch(/signed in/);
+    expect(lines.join('\n')).toContain(LEAVE_COMMAND_WINDOWS);
+    const copy = join(windowsBase(), 'current/node_modules/@crystal-bridge/kingdom/dist/main.js');
+    expect(existsSync(copy)).toBe(true);
+  });
+
+  it('names the Windows way to leave when this one has already joined', async () => {
+    await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+    await expect(runJoin('https://hub.example.com', 'CODE', windowsDeps())).rejects.toThrow(LEAVE_COMMAND_WINDOWS);
+  });
+
+  it('stops the task and removes everything on leaving on Windows', async () => {
+    await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+    calls.length = 0;
+    await runLeave(windowsDeps());
+
+    expect(calls).toEqual(['schtasks /End /TN CrystalBridgeKingdom', 'schtasks /Delete /TN CrystalBridgeKingdom /F']);
+    expect(existsSync(windowsBase())).toBe(false);
+  });
+
   const current = () => join(home, '.local/share/crystal-bridge/current');
 
-  it('installs a lasting copy, writes the token owner-only and starts the service on Linux', async () => {
+  onUnix('installs a lasting copy, writes the token owner-only and starts the service on Linux', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
 
     expect(fetchHub).toHaveBeenCalledWith(
@@ -163,28 +211,28 @@ describe('join and leave', () => {
     expect(calls).toContain('systemctl --user enable --now crystal.service');
   });
 
-  it('says how to leave with a command that works: the bin is not on PATH after an npx install', async () => {
+  onUnix('says how to leave with a command that works: the bin is not on PATH after an npx install', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
     expect(lines.join('\n')).toContain(LEAVE_COMMAND);
   });
 
-  it('never prints the token or the login-s email', async () => {
+  onUnix('never prints the token or the login-s email', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
     expect(lines.join('\n')).not.toContain('the-token');
     expect(lines.join('\n')).not.toContain('someone@example.com');
   });
 
-  it('leaves the temporary npx folder off the PATH the service keeps', async () => {
+  onUnix('leaves the temporary npx folder off the PATH the service keeps', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
     expect(readFileSync(servicePath(home, 'linux'), 'utf8')).toContain('Environment=PATH=/opt/node/bin:/usr/bin\n');
   });
 
-  it('keeps the login shell, because a service manager may not set SHELL', async () => {
+  onUnix('keeps the login shell, because a service manager may not set SHELL', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
     expect(readFileSync(envFile(), 'utf8')).toContain('CRYSTAL_LOGIN_SHELL=/bin/zsh\n');
   });
 
-  it('starts a launchd agent on macOS', async () => {
+  onUnix('starts a launchd agent on macOS', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps('darwin'));
     const plist = servicePath(home, 'darwin');
     expect(existsSync(plist)).toBe(true);
@@ -192,14 +240,14 @@ describe('join and leave', () => {
     expect(calls.some((call) => call.startsWith('systemctl'))).toBe(false);
   });
 
-  it('turns lingering on when it is off, and says so', async () => {
+  onUnix('turns lingering on when it is off, and says so', async () => {
     answers['show-user'] = 'no';
     await runJoin('https://hub.example.com', 'CODE', deps());
     expect(calls).toContain('sudo loginctl enable-linger me');
     expect(lines.join('\n')).toMatch(/linger/i);
   });
 
-  it('still finishes when lingering cannot be turned on, with a warning', async () => {
+  onUnix('still finishes when lingering cannot be turned on, with a warning', async () => {
     answers['show-user'] = 'no';
     answers['enable-linger'] = new Error('no sudo');
     await runJoin('https://hub.example.com', 'CODE', deps());
@@ -207,7 +255,7 @@ describe('join and leave', () => {
     expect(lines.join('\n')).toContain('sudo loginctl enable-linger me');
   });
 
-  it('refuses a machine that is already a Kingdom, without spending the code', async () => {
+  onUnix('refuses a machine that is already a Kingdom, without spending the code', async () => {
     mkdirSync(join(home, '.config/crystal-bridge'), { recursive: true });
     writeFileSync(envFile(), 'CRYSTAL_TOKEN=old\n');
     await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/already a Kingdom/);
@@ -215,36 +263,38 @@ describe('join and leave', () => {
     expect(readFileSync(envFile(), 'utf8')).toBe('CRYSTAL_TOKEN=old\n');
   });
 
-  it('refuses a machine without the CLI, without spending the code', async () => {
+  onUnix('refuses a machine without the CLI, without spending the code', async () => {
     answers['--version'] = new Error('ENOENT');
     await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/Claude Code/);
     expect(fetchHub).not.toHaveBeenCalled();
   });
 
-  it('says how to sign in when the CLI is signed out, without spending the code', async () => {
+  onUnix('says how to sign in when the CLI is signed out, without spending the code', async () => {
     answers['auth status'] = JSON.stringify({ loggedIn: false });
     await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/claude auth login/);
     expect(fetchHub).not.toHaveBeenCalled();
   });
 
-  it('refuses Windows for now, plainly', async () => {
-    await expect(runJoin('https://hub.example.com', 'CODE', deps('win32'))).rejects.toThrow(/Linux and macOS/);
+  onUnix('refuses Windows for now, plainly', async () => {
+    await expect(runJoin('https://hub.example.com', 'CODE', deps('freebsd'))).rejects.toThrow(
+      /Linux, macOS and Windows/,
+    );
   });
 
-  it('reports a refused code and writes nothing that makes it a Kingdom', async () => {
+  onUnix('reports a refused code and writes nothing that makes it a Kingdom', async () => {
     reply = { status: 401, body: { error: 'that code is wrong, used or expired' } };
     await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/wrong, used or expired/);
     expect(existsSync(envFile())).toBe(false);
     expect(calls.some((call) => call.includes('enable --now'))).toBe(false);
   });
 
-  it('refuses to run from source, where there is nothing lasting to copy', async () => {
+  onUnix('refuses to run from source, where there is nothing lasting to copy', async () => {
     const fromSource = { ...deps(), mainPath: '/home/me/code/crystal-bridge/apps/crystal/src/main.ts' };
     await expect(runJoin('https://hub.example.com', 'CODE', fromSource)).rejects.toThrow(/installed package/);
     expect(fetchHub).not.toHaveBeenCalled();
   });
 
-  it('leave gives up the token, stops the service and removes everything it installed', async () => {
+  onUnix('leave gives up the token, stops the service and removes everything it installed', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
     fetchHub.mockClear();
     calls = [];
@@ -263,7 +313,7 @@ describe('join and leave', () => {
     expect(existsSync(join(home, '.local/share/crystal-bridge'))).toBe(false);
   });
 
-  it('leave finishes even if the hub cannot be reached, and says the token is still live', async () => {
+  onUnix('leave finishes even if the hub cannot be reached, and says the token is still live', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
     fetchHub.mockRejectedValue(new Error('offline'));
     await runLeave(deps());
@@ -271,7 +321,7 @@ describe('join and leave', () => {
     expect(lines.join('\n')).toMatch(/remove it from the app/i);
   });
 
-  it('leave refuses a machine that is not a Kingdom', async () => {
+  onUnix('leave refuses a machine that is not a Kingdom', async () => {
     await expect(runLeave(deps())).rejects.toThrow(/not a Kingdom/);
   });
 });

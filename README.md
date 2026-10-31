@@ -84,8 +84,8 @@ If you need API-key billing or want to offer it to others, read those terms firs
 - **No telemetry.** The web app talks only to your hub. The hub talks to your machines, to npm's public registry to
   see the latest Claude Code version (`AIRSHIP_CLI_CHECK=off` stops that), and, if you turn on Web Push, to your
   browsers' push services. Nothing about you or your sessions is sent. Fonts and art are bundled.
-- **Where it runs:** the hub and Kingdoms on Linux and macOS, with Node 22 or newer; the web app in current Chrome,
-  Firefox and Safari, including as an installed app on a phone. Windows is untested.
+- **Where it runs:** the hub on Linux and macOS, and Kingdoms on those and Windows, with Node 22 or newer; the web app
+  in current Chrome, Firefox and Safari, including as an installed app on a phone.
 - **A personal project.** Pull requests are welcome (see `CONTRIBUTING.md`); there are no support promises.
 
 ## Quick Start

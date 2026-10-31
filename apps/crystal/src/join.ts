@@ -10,10 +10,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { LEAVE_COMMAND } from '@crystal-bridge/protocol';
+import { LEAVE_COMMAND, LEAVE_COMMAND_WINDOWS } from '@crystal-bridge/protocol';
 
 const LABEL = 'dev.crystal-bridge.crystal';
 const SERVICE = 'crystal.service';
+const TASK = 'CrystalBridgeKingdom';
 /** Not the source default, so `pnpm dev` still runs on a machine that is also a Kingdom. */
 const MCP_PORT = '7711';
 const ENTRY = 'node_modules/@crystal-bridge/kingdom/dist/main.js';
@@ -88,11 +89,65 @@ export function launchdPlist({ nodeBin, mainJs, envFile, logFile, path }: Servic
 `;
 }
 
+const xmlText = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+/**
+ * A Task Scheduler task that starts Crystal at this user's sign-in. It needs no administrator, which is also why it
+ * runs only while they're signed in. A headless console keeps a window from opening on their desktop.
+ */
+export function windowsTask({
+  nodeBin,
+  mainJs,
+  envFile,
+  logFile,
+  user,
+}: Omit<ServicePaths, 'path'> & { user: string }) {
+  const run = `"${nodeBin}" --env-file="${envFile}" "${mainJs}" >> "${logFile}" 2>&1`;
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>${xmlText(user)}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>${xmlText(user)}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>conhost.exe</Command>
+      <Arguments>--headless cmd.exe /c "${xmlText(run)}"</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`;
+}
+
 /** Where the service definition lives. */
 export function servicePath(home: string, platform: NodeJS.Platform): string {
+  if (platform === 'win32') return join(windowsHome(home), 'task.xml');
   return platform === 'darwin'
     ? join(home, 'Library/LaunchAgents', `${LABEL}.plist`)
     : join(home, '.config/systemd/user', SERVICE);
+}
+
+function windowsHome(home: string): string {
+  return join(home, 'AppData/Local/crystal-bridge');
 }
 
 /** The node socket of a hub given by its web address. */
@@ -138,6 +193,15 @@ interface Layout {
 }
 
 function layout({ home, platform }: Pick<JoinDeps, 'home' | 'platform'>): Layout {
+  if (platform === 'win32') {
+    const base = windowsHome(home);
+    return {
+      base,
+      envFile: join(base, 'crystal.env'),
+      logFile: join(base, 'crystal.log'),
+      service: servicePath(home, platform),
+    };
+  }
   return {
     base: join(home, '.local/share/crystal-bridge'),
     envFile: join(home, '.config/crystal-bridge/crystal.env'),
@@ -149,13 +213,19 @@ function layout({ home, platform }: Pick<JoinDeps, 'home' | 'platform'>): Layout
   };
 }
 
+function leaveCommand({ platform }: Pick<JoinDeps, 'platform'>): string {
+  return platform === 'win32' ? LEAVE_COMMAND_WINDOWS : LEAVE_COMMAND;
+}
+
 /** The checks that can fail before anything is written or the one-time code is spent. */
 async function checkMachine(deps: JoinDeps, where: Layout): Promise<string> {
-  if (deps.platform !== 'linux' && deps.platform !== 'darwin') {
-    throw new Error('This installer runs on Linux and macOS for now.');
+  if (deps.platform !== 'linux' && deps.platform !== 'darwin' && deps.platform !== 'win32') {
+    throw new Error('This installer runs on Linux, macOS and Windows.');
   }
   if (existsSync(where.envFile) && /^CRYSTAL_TOKEN=./m.test(readFileSync(where.envFile, 'utf8'))) {
-    throw new Error(`This machine is already a Kingdom (${where.envFile}). To start over, first run: ${LEAVE_COMMAND}`);
+    throw new Error(
+      `This machine is already a Kingdom (${where.envFile}). To start over, first run: ${leaveCommand(deps)}`,
+    );
   }
   const root = installRootOf(deps.mainPath);
   if (!root) throw new Error('join has to run from the installed package, not from source.');
@@ -178,10 +248,12 @@ async function checkMachine(deps: JoinDeps, where: Layout): Promise<string> {
 
 /** Copies the package out of npx's temporary folder, so the service outlives it. */
 function installCopy(root: string, deps: JoinDeps, base: string): string {
-  const release = join(base, 'releases', deps.version);
+  // A symlink needs an administrator on Windows, so there the copy itself sits where `current` would point.
+  const release = deps.platform === 'win32' ? join(base, 'current') : join(base, 'releases', deps.version);
   rmSync(release, { recursive: true, force: true });
   mkdirSync(release, { recursive: true });
   cpSync(join(root, 'node_modules'), join(release, 'node_modules'), { recursive: true, verbatimSymlinks: true });
+  if (deps.platform === 'win32') return join(release, ENTRY);
   const link = join(base, 'current');
   const next = `${link}.next`;
   rmSync(next, { force: true });
@@ -213,6 +285,11 @@ async function enableLinger(deps: JoinDeps): Promise<void> {
 }
 
 async function startService(deps: JoinDeps, where: Layout): Promise<void> {
+  if (deps.platform === 'win32') {
+    await deps.exec('schtasks', ['/Create', '/TN', TASK, '/XML', where.service, '/F']);
+    await deps.exec('schtasks', ['/Run', '/TN', TASK]);
+    return;
+  }
   if (deps.platform === 'darwin') {
     const domain = `gui/${deps.uid}`;
     await deps.exec('launchctl', ['bootout', `${domain}/${LABEL}`]).catch(() => undefined);
@@ -225,6 +302,11 @@ async function startService(deps: JoinDeps, where: Layout): Promise<void> {
 }
 
 async function stopService(deps: JoinDeps, where: Layout): Promise<void> {
+  if (deps.platform === 'win32') {
+    await deps.exec('schtasks', ['/End', '/TN', TASK]).catch(() => undefined);
+    await deps.exec('schtasks', ['/Delete', '/TN', TASK, '/F']).catch(() => undefined);
+    return;
+  }
   if (deps.platform === 'darwin') {
     await deps.exec('launchctl', ['bootout', `gui/${deps.uid}/${LABEL}`]).catch(() => undefined);
   } else {
@@ -242,6 +324,7 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
   const mainJs = installCopy(root, deps, where.base);
   const { node, token } = await redeemCode(hub, code, deps);
 
+  // Windows' task starts with the user's own PATH, so only these two need one written down.
   const path = deps.path
     .split(':')
     .filter((entry) => entry && !entry.includes('/_npx/'))
@@ -255,7 +338,7 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
       `CRYSTAL_TOKEN=${token}`,
       'CRYSTAL_DEFAULT_MODE=auto',
       `CRYSTAL_MCP_PORT=${MCP_PORT}`,
-      `CRYSTAL_LOGIN_SHELL=${deps.shell}`,
+      ...(deps.platform === 'win32' ? [] : [`CRYSTAL_LOGIN_SHELL=${deps.shell}`]),
       '',
     ].join('\n'),
     { mode: 0o600 },
@@ -265,11 +348,17 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
   mkdirSync(dirname(where.service), { recursive: true });
   mkdirSync(dirname(where.logFile), { recursive: true });
   const paths = { nodeBin: deps.nodeBin, mainJs, envFile: where.envFile, logFile: where.logFile, path };
-  writeFileSync(where.service, deps.platform === 'darwin' ? launchdPlist(paths) : systemdUnit(paths));
+  if (deps.platform === 'win32') {
+    // Task Scheduler reads the file as the UTF-16 its first line says it is.
+    writeFileSync(where.service, `\ufeff${windowsTask({ ...paths, user: deps.user })}`, 'utf16le');
+  } else {
+    writeFileSync(where.service, deps.platform === 'darwin' ? launchdPlist(paths) : systemdUnit(paths));
+  }
   await startService(deps, where);
 
   deps.log(`Kingdom "${node}" joined ${hub}. It runs as a service and dials out to the hub.`);
-  deps.log(`To remove it: ${LEAVE_COMMAND}`);
+  if (deps.platform === 'win32') deps.log('On Windows it runs while you are signed in, and starts at each sign-in.');
+  deps.log(`To remove it: ${leaveCommand(deps)}`);
 }
 
 function envValue(env: string, key: string): string | undefined {
