@@ -134,7 +134,9 @@ Deploys keep the line.
 
 A Crystal restart stops only Crystal's own process (`KillMode=process`): Crystal closes its `claude` sessions on
 SIGTERM, and anything a Quest deliberately left running in the background (detached workers, long jobs) keeps
-running. Before this, a deploy killed every process in the service's cgroup, detached or not.
+running. Before this, a deploy killed every process in the service's cgroup, detached or not. Those jobs still belong to
+the service, so each stop logs a "left-over process" warning for them. That's harmless, and a long job run as a Cast on
+`here` avoids it ([Summons](SUMMONS.md)).
 
 ## Running a packaged hub
 

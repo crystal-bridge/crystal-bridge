@@ -24,6 +24,9 @@ one entry.
 - A Cast no longer loses the last lines of its log when a routine check notices it ended before the log has been read.
 - A clean reboot of a Linux or macOS Summon now reports its Cast as lost, as a forced restart does, not as a failed job.
 - `summon start` says when a Cast has to wait for its turn, where it used to look as if it had begun.
+- The Summons docs' connection check works on Windows, and they say what a restart costs the Quest asking for it and how
+  large a Cast's log can get.
+- Crystal's log says when it reaches the hub.
 
 ## 0.4.0
 

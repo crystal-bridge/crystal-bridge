@@ -25,7 +25,9 @@ needs Node 22 and an install on each one, and it would put a broker on the hub. 
 
 ## Setting up
 
-List the machines in the Kingdom's `crystal.env`, then restart Crystal:
+List the machines in the Kingdom's `crystal.env`, then restart Crystal. A Quest that does the restart itself is running
+inside Crystal, so it loses its tool call and stays down until something messages it. Restart from a terminal, or between
+turns:
 
 ```sh
 CRYSTAL_SUMMONS=render-box,Shiva=gpu.example.lan/2
@@ -39,10 +41,10 @@ Crystal uses the machine's own `ssh`, with its config, keys and known hosts, and
 as the user Crystal runs as:
 
 ```sh
-ssh -o BatchMode=yes render-box true
+ssh -o BatchMode=yes render-box exit 0
 ```
 
-A key behind a passphrase needs an agent Crystal can reach (`SSH_AUTH_SOCK` from the login environment), since a
+`exit 0` works in every login shell, where `true` fails on Windows. A key behind a passphrase needs an agent Crystal can reach (`SSH_AUTH_SOCK` from the login environment), since a
 service has no terminal. The host must already be in `known_hosts`. A Linux or macOS target needs a POSIX `sh`, `tail`
 and `ps`, which they have. A Windows target needs OpenSSH, and uses the PowerShell that comes with Windows.
 
@@ -104,7 +106,9 @@ things differ:
 
 ## Who holds what
 
-- **The target** holds the job folder. The Kingdom removes it a week after the Cast ends.
+- **The target** holds the job folder. The Kingdom removes it a week after the Cast ends. It's in the SSH user's home,
+  which on Windows is usually the system drive, and the log has no size limit, so a chatty tool over a long job can fill
+  it. Send real output elsewhere with `cwd` or the tool's own option, and keep what it prints modest.
 - **The Kingdom** holds the list of its Summons, the record of its Casts in `~/.crystal-bridge/casts.json`, so a restart
   can find them, and the SSH access. Keys stay here, so separate identities stay separate with no extra work.
 - **The hub** stores each Cast's state and the end of its log, shows them and sends notifications. It never connects to
