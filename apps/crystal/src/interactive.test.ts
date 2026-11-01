@@ -108,13 +108,24 @@ describe('liveTranscriptEvent', () => {
     expect(liveTranscriptEvent(result)).toEqual({ engine: 'claude', raw: { type: 'user', message: result.message } });
   });
 
-  it('keeps the mark of a background launch on its tool result, and nothing else the transcript adds', () => {
+  it('keeps the marks of a background launch on its tool result, and nothing else the transcript adds', () => {
     const message = { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'launched' }] };
     const toolUseResult = { isAsync: true, status: 'async_launched', agentId: 'a1', prompt: 'a long prompt' };
     expect(liveTranscriptEvent({ type: 'user', message, toolUseResult })).toEqual({
       engine: 'claude',
-      raw: { type: 'user', message, tool_use_result: { isAsync: true } },
+      raw: { type: 'user', message, tool_use_result: { isAsync: true, agentId: 'a1' } },
     });
+  });
+
+  it('keeps the ids that tie a stop to its launch, because a stopped task sends no notification here', () => {
+    const message = { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] };
+    const relayed = (toolUseResult: object) =>
+      liveTranscriptEvent({ type: 'user', message, toolUseResult })?.raw as { tool_use_result?: unknown };
+
+    expect(relayed({ stdout: 'x', backgroundTaskId: 'b1' }).tool_use_result).toEqual({ backgroundTaskId: 'b1' });
+    expect(relayed({ taskId: 'b2', timeoutMs: 1 }).tool_use_result).toEqual({ taskId: 'b2' });
+    expect(relayed({ task_id: 'b3', command: 'ping' }).tool_use_result).toEqual({ task_id: 'b3' });
+    expect(relayed({ stdout: 'x' }).tool_use_result).toBeUndefined();
   });
 
   const notification = (id: string, status: string) =>

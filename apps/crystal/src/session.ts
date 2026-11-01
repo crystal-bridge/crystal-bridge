@@ -183,18 +183,56 @@ function userMessage(text: string): string {
   return `${JSON.stringify({ type: 'user', message: { role: 'user', content: text } })}\n`;
 }
 
-/** Whether a stream-json line starts work that keeps running after its turn: a Monitor, or a background command or agent. */
-function startsBackgroundWork(raw: unknown): boolean {
-  if (typeof raw !== 'object' || raw === null) return false;
-  const line = raw as { type?: unknown; subtype?: unknown; is_backgrounded?: unknown; message?: { content?: unknown } };
-  // A call needn't ask for the background to land there, so what the CLI reports counts too.
-  if (line.type === 'system' && line.subtype === 'task_started' && line.is_backgrounded === true) return true;
-  if (line.type !== 'assistant' || !Array.isArray(line.message?.content)) return false;
-  return line.message.content.some((block: unknown) => {
-    if (typeof block !== 'object' || block === null) return false;
-    const { type, name, input } = block as { type?: unknown; name?: unknown; input?: { run_in_background?: unknown } };
-    return type === 'tool_use' && (name === 'Monitor' || input?.run_in_background === true);
-  });
+/** Work that keeps running after its turn. A `watch` is a Monitor, which a Quest can start again; `work` isn't. */
+type BackgroundKind = 'work' | 'watch';
+
+/**
+ * Keeps a process's record of its background work in step with one stream-json line, by tool-use id. A call counts from
+ * its launch, and until `task_notification` says it finished or was stopped. An empty `background_tasks_changed` is the
+ * CLI's whole list, so it clears anything a missed notification would otherwise leave behind for good.
+ */
+function trackBackground(raw: unknown, background: Map<string, BackgroundKind>): void {
+  if (typeof raw !== 'object' || raw === null) return;
+  const line = raw as {
+    type?: unknown;
+    subtype?: unknown;
+    is_backgrounded?: unknown;
+    tool_use_id?: unknown;
+    tasks?: unknown;
+    message?: { content?: unknown };
+  };
+  if (line.type === 'system') {
+    if (line.subtype === 'background_tasks_changed' && Array.isArray(line.tasks) && line.tasks.length === 0) {
+      background.clear();
+    }
+    if (typeof line.tool_use_id !== 'string') return;
+    if (line.subtype === 'task_notification') background.delete(line.tool_use_id);
+    // A call needn't ask for the background to land there, so what the CLI reports counts too.
+    if (line.subtype === 'task_started' && line.is_backgrounded === true && !background.has(line.tool_use_id)) {
+      background.set(line.tool_use_id, 'work');
+    }
+    return;
+  }
+  if (!Array.isArray(line.message?.content)) return;
+  for (const block of line.message.content as unknown[]) {
+    if (typeof block !== 'object' || block === null) continue;
+    const { type, id, name, input, tool_use_id, is_error } = block as {
+      type?: unknown;
+      id?: unknown;
+      name?: unknown;
+      input?: { run_in_background?: unknown };
+      tool_use_id?: unknown;
+      is_error?: unknown;
+    };
+    if (line.type === 'assistant' && type === 'tool_use' && typeof id === 'string') {
+      if (name === 'Monitor') background.set(id, 'watch');
+      else if (input?.run_in_background === true) background.set(id, 'work');
+    }
+    // Refused or failed, so it never launched and no notification will come.
+    if (line.type === 'user' && type === 'tool_result' && is_error === true && typeof tool_use_id === 'string') {
+      background.delete(tool_use_id);
+    }
+  }
 }
 
 function tail(text: string, maxChars: number): string {
@@ -216,10 +254,10 @@ interface ChildRecord {
   /** The idle timer fired and stdin was ended; the child is on its way out. */
   idleStopped: boolean;
   /**
-   * The process started work that outlives a turn (a Monitor, or a background command or agent). The CLI gives no
-   * reliable signal when that work ends, so such a process is never idle-stopped: stopping it would kill the work.
+   * Work this process started that outlives a turn and hasn't ended: a Monitor, or a background command or agent. While
+   * there's any, the process is never idle-stopped, because stopping it would kill the work.
    */
-  background: boolean;
+  background: Map<string, BackgroundKind>;
 }
 
 /**
@@ -265,7 +303,9 @@ export class ClaudeSession extends EventEmitter {
   /** Mid-turn: restarting Crystal now would cut the turn off. */
   get busy(): boolean {
     const rec = this.current;
-    if (rec && rec.background && !rec.ended && !rec.idleStopped) return true;
+    // A Monitor doesn't count: a persistent one never ends, and it would hold every update here for good.
+    const working = rec !== null && [...rec.background.values()].includes('work');
+    if (working && !rec.ended && !rec.idleStopped) return true;
     return this.turnOpen && rec !== null;
   }
 
@@ -311,7 +351,7 @@ export class ClaudeSession extends EventEmitter {
     if (rec && !rec.ended) {
       this.clearIdleTimer(rec);
       // A new effort needs a new process, which is only safe between turns with nothing running in the background.
-      if (this.effort !== this.processEffort && !this.turnOpen && !rec.background && this.isLive(rec)) {
+      if (this.effort !== this.processEffort && !this.turnOpen && rec.background.size === 0 && this.isLive(rec)) {
         rec.idleStopped = true;
         this.endChild(rec);
       }
@@ -395,7 +435,7 @@ export class ClaudeSession extends EventEmitter {
 
   private startIdleTimer(rec: ChildRecord): void {
     this.clearIdleTimer(rec);
-    if (rec.background) return;
+    if (rec.background.size > 0) return;
     rec.idleTimer = setTimeout(() => {
       rec.idleTimer = null;
       if (!this.isLive(rec) || rec.closeTimer) return;
@@ -446,7 +486,7 @@ export class ClaudeSession extends EventEmitter {
       closeTimer: null,
       idleTimer: null,
       idleStopped: false,
-      background: false,
+      background: new Map(),
     };
     this.current = rec;
     if (resume) this.emitEvent({ type: 'session.resumed', payload: {} });
@@ -505,10 +545,16 @@ export class ClaudeSession extends EventEmitter {
       return;
     }
     this.emitEvent({ type: 'claude.event', payload: { engine: 'claude', raw } });
-    if (startsBackgroundWork(raw)) rec.background = true;
+    const hadBackground = rec.background.size > 0;
+    trackBackground(raw, rec.background);
+    // Often a turn of the CLI's own follows, which the check below replaces; if none does, this is what idles it out.
+    if (hadBackground && rec.background.size === 0 && !this.turnOpen) this.startIdleTimer(rec);
     const init = raw as { type?: unknown; subtype?: unknown; model?: unknown };
-    if (init?.type === 'system' && init.subtype === 'init' && typeof init.model === 'string') {
-      const compactWindow = this.compactWindow?.(init.model);
+    if (init?.type === 'system' && init.subtype === 'init') {
+      // Every turn opens with this, including those the CLI starts itself when background work reports in.
+      this.clearIdleTimer(rec);
+      this.openTurn();
+      const compactWindow = typeof init.model === 'string' ? this.compactWindow?.(init.model) : undefined;
       if (compactWindow !== undefined && compactWindow !== this.announcedCompact) {
         this.announcedCompact = compactWindow;
         this.emitEvent({

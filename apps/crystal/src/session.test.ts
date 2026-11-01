@@ -677,7 +677,6 @@ describe('ClaudeSession idle stop', () => {
   });
 
   for (const [what, block] of [
-    ['a Monitor', { type: 'tool_use', id: 't1', name: 'Monitor', input: { command: 'watch.sh' } }],
     [
       'a background command',
       { type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'x', run_in_background: true } },
@@ -703,6 +702,21 @@ describe('ClaudeSession idle stop', () => {
     });
   }
 
+  it('never idles out on a Monitor, but lets a deploy past one, since a persistent watch never ends', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: IDLE_MS });
+
+    session.start('hello');
+    const child = children[0]!;
+    const block = { type: 'tool_use', id: 't1', name: 'Monitor', input: { command: 'watch.sh' } };
+    child.stdout.write(`${JSON.stringify({ type: 'assistant', message: { id: 'm1', content: [block] } })}\n`);
+    await finishTurn(child);
+    vi.advanceTimersByTime(IDLE_MS * 10);
+
+    expect(child.stdin.writableEnded).toBe(false);
+    expect(session.busy).toBe(false);
+  });
+
   it('keeps the capture machine out of recorded fixtures', () => {
     for (const name of readdirSync(FIXTURES).filter((file) => file.endsWith('.ndjson'))) {
       expect(readFileSync(join(FIXTURES, name), 'utf8')).not.toMatch(/var-folders|\/tmp\/claude-/);
@@ -722,6 +736,39 @@ describe('ClaudeSession idle stop', () => {
 
     expect(child.stdin.writableEnded).toBe(false);
     expect(session.busy).toBe(true);
+  });
+
+  it('counts toward an idle stop again once the background work has gone, with no turn after it', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: IDLE_MS });
+    session.start('hello');
+    const child = children[0]!;
+    const block = { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'x', run_in_background: true } };
+    child.stdout.write(`${JSON.stringify({ type: 'assistant', message: { id: 'm1', content: [block] } })}\n`);
+    await finishTurn(child);
+    vi.advanceTimersByTime(IDLE_MS * 10);
+    expect(child.stdin.writableEnded).toBe(false);
+
+    const done = { type: 'system', subtype: 'task_notification', tool_use_id: 't1', status: 'stopped' };
+    child.stdout.write(`${JSON.stringify(done)}\n`);
+    await flush();
+    vi.advanceTimersByTime(IDLE_MS);
+
+    expect(child.stdin.writableEnded).toBe(true);
+  });
+
+  it('holds the idle stop off while the CLI runs a turn of its own', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: IDLE_MS });
+    session.start('hello');
+    const child = children[0]!;
+    await finishTurn(child);
+
+    child.stdout.write(`${JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' })}\n`);
+    await flush();
+    vi.advanceTimersByTime(IDLE_MS * 10);
+
+    expect(child.stdin.writableEnded).toBe(false);
   });
 
   describe('changing effort', () => {
@@ -959,6 +1006,105 @@ describe('ClaudeSession usage', () => {
 
 describe('ClaudeSession busy', () => {
   const RESULT = `${JSON.stringify({ type: 'result', subtype: 'success', is_error: false })}\n`;
+  const line = (raw: object) => `${JSON.stringify(raw)}\n`;
+  const backgroundCall = (id: string, name = 'Bash') =>
+    line({
+      type: 'assistant',
+      message: { id: `m-${id}`, content: [{ type: 'tool_use', id, name, input: { run_in_background: true } }] },
+    });
+  const notified = (id: string, status = 'completed') =>
+    line({ type: 'system', subtype: 'task_notification', tool_use_id: id, status });
+  const INIT = line({ type: 'system', subtype: 'init', session_id: 's' });
+
+  it('follows a real run: busy while a command runs, idle once it finished or was stopped', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: 60_000 });
+    session.start('go');
+    const child = children[0]!;
+
+    const lines = readFixtureLines('background-command');
+    const parsed = lines.map((text) => JSON.parse(text) as { subtype?: string; status?: string; type?: string });
+    const firstResult = parsed.findIndex((raw) => raw.type === 'result');
+    const stopped = parsed.findIndex((raw) => raw.subtype === 'task_notification' && raw.status === 'stopped');
+    const replay = async (from: number, to: number) => {
+      child.stdout.write(lines.slice(from, to).join('\n') + '\n');
+      await flush();
+    };
+
+    // The turn that launched them is over, with both commands still going.
+    await replay(0, firstResult + 1);
+    expect(session.busy).toBe(true);
+    expect(session.busyReason).toBe('background tasks running');
+
+    // The last command stopped, and the turn that stopped it ended.
+    await replay(firstResult + 1, stopped + 1);
+    expect(session.busy).toBe(true);
+    await replay(stopped + 1, lines.length);
+    expect(session.busy).toBe(false);
+  });
+
+  it('stays busy through the turn the CLI starts by itself after a notification', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: 60_000 });
+    session.start('go');
+    const child = children[0]!;
+    child.stdout.write(backgroundCall('b1') + RESULT);
+    await flush();
+
+    child.stdout.write(notified('b1') + INIT);
+    await flush();
+    expect(session.busy).toBe(true);
+    expect(session.busyReason).toBe('turn open');
+
+    child.stdout.write(RESULT);
+    await flush();
+    expect(session.busy).toBe(false);
+  });
+
+  it('counts a call that failed to launch as nothing running', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: 60_000 });
+    session.start('go');
+    const child = children[0]!;
+    const refused = {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'b1', is_error: true, content: 'no' }] },
+    };
+    child.stdout.write(backgroundCall('b1') + line(refused) + RESULT);
+    await flush();
+    expect(session.busy).toBe(false);
+  });
+
+  it('trusts an empty task list even if a notification never came', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: 60_000 });
+    session.start('go');
+    const child = children[0]!;
+    child.stdout.write(backgroundCall('b1') + RESULT);
+    await flush();
+    expect(session.busy).toBe(true);
+
+    child.stdout.write(line({ type: 'system', subtype: 'background_tasks_changed', tasks: [] }));
+    await flush();
+    expect(session.busy).toBe(false);
+  });
+
+  it('keeps holding for the work that is left when one of two finishes', async () => {
+    const { spawnFn, children } = createSpawnMock();
+    const session = createSession(spawnFn, { idleMs: 60_000 });
+    session.start('go');
+    const child = children[0]!;
+    child.stdout.write(backgroundCall('b1') + backgroundCall('b2') + RESULT);
+    await flush();
+
+    child.stdout.write(notified('b1') + INIT + RESULT);
+    await flush();
+    expect(session.busy).toBe(true);
+
+    child.stdout.write(notified('b2', 'stopped') + INIT + RESULT);
+    await flush();
+    expect(session.busy).toBe(false);
+  });
 
   it('is busy from a prompt or follow-up until its result, and not once the process ends', async () => {
     const { spawnFn, children } = createSpawnMock();

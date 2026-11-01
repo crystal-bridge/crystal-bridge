@@ -85,8 +85,8 @@ tail -f ~/Library/Logs/crystal-bridge/deploy.log
 launchd job, `dev.crystal-bridge.deploy-when-idle`, outside the Crystal job so the restart doesn't kill it. The job
 deploys from a temporary worktree at that commit, waiting up to an hour (`CRYSTAL_DRAIN_SECONDS=3600`) for every
 session to be idle, then removes its worktree, plist and itself. The scheduling Quest ends its turn, Crystal
-restarts while it's idle, and the next follow-up resumes it. A running background task (a Monitor, a background
-agent) keeps it waiting, as for any deploy. Only one can be scheduled at a time; cancel one with
+restarts while it's idle, and the next follow-up resumes it. A running background command or agent keeps it waiting,
+as for any deploy. Only one can be scheduled at a time; cancel one with
 `launchctl bootout gui/$(id -u)/dev.crystal-bridge.deploy-when-idle` and remove its plist from
 `~/Library/LaunchAgents`. `--when-idle --dry-run` runs the same hand-off under the `.dry-run` label but only logs the
 deploy it would run.
@@ -126,11 +126,12 @@ Deploys keep the line.
   pass `--force` to cut the turns off. While it waits it names each busy session and why (a turn open and for how
   long, a typed message the terminal hasn't taken, or background tasks). Idle sessions survive the restart and
   resume on the next follow-up.
-- A Quest that started background work (a Monitor, or a background command or agent) is never idle-stopped and
-  counts as busy for as long as its process lives, because the CLI doesn't say when that work ends. A long-running
-  Quest (a multi-day queue with monitors) therefore holds Crystal deploys on its node: they wait, then exit 3. Deploy
-  the hub freely; for the Crystal, wait for a quiet moment or ask the Quest to wrap up, and use `--force` only when
-  cutting its background work off is acceptable (its conversation still resumes).
+- A Quest with a background command or agent running counts as busy until the CLI reports that work finished or
+  stopped, and so does the turn the CLI starts to pick up the news. A long job therefore holds Crystal deploys on its
+  node: they wait, then exit 3. Deploy the hub freely; for the Crystal, wait for a quiet moment or ask the Quest to
+  wrap up, and use `--force` only when cutting its background work off is acceptable (its conversation still resumes).
+- A Quest with a Monitor running is never idle-stopped, but it doesn't hold a deploy or an update: a persistent Monitor
+  never ends, and the Quest can start it again after a restart.
 
 A Crystal restart stops only Crystal's own process (`KillMode=process`): Crystal closes its `claude` sessions on
 SIGTERM, and anything a Quest deliberately left running in the background (detached workers, long jobs) keeps
@@ -237,7 +238,8 @@ The Kingdom takes only a version number from the hub. It then:
    [the security model](./SECURITY-MODEL.md).
 3. Installs it beside the running release with `npm install --ignore-scripts`, and runs the new copy once to see that
    it loads. Everything so far leaves the running Kingdom alone, and needs `npm` on its PATH.
-4. Waits until no Quest there is busy, as a deploy does. A Quest with background work counts as busy.
+4. Waits until no Quest there is busy, as a deploy does. A Quest with a background command or agent running counts as
+   busy.
 5. Swaps to it and restarts. Idle Quests resume on their next follow-up.
 
 The Castle shows each step. If one fails, it says why, the Kingdom stays on its version and tries again in an hour.

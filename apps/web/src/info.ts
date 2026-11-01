@@ -83,6 +83,9 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
   };
   const outputs = new Map<string, OutputFile>();
   const tasks = new Map<string, SessionTask>();
+  /** Which call each of the CLI's task ids belongs to, and the `TaskStop` calls made so far. */
+  const taskIds = new Map<string, string>();
+  const stops = new Set<string>();
   let runningCost = 0;
   let windows: Record<string, number> = {};
   let compactWindow: number | undefined;
@@ -175,6 +178,20 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
         }
         if (block.name === 'Monitor')
           tasks.set(block.id, { id: block.id, kind: 'monitor', description, running: true });
+        if (block.name === 'TaskStop') stops.add(block.id);
+      }
+    }
+    // An interactive transcript has no notification for a stopped task, only `TaskStop`'s result naming it.
+    if (raw.type === 'user' && message && Array.isArray(message.content) && isObj(raw.tool_use_result)) {
+      const { backgroundTaskId, taskId, agentId, task_id: stopped } = raw.tool_use_result;
+      for (const block of message.content) {
+        if (!isObj(block) || block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
+        const launched = [backgroundTaskId, taskId, agentId].find((id) => typeof id === 'string');
+        if (typeof launched === 'string') taskIds.set(launched, block.tool_use_id);
+        if (stops.has(block.tool_use_id) && typeof stopped === 'string') {
+          const task = tasks.get(taskIds.get(stopped) ?? '');
+          if (task) task.running = false;
+        }
       }
     }
     // A subagent is done when its result comes back, unless that result only says it went to the background (as a
@@ -189,7 +206,7 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
     }
     if (raw.type === 'system' && raw.subtype === 'task_notification' && typeof raw.tool_use_id === 'string') {
       const task = tasks.get(raw.tool_use_id);
-      if (task?.kind === 'agent') task.running = false;
+      if (task) task.running = false;
     }
   }
 
