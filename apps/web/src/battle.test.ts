@@ -57,7 +57,7 @@ describe('battleResults', () => {
     const first = turns.get('e4')!;
     expect(first).toMatchObject({ outcome: 'victory', turns: 1, durationMs: 4000, loot: ['src/a.ts'] });
     expect(first.costUsd).toBeCloseTo(0.25);
-    expect(first.heroes).toEqual(['Explore']);
+    expect(first.heroes).toEqual([{ id: 't2', agentType: 'Explore', description: 'look around' }]);
     expect(first.sideQuests).toBe(1);
     expect(first.tokens).toEqual({ input: 10, output: 5, cacheRead: 100, cacheWrite: 20 });
     const second = turns.get('e7')!;
@@ -65,7 +65,12 @@ describe('battleResults', () => {
     expect(second.loot).toEqual(['b.md', 'src/a.ts']);
     expect(second.heroes).toEqual([]);
 
-    expect(quest).toMatchObject({ turns: 2, durationMs: 6000, sideQuests: 1, heroes: ['Explore'] });
+    expect(quest).toMatchObject({
+      turns: 2,
+      durationMs: 6000,
+      sideQuests: 1,
+      heroes: [{ id: 't2', agentType: 'Explore', description: 'look around' }],
+    });
     expect(quest.costUsd).toBeCloseTo(0.4);
     expect(quest.loot).toEqual(['b.md', 'src/a.ts']);
     expect(quest.tokens.output).toBe(10);

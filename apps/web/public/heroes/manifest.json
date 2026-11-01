@@ -33,7 +33,7 @@
     },
     "wizard": {
       "name": "Wizard",
-      "match": ["general-purpose", "worker", "build"],
+      "match": ["worker", "build"],
       "work": "spellcast",
       "verb": "Cast",
       "victory": "spellcast",

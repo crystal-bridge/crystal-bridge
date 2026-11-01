@@ -1,7 +1,7 @@
 import type { UsageWindow } from '@crystal-bridge/protocol';
 import { type ReactNode, useContext, useEffect, useState } from 'react';
 import type { Activity } from '../activity.js';
-import { type HeroManifest, type HeroState, matchClass, QUIET_MS } from '../heroes.js';
+import { helperClass, type HeroManifest, type HeroState, QUIET_MS } from '../heroes.js';
 import { FileOpenContext } from './markdown.js';
 import { contextRoom, type SessionInfo } from '../info.js';
 import { MODES } from '../modes.js';
@@ -212,7 +212,7 @@ function Party({
           </li>
         )}
         {helpers.map((task) => {
-          const classId = matchClass(manifest, task.agentType);
+          const classId = helperClass(manifest, task);
           const cls = manifest.classes[classId];
           return (
             <li key={task.id} className="flex items-center gap-2 text-xs">
