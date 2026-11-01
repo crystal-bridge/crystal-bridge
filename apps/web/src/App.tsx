@@ -66,6 +66,7 @@ import { FileViewer, type FileViewState } from './components/FileViewer.js';
 import { FileOpenContext } from './components/markdown.js';
 import { sessionInfo } from './info.js';
 import { beltFor, withBelt } from './belt.js';
+import { useCircle } from './summons.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { SplitPicker } from './components/SplitPicker.js';
@@ -247,6 +248,7 @@ export function App({ hub }: { hub: HubClient }) {
   const kingdomUsage = usage.filter((row) => row.node === active);
   const kingdomFound = external.find((row) => row.node === active)?.sessions ?? EMPTY_FOUND;
   const kingdomProjects = projectLists.find((row) => row.node === active)?.projects ?? EMPTY_PROJECTS;
+  const circle = useCircle(hub, active ?? undefined);
   // A session from another Kingdom (after a switch, or one just hidden) is never shown, nor any on the Airship.
   const shown =
     page === 'airship' || (selected !== null && sessions.some((s) => s.id === selected && s.node !== active))
@@ -337,16 +339,19 @@ export function App({ hub }: { hub: HubClient }) {
         if (p.hidden.includes(attention.node)) return; // A hidden Kingdom never notifies.
         const looking =
           isLooking(open, attention.session) || (splitPaneVisible() && isLooking(openBeside, attention.session));
-        if (attention.reason !== 'needs-you') {
-          const reason = attention.reason;
+        // A Cast ending says nothing about its Quest's own turn, or whether the Quest is waiting on the user.
+        const { reason } = attention;
+        if (reason === 'done' || reason === 'failed') {
           setOutcomes((prev) => ({ ...prev, [attention.session]: { reason, at: Date.now() } }));
         }
-        setWaiting((prev) => {
-          const next = { ...prev };
-          if (attention.reason === 'needs-you' && !looking) next[attention.session] = attention.node;
-          else delete next[attention.session];
-          return next;
-        });
+        if (reason !== 'cast-done' && reason !== 'cast-failed') {
+          setWaiting((prev) => {
+            const next = { ...prev };
+            if (reason === 'needs-you' && !looking) next[attention.session] = attention.node;
+            else delete next[attention.session];
+            return next;
+          });
+        }
         if (looking || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
         const shownText = notificationFor(
           attention,
@@ -1148,6 +1153,7 @@ export function App({ hub }: { hub: HubClient }) {
                 engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
                 release={engineLists.find((row) => row.node === kingdom.id)?.release}
                 hubRelease={servedRelease}
+                circle={circle}
                 garrison={
                   heroManifest
                     ? {

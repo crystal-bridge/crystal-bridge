@@ -46,6 +46,14 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX events_type_ts ON events (type, ts);
   CREATE INDEX events_session_type_seq ON events (session, type, seq);
   `,
+  // 7: Casts, jobs a Kingdom runs on its Summons. `delivered` is set once the user or the Quest has been told it ended.
+  `
+  CREATE TABLE casts (
+    id TEXT PRIMARY KEY, node TEXT NOT NULL, session TEXT NOT NULL, state TEXT NOT NULL,
+    started_at INTEGER NOT NULL, delivered INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
+  );
+  CREATE INDEX casts_node_started ON casts (node, started_at);
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

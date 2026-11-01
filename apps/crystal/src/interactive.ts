@@ -74,6 +74,8 @@ export class HookBus {
 export interface InteractiveSessionOptions {
   session: string;
   cwd: string;
+  /** Crystal's MCP server for this session, which offers the `summon` tool. */
+  permissionUrl?: string;
   /** Where hooks POST, without the event name: `http://127.0.0.1:<port>/hook/<session>`. */
   hookUrl: string;
   hooks: HookBus;
@@ -446,6 +448,10 @@ export class InteractiveSession extends EventEmitter {
       ...(this.effort ? ['--effort', this.effort] : []),
       // One folder per flag, each followed by another flag: --add-dir takes a list.
       ...(this.opts.addDirs ?? []).flatMap((dir) => ['--add-dir', dir]),
+      // Only for the `summon` tool: this engine's approvals come through hooks, not `approve`.
+      ...(this.opts.permissionUrl
+        ? ['--mcp-config', JSON.stringify({ mcpServers: { crystal: { type: 'http', url: this.opts.permissionUrl } } })]
+        : []),
       '--settings',
       this.settingsFile,
     ];

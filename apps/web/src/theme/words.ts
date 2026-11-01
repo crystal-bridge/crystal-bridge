@@ -65,7 +65,10 @@ export type Concept =
   | 'haunts'
   | 'setOutHere'
   | 'adventureLog'
-  | 'scroll';
+  | 'scroll'
+  | 'summons'
+  | 'casts'
+  | 'summoningCircle';
 
 export type Words = Record<Concept, Word>;
 
@@ -127,6 +130,9 @@ export const CRYSTAL: Words = {
   setOutHere: { themed: 'Set out here', plain: 'start a session in this folder' },
   adventureLog: { themed: 'Adventure log', plain: 'recent activity' },
   scroll: { themed: 'Scroll', plain: 'file, read-only' },
+  summons: { themed: 'Summons', plain: 'machines reached by SSH' },
+  casts: { themed: 'Casts', plain: 'jobs on those machines' },
+  summoningCircle: { themed: 'Summoning Circle', plain: 'the machines this Kingdom can use, and their jobs' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -187,6 +193,9 @@ export const CLASSIC: Words = {
   setOutHere: { themed: 'New session here', plain: 'New session here' },
   adventureLog: { themed: 'Recent activity', plain: 'Recent activity' },
   scroll: { themed: 'File', plain: 'File, read-only' },
+  summons: { themed: 'Machines', plain: 'Machines reached by SSH' },
+  casts: { themed: 'Jobs', plain: 'Jobs' },
+  summoningCircle: { themed: 'Machines', plain: 'The machines this node can use, and their jobs' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };

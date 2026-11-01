@@ -16,6 +16,7 @@ import {
   type HubKingdomVersion,
   type SelfUpdate,
   type HubToClient,
+  NodeCast,
   NodeCommand,
   NodeCli,
   NodeCliUpdated,
@@ -24,6 +25,9 @@ import {
   NodeExternal,
   NodeProjects,
   NodeHello,
+  NodeSummons,
+  type Cast,
+  type Summon,
   PROTOCOL_VERSION,
   isOlderVersion,
   PushSubscriptionPut,
@@ -74,6 +78,8 @@ export interface BuildServerOptions {
   upkeep?: () => { databaseBytes?: number; lastBackupAt?: number; lastMirrorAt?: number };
   /** How often relayed-byte counts are written to the store (default 30 s); they're also written on close. */
   relayFlushMs?: number;
+  /** How long a finished Cast waits for others, so Casts ending together give their Quest one wake-up. Default 2 s. */
+  wakeDelayMs?: number;
   /** Web Push: the VAPID public key browsers subscribe with, and what sends each attention to subscribed devices. */
   push?: { publicKey: string; pusher: Pusher };
 }
@@ -172,6 +178,30 @@ function sendSessionFrame(socket: WebSocket, message: HubToClient): number {
   return Buffer.byteLength(json);
 }
 
+/** How many Casts the Summoning Circle gets. */
+const CASTS_SHOWN = 50;
+/** How much of each log a wake-up carries. */
+const WAKE_TAIL = 1500;
+
+const CAST_ENDS: Record<Cast['state'], string> = {
+  running: 'is running',
+  succeeded: 'finished',
+  failed: 'failed',
+  cancelled: 'was cancelled',
+  lost: 'was lost: its process is gone and no result was recorded, and it has not been retried',
+};
+
+/** The message that wakes a Quest. It says who sent it, since it arrives as a follow-up. */
+export function wakeText(casts: readonly Cast[]): string {
+  const parts = casts.map((cast) => {
+    const code = cast.exitCode === undefined ? '' : ` (exit ${cast.exitCode})`;
+    const tail = cast.logTail.trimEnd().slice(-WAKE_TAIL);
+    const log = tail ? `\nThe end of its log:\n\`\`\`\n${tail}\n\`\`\`` : '';
+    return `Cast "${cast.name}" on ${cast.summon} ${CAST_ENDS[cast.state]}${code}. Its id is ${cast.id}.${log}`;
+  });
+  return `[Crystal Bridge, not the user: you asked to be woken when this finished.]\n\n${parts.join('\n\n')}`;
+}
+
 function parseFrame(data: unknown): unknown | undefined {
   try {
     return JSON.parse(String(data));
@@ -196,6 +226,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     webRoot,
     push,
     relayFlushMs = 30_000,
+    wakeDelayMs = 2000,
   } = options;
   const app = fastify({ logger });
   /** The release to name to Kingdoms now: the hub's own, or under approvals the last approved, never past the hub's. */
@@ -230,6 +261,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const external = new Map<string, ExternalSession[]>();
   // Each node's project folders, for the New session picker.
   const projects = new Map<string, Project[]>();
+  const summons = new Map<string, Summon[]>();
+  /** Casts that ended and will wake their Quest together, by Quest. */
+  const wakes = new Map<string, { casts: Map<string, Cast>; timer: NodeJS.Timeout }>();
   // The engines each node said in hello it can run sessions on, for the New session picker.
   const engines = new Map<string, Engine[]>();
   // The release each node said in hello, for the Castle.
@@ -307,6 +341,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   app.addHook('onClose', async () => {
     clearInterval(relayTimer);
     flushRelayed();
+    for (const { timer } of wakes.values()) clearTimeout(timer);
   });
 
   function broadcast(envelope: Envelope): void {
@@ -344,6 +379,66 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const frame: Attention = { kind: 'attention', node: envelope.node, session: envelope.session, label, reason };
     if (detail !== undefined) frame.detail = detail;
     return frame;
+  }
+
+  function notifyCast(node: string, cast: Cast): void {
+    const attention: Attention = {
+      kind: 'attention',
+      node,
+      session: cast.session,
+      label: store.getSession(cast.session)?.label ?? '',
+      reason: cast.state === 'succeeded' ? 'cast-done' : 'cast-failed',
+      detail: `${cast.name} on ${cast.summon}`,
+    };
+    for (const client of clients) sendToClient(client, attention);
+    push?.pusher.notify(attention).catch((error: unknown) => app.log.warn({ error }, 'Web Push failed'));
+  }
+
+  /** Sends a Quest one message for the Casts that ended together. Undelivered ones go again on the node's next connect. */
+  function wakeQuest(node: string, session: string, casts: readonly Cast[]): void {
+    const socket = nodes.get(node);
+    const quest = store.getSession(session);
+    if (!socket || !quest) return;
+    const engine = store.sessionEngine(session);
+    const effort = store.sessionEffort(session);
+    const send: NodeCommand = {
+      type: 'session.send',
+      session,
+      text: wakeText(casts),
+      resume: {
+        cwd: quest.cwd,
+        nextSeq: store.nextSeq(session),
+        ...(engine ? { engine } : {}),
+        ...(effort ? { effort } : {}),
+      },
+    };
+    sendJson(socket, send);
+    for (const cast of casts) store.markCastDelivered(cast.id);
+  }
+
+  /** Tells whoever should hear that a Cast ended, once. A cancel was someone's own doing, so it says nothing. */
+  function castEnded(node: string, cast: Cast): void {
+    if (store.castDelivered(cast.id)) return;
+    const quest = store.getSession(cast.session);
+    if (cast.state === 'cancelled') {
+      store.markCastDelivered(cast.id);
+    } else if (cast.onFinish === 'wake' && quest && quest.status !== 'closed') {
+      const waiting = wakes.get(cast.session);
+      if (waiting) {
+        waiting.casts.set(cast.id, cast);
+        return;
+      }
+      const timer = setTimeout(() => {
+        const due = wakes.get(cast.session);
+        wakes.delete(cast.session);
+        if (due) wakeQuest(node, cast.session, [...due.casts.values()]);
+      }, wakeDelayMs);
+      timer.unref();
+      wakes.set(cast.session, { casts: new Map([[cast.id, cast]]), timer });
+    } else {
+      store.markCastDelivered(cast.id);
+      notifyCast(node, cast);
+    }
   }
 
   /** Sends an error to a session's subscribers, or to every client when there is no session. */
@@ -644,6 +739,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     announceVersion();
     return reply.code(204).send();
   });
+  // The hub's record only: it never connects to a Summon. The list of machines lasts as long as the Kingdom's connection.
+  app.get('/api/nodes/:node/summons', async (request) => {
+    const { node } = request.params as { node: string };
+    return { summons: summons.get(node) ?? [], casts: store.casts(node, CASTS_SHOWN) };
+  });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>
     [...engines]
@@ -778,6 +878,26 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           return;
         }
 
+        const summonList = NodeSummons.safeParse(parsed);
+        if (summonList.success) {
+          summons.set(helloNode, summonList.data.summons);
+          return;
+        }
+
+        const reported = NodeCast.safeParse(parsed);
+        if (reported.success) {
+          const { cast } = reported.data;
+          if (store.getSession(cast.session)?.node !== helloNode) {
+            app.log.warn({ node: helloNode, session: cast.session }, 'dropped a Cast for another node-s session');
+            return;
+          }
+          // A report that changes nothing can still be an end nobody heard about, so it carries on from here.
+          const stored = store.upsertCast(helloNode, cast);
+          if (stored) for (const client of clients) sendToClient(client, { kind: 'cast', node: helloNode, cast });
+          if (cast.state !== 'running') castEnded(helloNode, cast);
+          return;
+        }
+
         const listed = NodeProjects.safeParse(parsed);
         if (listed.success) {
           projects.set(helloNode, listed.data.projects);
@@ -861,6 +981,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           // What it reported is stale now: Recruit and New Quest mustn't offer an offline node's lists.
           external.delete(helloNode);
           projects.delete(helloNode);
+          summons.delete(helloNode);
           releases.delete(helloNode);
           cliVersions.delete(helloNode);
           cliUpdaters.delete(helloNode);

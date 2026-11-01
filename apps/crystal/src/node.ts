@@ -23,6 +23,10 @@ import {
   type ExternalSession,
   type Engine,
   type FileReply,
+  type Cast,
+  type NodeCast,
+  type NodeSummons,
+  type Summon,
 } from '@crystal-bridge/protocol';
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
@@ -110,6 +114,8 @@ export interface StartNodeOptions {
   attachmentsDir?: string;
   /** The node's project folders for the New session picker, reported with the transcripts scan. */
   projects?: () => Promise<Project[]>;
+  /** This Kingdom's Summons and Casts, told to the hub on each connect; without it, none are mentioned. */
+  summons?: { list(): Summon[]; casts(): Cast[] };
   /** How often to rescan `transcripts`; the hub only hears about a change. Default 60 s. */
   scanMs?: number;
 }
@@ -128,6 +134,10 @@ export interface CrystalNode {
   status(): NodeStatus;
   /** Tells the hub how this Kingdom's own update is going, for the Castle. */
   reportSelfUpdate(state: SelfUpdate): void;
+  /** Tells the hub how a Cast stands. A frame lost to a dropped connection is sent again on the next connect. */
+  reportCast(cast: Cast): void;
+  /** Whether a session is open here, so only a real Quest can use the `summon` tool. */
+  holds(session: string): boolean;
   /**
    * Closes every session, stops reconnecting and closes the socket. Resolves once the sessions' processes have
    * stopped (each engine escalates to SIGTERM after its grace period), or after `CLOSE_WAIT_MS` regardless, so a
@@ -726,6 +736,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       void reportExternal(true);
       void reportProjects(true);
       void reportCli(true);
+      if (options.summons) {
+        wsSend({ kind: 'summons', summons: options.summons.list() } satisfies NodeSummons);
+        for (const cast of options.summons.casts()) wsSend({ kind: 'cast', cast } satisfies NodeCast);
+      }
     });
 
     ws.on('message', (data) => handleMessage(data));
@@ -827,5 +841,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     wsSend(NodeSelfUpdate.parse({ kind: 'self-update', version, state, ...(short ? { reason: short } : {}) }));
   }
 
-  return { handlePermissionRequest, status, reportSelfUpdate, close };
+  function reportCast(cast: Cast): void {
+    wsSend({ kind: 'cast', cast } satisfies NodeCast);
+  }
+
+  function holds(session: string): boolean {
+    const state = sessions.get(session);
+    return state !== undefined && !state.closed;
+  }
+
+  return { handlePermissionRequest, status, reportSelfUpdate, reportCast, holds, close };
 }

@@ -24,6 +24,8 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
   commands, MCP servers, plugins and agents a session can use, with eight quick actions pinned per machine.
 - **Split View:** two sessions side by side, even from different machines.
 - **Notifications:** desktop and Web Push, with a per-machine "Discreet" level that never shows session titles.
+- **Summons:** hand a long job to a machine you can reach by SSH, with nothing installed there, and stop spending tokens
+  watching it. It survives dropped connections and restarts, and tells you when it ends.
 - **Bring sessions in:** adopt sessions you started in a terminal, and carry on from the browser.
 - **A theme you can turn off:** the default dresses everything up as a 16-bit RPG; the Classic theme uses plain words.
   Words, colours and art are pluggable (`apps/web/src/theme`, [themes and art packs](docs/THEME.md)).
@@ -47,6 +49,9 @@ The default theme has its own words for things. Classic uses plain ones.
 | **Hero** | An agent: the party leader runs the Quest, and subagents join for a task |
 | **Side Quest** | A background task or monitor running alongside its Quest |
 | **Garrison** | The Heroes who have led Quests in a Kingdom, with their levels there |
+| **Summon** | A machine a Kingdom can run jobs on over SSH, with nothing installed there |
+| **Cast** | One job on a Summon |
+| **Summoning Circle** | The Castle's panel of a Kingdom's Summons and their Casts |
 | **Recruit** | Adopt a session found outside the bridge |
 | **Chronicle** | History: closed Quests and search |
 | **HP, Stamina, MP, Gold** | Plan usage left (short and long limits), context left, and cost |
@@ -138,6 +143,7 @@ The guides are in [`docs/`](docs), and the same pages build into a site (`pnpm d
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Operations](docs/OPERATIONS.md)
 - [Security model](docs/SECURITY-MODEL.md) and [what the hub stores](docs/HUB-DATA.md)
+- [Summons](docs/SUMMONS.md), long jobs on other machines
 - [Themes and art packs](docs/THEME.md)
 - [Engines and the protocol](docs/ENGINES.md)
 - [Contributing](CONTRIBUTING.md)

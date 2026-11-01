@@ -19,6 +19,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_PROJECT_ROOTS` | `~/code` | Crystal: where the New Quest picker looks for repos (separated like `PATH`: `:`, or `;` on Windows) |
 | `CRYSTAL_CHROME` | unset | Crystal: `1` starts sessions with `--chrome` |
 | `CRYSTAL_ENGINES` | `stream` | Crystal: `stream,interactive` enables the interactive engine; `stream` is always on |
+| `CRYSTAL_SUMMONS` | unset | Crystal: machines its Quests may run jobs on, as SSH host names, comma-separated, each with an optional `name=`; see [Summons](SUMMONS.md) |
 | `CRYSTAL_PID_FILE` | unset; Windows' `crystal.cmd` sets it | Crystal: where to record its process id, so `leave` can stop it |
 | `CRYSTAL_LOGIN_SHELL` | `$SHELL`, then `/bin/bash` | Crystal: the shell whose login environment sessions get; `join` writes it |
 | `CRYSTAL_SESSION` | set by Crystal | Not a setting: the session id on each `claude` process, so a hook can tell it runs under the bridge |

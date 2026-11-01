@@ -343,6 +343,37 @@ describe('startNode', () => {
     });
   });
 
+  describe('Summons', () => {
+    const cast = {
+      id: '11111111-1111-4111-8111-111111111111',
+      session: '22222222-2222-4222-8222-222222222222',
+      summon: 'render',
+      name: 'encode',
+      command: 'encode all',
+      onFinish: 'notify' as const,
+      state: 'running' as const,
+      startedAt: 1,
+      logTail: '',
+    };
+
+    it('tells the hub its Summons and every Cast on each connect, so nothing is lost to a drop', async () => {
+      createNode({ summons: { list: () => [{ name: 'here', local: true }, { name: 'render' }], casts: () => [cast] } });
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'summons')).toMatchObject({
+        summons: [{ name: 'here', local: true }, { name: 'render' }],
+      });
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'cast')).toMatchObject({ cast });
+    });
+
+    it('passes on a Cast that changed', async () => {
+      const crystal = createNode({});
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      crystal.reportCast({ ...cast, state: 'succeeded', exitCode: 0 });
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'cast')).toMatchObject({ cast: { exitCode: 0 } });
+    });
+  });
+
   describe('updating the agent CLI', () => {
     const REQUEST = '11111111-1111-4111-8111-111111111111';
     const ask = (conn: ConnRecorder) => conn.socket.send(JSON.stringify({ kind: 'cli-update', requestId: REQUEST }));

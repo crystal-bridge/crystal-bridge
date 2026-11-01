@@ -3,6 +3,7 @@ import { migrate } from './migrations.js';
 import { z } from 'zod';
 import {
   Appearance,
+  type Cast,
   Effort,
   Engine,
   type Envelope,
@@ -95,6 +96,16 @@ export interface Store {
   addRelayed(bytes: ReadonlyMap<string, number>): void;
   /** Deletes everything held for a node, in one transaction, and returns the ids of the sessions that went. */
   forgetNode(node: string): string[];
+  /**
+   * Stores a Cast as its Kingdom reports it; returns it, or undefined for a report that doesn't count: from another
+   * Kingdom, or a running Cast after it ended, which a resend can do.
+   */
+  upsertCast(node: string, cast: Cast): Cast | undefined;
+  /** A Kingdom's newest Casts, newest first. */
+  casts(node: string, limit: number): Cast[];
+  /** Whether a Cast's end has reached the user or its Quest. */
+  castDelivered(id: string): boolean;
+  markCastDelivered(id: string): void;
   /** One more than the highest stored seq of a session, or 0 when it has none. */
   nextSeq(session: string): number;
   /**
@@ -245,8 +256,17 @@ export function openStore(path: string): Store {
   const forgetRelayStmt = db.prepare(`DELETE FROM relay WHERE session IN (SELECT id FROM sessions WHERE node = ?)`);
   const forgetEventsStmt = db.prepare(`DELETE FROM events WHERE node = ?`);
   const forgetSessionsStmt = db.prepare(`DELETE FROM sessions WHERE node = ?`);
+  const getCastStmt = db.prepare(`SELECT node, state, delivered FROM casts WHERE id = ?`);
+  const upsertCastStmt = db.prepare(
+    `INSERT INTO casts (id, node, session, state, started_at, data) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET state = excluded.state, data = excluded.data`,
+  );
+  const castsStmt = db.prepare(`SELECT data FROM casts WHERE node = ? ORDER BY started_at DESC LIMIT ?`);
+  const castDeliveredStmt = db.prepare(`UPDATE casts SET delivered = 1 WHERE id = ?`);
+  const forgetCastsStmt = db.prepare(`DELETE FROM casts WHERE node = ?`);
   const forgetNodeTxn = db.transaction((node: string): string[] => {
     const ids = (nodeSessionsStmt.all(node) as { id: string }[]).map((row) => row.id);
+    forgetCastsStmt.run(node);
     forgetRelayStmt.run(node);
     forgetEventsStmt.run(node);
     forgetSessionsStmt.run(node);
@@ -363,6 +383,21 @@ export function openStore(path: string): Store {
     },
     addRelayed(bytes) {
       addRelayedAll(bytes);
+    },
+    upsertCast(node, cast) {
+      const known = getCastStmt.get(cast.id) as { node: string; state: string } | undefined;
+      if (known && (known.node !== node || (known.state !== 'running' && cast.state === 'running'))) return undefined;
+      upsertCastStmt.run(cast.id, node, cast.session, cast.state, cast.startedAt, JSON.stringify(cast));
+      return cast;
+    },
+    casts(node, limit) {
+      return (castsStmt.all(node, limit) as { data: string }[]).map((row) => JSON.parse(row.data) as Cast);
+    },
+    castDelivered(id) {
+      return (getCastStmt.get(id) as { delivered: number } | undefined)?.delivered === 1;
+    },
+    markCastDelivered(id) {
+      castDeliveredStmt.run(id);
     },
     forgetNode(node) {
       const ids = forgetNodeTxn(node);

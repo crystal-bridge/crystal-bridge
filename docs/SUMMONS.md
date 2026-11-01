@@ -1,9 +1,8 @@
 # Summons
 
-**This is a design, and none of it is built yet.** The work is tracked in
-[#126](https://github.com/crystal-bridge/crystal-bridge/issues/126),
-[#127](https://github.com/crystal-bridge/crystal-bridge/issues/127) and
-[#128](https://github.com/crystal-bridge/crystal-bridge/issues/128).
+**Casts on Linux and macOS targets work today.** The `::summon` lines, the queue and the themed lines are still to come
+in [#127](https://github.com/crystal-bridge/crystal-bridge/issues/127), and Windows targets in
+[#128](https://github.com/crystal-bridge/crystal-bridge/issues/128). This page marks those parts.
 
 A **Summon** is a machine you can reach by SSH but don't want to make a Kingdom: a render box, a GPU server, a NAS. A
 Quest hands it a job, called a **Cast**, then stops spending tokens on it, and you can still see what's happening.
@@ -28,15 +27,37 @@ Nothing runs on a Summon between Casts, and there's no worker service. A service
 needs Node 22 and an install on each one, and it would put a broker on the hub. It's kept as an idea in
 [#129](https://github.com/crystal-bridge/crystal-bridge/issues/129) for machines SSH can't reach.
 
+## Setting up
+
+List the machines in the Kingdom's `crystal.env`, then restart Crystal:
+
+```sh
+CRYSTAL_SUMMONS=render-box,Shiva=gpu.example.lan
+```
+
+Each entry is an SSH host name, as `ssh` on the Kingdom knows it, and `name=` gives it a name of your own. The Kingdom
+itself is always there as `here`, with no SSH, except on Windows.
+
+Crystal uses the machine's own `ssh`, with its config, keys and known hosts, and never prompts. So check by hand first,
+as the user Crystal runs as:
+
+```sh
+ssh -o BatchMode=yes render-box true
+```
+
+A key behind a passphrase needs an agent Crystal can reach (`SSH_AUTH_SOCK` from the login environment), since a
+service has no terminal. The host must already be in `known_hosts`. The target needs a POSIX `sh`, `tail` and `ps`,
+which Linux and macOS have.
+
 ## How a Cast runs
 
 1. **Start.** The Kingdom connects with the machine's own `ssh`, and pipes a small wrapper and the command over stdin,
    so nothing has to survive shell quoting.
-2. **Detach.** The wrapper makes a job folder, starts the command detached and returns straight away. It uses `nohup`,
-   since `setsid` isn't on every system. The command runs under the target user's login shell, so it finds what a
+2. **Detach.** The wrapper makes a job folder, starts the command detached and returns straight away. It gets its own
+   process group from `setsid`, or `perl` where there's no `setsid`, as on macOS. The command runs under the target user's login shell, so it finds what a
    terminal would.
-3. **Follow.** The Kingdom holds one SSH connection open, running `tail -c +<offset> -F` on the log. New lines arrive as
-   they're written, so nothing polls.
+3. **Follow.** The Kingdom holds one SSH connection open, running `tail -c +<offset> -f` on the log. New lines arrive as
+   they're written, so nothing polls. When that connection ends, the far side's `tail` ends with it.
 4. **Reconnect.** If the connection drops, the job carries on. The Kingdom reconnects and reads from its last offset.
 5. **Cancel.** A second short SSH command stops the job's process group.
 6. **Finish.** The wrapper writes the exit code to a temporary file, renames it into place and adds a last line to the
@@ -47,9 +68,10 @@ The job folder is the record, and the target holds it:
 ```
 ~/.crystal-bridge/summons/<cast id>/
   command     what was asked for
-  pid         the job's process group, with its start time
+  pid         the job's process id and group, with its start time
   log         stdout and stderr together
   exit        the exit code, present only once it finished
+  cancel      present if a cancel was asked for
 ```
 
 **A lost job.** If a target reboots, the connection drops, and on reconnecting the Kingdom finds no `exit` and no live
@@ -65,14 +87,14 @@ update itself in the middle of one.
 
 ## Who holds what
 
-- **The target** holds the job folder. Folders are cleaned up by the Kingdom after a set time.
-- **The Kingdom** holds the list of its Summons, the record of its running Casts in a file, so a restart can find them,
-  and the SSH access. Keys stay here, so separate identities stay separate with no extra work.
+- **The target** holds the job folder. The Kingdom removes it a week after the Cast ends.
+- **The Kingdom** holds the list of its Summons, the record of its Casts in `~/.crystal-bridge/casts.json`, so a restart
+  can find them, and the SSH access. Keys stay here, so separate identities stay separate with no extra work.
 - **The hub** stores each Cast's state and the end of its log, shows them and sends notifications. It never connects to
   a target, and the full log stays on the target.
 
-The Castle's **Summoning Circle** is where a Kingdom's Summons are added, named, tested and listed, with their Casts.
-Each Kingdom sees only its own. It stays off phones for now.
+The Castle's **Summoning Circle** lists a Kingdom's Summons and their Casts, running and past, with the end of each log.
+It appears once a Kingdom has a Summon or a Cast, and stays off phones for now.
 
 Protocol changes stay additive: new frames beside the existing ones, a `casts` table holding a neutral state, and no
 change to a Quest's event stream.
@@ -84,16 +106,22 @@ explains itself, so an agent can use it unprompted.
 
 | Input | Meaning |
 |---|---|
-| `summon` | which Summon, or the Kingdom itself |
+| `action` | `start`, `status` or `cancel` |
+| `summon` | which Summon, or `here` for the Kingdom itself |
 | `command` | what to run |
 | `onFinish` | `notify` or `wake`, required so the agent chooses each time |
 | `name` | optional, what to call this Cast |
-| `cwd` | optional, where to run it |
+| `cwd` | optional, where to run it; otherwise the home folder |
+| `cast` | which Cast, for `status` and `cancel` |
+
+The tool works on both engines. Whether a start asks you first follows the Quest's permission mode: in manual it shows
+the machine and the command on its approval card, and in auto the CLI can run it without asking.
 
 `notify` tells you and spends nothing. `wake` sends the Quest a message with the result, which costs a turn. Casts
 finishing together give one wake-up, and a closed Quest gets a notification instead.
 
-A script can print two kinds of line, in any language. Neither is required, and a script with neither still gets a log
+Not built yet, [#127](https://github.com/crystal-bridge/crystal-bridge/issues/127): a script can print two kinds of
+line, in any language. Neither is required, and a script with neither still gets a log
 and a result:
 
 ```sh
@@ -101,11 +129,12 @@ echo '::summon name Video Upscaler'
 echo '::summon progress 12/50 episode-12.mkv'
 ```
 
-A Cast's name comes from the script first, then the tool's `name`, then the command's first word.
+A Cast's name comes from the tool's `name`, then the command's first word, and the script's own line will go first.
 
 ## Taking turns
 
-Each Summon runs one Cast at a time unless its limit is raised. The lock is a folder on the target, which an atomic
+Not built yet, [#127](https://github.com/crystal-bridge/crystal-bridge/issues/127), so for now Casts on one machine run
+side by side. Each Summon will run one Cast at a time unless its limit is raised. The lock is a folder on the target, which an atomic
 `mkdir` claims, so several Kingdoms can share a machine and queue with no knowledge of each other.
 
 ## Security
@@ -117,14 +146,6 @@ Each Summon runs one Cast at a time unless its limit is raised. The lock is a fo
 - A Quest runs as the same user as its Crystal, so it can read the Kingdom's SSH key and use it directly. To really limit
   a Quest, give the Kingdom a restricted key or a limited user on the target.
 - Logs can hold secrets. The hub keeps only the end of each one, and it's covered by the same login as Quest history.
-
-## To settle while building
-
-- Whether `summon` reaches interactive Quests. The MCP server is passed to the stream engine's process, and an
-  interactive Quest gets its approvals another way, so that engine may need its own route.
-- How the CLI's permission modes treat `summon`, recorded from the real CLI. A start should show the machine and the
-  command on its approval card.
-- A key behind a passphrase. Crystal is a service with no terminal, so it needs a key or agent that works unattended.
 
 ## Words
 

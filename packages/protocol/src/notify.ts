@@ -9,6 +9,8 @@ const TITLES: Record<Attention['reason'], string> = {
   'needs-you': 'needs you',
   done: 'finished a turn',
   failed: 'hit an error',
+  'cast-done': 'finished a job',
+  'cast-failed': 'had a job fail',
 };
 
 /** The notification to show for an attention frame, or null when this Kingdom's notifications are off. */
@@ -25,7 +27,7 @@ export function notificationFor(
   if (attention.reason === 'needs-you') {
     what =
       attention.detail === 'AskUserQuestion' ? 'a question for you' : `approval for ${attention.detail ?? 'a tool'}`;
-  } else if (attention.reason === 'done') {
+  } else if (attention.reason !== 'failed') {
     what = attention.detail;
   }
   return { title, body: what ? `${attention.label}: ${what}` : attention.label };
