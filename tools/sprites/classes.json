@@ -26,7 +26,7 @@
     },
     "wizard": {
       "name": "Wizard",
-      "match": ["general-purpose", "worker", "build"],
+      "match": ["worker", "build"],
       "look": {
         "body": "female",
         "work": "spellcast",

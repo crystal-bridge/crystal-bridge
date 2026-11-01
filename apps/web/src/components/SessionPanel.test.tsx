@@ -216,7 +216,7 @@ describe('SessionPanel', () => {
         paladin: { name: 'Paladin', match: [], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} },
         wizard: {
           name: 'Wizard',
-          match: [],
+          match: ['build'],
           work: 'spellcast',
           verb: 'Cast',
           victory: 'spellcast',
@@ -232,7 +232,7 @@ describe('SessionPanel', () => {
           tasks: [
             { id: 'a', kind: 'agent', description: 'Map the repo', running: true, agentType: 'Explore' },
             { id: 'c', kind: 'agent', description: 'Old helper', running: false, agentType: 'Explore' },
-            { id: 'd', kind: 'agent', description: 'Write the fix', running: true },
+            { id: 'd', kind: 'agent', description: 'Build the fix', running: true, agentType: 'general-purpose' },
           ],
         }}
         kingdom="k"

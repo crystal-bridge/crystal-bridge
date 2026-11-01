@@ -1,4 +1,5 @@
 import type { Envelope } from '@crystal-bridge/protocol';
+import type { Helper } from './heroes.js';
 import { contextRoom, costStep, launchedInBackground, sessionInfo } from './info.js';
 
 /** How a turn ended: finished, stopped by the user, or failed. */
@@ -15,8 +16,8 @@ export interface BattleResult {
   loot: string[];
   /** Pull request links that commands printed. */
   prs: string[];
-  /** Subagent types the turn sent out, as the engine names them; the UI picks each one's Class. */
-  heroes: string[];
+  /** Subagents the turn sent out; the UI picks each one's Class. */
+  heroes: Helper[];
   /** Background commands, monitors and background agents started. */
   sideQuests: number;
   /** For the Quest: how much of the context window its latest request used, as a percentage. */
@@ -76,14 +77,14 @@ export function battleResults(envelopes: readonly Envelope[]): {
   const turns = new Map<string, BattleResult>();
   const quest = empty();
   const questLoot = new Set<string>();
-  const questHeroes = new Set<string>();
+  const questHeroes = new Map<string, Helper>();
   const questPrs = new Set<string>();
   let cwd: string | undefined;
   let runningCost = 0;
   let last: BattleResult | undefined;
   let loot = new Set<string>();
   let prs = new Set<string>();
-  let heroes: string[] = [];
+  let heroes: Helper[] = [];
   let sideQuests = 0;
   const askedForBackground = new Set<string>();
 
@@ -112,8 +113,13 @@ export function battleResults(envelopes: readonly Envelope[]): {
         const pathKey = WRITE_TOOLS[block.name];
         const path = pathKey ? input[pathKey] : undefined;
         if (typeof path === 'string') loot.add(display(path));
-        if (AGENT_TOOLS.has(block.name))
-          heroes.push(typeof input.subagent_type === 'string' ? input.subagent_type : '');
+        if (AGENT_TOOLS.has(block.name) && typeof block.id === 'string') {
+          heroes.push({
+            id: block.id,
+            ...(typeof input.subagent_type === 'string' ? { agentType: input.subagent_type } : {}),
+            ...(typeof input.description === 'string' ? { description: input.description } : {}),
+          });
+        }
         if (block.name === 'Monitor' || input.run_in_background === true) {
           sideQuests += 1;
           if (typeof block.id === 'string') askedForBackground.add(block.id);
@@ -148,7 +154,7 @@ export function battleResults(envelopes: readonly Envelope[]): {
         },
         loot: [...loot].sort(),
         prs: [...prs],
-        heroes: heroes.filter(Boolean),
+        heroes,
         sideQuests,
       };
       turns.set(`e${envelope.seq}`, turn);
@@ -164,7 +170,7 @@ export function battleResults(envelopes: readonly Envelope[]): {
       quest.tokens.cacheWrite += turn.tokens.cacheWrite;
       quest.sideQuests += turn.sideQuests;
       for (const file of loot) questLoot.add(file);
-      for (const hero of turn.heroes) questHeroes.add(hero);
+      for (const hero of turn.heroes) questHeroes.set(hero.id, hero);
       for (const pr of prs) questPrs.add(pr);
       loot = new Set();
       prs = new Set();
@@ -174,7 +180,7 @@ export function battleResults(envelopes: readonly Envelope[]): {
   }
 
   quest.loot = [...questLoot].sort();
-  quest.heroes = [...questHeroes];
+  quest.heroes = [...questHeroes.values()];
   quest.prs = [...questPrs];
   const { context } = sessionInfo(envelopes);
   const room = contextRoom(context);

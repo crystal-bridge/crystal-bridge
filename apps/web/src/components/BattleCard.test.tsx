@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BattleResult } from '../battle.js';
+import type { HeroManifest } from '../heroes.js';
 import { BattleCard } from './BattleCard.js';
 
 const turn: BattleResult = {
@@ -11,12 +12,35 @@ const turn: BattleResult = {
   tokens: { input: 1200, output: 300, cacheRead: 50_000, cacheWrite: 0 },
   loot: ['src/a.ts', 'b.md'],
   prs: [],
-  heroes: ['Explore'],
+  heroes: [{ id: 'a1', agentType: 'Explore', description: 'Map the repo' }],
   sideQuests: 1,
+};
+
+const manifest: HeroManifest = {
+  leader: 'paladin',
+  fallback: 'wizard',
+  classes: {
+    paladin: { name: 'Paladin', match: ['security'], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} },
+    wizard: { name: 'Wizard', match: [], work: 'spellcast', verb: 'Cast', victory: 'spellcast', anims: {} },
+    cleric: { name: 'Cleric', match: ['review'], work: 'spellcast', verb: 'Heal', victory: 'spellcast', anims: {} },
+  },
 };
 
 describe('BattleCard', () => {
   afterEach(() => cleanup());
+
+  it('gives helpers the Class the Party gives them, and counts helpers who match', () => {
+    const heroes = [
+      { id: 'a', agentType: 'general-purpose', description: 'Security review' },
+      { id: 'b', agentType: 'general-purpose', description: 'Correctness review' },
+      { id: 'c', agentType: 'general-purpose', description: 'Style review' },
+    ];
+    render(<BattleCard result={{ ...turn, heroes }} kind="turn" manifest={manifest} />);
+    fireEvent.click(screen.getByText(/Battle won/).closest('summary')!);
+    const row = screen.getByText(/Paladin/).closest('dd, div')!.parentElement!;
+    expect(row.textContent).toContain('general-purpose(Paladin)');
+    expect(row.textContent).toContain('general-purpose(Cleric)×2');
+  });
 
   it('folds a turn result into one line, with the details a click away', () => {
     render(<BattleCard result={turn} kind="turn" />);

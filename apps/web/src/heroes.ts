@@ -14,8 +14,11 @@ export interface HeroAnimFrames {
 
 export interface HeroClass {
   name: string;
-  /** Lower-case substrings of an agent's name that pick this Class; the first Class that matches wins. */
-  match: string[];
+  /**
+   * Lower-case keywords that pick this Class, tried against a helper's job and then its name; the first Class that
+   * matches wins. A pack may leave them out.
+   */
+  match?: string[];
   /** The animation that plays while the Hero works, e.g. spellcast, slash, thrust, shoot. */
   work: string;
   /** The Class's word for working, e.g. Heal or Sneak. */
@@ -28,7 +31,7 @@ export interface HeroClass {
 export interface HeroManifest {
   /** The Class of a Quest's main agent. */
   leader: string;
-  /** The Class of any agent no keyword matches. */
+  /** The Class of a named agent no keyword matches. */
   fallback: string;
   classes: Record<string, HeroClass>;
 }
@@ -38,20 +41,57 @@ export type HeroState = 'resting' | 'working' | 'alert' | 'victory' | 'ko';
 /** The Class id for an agent: the leader's for the main agent, else the first keyword match, else the fallback. */
 export function matchClass(manifest: HeroManifest, agent: string | undefined, { leader = false } = {}): string {
   if (leader) return manifest.leader;
-  const name = agent?.toLowerCase() ?? '';
-  if (name) {
-    for (const [id, cls] of Object.entries(manifest.classes)) {
-      if (cls.match.some((keyword) => name.includes(keyword.toLowerCase()))) return id;
-    }
+  return matching(manifest, agent, (name, keyword) => name.includes(keyword)) ?? manifest.fallback;
+}
+
+/** The first Class with a keyword that `found` finds in the text; a Class needn't have any keywords. */
+function matching(
+  manifest: HeroManifest,
+  text: string | undefined,
+  found: (text: string, keyword: string) => boolean,
+): string | undefined {
+  const lower = text?.toLowerCase();
+  if (!lower) return undefined;
+  const hit = Object.entries(manifest.classes).find(([, cls]) =>
+    (cls.match ?? []).some((keyword) => found(lower, keyword.toLowerCase())),
+  );
+  return hit?.[0];
+}
+
+/** Whether a word in `text` starts with `keyword`, so "latest" isn't a test, and "reviewer" is a review. */
+function startsWord(text: string, keyword: string): boolean {
+  for (let at = text.indexOf(keyword); at >= 0; at = text.indexOf(keyword, at + 1)) {
+    if (at === 0 || !/[a-z0-9]/.test(text[at - 1]!)) return true;
   }
-  return manifest.fallback;
+  return false;
+}
+
+/** What's known about a helper the leader sent out. */
+export interface Helper {
+  /** The tool call that launched it. */
+  id: string;
+  description?: string | undefined;
+  agentType?: string | undefined;
+}
+
+/**
+ * A helper's Class: by its job, then its agent type, else a stable pick from its id, so it stays the same Class across
+ * renders, reloads and devices. `matchClass` is for names alone, such as a Guild member on the Belt.
+ */
+export function helperClass(manifest: HeroManifest, { id, description, agentType }: Helper): string {
+  const named =
+    matching(manifest, description, startsWord) ??
+    matching(manifest, agentType, (name, keyword) => name.includes(keyword));
+  if (named) return named;
+  const ids = Object.keys(manifest.classes).sort();
+  return ids[hash(id) % ids.length] ?? manifest.fallback;
 }
 
 /** How long a finished turn's Victory shows before the Hero rests. */
 /** A Kingdom's party leader choice that gives each Quest its own Class. */
 export const VARIED = 'varied';
 
-/** A small stable hash of a Quest id. */
+/** A small stable hash of an id. */
 function hash(id: string): number {
   let h = 2166136261;
   for (const ch of id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
