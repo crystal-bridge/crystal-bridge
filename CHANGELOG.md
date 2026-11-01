@@ -14,7 +14,6 @@ one entry.
 
 - Tool chips speak the theme: Attacking or Casting by Class, then Success, Miss or Blocked, with the plain word as the
   tooltip.
-
 - Helpers take their Class from their job first, then their agent type, and anything left gets a stable pick, so a party
   of helpers is no longer all Wizards. The Party and the Battle card agree on each one.
 
