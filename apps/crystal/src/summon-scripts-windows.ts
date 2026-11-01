@@ -316,7 +316,8 @@ if (-not (Test-Path "$dir\\exit")) {
 
   clean(id) {
     return `${folder(id)}
-Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $dir) { exit 1 }
 `;
   },
 };

@@ -106,9 +106,11 @@ things differ:
 
 ## Who holds what
 
-- **The target** holds the job folder. The Kingdom removes it a week after the Cast ends. It's in the SSH user's home,
-  which on Windows is usually the system drive, and the log has no size limit, so a chatty tool over a long job can fill
-  it. Send real output elsewhere with `cwd` or the tool's own option, and keep what it prints modest.
+- **The target** holds the job folder. The Kingdom removes it a week after the Cast ends, and keeps trying if the machine
+  is off, so the Cast stays on record until its folder has gone. Take a Summon off the list and the Kingdom can't reach
+  it any more, so that machine's folders stay until you remove them. The folder is in the SSH user's home, which on
+  Windows is usually the system drive, and the log has no size limit, so a chatty tool over a long job can fill it. Send
+  real output elsewhere with `cwd` or the tool's own option, and keep what it prints modest.
 - **The Kingdom** holds the list of its Summons, the record of its Casts in `~/.crystal-bridge/casts.json`, so a restart
   can find them, and the SSH access. Keys stay here, so separate identities stay separate with no extra work.
 - **The hub** stores each Cast's state and the end of its log, shows them and sends notifications. It never connects to

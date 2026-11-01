@@ -3,6 +3,14 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
+## Unreleased
+
+### Fixed
+
+- A finished Cast stays on record until its folder has really gone from the target. A machine that was off at the end
+  of the week used to keep the folder for good, with nothing trying again.
+- A refused `summon start` shows only the reason, without the SSH client's own warnings or a server's banner above it.
+
 ## 0.4.2
 
 ### Fixed

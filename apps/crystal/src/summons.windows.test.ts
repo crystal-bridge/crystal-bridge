@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { WINDOWS_COMMAND } from './summon-scripts-windows.js';
+import { WINDOWS_COMMAND, windowsEnvelope, windowsScripts } from './summon-scripts-windows.js';
 import { createSummons, sshArgs, targetKind, targetShell, type Summons, type Target } from './summons.js';
 
 /** Over real SSH when `SUMMON_TEST_WINDOWS_HOST` names a machine; otherwise, on a Windows runner, on this machine. */
@@ -128,6 +128,25 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     powershell(`Remove-Item "${RELEASE}" -ErrorAction Ignore`);
     forget(cast.id);
   }, 120_000);
+
+  it('says when a folder wouldn’t go, so a Cast isn’t forgotten too soon', async () => {
+    const id = 'clean-test';
+    const dir = `$env:USERPROFILE\\.crystal-bridge\\summons\\${id}`;
+    const clean = () =>
+      new Promise<number | null>((resolve) => {
+        const child = shell(target);
+        child.on('close', resolve);
+        child.stdin!.end(windowsEnvelope(windowsScripts.clean(id)));
+      });
+    powershell(
+      `New-Item -ItemType Directory "${dir}" -Force | Out-Null; ` +
+        `New-Item -ItemType File "${dir}\\log" -Force | Out-Null; ` +
+        `icacls "${dir}" /deny "$env:USERNAME\:(DC)" | Out-Null; icacls "${dir}\\log" /deny "$env:USERNAME\:(D)" | Out-Null`,
+    );
+    expect(await clean()).toBe(1);
+    powershell(`icacls "${dir}\\log" /reset | Out-Null; icacls "${dir}" /reset | Out-Null`);
+    expect(await clean()).toBe(0);
+  }, 60_000);
 
   it('cancels the job and everything it started, even a Cast waiting for its turn', async () => {
     const made = summons();
