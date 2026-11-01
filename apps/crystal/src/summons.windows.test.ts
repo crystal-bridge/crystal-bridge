@@ -138,11 +138,14 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
         child.on('close', resolve);
         child.stdin!.end(windowsEnvelope(windowsScripts.clean(id)));
       });
-    powershell(
-      `New-Item -ItemType Directory "${dir}" -Force | Out-Null; ` +
+    const denied = powershell(
+      `$me = [Security.Principal.WindowsIdentity]::GetCurrent().Name; ` +
+        `New-Item -ItemType Directory "${dir}" -Force | Out-Null; ` +
         `New-Item -ItemType File "${dir}\\log" -Force | Out-Null; ` +
-        `icacls "${dir}" /deny "$env:USERNAME\:(DC)" | Out-Null; icacls "${dir}\\log" /deny "$env:USERNAME\:(D)" | Out-Null`,
+        `icacls "${dir}" /deny "\${me}:(DC)" | Out-Null; icacls "${dir}\\log" /deny "\${me}:(D)" | Out-Null; ` +
+        `icacls "${dir}\\log"`,
     );
+    expect(denied).toContain('DENY');
     expect(await clean()).toBe(1);
     powershell(`icacls "${dir}\\log" /reset | Out-Null; icacls "${dir}" /reset | Out-Null`);
     expect(await clean()).toBe(0);
