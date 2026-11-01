@@ -5,6 +5,8 @@ one entry.
 
 ## Unreleased
 
+## 0.4.0
+
 ### Changed
 
 - In the Crystal theme, MCP servers are now Runes, plugins are Equipment, and shell mode is the Command Sigil. Relics are

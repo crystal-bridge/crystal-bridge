@@ -31,7 +31,7 @@ Kingdom runs while that user is signed in, and starts again at each sign-in.
 The hub also comes as a container with its own login:
 
 ```sh
-docker run -d --name crystal-bridge -p 7700:7700 -v crystal-bridge:/data ghcr.io/crystal-bridge/airship:0.3.0
+docker run -d --name crystal-bridge -p 7700:7700 -v crystal-bridge:/data ghcr.io/crystal-bridge/airship:0.4.0
 docker logs crystal-bridge   # shows a one-time setup code
 ```
 
