@@ -719,6 +719,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     socket = ws;
 
     ws.on('open', () => {
+      log('connected to the hub');
       backoffMs = INITIAL_BACKOFF_MS;
       wsSend(
         NodeHello.parse({

@@ -189,6 +189,14 @@ describe('startNode', () => {
     await closeHarness(harness);
   });
 
+  it('logs reaching the hub, so a slow connection doesn’t look like a late rebuild', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    createNode();
+    await nextConnection(harness, 0);
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith('[crystal:node] connected to the hub'));
+    errors.mockRestore();
+  });
+
   it('tells the hub its agent CLI version on connecting', async () => {
     createNode({ cliVersion: async () => '2.1.314' });
     const conn = await nextConnection(harness, 0);
