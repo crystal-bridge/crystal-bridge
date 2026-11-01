@@ -15,7 +15,7 @@ import { runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.
 import { verifyRelease } from './provenance.js';
 import { activateRelease, heldVersions, releaseId, selfUpdateBase, stageRelease, type ReleaseDeps } from './release.js';
 import { createUpdater } from './self-update.js';
-import { createSummons, parseSummons, summonCall, summonDescription, targetShell } from './summons.js';
+import { createSummons, parseSummons, summonCall, summonDescription, targetKind, targetShell } from './summons.js';
 import { execFile } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { realpathSync, writeFileSync } from 'node:fs';
@@ -109,6 +109,7 @@ async function main(): Promise<void> {
     // Beside the Kingdom's own job folders, and outside any release, so an update keeps it.
     statePath: join(homedir(), '.crystal-bridge', 'casts.json'),
     spawnOn: targetShell(sessionEnv, homedir()),
+    kindOf: targetKind(sessionEnv),
     report: (cast) => node.reportCast(cast),
   });
 
