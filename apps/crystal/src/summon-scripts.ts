@@ -135,7 +135,12 @@ export function startScript(id: string, command: string, cwd?: string, limit = 1
 ${folder(id)}
 mkdir -p "$dir" || exit 70
 echo ${limit} > "$dir/limit"
-${heredoc('command', command)}${cwd === undefined ? '' : heredoc('cwd', cwd)}${heredoc('runner', RUNNER)}: > "$dir/log"
+${heredoc('command', command)}${cwd === undefined ? '' : heredoc('cwd', cwd)}if [ -f "$dir/cwd" ] && [ ! -d "$(cat "$dir/cwd")" ]; then
+  printf 'no folder %s\\n' "$(cat "$dir/cwd")" >&2
+  rm -rf "$dir"
+  exit 72
+fi
+${heredoc('runner', RUNNER)}: > "$dir/log"
 # Its own process group, so a cancel reaches everything it started. macOS has no setsid.
 if command -v setsid >/dev/null 2>&1; then
   setsid nohup sh "$dir/runner" "$dir" </dev/null >/dev/null 2>&1 &

@@ -102,6 +102,10 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     forget(cast.id);
   }, 90_000);
 
+  it('refuses a folder that isn’t there', async () => {
+    await expect(start(summons(), 'Write-Output hi', { cwd: 'C:\\no\\such\\folder' })).rejects.toThrow(/no folder/);
+  });
+
   it('survives a dropped connection and a restart with no gap or repeat', async () => {
     powershell(`Remove-Item "${RELEASE}" -ErrorAction Ignore`);
     const first = summons();

@@ -132,14 +132,15 @@ explains itself, so an agent can use it unprompted.
 | `command` | what to run, in the machine's own shell: PowerShell on Windows |
 | `onFinish` | `notify` or `wake`, required so the agent chooses each time |
 | `name` | optional, what to call this Cast |
-| `cwd` | optional, where to run it; otherwise the home folder |
+| `cwd` | optional, where to run it; otherwise the home folder. A folder that isn't there is refused at the start |
 | `cast` | which Cast, for `status` and `cancel` |
 
 The tool works on both engines. Whether a start asks you first follows the Quest's permission mode: in manual it shows
 the machine and the command on its approval card, and in auto the CLI can run it without asking.
 
 `notify` tells you and spends nothing. `wake` sends the Quest a message with the result, which costs a turn. Casts
-finishing together give one wake-up, and a closed Quest gets a notification instead.
+finishing together give one wake-up, and a closed Quest gets a notification instead. A cancel sends no wake, since the
+Quest asked for it.
 
 A script can print two kinds of line, in any language. Neither is required, and a script with neither still gets a log
 and a result:

@@ -568,7 +568,7 @@ export function summonDescription(targets: readonly Target[]): string {
     'connections and restarts, and its log and result are kept for you and the user.',
     'Choose `onFinish` each time: `notify` tells the user and costs nothing, `wake` sends you a message with the result,',
     'which costs a turn. After starting, end your turn or do other work. Never poll with `status` or sleep to wait.',
-    '`status` shows this Quest’s Casts, with the end of each log. `cancel` stops one.',
+    '`status` shows this Quest’s Casts, with the end of each log. `cancel` stops one, and a cancel sends no wake.',
     'A machine runs one Cast at a time by default, so a Cast may wait its turn: `queued: true` means it hasn’t begun.',
     'A script can print `::summon name Video Upscaler` to name its Cast, and `::summon progress 12/50 episode-12.mkv` to',
     'show a live count, from any language. Add these to a batch you write.',

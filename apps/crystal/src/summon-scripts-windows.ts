@@ -235,12 +235,21 @@ export function windowsEnvelope(script: string): string {
   return `${script}\n${SCRIPT_END}\n`;
 }
 
+/** Refuses a start in a folder that isn't there, before it can wait for a turn only to fail. */
+const MISSING_CWD = `$wanted = [IO.File]::ReadAllText("$dir\\cwd")
+if (-not (Test-Path -LiteralPath $wanted -PathType Container)) {
+  [Console]::Error.WriteLine("no folder $wanted")
+  Remove-Item -LiteralPath $dir -Recurse -Force
+  exit 72
+}
+`;
+
 export const windowsScripts: TargetScripts = {
   start(id, command, cwd, limit = 1) {
     return `${folder(id)}
 [void][IO.Directory]::CreateDirectory($dir)
 ${writeFile('command', `${command}\n`)}${writeFile('command.ps1', commandFile(command), true)}${
-      cwd === undefined ? '' : writeFile('cwd', cwd)
+      cwd === undefined ? '' : `${writeFile('cwd', cwd)}${MISSING_CWD}`
     }${writeFile('limit', String(limit))}${writeFile('runner.ps1', RUNNER, true)}[IO.File]::WriteAllText("$dir\\log", '', $utf8)
 ${NATIVE}
 $left = [CrystalCast]::Detach(${PS.replace('"$env', '"""$env').replace('.exe"', '.exe"""')} + " ${PS_ARGS} -File """"$dir\\runner.ps1"""" """"$dir""""", $dir)

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
@@ -13,6 +13,7 @@ import {
   type Summons,
   type SummonsOptions,
   type Target,
+  summonDescription,
 } from './summons.js';
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
@@ -171,6 +172,17 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     const done = await final(cast.id);
     expect(done).toMatchObject({ state: 'failed', exitCode: 3 });
     expect(done.logTail).toBe('last\n');
+  });
+
+  it('refuses a folder that isn’t there, and leaves nothing behind', async () => {
+    const made = summons();
+    await expect(start(made, 'echo hi', { cwd: '/no/such/folder' })).rejects.toThrow(/no folder \/no\/such\/folder/);
+    expect(made.status(SESSION)).toEqual([]);
+    expect(readdirSync(join(home, '.crystal-bridge', 'summons'))).toEqual([]);
+  });
+
+  it('tells an agent that a cancel sends no wake', () => {
+    expect(summonDescription([{ name: HERE }])).toMatch(/cancel[^.]*no wake/i);
   });
 
   it('isn’t fooled by a script printing the last line', async () => {
