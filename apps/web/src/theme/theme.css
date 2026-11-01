@@ -250,10 +250,10 @@
 .cb-icon-items {
   --icon-colour: #c0267a;
 }
-.cb-icon-equipment {
+.cb-icon-gear {
   --icon-colour: #2a74b8;
 }
-.cb-icon-relics {
+.cb-icon-runes {
   --icon-colour: #0f8a7a;
 }
 .cb-icon-guild {
@@ -299,10 +299,10 @@
   .cb-icon-items {
     --icon-colour: #ff8fc8;
   }
-  .cb-icon-equipment {
+  .cb-icon-gear {
     --icon-colour: #7ec3ff;
   }
-  .cb-icon-relics {
+  .cb-icon-runes {
     --icon-colour: #5fe0cf;
   }
   .cb-icon-guild {

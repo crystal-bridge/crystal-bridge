@@ -43,6 +43,37 @@ describe('beltFor', () => {
   });
 });
 
+describe('a Belt saved before MCP servers became Runes', () => {
+  const saved = {
+    label: 'github',
+    text: 'Use the github tools to ',
+    icon: 'equipment',
+    source: { category: 'equipment', name: 'github' },
+  };
+
+  it('still means the MCP server it was made from', () => {
+    expect(beltFor({ belts: { k: [saved] } }, 'k')[0]).toEqual({
+      ...saved,
+      icon: 'runes',
+      source: { category: 'runes', name: 'github' },
+    });
+  });
+
+  it("isn't dimmed by the plugins that are Equipment now", () => {
+    const inventory: Inventory = {
+      ...emptyInventory(),
+      runes: [{ category: 'runes', name: 'github', use: saved.text }],
+      gear: [{ category: 'gear', name: 'forge' }],
+    };
+    expect(slotMissing(beltFor({ belts: { k: [saved] } }, 'k')[0]!, inventory)).toBe(false);
+  });
+
+  it('leaves an icon the keyword rules picked, and other slots, alone', () => {
+    const slot = { label: 'deploy', text: '/deploy ', icon: 'rocket', source: { category: 'spells', name: 'deploy' } };
+    expect(beltFor({ belts: { k: [slot, null] } }, 'k').slice(0, 2)).toEqual([slot, null]);
+  });
+});
+
 describe('withBelt', () => {
   it('leaves the rest of the appearance alone', () => {
     const next = withBelt({ tabStyle: 'tinted', belts: { other: [] } }, 'k', belt());

@@ -53,9 +53,9 @@ describe('claudeInventory', () => {
     expect(inv.spells[0]!.use).toBe('/demo-skill ');
   });
 
-  it('lists MCP servers as Equipment with whether they work, leaving out the bridge-s own tool', () => {
+  it('lists MCP servers as Runes with whether they work, leaving out the bridge-s own tool', () => {
     const inv = buildInventory([init]);
-    expect(inv.equipment.map((e) => [e.name, e.status])).toEqual([
+    expect(inv.runes.map((e) => [e.name, e.status])).toEqual([
       ['claude.ai Gmail', 'ok'],
       ['flaky', 'failed'],
       ['github', 'ok'],
@@ -65,24 +65,24 @@ describe('claudeInventory', () => {
 
   it('counts each server-s tools, matching a connector-s tool prefix to its name', () => {
     const inv = buildInventory([init]);
-    const detail = (name: string) => inv.equipment.find((e) => e.name === name)!.detail;
+    const detail = (name: string) => inv.runes.find((e) => e.name === name)!.detail;
     expect(detail('github')).toBe('2 tools · user');
     expect(detail('claude.ai Gmail')).toBe('1 tool · claudeai');
     expect(detail('flaky')).toBe('MCP server · project');
   });
 
-  it('gives Equipment and agents a plain sentence to use, so it works on any engine', () => {
+  it('gives Runes and agents a plain sentence to use, so it works on any engine', () => {
     const inv = buildInventory([init]);
-    expect(inv.equipment.find((e) => e.name === 'github')!.use).toBe('Use the github tools to ');
+    expect(inv.runes.find((e) => e.name === 'github')!.use).toBe('Use the github tools to ');
     expect(inv.guild.find((e) => e.name === 'Explore')!.use).toBe('Use the Explore agent to ');
   });
 
-  it('lists plugins as Relics, which have nothing to use or watch', () => {
+  it('lists plugins as Equipment, which have nothing to use or watch', () => {
     const inv = buildInventory([init]);
-    expect(inv.relics.map((e) => e.name)).toEqual(['cc-plugin-telemetry', 'demo-plugin']);
-    expect(inv.relics.every((e) => e.use === undefined && e.status === undefined)).toBe(true);
-    expect(inv.relics.find((e) => e.name === 'cc-plugin-telemetry')!.detail).toMatch(/built in/);
-    expect(inv.relics.find((e) => e.name === 'demo-plugin')!.detail).toBe('plugin 0.0.1');
+    expect(inv.gear.map((e) => e.name)).toEqual(['cc-plugin-telemetry', 'demo-plugin']);
+    expect(inv.gear.every((e) => e.use === undefined && e.status === undefined)).toBe(true);
+    expect(inv.gear.find((e) => e.name === 'cc-plugin-telemetry')!.detail).toMatch(/built in/);
+    expect(inv.gear.find((e) => e.name === 'demo-plugin')!.detail).toBe('plugin 0.0.1');
   });
 
   it('lists agents as the Guild, without the main agent itself', () => {
@@ -114,7 +114,7 @@ describe('filterInventory', () => {
     const inv = filterInventory(buildInventory([init]), 'DEMO');
     expect(inv.spells.map((e) => e.name)).toEqual(['demo-skill']);
     expect(inv.items.map((e) => e.name)).toEqual(['demo-plugin:demo-cmd']);
-    expect(inv.relics.map((e) => e.name)).toEqual(['demo-plugin']);
+    expect(inv.gear.map((e) => e.name)).toEqual(['demo-plugin']);
   });
 });
 

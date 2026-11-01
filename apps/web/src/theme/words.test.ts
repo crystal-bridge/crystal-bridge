@@ -33,15 +33,15 @@ describe('theme words', () => {
 });
 
 describe('the Inventory words', () => {
-  it('names the Belt, Relics and Guild in both themes, with the plain term as the hint', () => {
+  it('names the Belt, Equipment, Runes and Guild in both themes, with the plain term as the hint', () => {
     expect(hint('belt', CRYSTAL)).toBe('Belt (pinned actions)');
-    expect(hint('relics', CRYSTAL)).toBe('Relics (plugins)');
+    expect(hint('gear', CRYSTAL)).toBe('Equipment (plugins)');
     expect(hint('guild', CRYSTAL)).toBe('Guild (agents)');
-    expect(hint('equipment', CRYSTAL)).toBe('Equipment (MCP servers)');
+    expect(hint('runes', CRYSTAL)).toBe('Runes (MCP servers)');
     expect(w('belt', CLASSIC)).toBe('Pinned');
-    expect(w('relics', CLASSIC)).toBe('Plugins');
+    expect(w('gear', CLASSIC)).toBe('Plugins');
     expect(w('guild', CLASSIC)).toBe('Agents');
-    expect(w('equipment', CLASSIC)).toBe('MCP servers');
+    expect(w('runes', CLASSIC)).toBe('MCP servers');
   });
 });
 
@@ -52,7 +52,7 @@ describe('useLine', () => {
       plain: 'Used skill: deploy',
     });
     expect(useLine('items', 'Rogue', '/compact', CRYSTAL).themed).toBe('Rogue uses /compact!');
-    expect(useLine('equipment', 'Sage', 'github', CRYSTAL).themed).toBe('Sage wields github!');
+    expect(useLine('runes', 'Sage', 'github', CRYSTAL).themed).toBe('Sage invokes github!');
   });
 
   it('reads plainly in the Classic theme', () => {

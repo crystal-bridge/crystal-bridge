@@ -702,7 +702,7 @@ describe('SessionView shell mode', () => {
     const box = screen.getByPlaceholderText('Send a follow-up');
     expect(screen.queryByRole('status', { name: 'Shell mode' })).toBeNull();
     fireEvent.change(box, { target: { value: '! git status' } });
-    expect(screen.getByRole('status', { name: 'Shell mode' }).textContent).toContain('Command Rune');
+    expect(screen.getByRole('status', { name: 'Shell mode' }).textContent).toContain('Command Sigil');
     expect(box.getAttribute('data-shell')).toBe('true');
     expect(screen.getByRole('button', { name: 'Run' })).toBeTruthy();
   });

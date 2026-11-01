@@ -26,8 +26,8 @@ export type Concept =
   | 'inventory'
   | 'spells'
   | 'items'
-  | 'equipment'
-  | 'relics'
+  | 'runes'
+  | 'gear'
   | 'guild'
   | 'abilities'
   | 'belt'
@@ -87,8 +87,8 @@ export const CRYSTAL: Words = {
   inventory: { themed: 'Inventory', plain: 'skills, commands and tools' },
   spells: { themed: 'Spells', plain: 'skills' },
   items: { themed: 'Items', plain: 'slash commands' },
-  equipment: { themed: 'Equipment', plain: 'MCP servers' },
-  relics: { themed: 'Relics', plain: 'plugins' },
+  runes: { themed: 'Runes', plain: 'MCP servers' },
+  gear: { themed: 'Equipment', plain: 'plugins' },
   guild: { themed: 'Guild', plain: 'agents' },
   abilities: { themed: 'Abilities', plain: 'hooks' },
   belt: { themed: 'Belt', plain: 'pinned actions' },
@@ -115,7 +115,7 @@ export const CRYSTAL: Words = {
   defeat: { themed: 'KO', plain: 'turn failed' },
   questComplete: { themed: 'Quest complete', plain: 'the Quest is over: its summary' },
   questGoesOn: { themed: 'The Quest goes on · awaiting your orders', plain: 'send a message to continue' },
-  shellMode: { themed: 'Command Rune', plain: 'shell mode: this runs as a command in the Quest’s folder' },
+  shellMode: { themed: 'Command Sigil', plain: 'shell mode: this runs as a command in the Quest’s folder' },
   loot: { themed: 'Loot', plain: 'files changed, by any tool or command' },
   prs: { themed: 'Trophies', plain: 'pull requests opened' },
   heroes: { themed: 'Heroes', plain: 'agents sent out' },
@@ -147,8 +147,8 @@ export const CLASSIC: Words = {
   inventory: { themed: 'Tools', plain: 'Tools' },
   spells: { themed: 'Skills', plain: 'Skills' },
   items: { themed: 'Commands', plain: 'Commands' },
-  equipment: { themed: 'MCP servers', plain: 'MCP servers' },
-  relics: { themed: 'Plugins', plain: 'Plugins' },
+  runes: { themed: 'MCP servers', plain: 'MCP servers' },
+  gear: { themed: 'Plugins', plain: 'Plugins' },
   guild: { themed: 'Agents', plain: 'Agents' },
   abilities: { themed: 'Hooks', plain: 'Hooks' },
   belt: { themed: 'Pinned', plain: 'Pinned' },
@@ -275,10 +275,10 @@ export function hint(concept: Concept, theme: Words = words): string {
 }
 
 /** The Inventory categories a Hero can use something from, as the chat announces it. */
-export type UseKind = 'spells' | 'items' | 'equipment';
+export type UseKind = 'spells' | 'items' | 'runes';
 
-const USE_VERBS: Record<UseKind, string> = { spells: 'casts', items: 'uses', equipment: 'wields' };
-const USE_PLAIN: Record<UseKind, string> = { spells: 'skill', items: 'command', equipment: 'tool' };
+const USE_VERBS: Record<UseKind, string> = { spells: 'casts', items: 'uses', runes: 'invokes' };
+const USE_PLAIN: Record<UseKind, string> = { spells: 'skill', items: 'command', runes: 'tool' };
 
 /** The chat's line when a Hero uses an Inventory entry, e.g. "Paladin casts deploy!"; the plain form is the hint. */
 export function useLine(kind: UseKind, hero: string, name: string, theme: Words = words): Word {

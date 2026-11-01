@@ -5,6 +5,11 @@ one entry.
 
 ## Unreleased
 
+### Changed
+
+- In the Crystal theme, MCP servers are now Runes, plugins are Equipment, and shell mode is the Command Sigil. Relics are
+  gone. A saved Belt keeps working, and the Classic theme's words don't change.
+
 ## 0.3.0
 
 ### Added
