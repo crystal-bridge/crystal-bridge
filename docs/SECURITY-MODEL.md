@@ -23,7 +23,7 @@ browser ──HTTPS──▶ tailscale serve ──▶ Airship (hub) on 127.0.0.
 | New Kingdom → hub | An allowed user makes a one-time join code for a new name. `POST /api/join` trades it for that node's token, needs no login, and only exists to do this. A code has 128 random bits, lasts 10 minutes, works once, is kept as a hash in memory, and can't be made for a name that already has a token, so it can't take over a Kingdom. |
 | Crystal → `claude` | The unmodified CLI under the machine's login. Crystal never reads, copies or relays Claude's credentials, and keeps its node token out of the sessions' environment. |
 | `claude` → Crystal | The permission tool and hooks call Crystal on 127.0.0.1. Approvals are decided by the user in the web app; Crystal only relays them. |
-| Kingdom → Summon | The Kingdom connects by its own `ssh`, only to machines in `CRYSTAL_SUMMONS`, and keys stay on the Kingdom. The hub never connects to a target and never holds its address, only the Summon's name. A Cast runs with the SSH user's full rights: it's not a sandbox. See [Summons](SUMMONS.md#security). |
+| Kingdom → Summon | The Kingdom connects by its own `ssh`, only to machines in `CRYSTAL_SUMMONS` and those it still has Casts running on, and keys stay on the Kingdom. The hub never connects to a target and never holds its address, only the Summon's name. A Cast runs with the SSH user's full rights: it's not a sandbox. See [Summons](SUMMONS.md#security). |
 | Hub at rest | SQLite on the hub's disk holds every event: prompts, replies, tool inputs and outputs, anything pasted. Nightly backups copy it. |
 | Hub → phone | Web Push payloads are encrypted end to end to each browser; Discreet and Off levels keep titles and text out of them. |
 

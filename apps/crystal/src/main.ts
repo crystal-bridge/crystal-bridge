@@ -15,7 +15,15 @@ import { runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.
 import { verifyRelease } from './provenance.js';
 import { activateRelease, heldVersions, releaseId, selfUpdateBase, stageRelease, type ReleaseDeps } from './release.js';
 import { createUpdater } from './self-update.js';
-import { createSummons, parseSummons, summonCall, summonDescription, targetKind, targetShell } from './summons.js';
+import {
+  createSummons,
+  envFileOf,
+  liveTargets,
+  summonCall,
+  summonDescription,
+  targetKind,
+  targetShell,
+} from './summons.js';
 import { execFile } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { realpathSync, writeFileSync } from 'node:fs';
@@ -103,9 +111,10 @@ async function main(): Promise<void> {
         })
       : undefined;
 
-  const targets = parseSummons(process.env.CRYSTAL_SUMMONS, process.platform);
+  const targets = liveTargets(envFileOf(process.execArgv), process.env.CRYSTAL_SUMMONS, process.platform);
   const summons = createSummons({
     targets,
+    onList: (list) => node.reportSummons(list),
     // Beside the Kingdom's own job folders, and outside any release, so an update keeps it.
     statePath: join(homedir(), '.crystal-bridge', 'casts.json'),
     spawnOn: targetShell(sessionEnv, homedir()),
@@ -118,7 +127,7 @@ async function main(): Promise<void> {
     host: '127.0.0.1',
     onRequest: (request) => node.handlePermissionRequest(request),
     summon: {
-      description: () => summonDescription(targets),
+      description: () => summonDescription(targets()),
       call: async (session, args) => {
         if (!node.holds(session)) throw new Error('This session is not running on this node.');
         return summonCall(summons, session, args);

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { parseEnv } from 'node:util';
 import { MAX_CAST_COMMAND, MAX_CAST_TAIL, type Cast, type CastFinish, type Summon } from '@crystal-bridge/protocol';
 import {
   FINISHED_LINE,
@@ -42,6 +43,44 @@ export function parseSummons(value: string | undefined, platform: NodeJS.Platfor
     targets.push({ name, host, ...(parts?.[3] ? { limit: Number(parts[3]) } : {}) });
   }
   return targets;
+}
+
+/** The file Crystal's service loaded its settings from, if it was started with one. */
+export function envFileOf(execArgv: readonly string[]): string | undefined {
+  return execArgv.find((arg) => arg.startsWith('--env-file='))?.slice('--env-file='.length) || undefined;
+}
+
+/**
+ * The machine list as `envFile` has it now, so an edit counts with no restart. A file that can't be read or a list that
+ * can't be parsed leaves the last good one in place: one typo mustn't take a Kingdom's machines away. Throws on a bad
+ * `value` from startup, as `parseSummons` does. Without a file the startup list stands.
+ */
+export function liveTargets(
+  envFile: string | undefined,
+  value: string | undefined,
+  platform: NodeJS.Platform,
+  log: (message: string) => void = (message) => console.error(`[crystal:summons] ${message}`),
+): () => Target[] {
+  let last = parseSummons(value, platform);
+  let complaint: string | undefined;
+  return () => {
+    if (envFile === undefined) return last;
+    let text: string;
+    try {
+      text = readFileSync(envFile, 'utf8');
+    } catch {
+      return last;
+    }
+    try {
+      last = parseSummons(parseEnv(text).CRYSTAL_SUMMONS, platform);
+      complaint = undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== complaint) log(`keeping the last good machine list: ${message}`);
+      complaint = message;
+    }
+    return last;
+  };
 }
 
 /**
@@ -107,7 +146,10 @@ export function targetKind(env: NodeJS.ProcessEnv) {
 }
 
 export interface SummonsOptions {
-  targets: readonly Target[];
+  /** The machines as they stand now, read at each start and check, so the list can change while Crystal runs. */
+  targets: () => readonly Target[];
+  /** The list changed; the hub hears it. */
+  onList?: (summons: Summon[]) => void;
   /** The record of running Casts, so a restart can find them. */
   statePath: string;
   spawnOn: (target: Target, kind: TargetKind) => ChildProcessWithoutNullStreams;
@@ -198,7 +240,7 @@ function outward({ offset: _offset, cancelling: _cancelling, ...cast }: CastReco
 }
 
 export function createSummons(options: SummonsOptions): Summons {
-  const { targets, statePath, spawnOn, report } = options;
+  const { statePath, spawnOn, report } = options;
   const log = options.log ?? ((message) => console.error(`[crystal:summons] ${message}`));
   const now = options.now ?? Date.now;
   const retryMs = options.retryMs ?? 5000;
@@ -212,15 +254,34 @@ export function createSummons(options: SummonsOptions): Summons {
   let closed = false;
   let saveTimer: NodeJS.Timeout | undefined;
 
-  const targetOf = (rec: CastRecord) => targets.find((target) => target.name === rec.summon);
+  let targets = options.targets();
+  /**
+   * The machine each running Cast is on, whatever has happened to the list since. The job carries on there either way,
+   * so taking a machine off the list stops new Casts, and the ones it has are still seen through to their end.
+   */
+  const pinned = new Map<string, Target>();
+
+  const listed = (rec: CastRecord) => targets.find((target) => target.name === rec.summon);
+  const targetOf = (rec: CastRecord) => pinned.get(rec.id) ?? listed(rec);
+  const outwardList = (): Summon[] =>
+    targets.map((target) => ({ name: target.name, ...(target.host === undefined ? { local: true } : {}) }));
+
+  /** Takes up the list as it stands now, and tells the hub if the machines it shows changed. */
+  function refresh(): void {
+    const before = JSON.stringify(outwardList());
+    targets = options.targets();
+    const list = outwardList();
+    if (JSON.stringify(list) !== before) options.onList?.(list);
+  }
 
   const kinds = new Map<string, TargetKind>();
-  /** Rejects when a target can't be reached yet. */
+  /** Rejects when a target can't be reached yet. Keyed by address, because a name can move to another machine. */
   async function kindOf(target: Target): Promise<TargetKind> {
-    const known = kinds.get(target.name);
+    const key = target.host ?? target.name;
+    const known = kinds.get(key);
     if (known) return known;
     const kind = (await options.kindOf?.(target)) ?? 'posix';
-    kinds.set(target.name, kind);
+    kinds.set(key, kind);
     return kind;
   }
   const scriptsFor = (kind: TargetKind): TargetScripts => (kind === 'windows' ? windowsScripts : posixScripts);
@@ -387,7 +448,7 @@ export function createSummons(options: SummonsOptions): Summons {
     follower.pending = Buffer.alloc(0);
     follower.inLog = false;
     if (!target) {
-      // Taken off the list while it ran: nothing here can reach it any more.
+      // Taken off the list while Crystal was down: nothing here can reach it any more.
       void finish(rec, 'lost');
       return;
     }
@@ -445,6 +506,7 @@ export function createSummons(options: SummonsOptions): Summons {
   function finish(rec: CastRecord, state: Cast['state'], exitCode?: number): void {
     if (rec.state !== 'running' || closed) return;
     stopFollowing(rec.id);
+    pinned.delete(rec.id);
     rec.state = state;
     rec.finishedAt = now();
     if (exitCode !== undefined) rec.exitCode = exitCode;
@@ -477,7 +539,7 @@ export function createSummons(options: SummonsOptions): Summons {
     let changed = false;
     for (const rec of [...records.values()]) {
       if (rec.state === 'running' || now() - (rec.finishedAt ?? rec.startedAt) < KEEP_MS) continue;
-      const target = targetOf(rec);
+      const target = listed(rec);
       if (target) {
         expired.set(target, [...(expired.get(target) ?? []), rec]);
       } else {
@@ -491,6 +553,7 @@ export function createSummons(options: SummonsOptions): Summons {
 
   const probeTimer = setInterval(
     () => {
+      refresh();
       for (const rec of records.values()) if (rec.state === 'running' && followers.has(rec.id)) void check(rec);
       prune();
     },
@@ -505,10 +568,14 @@ export function createSummons(options: SummonsOptions): Summons {
   }
 
   return {
-    list: () => targets.map((target) => ({ name: target.name, ...(target.host === undefined ? { local: true } : {}) })),
+    list() {
+      refresh();
+      return outwardList();
+    },
     casts: () => [...records.values()].map(outward),
 
     async start({ session, summon, command, onFinish, name, cwd }) {
+      refresh();
       const target = targets.find((candidate) => candidate.name === summon);
       if (!target) {
         const names = targets.map((candidate) => candidate.name).join(', ');
@@ -536,10 +603,12 @@ export function createSummons(options: SummonsOptions): Summons {
       };
       // On record first: a restart in the middle of this finds the job, or reports it lost.
       records.set(id, rec);
+      pinned.set(id, target);
       save();
       const { code, stdout, stderr } = await short(target, kind, script, LONG_TIMEOUT_MS);
       if (code !== 0 || !stdout.trim().endsWith('started')) {
         records.delete(id);
+        pinned.delete(id);
         save();
         const why = stderr.trim().slice(-500) || `it exited with ${code ?? 'no code'}`;
         throw new Error(`could not start on ${summon}: ${why}`);
@@ -584,6 +653,8 @@ export function createSummons(options: SummonsOptions): Summons {
       prune();
       for (const rec of records.values()) {
         if (rec.state !== 'running') continue;
+        const target = listed(rec);
+        if (target) pinned.set(rec.id, target);
         follow(rec);
         void check(rec);
       }
