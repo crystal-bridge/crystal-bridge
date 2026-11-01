@@ -13,6 +13,10 @@ export interface HeroSpriteProps {
   size?: number;
   /** Hidden from assistive tech, e.g. inside a tab whose name already says what it is; the tooltip stays. */
   decorative?: boolean;
+  /** Draw one frame and never animate: for rows that can number in the hundreds. */
+  still?: boolean;
+  /** What it says for itself, in place of its Class and state. */
+  label?: string;
 }
 
 const STATE_LABEL: Record<HeroState, string | null> = {
@@ -52,7 +56,15 @@ function onFrame(draw: Draw): () => void {
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export function HeroSprite({ manifest, classId, state, size = 32, decorative = false }: HeroSpriteProps) {
+export function HeroSprite({
+  manifest,
+  classId,
+  state,
+  size = 32,
+  decorative = false,
+  still = false,
+  label,
+}: HeroSpriteProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const cls = manifest.classes[classId];
 
@@ -63,7 +75,7 @@ export function HeroSprite({ manifest, classId, state, size = 32, decorative = f
     const frames = cls.anims[play.anim];
     if (!frames) return;
     const started = performance.now();
-    const still = reducedMotion();
+    const frozen = still || reducedMotion();
     // Draw at device resolution so pixels stay square and crisp.
     const scale = (size * (globalThis.devicePixelRatio || 1)) / 64;
     const px = Math.max(1, Math.round(scale));
@@ -71,11 +83,11 @@ export function HeroSprite({ manifest, classId, state, size = 32, decorative = f
     ctx.canvas.height = 64 * px;
     ctx.imageSmoothingEnabled = false;
 
-    return onFrame((now) => {
+    const draw: Draw = (now) => {
       const img = strip(classId, play.anim);
       if (!img.complete || img.naturalWidth === 0) return;
       let f = Math.floor((now - started) / play.ms);
-      if (still) f = play.anim === 'hurt' ? frames.frames - 1 : (play.hold ?? 0);
+      if (frozen) f = play.anim === 'hurt' ? frames.frames - 1 : (play.hold ?? 0);
       else if (play.hold !== undefined) f = Math.min(f, play.hold);
       else if (play.loop) f %= frames.frames;
       else f = Math.min(f, frames.frames - 1);
@@ -84,14 +96,14 @@ export function HeroSprite({ manifest, classId, state, size = 32, decorative = f
       ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       ctx.drawImage(img, f * s, 0, s, s, -offset, -offset, s * px, s * px);
       if (play.bubble) {
-        const bob = still ? 0 : Math.round(Math.sin((now - started) / 180));
+        const bob = frozen ? 0 : Math.round(Math.sin((now - started) / 180));
         ctx.fillStyle = '#ffd75e';
         ctx.fillRect(41 * px, (4 + bob) * px, 9 * px, 11 * px);
         ctx.fillStyle = '#121b63';
         ctx.fillRect(44 * px, (6 + bob) * px, 3 * px, 5 * px);
         ctx.fillRect(44 * px, (12 + bob) * px, 3 * px, 2 * px);
       }
-      if (play.sparkle && !still) {
+      if (play.sparkle && !frozen) {
         ctx.fillStyle = '#ffd75e';
         const t = (now - started) / 270;
         for (let i = 0; i < 4; i++) {
@@ -99,17 +111,24 @@ export function HeroSprite({ manifest, classId, state, size = 32, decorative = f
           ctx.fillRect(Math.round(32 + Math.cos(a) * 20) * px, Math.round(18 + Math.sin(a) * 9) * px, 2 * px, 2 * px);
         }
       }
-    });
-  }, [cls, classId, state, size]);
+    };
+    if (!still) return onFrame(draw);
+    const img = strip(classId, play.anim);
+    const paint = () => draw(started);
+    if (img.complete) paint();
+    img.addEventListener('load', paint);
+    return () => img.removeEventListener('load', paint);
+  }, [cls, classId, state, size, still]);
 
   if (!cls) return null;
+  const name = label ?? `${cls.name}, ${STATE_LABEL[state] ?? cls.verb}`;
   return (
     <canvas
       ref={canvas}
       role={decorative ? undefined : 'img'}
       aria-hidden={decorative || undefined}
-      aria-label={decorative ? undefined : `${cls.name}, ${STATE_LABEL[state] ?? cls.verb}`}
-      title={`${cls.name}, ${STATE_LABEL[state] ?? cls.verb}`}
+      aria-label={decorative ? undefined : name}
+      title={name}
       data-class={classId}
       data-state={state}
       width={size}

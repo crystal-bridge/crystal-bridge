@@ -1,4 +1,12 @@
 import type { Envelope } from '@crystal-bridge/protocol';
+import type { Helper } from './heroes.js';
+
+/** The tools that send out a helper. */
+export const AGENT_TOOLS = new Set(['Task', 'Agent']);
+/** How a helper hands its report back. It's a tool as far as the stream goes, but nobody needs its card. */
+const HANDBACK_TOOL = 'SubagentHandback';
+const RETURNED = new Set(['completed', 'complete', 'done']);
+const STOPPED = new Set(['stopped', 'killed', 'cancelled', 'canceled']);
 
 export type ViewItem =
   | { kind: 'user'; id: string; text: string }
@@ -14,7 +22,13 @@ export type ViewItem =
       done: boolean;
       /** A Skill's text, which the CLI sends after the tool as a synthetic user message. */
       body?: string;
+      /** The helper that made this call; the party leader's calls have none. */
+      helper?: Helper;
+      /** On a call that sends out a helper: who it sent. */
+      sent?: Helper;
     }
+  /** A helper coming back, however that went. At most one each. */
+  | { kind: 'helper-back'; id: string; helper: Helper; outcome: 'returned' | 'failed' | 'stopped'; report?: string }
   | {
       kind: 'permission';
       id: string;
@@ -55,6 +69,11 @@ function num(value: unknown): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
+/** Whether a tool result only says the tool went to the background, so it hasn't finished. */
+export function launchedInBackground(raw: Record<string, unknown>): boolean {
+  return isObj(raw.tool_use_result) && raw.tool_use_result.isAsync === true;
+}
+
 /** Tool-result `content` is a string or an array of `{ type: 'text', text }` blocks. */
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -77,6 +96,10 @@ export class ViewBuilder {
   /** The latest Skill tool, until the skill's text arrives. */
   private pendingSkill: Extract<ViewItem, { kind: 'tool' }> | undefined;
   private readonly permissions = new Map<string, Extract<ViewItem, { kind: 'permission' }>>();
+  /** What each helper handed back, by the id of the call that sent it. */
+  private readonly reports = new Map<string, string>();
+  /** Helpers already seen back: an agent can be notified twice, and a foreground one both ways. */
+  private readonly back = new Set<string>();
   /** Text blocks still streaming, keyed by `${messageId}:${blockIndex}`, in arrival order. */
   private readonly streaming = new Map<string, Extract<ViewItem, { kind: 'assistant' }>>();
   private currentMessageId = '';
@@ -184,6 +207,9 @@ export class ViewBuilder {
       case 'user':
         this.user(raw, id);
         return;
+      case 'system':
+        if (raw.subtype === 'task_notification') this.taskFinished(raw, id);
+        return;
       case 'result':
         this.items.push({
           kind: 'result',
@@ -212,7 +238,8 @@ export class ViewBuilder {
     if (event.type === 'content_block_start') {
       const block = isObj(event.content_block) ? event.content_block : {};
       if (block.type === 'text') this.streamingText(messageId, index, id);
-      if (block.type === 'tool_use') this.tool(str(block.id), str(block.name), undefined, id);
+      if (block.type === 'tool_use')
+        this.tool(str(block.id), str(block.name), undefined, id, str(raw.parent_tool_use_id));
       return;
     }
     if (event.type === 'content_block_delta') {
@@ -251,18 +278,36 @@ export class ViewBuilder {
           this.items.push({ kind: 'assistant', id: `${id}.${i}`, text, streaming: false });
         }
       } else if (block.type === 'tool_use') {
-        this.tool(str(block.id), str(block.name), block.input, `${id}.${i}`);
+        this.tool(str(block.id), str(block.name), block.input, `${id}.${i}`, str(raw.parent_tool_use_id));
       }
     });
   }
 
-  private tool(toolUseId: string | undefined, name: string | undefined, input: unknown, id: string): void {
+  private tool(
+    toolUseId: string | undefined,
+    name: string | undefined,
+    input: unknown,
+    id: string,
+    parent?: string,
+  ): void {
     if (!toolUseId) return;
+    const helper = parent ? this.tools.get(parent)?.sent : undefined;
     const existing = this.tools.get(toolUseId);
+    if (helper && (name ?? existing?.name) === HANDBACK_TOOL) {
+      if (existing) {
+        this.items.splice(this.items.indexOf(existing), 1);
+        this.tools.delete(toolUseId);
+      }
+      const report = isObj(input) ? str(input.message) : undefined;
+      if (report) this.reports.set(helper.id, report);
+      return;
+    }
     if (existing) {
       if (input !== undefined) existing.input = input;
       if (name) existing.name = name;
+      if (helper) existing.helper = helper;
       if (existing.name === 'Skill' && existing.body === undefined) this.pendingSkill = existing;
+      this.noteSent(existing, toolUseId);
       return;
     }
     const item: Extract<ViewItem, { kind: 'tool' }> = {
@@ -274,10 +319,44 @@ export class ViewBuilder {
       isError: false,
       denied: false,
       done: false,
+      ...(helper ? { helper } : {}),
     };
+    this.noteSent(item, toolUseId);
     this.tools.set(toolUseId, item);
     this.items.push(item);
     if (item.name === 'Skill') this.pendingSkill = item;
+  }
+
+  /** On a call that sends out a helper, records who: its own tool calls and its return point back to this. */
+  private noteSent(item: Extract<ViewItem, { kind: 'tool' }>, toolUseId: string): void {
+    if (!AGENT_TOOLS.has(item.name)) return;
+    const input = isObj(item.input) ? item.input : {};
+    const description = str(input.description);
+    const agentType = str(input.subagent_type);
+    item.sent = { id: toolUseId, ...(description ? { description } : {}), ...(agentType ? { agentType } : {}) };
+  }
+
+  private helperBack(
+    call: Extract<ViewItem, { kind: 'tool' }> | undefined,
+    outcome: Extract<ViewItem, { kind: 'helper-back' }>['outcome'],
+    fallbackReport: string | undefined,
+    id: string,
+  ): void {
+    const helper = call?.sent;
+    if (!helper || this.back.has(helper.id)) return;
+    this.back.add(helper.id);
+    const report = this.reports.get(helper.id) ?? fallbackReport;
+    this.items.push({ kind: 'helper-back', id, helper, outcome, ...(report ? { report } : {}) });
+  }
+
+  /** The CLI saying a background task ended. Only helpers get a line; a background command has its own card. */
+  private taskFinished(raw: Obj, id: string): void {
+    const status = str(raw.status) ?? '';
+    const outcome = RETURNED.has(status) ? 'returned' : STOPPED.has(status) ? 'stopped' : 'failed';
+    const handback = isObj(raw.handback_report) ? str(raw.handback_report.text) : undefined;
+    // A finished helper's summary only says its report was delivered; a failed one's may say why.
+    const report = handback ?? (outcome === 'returned' ? undefined : str(raw.summary));
+    this.helperBack(this.tools.get(str(raw.tool_use_id) ?? ''), outcome, report, id);
   }
 
   private user(raw: Obj, id: string): void {
@@ -313,6 +392,8 @@ export class ViewBuilder {
       tool.isError = block.is_error === true;
       tool.denied = isObj(decision) && decision.decision === 'reject';
       tool.done = true;
+      if (!tool.denied && !launchedInBackground(raw))
+        this.helperBack(tool, tool.isError ? 'failed' : 'returned', tool.output, `${id}.${i}`);
     });
   }
 }

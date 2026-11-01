@@ -301,6 +301,39 @@ export function summonLine(summon: string, theme: Words = words): Word {
   return { themed: theme === CLASSIC ? plain : `You summoned ${summon}!`, plain };
 }
 
+/** What can happen to a helper, as the chat tells it. */
+export type HelperMoment = 'set-out' | 'returned' | 'failed' | 'stopped';
+
+/** The chat's line for a helper leaving or coming back, e.g. "Wizard sets out: Security review!". */
+export function helperLine(moment: HelperMoment, hero: string, task: string, theme: Words = words): Word {
+  const line: Record<HelperMoment, Word> = {
+    'set-out': { themed: `${hero} sets out: ${task}!`, plain: `Started a subagent: ${task}` },
+    returned: { themed: `${hero} returns from ${task}!`, plain: `Subagent finished: ${task}` },
+    failed: { themed: `${hero} was KO’d on ${task}!`, plain: `Subagent failed: ${task}` },
+    stopped: { themed: `${hero} was KO’d on ${task}!`, plain: `Subagent stopped: ${task}` },
+  };
+  const { themed, plain } = line[moment];
+  return { themed: theme === CLASSIC ? plain : themed, plain };
+}
+
+/** How a tool call stands. */
+export type ToolState = 'running' | 'done' | 'error' | 'denied';
+
+/**
+ * A tool call's chip. A running one follows the Class doing the work (`work`, its animation): a spellcaster is Casting
+ * and anyone else Attacking. Anything that doesn't map this cleanly stays in plain words.
+ */
+export function toolChip(state: ToolState, work?: string, theme: Words = words): Word {
+  const plain = { running: 'running', done: 'done', error: 'failed', denied: 'denied' }[state];
+  const themed = {
+    running: work === 'spellcast' ? 'Casting' : 'Attacking',
+    done: 'Success',
+    error: 'Miss',
+    denied: 'Blocked',
+  }[state];
+  return { themed: theme === CLASSIC ? plain : themed, plain };
+}
+
 /** What `castLine` needs to know about a Cast. */
 export interface CastLineInput {
   name: string;

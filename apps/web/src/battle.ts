@@ -1,6 +1,7 @@
 import type { Envelope } from '@crystal-bridge/protocol';
 import type { Helper } from './heroes.js';
-import { contextRoom, costStep, launchedInBackground, sessionInfo } from './info.js';
+import { contextRoom, costStep, sessionInfo } from './info.js';
+import { AGENT_TOOLS, launchedInBackground } from './model.js';
 
 /** How a turn ended: finished, stopped by the user, or failed. */
 export type BattleOutcome = 'victory' | 'retreat' | 'ko';
@@ -33,7 +34,6 @@ const WRITE_TOOLS: Record<string, string> = {
   MultiEdit: 'file_path',
   NotebookEdit: 'notebook_path',
 };
-const AGENT_TOOLS = new Set(['Task', 'Agent']);
 /**
  * A pull or merge request's link alone on a line, the way the tools that open one print it. Output that merely
  * mentions a link (a listing, a log, `gh pr view`) doesn't match, which keeps out work this Quest didn't do.

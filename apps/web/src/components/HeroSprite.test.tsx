@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HeroManifest } from '../heroes.js';
 import { HeroSprite } from './HeroSprite.js';
 
@@ -34,6 +34,25 @@ describe('HeroSprite', () => {
     expect(screen.getByRole('img', { name: 'Paladin, needs you' })).toBeTruthy();
     rerender(<HeroSprite manifest={manifest} classId="paladin" state="ko" />);
     expect(screen.getByRole('img', { name: 'Paladin, failed' })).toBeTruthy();
+  });
+
+  it('takes a tooltip of its own', () => {
+    render(<HeroSprite manifest={manifest} classId="paladin" state="working" label="Paladin · Security review" />);
+    expect(screen.getByRole('img', { name: 'Paladin · Security review' }).getAttribute('title')).toBe(
+      'Paladin · Security review',
+    );
+  });
+
+  it('draws a still sprite once, with no animation loop', () => {
+    const raf = vi.spyOn(globalThis, 'requestAnimationFrame');
+    const ctx = { canvas: {}, clearRect: vi.fn(), drawImage: vi.fn(), imageSmoothingEnabled: true };
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(ctx as unknown as ImageBitmapRenderingContext);
+    render(<HeroSprite manifest={manifest} classId="paladin" state="working" still />);
+    expect(raf).not.toHaveBeenCalled();
+    getContext.mockRestore();
+    raf.mockRestore();
   });
 
   it('draws nothing for a Class the pack doesn-t have', () => {
