@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -391,6 +391,34 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     });
   });
 
+  describe('when it stops following', () => {
+    const tails = (id: string) => {
+      try {
+        return execFileSync('pgrep', ['-f', `tail -c .*${id}`])
+          .toString()
+          .trim();
+      } catch {
+        return '';
+      }
+    };
+
+    it('leaves no tail behind once a Cast has finished', async () => {
+      const cast = await start(summons(), 'sleep 1');
+      await until(() => tails(cast.id) !== '');
+      await final(cast.id);
+      await until(() => tails(cast.id) === '');
+    });
+
+    it('leaves no tail behind when Crystal stops, with the job still running', async () => {
+      const made = summons();
+      const cast = await start(made, 'while [ ! -f release ]; do sleep 0.1; done');
+      await until(() => tails(cast.id) !== '');
+      made.close();
+      await until(() => tails(cast.id) === '');
+      writeFileSync(join(home, 'release'), '');
+    });
+  });
+
   it('runs a command, returns before it ends, and reports the log and the exit code', async () => {
     const made = summons();
     const cast = await start(made, 'echo one; sleep 1; echo two; exit 3');
@@ -584,7 +612,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     });
     const cast = await start(made, 'echo one; while [ ! -f release ]; do sleep 0.1; done; echo two');
     await until(() => reports.some((r) => r.id === cast.id && r.logTail.includes('one')));
-    for (const child of children) child.kill('SIGKILL');
+    for (const child of children) child.kill();
     await new Promise((resolve) => setTimeout(resolve, 100));
     writeFileSync(join(home, 'release'), '');
     expect((await final(cast.id)).logTail).toBe('one\ntwo\n');
@@ -706,7 +734,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
       const child = spawnOn(target);
       if (reachable) return child;
       cleans += 1;
-      child.kill('SIGKILL');
+      child.kill();
       return child;
     };
     const finished = async (made: Summons) => {
