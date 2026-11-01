@@ -66,7 +66,9 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Chronicle** | history: closed Quests, search | Collapsed by default. |
 | **Recruit** | adopt a CLI session found outside the bridge | |
 | **Scroll** | a file of the Quest, read-only in the viewer | Opened from Loot, tool cards and file names in replies. |
-| **Summon** | a worker machine (P3) | Calling a Summon sends it a job; the result comes back. |
+| **Summon** | a machine reached by SSH, named by you (planned) | See [Summons](./SUMMONS.md). The Classic theme says Machine. |
+| **Cast** | a job on a Summon (planned) | "Shiva is casting Video Upscaler!" It **landed**, **fizzled** or **was dispelled**. The Classic theme says Job. |
+| **Summoning Circle** | where a Kingdom's Summons are set up and listed (planned) | A panel on the Castle. |
 | **Config** | settings | The app-bar gear menu. |
 
 ### Inventory
