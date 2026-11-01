@@ -161,6 +161,7 @@ describe('InteractiveSession', () => {
     const { args } = spawned[0]!;
     const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]!);
     expect(config.mcpServers.crystal.url).toBe('http://127.0.0.1:7701/mcp/x');
+    expect(config.mcpServers.crystal.timeout).toBe(86_400_000);
     expect(args).not.toContain('--permission-prompt-tool');
     expect(args[args.indexOf('--mcp-config') + 2]).toMatch(/^--/); // the flag takes a list
   });

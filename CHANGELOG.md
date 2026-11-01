@@ -10,6 +10,8 @@ one entry.
 - `summon start` refuses a folder that isn't on the target, where the Cast used to fail later with an exit code that read
   as a missing command.
 - The `summon` tool says that a cancel sends no wake.
+- An approval or question on the stream engine stays open for a day. The CLI used to give up after 5 minutes with a tool
+  error, and the agent could retry and leave the card you were reading stale.
 
 ## 0.4.1
 
