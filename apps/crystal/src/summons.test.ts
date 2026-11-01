@@ -209,6 +209,19 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     expect(() => process.kill(pid, 0)).toThrow();
   });
 
+  it('returns a cancel’s result when a slow target is already being checked', async () => {
+    const made = summons({
+      spawnOn: () =>
+        spawn('sh', ['-c', 'sleep 1.5; exec sh -s'], {
+          cwd: home,
+          env: { PATH: process.env.PATH, HOME: home, SHELL: '/bin/sh' },
+        }),
+    });
+    const cast = await start(made, 'sleep 30');
+    const ended = await made.cancel(SESSION, cast.id);
+    expect(ended).toMatchObject({ state: 'cancelled', exitCode: 143 });
+  }, 20_000);
+
   it('won’t show or cancel another Quest’s Cast', async () => {
     const made = summons();
     const cast = await start(made, 'sleep 30');
