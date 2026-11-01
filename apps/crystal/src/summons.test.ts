@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
@@ -242,6 +242,50 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     rmSync(folder(gone.id), { recursive: true });
     expect(await final(killed.id)).toMatchObject({ state: 'lost' });
     expect(await final(gone.id)).toMatchObject({ state: 'lost' });
+  });
+
+  describe('a job ended by a signal', () => {
+    /** The target's `systemctl`, saying how the system stands. */
+    function withSystem(state: string): Partial<SummonsOptions> {
+      const bin = join(home, 'bin');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'systemctl'), `#!/bin/sh\necho ${state}\n`, { mode: 0o755 });
+      return {
+        spawnOn: () =>
+          spawn('sh', ['-s'], {
+            cwd: home,
+            env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, SHELL: '/bin/sh' },
+          }),
+      };
+    }
+
+    it('is lost, not failed, when the system is shutting down', async () => {
+      const cast = await start(summons(withSystem('stopping')), 'kill -TERM $$');
+      expect((await final(cast.id)).state).toBe('lost');
+      expect(existsSync(join(folder(cast.id), 'exit'))).toBe(false);
+    });
+
+    it('is failed when the system is running as usual', async () => {
+      const cast = await start(summons(withSystem('running')), 'kill -TERM $$');
+      expect(await final(cast.id)).toMatchObject({ state: 'failed', exitCode: 143 });
+    });
+
+    it('is lost when the machine has restarted since it began', async () => {
+      const cast = await start(summons(), 'echo other > "$(dirname "$0")/boot"; kill -TERM $$');
+      expect((await final(cast.id)).state).toBe('lost');
+    });
+
+    it('keeps its own exit code across a restart if it wasn’t signalled', async () => {
+      const cast = await start(summons(), 'echo other > "$(dirname "$0")/boot"; exit 3');
+      expect(await final(cast.id)).toMatchObject({ state: 'failed', exitCode: 3 });
+    });
+
+    it('stays cancelled during a shutdown', async () => {
+      const made = summons(withSystem('stopping'));
+      const cast = await start(made, 'sleep 30');
+      const ended = await made.cancel(SESSION, cast.id);
+      expect(ended.state).toBe('cancelled');
+    });
   });
 
   it('keeps following through a dropped connection', async () => {

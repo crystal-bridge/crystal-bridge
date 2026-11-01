@@ -1,7 +1,7 @@
 /**
  * The POSIX `sh` a Cast runs on its target (docs/SUMMONS.md). Each script arrives over stdin, so nothing depends on
  * shell quoting and nothing has to be installed there. The target keeps a job folder, which is the record:
- * `command`, `cwd`, `limit`, `runner`, `pid` (process id, process group, start time), `log`, `cancel` and `exit`.
+ * `command`, `cwd`, `limit`, `runner`, `pid` (process id, process group, start time), `boot`, `log`, `cancel` and `exit`.
  */
 
 /** Printed to the log after `exit` is in place. It only wakes the Kingdom: `exit` is the result. */
@@ -42,6 +42,13 @@ start_time() {
 }
 `;
 
+/** Prints something that changes each time the machine starts, or nothing where it can't be told. */
+const BOOT_ID = `
+boot_id() {
+  cat /proc/sys/kernel/random/boot_id 2>/dev/null || sysctl -n kern.boottime 2>/dev/null
+}
+`;
+
 /** Writes the exit code by renaming, so a reader never sees half of it, then wakes the Kingdom. */
 const WRITE_EXIT = `
 write_exit() {
@@ -55,7 +62,7 @@ write_exit() {
  * waits out a TERM aimed at the group: a trap, not an ignore, because children inherit an ignore.
  */
 const RUNNER = `dir=$1
-${START_TIME}${WRITE_EXIT}
+${START_TIME}${WRITE_EXIT}${BOOT_ID}
 # Turns are folders that \`mkdir\` claims, which is atomic, so Kingdoms sharing a machine need no word of each other. Each
 # holds its owner, so a turn left by a job that was killed, or by a reboot, is taken back.
 slots="$HOME/.crystal-bridge/summons/.slots"
@@ -89,6 +96,7 @@ take_turn() {
   done
 }
 trap ':' TERM INT HUP
+boot_id > "$dir/boot"
 group=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
 printf '%s %s %s\\n' "$$" "\${group:-$$}" "$(start_time $$)" > "$dir/pid.tmp"
 mv -f "$dir/pid.tmp" "$dir/pid"
@@ -104,6 +112,11 @@ fi
 "\${SHELL:-/bin/sh}" -l "$dir/command" </dev/null >>"$dir/log" 2>&1
 code=$?
 rm -rf "$slot"
+# A job the shutdown ended has no result of its own: with no exit written, the Kingdom reports it lost. Its log line could
+# reach the Kingdom before the machine goes down, so this can't wait for the boot id to change.
+if [ "$code" -gt 128 ] && [ ! -f "$dir/cancel" ] && [ "$(systemctl is-system-running 2>/dev/null)" = stopping ]; then
+  exit 0
+fi
 write_exit "$code"
 `;
 
@@ -151,10 +164,14 @@ kill "$follower" 2>/dev/null
 `;
 }
 
-/** Prints how the job stands, on its last line: `exit <code>` with `cancelled` if it was, `alive`, `dead` or `gone`. */
+/**
+ * Prints how the job stands, on its last line: `exit <code>` with `cancelled` if it was, `alive`, `dead` or `gone`. A
+ * signal death recorded by a machine that has restarted since reads as dead: where the runner couldn't tell it was
+ * shutting down, this is what's left of a job the shutdown ended.
+ */
 export function probeScript(id: string): string {
   return `${folder(id)}
-${START_TIME}
+${START_TIME}${BOOT_ID}
 [ -d "$dir" ] || { echo gone; exit 0; }
 state=dead
 if [ -s "$dir/pid" ]; then
@@ -163,8 +180,13 @@ if [ -s "$dir/pid" ]; then
 fi
 # After the process check: a job ending between the two must read as ended, never as dead.
 if [ -f "$dir/exit" ]; then
-  state="exit $(cat "$dir/exit")"
-  [ -f "$dir/cancel" ] && state="$state cancelled"
+  code=$(cat "$dir/exit")
+  state="exit $code"
+  if [ -f "$dir/cancel" ]; then
+    state="$state cancelled"
+  elif [ "$code" -gt 128 ] && [ -s "$dir/boot" ] && [ "$(boot_id)" != "$(cat "$dir/boot")" ]; then
+    state=dead
+  fi
 fi
 echo "$state"
 `;

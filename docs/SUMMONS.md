@@ -76,6 +76,10 @@ process. It reports the Cast as lost, and doesn't retry it, since only the autho
 twice. A wrapper killed while the machine stays up doesn't drop the connection, so the Kingdom also checks the process
 every few minutes. That check is plain code and costs no tokens. The start time guards against a reused process id.
 
+A clean shutdown sends the job a signal before the machine goes down, which isn't the job's own failure, so that Cast is
+lost too. On Linux the runner sees the system stopping and records no exit. Elsewhere a boot id, saved when the job began,
+shows the machine has restarted since a job died by a signal.
+
 **When the Kingdom is off.** A running Cast doesn't need its Kingdom. A closed laptop means you hear about it later. Queued
 Casts take their turns on the target, so they don't need it either.
 
