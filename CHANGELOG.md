@@ -5,8 +5,6 @@ one entry.
 
 ## Unreleased
 
-## Unreleased
-
 ### Added
 
 - `summon machines` gives the Kingdom's current machines. A resumed Quest keeps the tool description it first loaded, so
