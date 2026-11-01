@@ -301,6 +301,96 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     });
   });
 
+  describe('with a long log', () => {
+    const TRIM = { keepBytes: 1000, everySeconds: 1 };
+    const logOf = (id: string) => join(folder(id), 'log');
+    const write = (bytes: number) => `head -c ${bytes} /dev/zero | tr '\\0' x; echo`;
+
+    /** A stand-in for `fallocate`, which macOS lacks: it records its arguments and exits as told. */
+    function fakeFallocate(code = 0): { spawnOn: SummonsOptions['spawnOn']; calls: () => string[] } {
+      const bin = join(home, 'bin');
+      mkdirSync(bin, { recursive: true });
+      const record = join(home, 'fallocate-calls');
+      writeFileSync(join(bin, 'fallocate'), `#!/bin/sh\necho "$*" >> "${record}"\nexit ${code}\n`, { mode: 0o755 });
+      return {
+        spawnOn: () =>
+          spawn('sh', ['-s'], {
+            cwd: home,
+            env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, SHELL: '/bin/sh' },
+          }),
+        calls: () => (existsSync(record) ? readFileSync(record, 'utf8').trim().split('\n') : []),
+      };
+    }
+
+    it('frees all but the end of the log, and records how far', async () => {
+      const fake = fakeFallocate();
+      const made = summons({ spawnOn: fake.spawnOn, logTrim: TRIM });
+      const cast = await start(made, `${write(5000)}; sleep 3`);
+      await final(cast.id);
+
+      expect(fake.calls()[0]).toMatch(/^--punch-hole --offset 0 --length 4001 .*\/log$/);
+      expect(readFileSync(join(folder(cast.id), 'log-trimmed'), 'utf8').trim()).toBe('4001');
+    });
+
+    it('leaves a short log alone', async () => {
+      const fake = fakeFallocate();
+      const made = summons({ spawnOn: fake.spawnOn, logTrim: TRIM });
+      const cast = await start(made, `${write(500)}; sleep 2`);
+      await final(cast.id);
+      expect(fake.calls()).toEqual([]);
+    });
+
+    it('stops trying on a file system that can’t, and the job carries on', async () => {
+      const fake = fakeFallocate(1);
+      const made = summons({ spawnOn: fake.spawnOn, logTrim: TRIM });
+      const cast = await start(made, `${write(5000)}; sleep 3; echo end`);
+      expect(await final(cast.id)).toMatchObject({ state: 'succeeded' });
+      expect(fake.calls()).toHaveLength(1);
+      expect(existsSync(join(folder(cast.id), 'log-trimmed'))).toBe(false);
+    });
+
+    it('runs where there’s no fallocate at all', async () => {
+      const made = summons({
+        logTrim: TRIM,
+        spawnOn: () => spawn('sh', ['-s'], { cwd: home, env: { PATH: '/usr/bin:/bin', HOME: home, SHELL: '/bin/sh' } }),
+      });
+      const cast = await start(made, `${write(5000)}; sleep 2; echo end`);
+      expect(await final(cast.id)).toMatchObject({ state: 'succeeded' });
+    });
+
+    it('moves past what was freed while it was away, and says so', async () => {
+      const first = summons();
+      const cast = await start(first, 'echo old; while [ ! -f release ]; do sleep 0.1; done; echo new');
+      await until(() => reports.some((report) => report.logTail.includes('old')));
+      first.close();
+
+      // Past everything written so far, as a trim would leave it, with bytes a follow must not read.
+      const size = readFileSync(logOf(cast.id)).length;
+      writeFileSync(logOf(cast.id), 'not kept\nnot kept\n', { flag: 'a' });
+      writeFileSync(join(folder(cast.id), 'log-trimmed'), `${size + 18}\n`);
+      writeFileSync(join(home, 'release'), '');
+
+      const second = summons();
+      second.resume();
+      const done = await final(cast.id);
+      expect(done.logTail).not.toContain('not kept');
+      expect(done.logTail).toMatch(/old\n.*only the end is kept.*\nnew\n$/s);
+    });
+
+    it('keeps its place when nothing it needed was freed', async () => {
+      const first = summons();
+      const cast = await start(first, 'echo old; while [ ! -f release ]; do sleep 0.1; done; echo new');
+      await until(() => reports.some((report) => report.logTail.includes('old')));
+      first.close();
+
+      writeFileSync(join(folder(cast.id), 'log-trimmed'), '1\n');
+      writeFileSync(join(home, 'release'), '');
+      const second = summons();
+      second.resume();
+      expect((await final(cast.id)).logTail).toBe('old\nnew\n');
+    });
+  });
+
   it('runs a command, returns before it ends, and reports the log and the exit code', async () => {
     const made = summons();
     const cast = await start(made, 'echo one; sleep 1; echo two; exit 3');

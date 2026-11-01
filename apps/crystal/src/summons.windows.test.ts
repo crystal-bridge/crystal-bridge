@@ -5,7 +5,15 @@ import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { WINDOWS_COMMAND, windowsEnvelope, windowsScripts } from './summon-scripts-windows.js';
-import { createSummons, sshArgs, targetKind, targetShell, type Summons, type Target } from './summons.js';
+import {
+  createSummons,
+  sshArgs,
+  targetKind,
+  targetShell,
+  type Summons,
+  type SummonsOptions,
+  type Target,
+} from './summons.js';
 
 /** Over real SSH when `SUMMON_TEST_WINDOWS_HOST` names a machine; otherwise, on a Windows runner, on this machine. */
 const HOST = process.env.SUMMON_TEST_WINDOWS_HOST;
@@ -46,7 +54,7 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
   let reports: Cast[] = [];
   let children: ReturnType<typeof spawn>[] = [];
 
-  const summons = (statePath = 'casts.json') => {
+  const summons = (statePath = 'casts.json', extra: Partial<SummonsOptions> = {}) => {
     const made = createSummons({
       targets: () => [target],
       statePath: join(home, statePath),
@@ -62,6 +70,7 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
       // Longer than a follow takes to connect: PowerShell is slow to start on a busy runner.
       settleMs: 5000,
       probeMs: 1000,
+      ...extra,
     });
     running.push(made);
     return made;
@@ -99,6 +108,31 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     const done = await final(cast.id);
     expect(done).toMatchObject({ state: 'failed', exitCode: 4 });
     expect(done.logTail.trim()).toBe('C:\\Windows');
+    forget(cast.id);
+  }, 90_000);
+
+  it('really frees a long log’s disk space with the job writing, and still reads to the end', async () => {
+    const made = summons('trim.json', { logTrim: { keepBytes: 1024 * 1024, everySeconds: 1 } });
+    const line = `$s = 'x' * 1048575`;
+    const chunks = `1..8 | ForEach-Object { [Console]::Out.WriteLine($s); Start-Sleep -Milliseconds 500 }`;
+    const cast = await start(made, `${line}\n${chunks}\nStart-Sleep -Seconds 3\nWrite-Output end`);
+    const done = await final(cast.id);
+    expect(done).toMatchObject({ state: 'succeeded' });
+    expect(done.logTail.trim().endsWith('end')).toBe(true);
+
+    const log = `$env:USERPROFILE\\.crystal-bridge\\summons\\${cast.id}\\log`;
+    const stats = powershell(
+      [
+        `Add-Type -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern uint GetCompressedFileSizeW(string path, out uint high);' -Name Disk -Namespace Crystal`,
+        `$high = 0`,
+        `$disk = [Crystal.Disk]::GetCompressedFileSizeW("${log}", [ref]$high)`,
+        `"$((Get-Item "${log}").Length) $disk $(Get-Content "${log}-trimmed")"`,
+      ].join('; '),
+    );
+    const [size = 0, disk = 0, trimmed = 0] = stats.trim().split(/\s+/).map(Number);
+    expect(size).toBeGreaterThan(7 * 1024 * 1024);
+    expect(trimmed).toBeGreaterThan(4 * 1024 * 1024);
+    expect(disk).toBeLessThan(size - 3 * 1024 * 1024);
     forget(cast.id);
   }, 90_000);
 

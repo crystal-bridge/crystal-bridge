@@ -1,4 +1,5 @@
 import {
+  DEFAULT_LOG_TRIM,
   FINISHED_LINE,
   FOLLOW_LINE,
   QUEUED_LINE,
@@ -19,6 +20,8 @@ import {
  * - A follow hears nothing when its connection ends: over SSH on Windows, neither stdin closing nor the client dying
  *   reaches it, and an idle log gives it nothing to fail on writing. So it ends itself on a timer and the Kingdom
  *   reconnects from its offset, which keeps a dead connection's follow from lasting.
+ * - `cmd`'s `>>` keeps its own file position, so cutting a long log short would only leave the next write far past the
+ *   end. Marking the file sparse and zeroing its start frees the space and leaves every offset where it was.
  */
 
 /** Printed by a start when the target wouldn't let the job leave the SSH session. */
@@ -106,9 +109,17 @@ public static class CrystalCast {
   [DllImport("kernel32.dll")] static extern uint ResumeThread(IntPtr thread);
   [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
   [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+  [StructLayout(LayoutKind.Sequential)]
+  struct ZeroData { public long from, to; }
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool DeviceIoControl(IntPtr file, uint code, ref ZeroData input, int inputSize, IntPtr output,
+    int outputSize, out int returned, IntPtr overlapped);
+  [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "DeviceIoControl")]
+  static extern bool MarkSparse(IntPtr file, uint code, IntPtr input, int inputSize, IntPtr output, int outputSize,
+    out int returned, IntPtr overlapped);
 
   const uint NoWindow = 0x08000000, Suspended = 0x4, Breakaway = 0x01000000, NewGroup = 0x200;
-  const uint Timeout = 258, KillOnClose = 0x2000;
+  const uint Timeout = 258, KillOnClose = 0x2000, SetSparse = 0x900C4, SetZeroData = 0x980C8;
 
   static ProcessInfo Spawn(string command, string cwd, uint flags) {
     StartupInfo si = new StartupInfo(); si.cb = Marshal.SizeOf(si);
@@ -132,8 +143,30 @@ public static class CrystalCast {
   // Atomic, unlike Directory.CreateDirectory, which succeeds when the folder is there already.
   public static bool Claim(string path) { return CreateDirectoryW(path, IntPtr.Zero); }
 
+  // Frees the log up to all but its last keep bytes, once there's as much to free as to keep. Answers how far it has
+  // freed, or -1 where this file system can't, and then the log just grows. A long job matters more than its log.
+  static long Trim(string log, string marker, long keep, long trimmed) {
+    try {
+      long end;
+      using (FileStream file = new FileStream(log, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete)) {
+        end = file.Length - keep;
+        if (end - trimmed < keep) return trimmed;
+        IntPtr handle = file.SafeFileHandle.DangerousGetHandle();
+        int returned;
+        if (!MarkSparse(handle, SetSparse, IntPtr.Zero, 0, IntPtr.Zero, 0, out returned, IntPtr.Zero)) return -1;
+        ZeroData range = new ZeroData(); range.from = trimmed; range.to = end;
+        if (!DeviceIoControl(handle, SetZeroData, ref range, Marshal.SizeOf(range), IntPtr.Zero, 0, out returned, IntPtr.Zero))
+          return -1;
+      }
+      File.WriteAllText(marker + ".tmp", end.ToString());
+      if (File.Exists(marker)) File.Delete(marker);
+      File.Move(marker + ".tmp", marker);
+      return end;
+    } catch (IOException) { return -1; } catch (UnauthorizedAccessException) { return -1; }
+  }
+
   // Runs the command in a job of its own, which ends with the runner, and stops it all if the cancel file appears.
-  public static int Run(string command, string cwd, string cancelFile) {
+  public static int Run(string command, string cwd, string cancelFile, string log, long keep, long everySeconds) {
     IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
     ExtendedLimits limits = new ExtendedLimits();
     limits.basic.flags = KillOnClose;
@@ -142,8 +175,14 @@ public static class CrystalCast {
     ProcessInfo pi = Spawn(command, cwd, NoWindow | Suspended);
     if (!AssignProcessToJobObject(job, pi.process)) throw new System.ComponentModel.Win32Exception();
     ResumeThread(pi.thread);
+    long trimmed = 0;
+    DateTime next = DateTime.UtcNow.AddSeconds(everySeconds);
     while (WaitForSingleObject(pi.process, 500) == Timeout) {
       if (File.Exists(cancelFile)) TerminateJobObject(job, 143);
+      if (trimmed >= 0 && DateTime.UtcNow >= next) {
+        trimmed = Trim(log, log + "-trimmed", keep, trimmed);
+        next = DateTime.UtcNow.AddSeconds(everySeconds);
+      }
     }
     uint code; GetExitCodeProcess(pi.process, out code);
     return unchecked((int)code);
@@ -201,7 +240,8 @@ if (Test-Path "$dir\cwd") { $cwd = [IO.File]::ReadAllText("$dir\cwd") }
 try {
   if (-not (Test-Path -LiteralPath $cwd -PathType Container)) { throw "no such folder: $cwd" }
   $line = 'cmd.exe /d /c ""' + ${PS} + '" ${PS_ARGS} -File "' + "$dir\command.ps1" + '" < NUL >> "' + "$dir\log" + '" 2>&1"'
-  $code = [CrystalCast]::Run($line, $cwd, "$dir\cancel")
+  $trim = ([IO.File]::ReadAllText("$dir\trim")).Trim() -split ' '
+  $code = [CrystalCast]::Run($line, $cwd, "$dir\cancel", "$dir\log", [long]$trim[0], [long]$trim[1])
 } catch {
   Add-Line "$_"
   $code = 127
@@ -245,12 +285,12 @@ if (-not (Test-Path -LiteralPath $wanted -PathType Container)) {
 `;
 
 export const windowsScripts: TargetScripts = {
-  start(id, command, cwd, limit = 1) {
+  start(id, command, cwd, limit = 1, trim = DEFAULT_LOG_TRIM) {
     return `${folder(id)}
 [void][IO.Directory]::CreateDirectory($dir)
 ${writeFile('command', `${command}\n`)}${writeFile('command.ps1', commandFile(command), true)}${
       cwd === undefined ? '' : `${writeFile('cwd', cwd)}${MISSING_CWD}`
-    }${writeFile('limit', String(limit))}${writeFile('runner.ps1', RUNNER, true)}[IO.File]::WriteAllText("$dir\\log", '', $utf8)
+    }${writeFile('limit', String(limit))}${writeFile('trim', `${trim.keepBytes} ${trim.everySeconds}`)}${writeFile('runner.ps1', RUNNER, true)}[IO.File]::WriteAllText("$dir\\log", '', $utf8)
 ${NATIVE}
 $left = [CrystalCast]::Detach(${PS.replace('"$env', '"""$env').replace('.exe"', '.exe"""')} + " ${PS_ARGS} -File """"$dir\\runner.ps1"""" """"$dir""""", $dir)
 $tries = 0
@@ -267,11 +307,16 @@ if (-not $left) { [Console]::Out.WriteLine('${NOT_DETACHED}') }
   follow(id, offset) {
     return `${folder(id)}
 $out = [Console]::OpenStandardOutput()
-$line = [Text.Encoding]::UTF8.GetBytes('${FOLLOW_LINE}' + [char]10)
+$from = [long]${offset}
+try {
+  $trimmed = [long]([IO.File]::ReadAllText("$dir\\log-trimmed").Trim())
+  if ($trimmed -gt $from) { $from = $trimmed }
+} catch {}
+$line = [Text.Encoding]::UTF8.GetBytes('${FOLLOW_LINE} ' + $from + [char]10)
 $out.Write($line, 0, $line.Length)
 $out.Flush()
 $log = New-Object IO.FileStream("$dir\\log", 'Open', 'Read', 'ReadWrite, Delete')
-[void]$log.Seek(${offset}, 'Begin')
+[void]$log.Seek($from, 'Begin')
 $buffer = New-Object byte[] 65536
 $until = (Get-Date).AddSeconds(${FOLLOW_SECONDS})
 while ((Get-Date) -lt $until) {
