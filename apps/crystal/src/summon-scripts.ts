@@ -12,6 +12,15 @@ export const TURN_LINE = '::summon turn';
 /** Printed before a follow's log, so anything a shell startup file prints isn't taken for the log. */
 export const FOLLOW_LINE = '::summon follow';
 
+/** The scripts a Cast needs on one kind of target. */
+export interface TargetScripts {
+  start(id: string, command: string, cwd?: string, limit?: number): string | undefined;
+  follow(id: string, offset: number): string;
+  probe(id: string): string;
+  cancel(id: string): string;
+  clean(id: string): string;
+}
+
 function folder(id: string): string {
   return `dir="$HOME/.crystal-bridge/summons/${id}"`;
 }
@@ -196,3 +205,11 @@ fi
 export function cleanScript(id: string): string {
   return `${folder(id)}\nrm -rf "$dir"\n`;
 }
+
+export const posixScripts: TargetScripts = {
+  start: startScript,
+  follow: followScript,
+  probe: probeScript,
+  cancel: cancelScript,
+  clean: cleanScript,
+};

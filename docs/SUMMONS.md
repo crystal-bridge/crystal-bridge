@@ -1,8 +1,5 @@
 # Summons
 
-**Casts work on Linux and macOS targets today.** Windows targets are still to come, in
-[#128](https://github.com/crystal-bridge/crystal-bridge/issues/128).
-
 A **Summon** is a machine you can reach by SSH but don't want to make a Kingdom: a render box, a GPU server, a NAS. A
 Quest hands it a job, called a **Cast**, then stops spending tokens on it, and you can still see what's happening.
 
@@ -46,8 +43,8 @@ ssh -o BatchMode=yes render-box true
 ```
 
 A key behind a passphrase needs an agent Crystal can reach (`SSH_AUTH_SOCK` from the login environment), since a
-service has no terminal. The host must already be in `known_hosts`. The target needs a POSIX `sh`, `tail` and `ps`,
-which Linux and macOS have.
+service has no terminal. The host must already be in `known_hosts`. A Linux or macOS target needs a POSIX `sh`, `tail`
+and `ps`, which they have. A Windows target needs OpenSSH, and uses the PowerShell that comes with Windows.
 
 ## How a Cast runs
 
@@ -85,6 +82,22 @@ Casts take their turns on the target, so they don't need it either.
 **Self-update.** A Cast doesn't count as a Quest's background work, because it survives a Crystal restart. A Kingdom can
 update itself in the middle of one.
 
+## On Windows
+
+The Kingdom tells a Windows target by asking `uname`, once, and uses a PowerShell wrapper with the same job folder and the
+same lines, under `%USERPROFILE%`. Nothing is installed there either, and the tool and the panel work the same way. A few
+things differ:
+
+- **The command is PowerShell,** so a Quest writes it in that. It runs with no profile loaded, so a tool must be on the
+  system or user `PATH`, or be called by its full path: `& "C:\Program Files\Tool\tool.exe"`. Set a tool's exit code with `exit`; a native tool's is passed on by itself.
+- **Nobody needs to be signed in.** The job leaves the SSH session's job object, so it survives the session closing. It
+  runs without a desktop, in session 0, so a tool that needs one, or a licence tied to a signed-in user, may not work.
+  Try the real tool once by hand over SSH first. If a machine's SSH server won't let a job leave, the Cast is reported as
+  lost, and its log says why.
+- **Cancel** ends a job object holding the command and everything it started.
+- **Following** reads the log from a small script on the target, which ends itself every five minutes and is started
+  again from the same offset, since it can't tell when a connection has gone.
+
 ## Who holds what
 
 - **The target** holds the job folder. The Kingdom removes it a week after the Cast ends.
@@ -108,7 +121,7 @@ explains itself, so an agent can use it unprompted.
 |---|---|
 | `action` | `start`, `status` or `cancel` |
 | `summon` | which Summon, or `here` for the Kingdom itself |
-| `command` | what to run |
+| `command` | what to run, in the machine's own shell: PowerShell on Windows |
 | `onFinish` | `notify` or `wake`, required so the agent chooses each time |
 | `name` | optional, what to call this Cast |
 | `cwd` | optional, where to run it; otherwise the home folder |

@@ -4,16 +4,14 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { MAX_CAST_COMMAND, MAX_CAST_TAIL, type Cast, type CastFinish, type Summon } from '@crystal-bridge/protocol';
 import {
-  cancelScript,
-  cleanScript,
   FINISHED_LINE,
   FOLLOW_LINE,
-  followScript,
-  probeScript,
+  posixScripts,
   QUEUED_LINE,
-  startScript,
   TURN_LINE,
+  type TargetScripts,
 } from './summon-scripts.js';
+import { NOT_DETACHED, windowsEnvelope, WINDOWS_COMMAND, windowsScripts } from './summon-scripts-windows.js';
 
 /** What a Quest calls the Kingdom it runs on. */
 export const HERE = 'here';
@@ -49,7 +47,7 @@ export function parseSummons(value: string | undefined, platform: NodeJS.Platfor
  * The machine's own `ssh`, with its own config, keys and agent. `BatchMode` means it fails rather than prompts, since
  * a service has no terminal. The keepalive is what ends a connection to a machine that went away.
  */
-export function sshArgs(host: string): string[] {
+export function sshArgs(host: string, command = 'sh -s'): string[] {
   return [
     '-T',
     '-o',
@@ -62,23 +60,52 @@ export function sshArgs(host: string): string[] {
     'ServerAliveCountMax=3',
     '--',
     host,
-    'sh -s',
+    command,
   ];
 }
 
-/** Starts `sh` on a target, reading its script from stdin: SSH for a Summon, directly for the Kingdom itself. */
+/** Which wrapper a target takes. */
+export type TargetKind = 'posix' | 'windows';
+
+/** Starts a shell on a target, reading its script from stdin: SSH for a Summon, directly for the Kingdom itself. */
 export function targetShell(env: NodeJS.ProcessEnv, home: string) {
-  return (target: Target): ChildProcessWithoutNullStreams =>
+  return (target: Target, kind: TargetKind = 'posix'): ChildProcessWithoutNullStreams =>
     target.host
-      ? spawn('ssh', sshArgs(target.host), { env })
+      ? spawn('ssh', sshArgs(target.host, kind === 'windows' ? WINDOWS_COMMAND : 'sh -s'), { env })
       : spawn('sh', ['-s'], { env: { ...env, HOME: home }, cwd: home });
+}
+
+/**
+ * Tells a Windows target from any other by what `uname` says, or by having none. Git for Windows brings one, and its
+ * `sh` would run the wrapper, but not outlive the SSH session. Rejects if the machine can't be reached, which says
+ * nothing about what it is. The answer can't change, so a Kingdom asks once.
+ */
+export function targetKind(env: NodeJS.ProcessEnv) {
+  return (target: Target): Promise<TargetKind> => {
+    if (!target.host) return Promise.resolve('posix');
+    return new Promise((resolve, reject) => {
+      const child = spawn('ssh', sshArgs(target.host!, 'uname -s'), { env });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (data: Buffer) => (stdout += data.toString()));
+      child.stderr.on('data', (data: Buffer) => (stderr += data.toString()));
+      child.on('error', reject);
+      child.on('close', (code) => {
+        if (code === 255) reject(new Error(stderr.trim().slice(-500) || 'no answer'));
+        else resolve(code === 0 && !/MINGW|MSYS|CYGWIN/.test(stdout) ? 'posix' : 'windows');
+      });
+      child.stdin.end();
+    });
+  };
 }
 
 export interface SummonsOptions {
   targets: readonly Target[];
   /** The record of running Casts, so a restart can find them. */
   statePath: string;
-  spawnOn: (target: Target) => ChildProcessWithoutNullStreams;
+  spawnOn: (target: Target, kind: TargetKind) => ChildProcessWithoutNullStreams;
+  /** Which wrapper a target takes; default POSIX. */
+  kindOf?: (target: Target) => Promise<TargetKind>;
   /** A Cast changed; the hub hears it. */
   report: (cast: Cast) => void;
   log?: (message: string) => void;
@@ -177,6 +204,18 @@ export function createSummons(options: SummonsOptions): Summons {
 
   const targetOf = (rec: CastRecord) => targets.find((target) => target.name === rec.summon);
 
+  const kinds = new Map<string, TargetKind>();
+  /** Rejects when a target can't be reached yet. */
+  async function kindOf(target: Target): Promise<TargetKind> {
+    const known = kinds.get(target.name);
+    if (known) return known;
+    const kind = (await options.kindOf?.(target)) ?? 'posix';
+    kinds.set(target.name, kind);
+    return kind;
+  }
+  const scriptsFor = (kind: TargetKind): TargetScripts => (kind === 'windows' ? windowsScripts : posixScripts);
+  const framed = (kind: TargetKind, script: string) => (kind === 'windows' ? windowsEnvelope(script) : script);
+
   function save(): void {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = undefined;
@@ -210,9 +249,9 @@ export function createSummons(options: SummonsOptions): Summons {
   }
 
   /** Runs a script to its end. A connection that fails gives a code, never a throw. */
-  function short(target: Target, script: string, timeoutMs = SHORT_TIMEOUT_MS): Promise<Result> {
+  function short(target: Target, kind: TargetKind, script: string, timeoutMs = SHORT_TIMEOUT_MS): Promise<Result> {
     return new Promise((resolve) => {
-      const child = spawnOn(target);
+      const child = spawnOn(target, kind);
       let stdout = '';
       let stderr = '';
       const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
@@ -227,8 +266,23 @@ export function createSummons(options: SummonsOptions): Summons {
         clearTimeout(timer);
         resolve({ code, stdout, stderr });
       });
-      child.stdin.end(script);
+      child.stdin.end(framed(kind, script));
     });
+  }
+
+  /** Runs a script a target's kind picks, or reports that the target can't be reached. */
+  async function ask(
+    target: Target,
+    script: (scripts: TargetScripts) => string,
+    timeoutMs = SHORT_TIMEOUT_MS,
+  ): Promise<Result> {
+    let kind: TargetKind;
+    try {
+      kind = await kindOf(target);
+    } catch (error) {
+      return { code: null, stdout: '', stderr: error instanceof Error ? error.message : String(error) };
+    }
+    return short(target, kind, script(scriptsFor(kind)), timeoutMs);
   }
 
   function reportSoon(rec: CastRecord, follower: Follower): void {
@@ -326,13 +380,7 @@ export function createSummons(options: SummonsOptions): Summons {
       void finish(rec, 'lost');
       return;
     }
-    const child = spawnOn(target);
-    follower.child = child;
-    child.stdout.on('data', (data: Buffer) => onData(rec, follower, data));
-    child.stderr.on('data', () => {});
-    child.stdin.on('error', () => {});
-    child.on('error', (error) => log(`could not reach ${rec.summon}: ${error.message}`));
-    child.on('close', () => {
+    const retry = () => {
       if (followers.get(rec.id) !== follower || closed || rec.state !== 'running') return;
       follower.retry = setTimeout(() => {
         follow(rec);
@@ -340,8 +388,18 @@ export function createSummons(options: SummonsOptions): Summons {
       }, follower.retryMs);
       follower.retry.unref?.();
       follower.retryMs = Math.min(follower.retryMs * 2, MAX_RETRY_MS);
-    });
-    child.stdin.write(followScript(rec.id, rec.offset));
+    };
+    kindOf(target).then((kind) => {
+      if (followers.get(rec.id) !== follower || closed) return;
+      const child = spawnOn(target, kind);
+      follower.child = child;
+      child.stdout.on('data', (data: Buffer) => onData(rec, follower, data));
+      child.stderr.on('data', () => {});
+      child.stdin.on('error', () => {});
+      child.on('error', (error) => log(`could not reach ${rec.summon}: ${error.message}`));
+      child.on('close', retry);
+      child.stdin.write(framed(kind, scriptsFor(kind).follow(rec.id, rec.offset)));
+    }, retry);
   }
 
   /** Asks the target how a job stands, and acts on a final answer. Not reaching it says nothing about the job. */
@@ -351,7 +409,7 @@ export function createSummons(options: SummonsOptions): Summons {
     if (!follower || !target || follower.checking || rec.state !== 'running') return;
     follower.checking = true;
     try {
-      const { code, stdout } = await short(target, probeScript(rec.id));
+      const { code, stdout } = await ask(target, (scripts) => scripts.probe(rec.id));
       if (code !== 0) return;
       const answer = stdout.trim().split('\n').at(-1) ?? '';
       const exit = /^exit (\d+)( cancelled)?$/.exec(answer);
@@ -387,7 +445,7 @@ export function createSummons(options: SummonsOptions): Summons {
       records.delete(rec.id);
       changed = true;
       const target = targetOf(rec);
-      if (target) void short(target, cleanScript(rec.id));
+      if (target) void ask(target, (scripts) => scripts.clean(rec.id));
     }
     if (changed) save();
   }
@@ -419,7 +477,10 @@ export function createSummons(options: SummonsOptions): Summons {
       }
       if (!command.trim()) throw new Error('the command is empty');
       const id = randomUUID();
-      const script = startScript(id, command, cwd, target.limit);
+      const kind = await kindOf(target).catch((error: unknown) => {
+        throw new Error(`could not reach ${summon}: ${error instanceof Error ? error.message : String(error)}`);
+      });
+      const script = scriptsFor(kind).start(id, command, cwd, target.limit);
       if (!script) throw new Error('the command holds a line reserved for the wrapper');
       const rec: CastRecord = {
         id,
@@ -437,12 +498,15 @@ export function createSummons(options: SummonsOptions): Summons {
       // On record first: a restart in the middle of this finds the job, or reports it lost.
       records.set(id, rec);
       save();
-      const { code, stdout, stderr } = await short(target, script, LONG_TIMEOUT_MS);
+      const { code, stdout, stderr } = await short(target, kind, script, LONG_TIMEOUT_MS);
       if (code !== 0 || !stdout.trim().endsWith('started')) {
         records.delete(id);
         save();
         const why = stderr.trim().slice(-500) || `it exited with ${code ?? 'no code'}`;
         throw new Error(`could not start on ${summon}: ${why}`);
+      }
+      if (target.host && stdout.includes(NOT_DETACHED)) {
+        rec.logTail = `This machine wouldn't let the job leave its SSH session, so it ended with that session.\n`;
       }
       report(outward(rec));
       if (!closed) follow(rec);
@@ -462,7 +526,7 @@ export function createSummons(options: SummonsOptions): Summons {
       if (!target) throw new Error(`${rec.summon} is no longer on this Kingdom's list`);
       rec.cancelling = true;
       save();
-      const { code, stderr } = await short(target, cancelScript(id), LONG_TIMEOUT_MS);
+      const { code, stderr } = await ask(target, (scripts) => scripts.cancel(id), LONG_TIMEOUT_MS);
       if (code !== 0) {
         delete rec.cancelling;
         save();
@@ -504,6 +568,7 @@ export function summonDescription(targets: readonly Target[]): string {
     'A machine runs one Cast at a time by default, so a Cast may wait its turn.',
     'A script can print `::summon name Video Upscaler` to name its Cast, and `::summon progress 12/50 episode-12.mkv` to',
     'show a live count, from any language. Add these to a batch you write.',
+    'The command runs in the machine’s own shell, so write PowerShell for a Windows machine.',
     'Use it for builds, renders, batches and anything else over a minute or so. A Cast is lost, not retried, if its',
     'machine restarts, since only you know whether it can safely run twice.',
     `Machines: ${names.join(', ')}.`,
