@@ -7,7 +7,7 @@ import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@cry
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
 import type { HubSettings, KingdomUpdates } from './hub-settings.js';
-import { buildServer } from './server.js';
+import { buildServer, REVIVE_TEXT } from './server.js';
 import type { NodeRegistry } from './nodes.js';
 import { openStore, type SessionRow, type Store } from './store.js';
 
@@ -519,6 +519,138 @@ describe('airship server', () => {
     }
     expect(store.getSession(orphan)?.status).toBe('idle');
     expect(store.getSession(held)?.status).toBe('running');
+  });
+
+  describe('a Quest cut off by a restart', () => {
+    const NOW = () => Date.now();
+    const asked = (session: string, text: string, seq = 1, ts = NOW()) =>
+      makeEnvelope({ session, node: 'node-a', seq, ts, type: 'user.message', payload: { text } });
+    const started = (session: string, mode: string | null = 'auto', ts = NOW()) =>
+      sessionStartedEnvelope(session, 'node-a', {
+        ts,
+        payload: { cwd: '/tmp/work', prompt: 'say hello', label: 'say hello', ...(mode ? { mode } : {}) },
+      });
+    const finished = (session: string, seq = 1) =>
+      makeEnvelope({ session, node: 'node-a', seq, type: 'turn.finished', payload: { outcome: 'success' } });
+
+    async function nodeSaysHello(sessions: string[]): Promise<FrameRecorder> {
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: 'node-a', sessions });
+      return frames;
+    }
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+    const ended = (session: string) =>
+      store
+        .eventsSince(session, 0)
+        .filter((event) => event.type === 'session.ended')
+        .map((event) => event.payload);
+
+    it('records the cut, and brings the Quest back with what happened and its own mode', async () => {
+      const session = randomUUID();
+      store.appendEvent(started(session, 'manual'));
+
+      const frames = await nodeSaysHello([]);
+      const sent = (await frames.waitFor((frame) => frame.type === 'session.send')) as {
+        text: string;
+        session: string;
+        resume: object;
+      };
+
+      expect(sent.session).toBe(session);
+      expect(sent.text).toBe(REVIVE_TEXT);
+      expect(sent.resume).toEqual({ cwd: '/tmp/work', nextSeq: 2, mode: 'manual' });
+      expect(ended(session)).toEqual([{ exitCode: null, signal: null, reason: 'restart', resuming: true }]);
+      expect(store.getSession(session)?.status).toBe('idle');
+    });
+
+    it('catches a follow-up’s turn too', async () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(finished(session));
+      store.appendEvent(asked(session, 'and another thing', 2));
+
+      const frames = await nodeSaysHello([]);
+      await frames.waitFor((frame) => frame.type === 'session.send');
+    });
+
+    it('leaves a Quest the node still holds alone: that was only a dropped connection', async () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+
+      const frames = await nodeSaysHello([session]);
+      await settle();
+
+      expect(frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+      expect(ended(session)).toEqual([]);
+      expect(store.getSession(session)?.status).toBe('running');
+    });
+
+    it('leaves a Quest alone that was between turns', async () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(finished(session));
+
+      const frames = await nodeSaysHello([]);
+      await settle();
+
+      expect(frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+      expect(ended(session)).toEqual([]);
+    });
+
+    it('leaves an adopted Quest alone, which has no turn running', async () => {
+      const session = randomUUID();
+      store.appendEvent(
+        sessionStartedEnvelope(session, 'node-a', {
+          payload: { cwd: '/w', prompt: 'found', label: 'found', adopted: true },
+        }),
+      );
+
+      const frames = await nodeSaysHello([]);
+      await settle();
+
+      expect(frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+      expect(ended(session)).toEqual([]);
+    });
+
+    for (const [why, seed] of [
+      ['the turn cut off was itself a revival, which could otherwise loop for ever', [REVIVE_TEXT, 'auto', 0]],
+      ['the cut was long ago, when nobody may want it any more', ['go on', 'auto', 2 * 60 * 60_000]],
+      ['its permission mode isn’t on record, so it might come back in a looser one', ['go on', null, 0]],
+    ] as const) {
+      it(`stops there and tells the user when ${why}`, async () => {
+        const session = randomUUID();
+        const [text, mode, age] = seed;
+        const ts = NOW() - age;
+        store.appendEvent(started(session, mode, ts));
+        store.appendEvent(asked(session, text, 1, ts));
+        const { socket: client, frames: clientFrames } = await connectClient();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(client.readyState).toBe(WebSocket.OPEN);
+
+        const frames = await nodeSaysHello([]);
+        const attention = await clientFrames.waitFor((frame) => frame.kind === 'attention');
+        await settle();
+
+        expect(attention).toMatchObject({ session, reason: 'failed' });
+        expect(frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+        expect(ended(session)).toEqual([{ exitCode: null, signal: null, reason: 'restart', resuming: false }]);
+      });
+    }
+
+    it('doesn’t bother the user over a Quest that’s coming back', async () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      const { frames: clientFrames } = await connectClient();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      const frames = await nodeSaysHello([]);
+      await frames.waitFor((frame) => frame.type === 'session.send');
+      await settle();
+
+      expect(clientFrames.frames.some((frame) => frame.kind === 'attention')).toBe(false);
+    });
   });
 
   it('returns a node-offline error to the client when the target node is not connected', async () => {

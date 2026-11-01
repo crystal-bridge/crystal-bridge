@@ -51,6 +51,8 @@ export const Resume = z.object({
   engine: Engine.optional(),
   /** The effort the session started with; unset is the CLI's default. */
   effort: Effort.optional(),
+  /** The mode the session was last in; unset is a session from before it was recorded, on the node's default. */
+  mode: PermissionMode.optional(),
 });
 export type Resume = z.infer<typeof Resume>;
 

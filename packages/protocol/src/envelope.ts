@@ -2,17 +2,19 @@ import { z } from 'zod';
 
 // node -> hub -> client
 export const EventType = z.enum([
-  'session.started', // payload: { cwd, prompt, label, worktree?, adopted?, forkedFrom?, engine?, effort? }
+  'session.started', // payload: { cwd, prompt, label, mode?, worktree?, adopted?, forkedFrom?, engine?, effort? }
   'claude.event', // payload: { engine: 'claude', raw: unknown }  one stream-json line, untouched
   'user.message', // payload: { text }  a follow-up from session.send; the CLI doesn't echo stdin
   'permission.request', // payload: { requestId, toolName, input, toolUseId? }
   'permission.resolved', // payload: { requestId, behavior: 'allow' | 'deny' }
-  'session.ended', // payload: { exitCode: number | null, signal: string | null, reason: 'idle' | 'exit' | 'error' }
+  // reason 'restart' comes from the hub: the node restarted mid-turn, and `resuming` says whether the Quest is being brought back
+  'session.ended', // payload: { exitCode: number | null, signal: string | null, reason: 'idle' | 'exit' | 'error' | 'restart', resuming? }
   'session.resumed', // payload: {}  a send respawned the process with --resume
   'session.closed', // payload: { worktree?: { removed, reason? } }  closed on purpose; no more follow-ups
   'turn.finished', // payload: { outcome, summary?, costUsd?, durationMs?, tokens? }  a turn ended, engine-neutral
   'usage', // payload: UsagePayload  the node account's plan limits, as last reported by its engine
   'session.effort', // payload: { effort? }  the Quest's effort from now on; none is the CLI's default
+  'session.mode', // payload: { mode }  the Quest's permission mode from now on
   'terminal.screen', // payload: { open, text?, raised?, held? }  an interactive Quest's screen, while it needs a person
   'error', // payload: { message }
 ]);

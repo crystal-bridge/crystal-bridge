@@ -303,6 +303,14 @@ describe('session lifecycle', () => {
     expect(items.at(-1)).toMatchObject({ kind: 'ended', exitCode: 0, signal: null, reason: 'exit' });
   });
 
+  it('tells a Quest cut off by a restart from one that ended, and whether it’s coming back', () => {
+    const items = buildView(
+      new Stream().started().push('session.ended', { exitCode: null, signal: null, reason: 'restart', resuming: true })
+        .envelopes,
+    );
+    expect(items.at(-1)).toMatchObject({ kind: 'ended', reason: 'restart', resuming: true });
+  });
+
   it('defaults an ended item without a reason to exit', () => {
     const items = buildView(new Stream().started().push('session.ended', { exitCode: 0, signal: null }).envelopes);
     expect(items.at(-1)).toMatchObject({ kind: 'ended', reason: 'exit' });

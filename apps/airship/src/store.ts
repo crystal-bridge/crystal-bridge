@@ -5,6 +5,7 @@ import {
   Appearance,
   type Cast,
   Effort,
+  PermissionMode,
   Engine,
   type Envelope,
   PushPrefs,
@@ -125,6 +126,13 @@ export interface Store {
   sessionEngine(id: string): Engine | undefined;
   /** The effort a session uses: its latest change, else what it started with; undefined for the CLI's default. */
   sessionEffort(id: string): Effort | undefined;
+  /** The permission mode a session was last in; undefined for one from before modes were recorded. */
+  sessionMode(id: string): PermissionMode | undefined;
+  /**
+   * The turn a session had running when its node stopped holding it, if any: its prompt, and when the session last did
+   * anything. A turn the CLI started by itself leaves no prompt on record, so it isn't found here.
+   */
+  cutOffTurn(id: string): { prompt: string; lastActivity: number } | undefined;
   /** Adds a device's Web Push subscription, or replaces its keys and prefs. */
   putPushSubscription(subscription: PushSubscriptionJson, prefs: PushPrefs): void;
   /** Removes a subscription; false when there was none. */
@@ -148,7 +156,7 @@ const SessionStartedPayload = z.object({
 });
 
 // payload shape documented on EventType 'session.ended'; older events have no reason
-const SessionEndedPayload = z.object({ reason: z.enum(['idle', 'exit', 'error']).optional() });
+const SessionEndedPayload = z.object({ reason: z.enum(['idle', 'exit', 'error', 'restart']).optional() });
 
 interface EventTableRow {
   session: string;
@@ -204,6 +212,15 @@ export function openStore(path: string): Store {
   const latestEffortStmt = db.prepare(
     `SELECT payload FROM events WHERE session = ? AND type = 'session.effort' ORDER BY seq DESC LIMIT 1`,
   );
+  const latestModeStmt = db.prepare(
+    `SELECT payload FROM events WHERE session = ? AND type = 'session.mode' ORDER BY seq DESC LIMIT 1`,
+  );
+  const lastTurnEventStmt = db.prepare(
+    `SELECT type, payload FROM events WHERE session = ?
+       AND type IN ('session.started', 'user.message', 'turn.finished', 'session.ended', 'session.closed')
+     ORDER BY seq DESC LIMIT 1`,
+  );
+  const lastActivityStmt = db.prepare(`SELECT ts FROM events WHERE session = ? ORDER BY seq DESC LIMIT 1`);
   const setStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`);
   // A closed Quest is done for good: its process ending (or a stray resume) arrives after the close and mustn't reopen it.
   const setOpenStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ? AND status != 'closed'`);
@@ -332,7 +349,7 @@ export function openStore(path: string): Store {
       );
     } else if (event.type === 'session.ended') {
       const reason = SessionEndedPayload.safeParse(event.payload).data?.reason;
-      setOpenStatusStmt.run(reason === 'idle' ? 'idle' : 'ended', event.session);
+      setOpenStatusStmt.run(reason === 'idle' || reason === 'restart' ? 'idle' : 'ended', event.session);
     } else if (event.type === 'session.resumed') {
       setOpenStatusStmt.run('running', event.session);
     } else if (event.type === 'session.closed') {
@@ -491,6 +508,20 @@ export function openStore(path: string): Store {
       if (!row) return undefined;
       const effort = Effort.safeParse((JSON.parse(row.payload) as { effort?: unknown }).effort);
       return effort.success ? effort.data : undefined;
+    },
+    sessionMode(id) {
+      const row = (latestModeStmt.get(id) ?? startedPayloadStmt.get(id)) as { payload: string } | undefined;
+      if (!row) return undefined;
+      const mode = PermissionMode.safeParse((JSON.parse(row.payload) as { mode?: unknown }).mode);
+      return mode.success ? mode.data : undefined;
+    },
+    cutOffTurn(id) {
+      const last = lastTurnEventStmt.get(id) as { type: string; payload: string } | undefined;
+      if (last?.type !== 'session.started' && last?.type !== 'user.message') return undefined;
+      const payload = JSON.parse(last.payload) as { prompt?: unknown; text?: unknown };
+      const prompt = last.type === 'user.message' ? payload.text : payload.prompt;
+      const { ts } = lastActivityStmt.get(id) as { ts: number };
+      return { prompt: typeof prompt === 'string' ? prompt : '', lastActivity: ts };
     },
     putPushSubscription(subscription, prefs) {
       putPushStmt.run(subscription.endpoint, JSON.stringify(subscription.keys), JSON.stringify(prefs), Date.now());

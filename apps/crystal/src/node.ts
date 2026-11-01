@@ -361,6 +361,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       cwd,
       prompt,
       label: labelFromPrompt(cmd.prompt),
+      mode: cmd.mode ?? defaultMode,
       ...(worktree ? { worktree } : {}),
       ...(cmd.forkFrom ? { forkedFrom: cmd.forkFrom } : {}),
       ...(cmd.engine ? { engine: cmd.engine } : {}),
@@ -380,14 +381,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   function sessionFor({ session, resume }: { session: string; resume?: Resume | undefined }): SessionState | undefined {
     let state = sessions.get(session);
     if (!state && resume) {
-      const { cwd, nextSeq, engine, effort } = resume;
+      const { cwd, nextSeq, engine, effort, mode } = resume;
       // Resuming on another engine would quietly lose what the Quest was started for (e.g. artifacts).
       if (!runs(engine)) {
         sendNodeError(session, `this node no longer runs the ${engine} engine this session started on`);
         return undefined;
       }
       log(`rebuilding session ${session} in ${cwd} from seq ${nextSeq}`);
-      createSession(session, cwd, nextSeq, undefined, undefined, engine, effort);
+      createSession(session, cwd, nextSeq, mode, undefined, engine, effort);
       state = sessions.get(session);
     }
     if (!state) {
@@ -518,6 +519,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       cwd: summary.cwd,
       prompt: summary.title,
       label: labelFromPrompt(summary.title),
+      mode: defaultMode,
       adopted: true,
       ...(cmd.engine ? { engine: cmd.engine } : {}),
     });
@@ -627,8 +629,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
         }
         case 'session.mode': {
           const state = sessions.get(cmd.session);
-          if (state) state.runtime.setMode(cmd.mode);
-          else sendNodeError(cmd.session, `unknown session: ${cmd.session}`);
+          if (state) {
+            state.runtime.setMode(cmd.mode);
+            sendEnvelope(cmd.session, 'session.mode', { mode: cmd.mode });
+          } else sendNodeError(cmd.session, `unknown session: ${cmd.session}`);
           break;
         }
         case 'session.adopt':
