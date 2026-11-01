@@ -38,7 +38,7 @@ import { PermissionCard } from './PermissionCard.js';
 import { TerminalCard } from './TerminalCard.js';
 import { QuestionCard } from './QuestionCard.js';
 import { PromptBox } from './PromptBox.js';
-import { SkillLine, ToolCard } from './ToolCard.js';
+import { isSummonStart, SkillLine, SummonLine, ToolCard } from './ToolCard.js';
 import { ThemedSelect } from './ThemedSelect.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext, MARKDOWN_COMPONENTS, REMARK_PLUGINS } from './markdown.js';
@@ -223,7 +223,8 @@ function Item({
         </div>
       );
     case 'tool':
-      return item.name === 'Skill' ? <SkillLine tool={item} manifest={manifest} /> : <ToolCard tool={item} />;
+      if (item.name === 'Skill') return <SkillLine tool={item} manifest={manifest} />;
+      return isSummonStart(item) ? <SummonLine tool={item} /> : <ToolCard tool={item} />;
     case 'permission':
       // Claude's questions come through the permission tool too; they need answers, not approval.
       if (item.toolName === 'AskUserQuestion') {

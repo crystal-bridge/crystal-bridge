@@ -1,11 +1,14 @@
 /**
  * The POSIX `sh` a Cast runs on its target (docs/SUMMONS.md). Each script arrives over stdin, so nothing depends on
  * shell quoting and nothing has to be installed there. The target keeps a job folder, which is the record:
- * `command`, `cwd`, `runner`, `pid` (process id, process group, start time), `log`, `cancel` and `exit`.
+ * `command`, `cwd`, `limit`, `runner`, `pid` (process id, process group, start time), `log`, `cancel` and `exit`.
  */
 
 /** Printed to the log after `exit` is in place. It only wakes the Kingdom: `exit` is the result. */
 export const FINISHED_LINE = '::summon finished';
+/** Printed to the log when a job has to wait for its turn, and when it gets it. */
+export const QUEUED_LINE = '::summon queued';
+export const TURN_LINE = '::summon turn';
 /** Printed before a follow's log, so anything a shell startup file prints isn't taken for the log. */
 export const FOLLOW_LINE = '::summon follow';
 
@@ -44,26 +47,66 @@ write_exit() {
  */
 const RUNNER = `dir=$1
 ${START_TIME}${WRITE_EXIT}
+# Turns are folders that \`mkdir\` claims, which is atomic, so Kingdoms sharing a machine need no word of each other. Each
+# holds its owner, so a turn left by a job that was killed, or by a reboot, is taken back.
+slots="$HOME/.crystal-bridge/summons/.slots"
+take_turn() {
+  mkdir -p "$slots"
+  limit=$(cat "$dir/limit" 2>/dev/null) || limit=1
+  waiting=
+  while :; do
+    [ -f "$dir/cancel" ] && return 1
+    n=1
+    while [ "$n" -le "$limit" ]; do
+      if mkdir "$slots/$n" 2>/dev/null; then
+        slot="$slots/$n"
+        printf '%s %s\\n' "$$" "$(start_time $$)" > "$slot/owner"
+        [ -z "$waiting" ] || printf '${TURN_LINE}\\n' >> "$dir/log"
+        return 0
+      fi
+      if [ -s "$slots/$n/owner" ] && read -r owner owner_start < "$slots/$n/owner"; then
+        if ! kill -0 "$owner" 2>/dev/null || [ "$(start_time "$owner")" != "$owner_start" ]; then
+          rm -rf "$slots/$n"
+          continue
+        fi
+      fi
+      n=$((n + 1))
+    done
+    if [ -z "$waiting" ]; then
+      waiting=1
+      printf '${QUEUED_LINE}\\n' >> "$dir/log"
+    fi
+    sleep 2
+  done
+}
 trap ':' TERM INT HUP
 group=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
 printf '%s %s %s\\n' "$$" "\${group:-$$}" "$(start_time $$)" > "$dir/pid.tmp"
 mv -f "$dir/pid.tmp" "$dir/pid"
+if ! take_turn; then
+  write_exit 143
+  exit 0
+fi
 if [ -f "$dir/cwd" ] && ! cd "$(cat "$dir/cwd")" 2>>"$dir/log"; then
+  rm -rf "$slot"
   write_exit 127
   exit 0
 fi
 "\${SHELL:-/bin/sh}" -l "$dir/command" </dev/null >>"$dir/log" 2>&1
-write_exit $?
+code=$?
+rm -rf "$slot"
+write_exit "$code"
 `;
 
 /** Starts a job detached and returns once it's running, printing `started`. Undefined for text it can't carry. */
-export function startScript(id: string, command: string, cwd?: string): string | undefined {
+export function startScript(id: string, command: string, cwd?: string, limit = 1): string | undefined {
   const delimiter = delimiterFor(id, `${command}\n${cwd ?? ''}`);
   if (!delimiter) return undefined;
   const heredoc = (file: string, text: string) => `cat > "$dir/${file}" <<'${delimiter}'\n${text}\n${delimiter}\n`;
   return `umask 077
 ${folder(id)}
 mkdir -p "$dir" || exit 70
+echo ${limit} > "$dir/limit"
 ${heredoc('command', command)}${cwd === undefined ? '' : heredoc('cwd', cwd)}${heredoc('runner', RUNNER)}: > "$dir/log"
 # Its own process group, so a cancel reaches everything it started. macOS has no setsid.
 if command -v setsid >/dev/null 2>&1; then

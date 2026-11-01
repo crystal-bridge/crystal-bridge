@@ -41,6 +41,15 @@ describe('parseSummons', () => {
     expect(parseSummons('render', 'win32')).toEqual([{ name: 'render', host: 'render' }]);
   });
 
+  it('reads how many Casts a machine runs at once', () => {
+    expect(parseSummons('render/2,Shiva=gpu.lan/3', 'win32')).toEqual([
+      { name: 'render', host: 'render', limit: 2 },
+      { name: 'Shiva', host: 'gpu.lan', limit: 3 },
+    ]);
+    expect(() => parseSummons('render/0', 'linux')).toThrow(/CRYSTAL_SUMMONS/);
+    expect(() => parseSummons('render/x', 'linux')).toThrow(/CRYSTAL_SUMMONS/);
+  });
+
   it('refuses a host that ssh would read as an option', () => {
     expect(() => parseSummons('-oProxyCommand=x', 'linux')).toThrow(/CRYSTAL_SUMMONS/);
     expect(() => parseSummons('a=b c', 'linux')).toThrow(/CRYSTAL_SUMMONS/);
@@ -249,6 +258,83 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     reachable = true;
     writeFileSync(join(home, 'release'), '');
     expect(await final(cast.id)).toMatchObject({ state: 'succeeded' });
+  });
+
+  it('takes a name and progress from lines the script prints, and keeps them out of the log', async () => {
+    const made = summons();
+    const cast = await start(
+      made,
+      "echo '::summon name Video Upscaler'; echo real; echo '::summon progress 12/50 episode 12.mkv'; sleep 0.3",
+      { name: 'the tool’s name' },
+    );
+    await until(() => reports.some((r) => r.progress?.done === 12));
+    const done = await final(cast.id);
+    expect(done).toMatchObject({
+      name: 'Video Upscaler',
+      progress: { done: 12, total: 50, label: 'episode 12.mkv' },
+      logTail: 'real\n',
+    });
+  });
+
+  it('ignores a progress line it can’t read, as the log', async () => {
+    const made = summons();
+    const cast = await start(made, "echo '::summon progress lots'");
+    const done = await final(cast.id);
+    expect(done.progress).toBeUndefined();
+    expect(done.logTail).toBe('::summon progress lots\n');
+  });
+
+  it('runs one Cast at a time on a machine, and two Kingdoms sharing it take turns', async () => {
+    const hold = (name: string) => `echo started >> ${name}; while [ ! -f release-${name} ]; do sleep 0.1; done`;
+    const first = summons();
+    const a = await start(first, hold('a'));
+    await until(() => existsSync(join(home, 'a')));
+
+    const otherKingdom = summons({ statePath: join(home, 'other.json') });
+    const b = await start(otherKingdom, hold('b'));
+    await until(() => reports.some((r) => r.id === b.id && r.queued));
+    expect(existsSync(join(home, 'b'))).toBe(false);
+    expect(first.casts().map((cast) => cast.id)).toEqual([a.id]);
+    expect(otherKingdom.casts().map((cast) => cast.id)).toEqual([b.id]);
+
+    writeFileSync(join(home, 'release-a'), '');
+    await final(a.id);
+    await until(() => existsSync(join(home, 'b')));
+    await until(() => reports.some((r) => r.id === b.id && r.state === 'running' && !r.queued));
+    writeFileSync(join(home, 'release-b'), '');
+    await final(b.id);
+  });
+
+  it('runs up to a raised limit at once', async () => {
+    const made = summons({ targets: [{ name: HERE, limit: 2 }] });
+    const hold = (name: string) => `echo x > ${name}; while [ ! -f release ]; do sleep 0.1; done`;
+    const a = await start(made, hold('a'));
+    const b = await start(made, hold('b'));
+    await until(() => existsSync(join(home, 'a')) && existsSync(join(home, 'b')));
+    writeFileSync(join(home, 'release'), '');
+    await final(a.id);
+    await final(b.id);
+  });
+
+  it('frees the turn of a job that was killed outright', async () => {
+    const made = summons();
+    const a = await start(made, 'sleep 30');
+    const b = await start(made, 'echo mine');
+    await until(() => reports.some((r) => r.id === b.id && r.queued));
+    const group = Number(readFileSync(join(folder(a.id), 'pid'), 'utf8').split(' ')[1]);
+    process.kill(-group, 'SIGKILL');
+    expect(await final(b.id)).toMatchObject({ state: 'succeeded', logTail: 'mine\n' });
+  });
+
+  it('cancels a Cast still waiting for its turn', async () => {
+    const made = summons();
+    const a = await start(made, 'sleep 30');
+    const b = await start(made, 'echo never > ran');
+    await until(() => reports.some((r) => r.id === b.id && r.queued));
+    await made.cancel(SESSION, b.id);
+    expect(await final(b.id)).toMatchObject({ state: 'cancelled' });
+    expect(existsSync(join(home, 'ran'))).toBe(false);
+    await made.cancel(SESSION, a.id);
   });
 
   it('survives noise a shell startup file prints before the log', async () => {

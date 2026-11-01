@@ -308,4 +308,5 @@ Not a recording: real Quests against a real SSH target, while building #126.
   approval card shows the machine and the command.
 - Interactive engine, `auto`: the CLI ran the call with no approval. That engine gets the tool through `--mcp-config`, and
   `system/init` lists the server there with no `source` field.
-- Stream engine in `auto`, and interactive in `manual`, weren't checked.
+- Stream engine, `auto`: the same, no approval.
+- Interactive engine in `manual` wasn't checked.

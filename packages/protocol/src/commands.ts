@@ -172,6 +172,13 @@ export type CastFinish = z.infer<typeof CastFinish>;
 export const MAX_CAST_COMMAND = 4000;
 export const MAX_CAST_TAIL = 8000;
 
+export const CastProgress = z.object({
+  done: z.number().int().nonnegative(),
+  total: z.number().int().positive(),
+  label: z.string().max(200).optional(),
+});
+export type CastProgress = z.infer<typeof CastProgress>;
+
 /** One job, as the hub stores and shows it. */
 export const Cast = z.object({
   id: z.uuid(),
@@ -187,13 +194,22 @@ export const Cast = z.object({
   exitCode: z.number().int().optional(),
   startedAt: z.number().int(),
   finishedAt: z.number().int().optional(),
+  /** Running, but waiting for its turn on the Summon. */
+  queued: z.boolean().optional(),
+  /** How far it's got, from a `::summon progress` line its script printed. */
+  progress: CastProgress.optional(),
   /** The end of the log. */
   logTail: z.string().max(MAX_CAST_TAIL),
 });
 export type Cast = z.infer<typeof Cast>;
 
 /** A machine a Kingdom may use. `local` is the Kingdom itself, which needs no SSH. */
-export const Summon = z.object({ name: z.string().min(1).max(200), local: z.boolean().optional() });
+export const Summon = z.object({
+  name: z.string().min(1).max(200),
+  local: z.boolean().optional(),
+  /** How many Casts it runs at once; unset is one. */
+  limit: z.number().int().positive().optional(),
+});
 export type Summon = z.infer<typeof Summon>;
 
 // node -> hub control frames

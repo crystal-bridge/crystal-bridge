@@ -1,8 +1,7 @@
 # Summons
 
-**Casts on Linux and macOS targets work today.** The `::summon` lines, the queue and the themed lines are still to come
-in [#127](https://github.com/crystal-bridge/crystal-bridge/issues/127), and Windows targets in
-[#128](https://github.com/crystal-bridge/crystal-bridge/issues/128). This page marks those parts.
+**Casts work on Linux and macOS targets today.** Windows targets are still to come, in
+[#128](https://github.com/crystal-bridge/crystal-bridge/issues/128).
 
 A **Summon** is a machine you can reach by SSH but don't want to make a Kingdom: a render box, a GPU server, a NAS. A
 Quest hands it a job, called a **Cast**, then stops spending tokens on it, and you can still see what's happening.
@@ -32,10 +31,11 @@ needs Node 22 and an install on each one, and it would put a broker on the hub. 
 List the machines in the Kingdom's `crystal.env`, then restart Crystal:
 
 ```sh
-CRYSTAL_SUMMONS=render-box,Shiva=gpu.example.lan
+CRYSTAL_SUMMONS=render-box,Shiva=gpu.example.lan/2
 ```
 
-Each entry is an SSH host name, as `ssh` on the Kingdom knows it, and `name=` gives it a name of your own. The Kingdom
+Each entry is an SSH host name, as `ssh` on the Kingdom knows it. `name=` gives it a name of your own, and `/2` lets it run
+two Casts at once. The Kingdom
 itself is always there as `here`, with no SSH, except on Windows.
 
 Crystal uses the machine's own `ssh`, with its config, keys and known hosts, and never prompts. So check by hand first,
@@ -79,8 +79,8 @@ process. It reports the Cast as lost, and doesn't retry it, since only the autho
 twice. A wrapper killed while the machine stays up doesn't drop the connection, so the Kingdom also checks the process
 every few minutes. That check is plain code and costs no tokens. The start time guards against a reused process id.
 
-**When the Kingdom is off.** A running Cast doesn't need its Kingdom. A closed laptop means you hear about it later, and
-that the next queued Cast waits.
+**When the Kingdom is off.** A running Cast doesn't need its Kingdom. A closed laptop means you hear about it later. Queued
+Casts take their turns on the target, so they don't need it either.
 
 **Self-update.** A Cast doesn't count as a Quest's background work, because it survives a Crystal restart. A Kingdom can
 update itself in the middle of one.
@@ -120,8 +120,7 @@ the machine and the command on its approval card, and in auto the CLI can run it
 `notify` tells you and spends nothing. `wake` sends the Quest a message with the result, which costs a turn. Casts
 finishing together give one wake-up, and a closed Quest gets a notification instead.
 
-Not built yet, [#127](https://github.com/crystal-bridge/crystal-bridge/issues/127): a script can print two kinds of
-line, in any language. Neither is required, and a script with neither still gets a log
+A script can print two kinds of line, in any language. Neither is required, and a script with neither still gets a log
 and a result:
 
 ```sh
@@ -129,13 +128,28 @@ echo '::summon name Video Upscaler'
 echo '::summon progress 12/50 episode-12.mkv'
 ```
 
-A Cast's name comes from the tool's `name`, then the command's first word, and the script's own line will go first.
+A Cast's name comes from the script first, then the tool's `name`, then the command's first word.
+
+`progress` is a count, then an optional label for the item it's on, and it shows as a bar in the Summoning Circle. The
+agent adds these where a pipeline already moves from one item to the next:
+
+```python
+for number, episode in enumerate(episodes, start=1):
+    print(f"::summon progress {number}/{len(episodes)} {episode.name}", flush=True)
+    upscale(episode)
+```
+
+Flush each line, as Python here, or a buffered script shows them late. A line that isn't in this form stays in the log.
 
 ## Taking turns
 
-Not built yet, [#127](https://github.com/crystal-bridge/crystal-bridge/issues/127), so for now Casts on one machine run
-side by side. Each Summon will run one Cast at a time unless its limit is raised. The lock is a folder on the target, which an atomic
-`mkdir` claims, so several Kingdoms can share a machine and queue with no knowledge of each other.
+Each Summon runs one Cast at a time unless its limit is raised (`/2` in `CRYSTAL_SUMMONS`). A Cast that has to wait shows
+as waiting, and starts by itself. This happens on the target: a turn is a folder that an atomic `mkdir` claims, under
+`~/.crystal-bridge/summons/.slots`, so several Kingdoms can share a machine with no knowledge of each other, and each sees
+only its own Casts. A turn left by a killed job or a reboot is taken back.
+
+Sharing works when the Kingdoms log in as the same SSH user, because that's whose home the turns are in. Under different
+users they don't see each other's turns. Waiting Casts don't always start in the order they were made.
 
 ## Security
 

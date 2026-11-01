@@ -10,7 +10,9 @@ import {
   FOLLOW_LINE,
   followScript,
   probeScript,
+  QUEUED_LINE,
   startScript,
+  TURN_LINE,
 } from './summon-scripts.js';
 
 /** What a Quest calls the Kingdom it runs on. */
@@ -20,22 +22,25 @@ export const HERE = 'here';
 export interface Target {
   name: string;
   host?: string;
+  /** How many Casts it runs at once; unset is one. */
+  limit?: number;
 }
 
 const HOST = /^[A-Za-z0-9_][A-Za-z0-9._:@-]*$/;
 
-/** `CRYSTAL_SUMMONS`: SSH host names, each with an optional `name=` of the user's. */
+/** `CRYSTAL_SUMMONS`: SSH host names, each with an optional `name=` of the user's and `/limit`. */
 export function parseSummons(value: string | undefined, platform: NodeJS.Platform): Target[] {
   const targets: Target[] = platform === 'win32' ? [] : [{ name: HERE }];
   for (const entry of (value ?? '').split(',')) {
     const text = entry.trim();
     if (!text) continue;
-    const at = text.indexOf('=');
-    const name = at < 0 ? text : text.slice(0, at).trim();
-    const host = at < 0 ? text : text.slice(at + 1).trim();
-    if (!name || name.startsWith('-') || !HOST.test(host))
-      throw new Error(`CRYSTAL_SUMMONS: "${text}" isn't an SSH host name`);
-    targets.push({ name, host });
+    const parts = /^(?:([^=]+)=)?([^=/]+)(?:\/([1-9]\d*))?$/.exec(text);
+    const host = parts?.[2]?.trim() ?? '';
+    const name = parts?.[1]?.trim() ?? host;
+    if (!name || name.startsWith('-') || !HOST.test(host)) {
+      throw new Error(`CRYSTAL_SUMMONS: "${text}" isn't an SSH host name, with an optional name= and /limit`);
+    }
+    targets.push({ name, host, ...(parts?.[3] ? { limit: Number(parts[3]) } : {}) });
   }
   return targets;
 }
@@ -137,6 +142,8 @@ interface Result {
   stderr: string;
 }
 
+const NAME_LINE = /^::summon name (.+)$/;
+const PROGRESS_LINE = /^::summon progress (\d+)\/(\d+)(?: (.*))?$/;
 const NEWLINE = 10;
 const MAX_LINE_BYTES = 64 * 1024;
 const MAX_RETRY_MS = 5 * 60_000;
@@ -233,6 +240,34 @@ export function createSummons(options: SummonsOptions): Summons {
     follower.reportTimer.unref?.();
   }
 
+  /** Acts on a line meant for the app, if it's one. Anything else that looks like one is just the log. */
+  function readSignal(rec: CastRecord, text: string): boolean {
+    if (text === QUEUED_LINE) {
+      rec.queued = true;
+      return true;
+    }
+    if (text === TURN_LINE) {
+      delete rec.queued;
+      return true;
+    }
+    const name = NAME_LINE.exec(text)?.[1]?.trim();
+    if (name) {
+      rec.name = name.slice(0, 200);
+      return true;
+    }
+    const progress = PROGRESS_LINE.exec(text);
+    if (progress && Number(progress[2]) > 0) {
+      const label = progress[3]?.trim();
+      rec.progress = {
+        done: Number(progress[1]),
+        total: Number(progress[2]),
+        ...(label ? { label: label.slice(0, 200) } : {}),
+      };
+      return true;
+    }
+    return false;
+  }
+
   function onLine(rec: CastRecord, follower: Follower, line: Buffer): void {
     const text = line.toString('utf8').replace(/\r$/, '');
     if (!follower.inLog) {
@@ -246,7 +281,7 @@ export function createSummons(options: SummonsOptions): Summons {
       void check(rec);
       return;
     }
-    rec.logTail = `${rec.logTail}${text}\n`.slice(-MAX_CAST_TAIL);
+    if (!readSignal(rec, text)) rec.logTail = `${rec.logTail}${text}\n`.slice(-MAX_CAST_TAIL);
     reportSoon(rec, follower);
     saveSoon();
   }
@@ -384,7 +419,7 @@ export function createSummons(options: SummonsOptions): Summons {
       }
       if (!command.trim()) throw new Error('the command is empty');
       const id = randomUUID();
-      const script = startScript(id, command, cwd);
+      const script = startScript(id, command, cwd, target.limit);
       if (!script) throw new Error('the command holds a line reserved for the wrapper');
       const rec: CastRecord = {
         id,
@@ -466,6 +501,9 @@ export function summonDescription(targets: readonly Target[]): string {
     'Choose `onFinish` each time: `notify` tells the user and costs nothing, `wake` sends you a message with the result,',
     'which costs a turn. After starting, end your turn or do other work. Never poll with `status` or sleep to wait.',
     '`status` shows this Quest’s Casts, with the end of each log. `cancel` stops one.',
+    'A machine runs one Cast at a time by default, so a Cast may wait its turn.',
+    'A script can print `::summon name Video Upscaler` to name its Cast, and `::summon progress 12/50 episode-12.mkv` to',
+    'show a live count, from any language. Add these to a batch you write.',
     'Use it for builds, renders, batches and anything else over a minute or so. A Cast is lost, not retried, if its',
     'machine restarts, since only you know whether it can safely run twice.',
     `Machines: ${names.join(', ')}.`,
