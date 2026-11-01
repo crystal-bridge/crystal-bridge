@@ -1,5 +1,5 @@
 import type { Envelope } from '@crystal-bridge/protocol';
-import { sessionMode } from './model.js';
+import { AGENT_TOOLS, launchedInBackground, sessionMode } from './model.js';
 
 /** A file the session wrote, for the side panel's Outputs. */
 export interface OutputFile {
@@ -58,12 +58,6 @@ const WRITE_TOOLS: Record<string, string> = {
   MultiEdit: 'file_path',
   NotebookEdit: 'notebook_path',
 };
-const AGENT_TOOLS = new Set(['Task', 'Agent']);
-
-/** A tool result that only reports its call moved to the background. */
-export function launchedInBackground(raw: Record<string, unknown>): boolean {
-  return isObj(raw.tool_use_result) && raw.tool_use_result.isAsync === true;
-}
 
 /** What MP is measured against: where the session compacts, else the window's end. */
 export function contextRoom(context: SessionInfo['context']): number | undefined {

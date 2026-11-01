@@ -173,6 +173,17 @@ Cleric, whatever the agent's type. Next comes the agent's type, and anything lef
 so a party of helpers has some variety and each helper stays the same Class in every view. A Guild member on the Belt has
 only a name, so it matches on that, and an unmatched name is the art pack's `fallback`.
 
+**The party in the chat** (#137): a helper's tool cards carry a small still sprite, with its Class and job as the tooltip;
+the leader's stay unmarked, so a solo Quest gets no column of identical sprites. Tool names, commands and paths stay as
+they are, since you want to read them. A helper leaving and coming back are one-line entries like a skill's, "Wizard sets
+out: Security review!" and "Wizard returns from Security review!", or "Wizard was KO'd on Security review!", with its
+prompt and report folded inside. Anything unrecognised stays a plain card.
+
+**Tool chips** say how a call stands. A running one follows the Class doing the work: a spellcaster is **Casting**, anyone
+else **Attacking**. Then **Success**, **Miss** (failed) or **Blocked** (denied), with the plain word as the tooltip. These
+are a Hero's own actions, so "Casting" on a chip isn't a Cast on a Summon: that stays a job with its own line. Other
+states, such as Allow and Deny on a card, keep their plain words.
+
 **Heroes on Side Quests:** a subagent stays in the Party for as long as it works. A background one stays after its
 launch and leaves when the CLI reports it finished, however that ends: done, failed or stopped.
 

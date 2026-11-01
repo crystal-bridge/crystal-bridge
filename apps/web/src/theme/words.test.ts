@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLASSIC, CRYSTAL, hint, stepWord, useLine, w, castLine, summonLine } from './words.js';
+import { CLASSIC, CRYSTAL, helperLine, hint, stepWord, toolChip, useLine, w, castLine, summonLine } from './words.js';
 
 describe('theme words', () => {
   it('gives the themed word, and a hint with the plain term when they differ', () => {
@@ -42,6 +42,45 @@ describe('the Inventory words', () => {
     expect(w('gear', CLASSIC)).toBe('Plugins');
     expect(w('guild', CLASSIC)).toBe('Agents');
     expect(w('runes', CLASSIC)).toBe('MCP servers');
+  });
+});
+
+describe('toolChip', () => {
+  it('follows the Class doing the work while running', () => {
+    expect(toolChip('running', 'spellcast', CRYSTAL)).toEqual({ themed: 'Casting', plain: 'running' });
+    expect(toolChip('running', 'slash', CRYSTAL)).toEqual({ themed: 'Attacking', plain: 'running' });
+    expect(toolChip('running', 'shoot', CRYSTAL).themed).toBe('Attacking');
+  });
+
+  it('ends in Success, Miss or Blocked, with the plain word as the hint', () => {
+    expect(toolChip('done', undefined, CRYSTAL)).toEqual({ themed: 'Success', plain: 'done' });
+    expect(toolChip('error', undefined, CRYSTAL)).toEqual({ themed: 'Miss', plain: 'failed' });
+    expect(toolChip('denied', undefined, CRYSTAL)).toEqual({ themed: 'Blocked', plain: 'denied' });
+  });
+
+  it('stays plain in the Classic theme', () => {
+    expect(toolChip('running', 'spellcast', CLASSIC).themed).toBe('running');
+    expect(toolChip('error', undefined, CLASSIC).themed).toBe('failed');
+  });
+});
+
+describe('helperLine', () => {
+  it('reads like a game, with the plain form as the hint', () => {
+    expect(helperLine('set-out', 'Wizard', 'Security review', CRYSTAL)).toEqual({
+      themed: 'Wizard sets out: Security review!',
+      plain: 'Started a subagent: Security review',
+    });
+    expect(helperLine('returned', 'Wizard', 'Security review', CRYSTAL).themed).toBe(
+      'Wizard returns from Security review!',
+    );
+    expect(helperLine('stopped', 'Wizard', 'Security review', CRYSTAL)).toEqual({
+      themed: 'Wizard was KO’d on Security review!',
+      plain: 'Subagent stopped: Security review',
+    });
+  });
+
+  it('is plain in the Classic theme', () => {
+    expect(helperLine('failed', 'Wizard', 'Security review', CLASSIC).themed).toBe('Subagent failed: Security review');
   });
 });
 

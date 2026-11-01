@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
 import allowFixture from './__fixtures__/allow.ndjson?raw';
+import backgroundAgentFixture from './__fixtures__/background-agent.ndjson?raw';
 import denyFixture from './__fixtures__/deny.ndjson?raw';
 import {
   buildView,
@@ -510,5 +511,100 @@ describe('a terminal asking something', () => {
   it('goes with the process, even if the close was never sent', () => {
     const ended = screen(2, { exitCode: 1, signal: null, reason: 'error' }, 'session.ended');
     expect(terminals([screen(1, { open: true, raised: true, text: 'x' }), ended])).toEqual([]);
+  });
+});
+
+describe('helpers in the chat', () => {
+  const claude = (raw: Record<string, unknown>, seq: number) =>
+    ({ v: 1, seq, session: SESSION, ts: 1, type: 'claude.event', payload: { raw } }) as unknown as Envelope;
+  const build = (raws: Record<string, unknown>[]) => buildView(raws.map((raw, i) => claude(raw, i)));
+  const toolUse = (id: string, name: string, input: unknown, parent: string | null = null) => ({
+    type: 'assistant',
+    parent_tool_use_id: parent,
+    message: { id: `m-${id}`, content: [{ type: 'tool_use', id, name, input }] },
+  });
+  const toolResult = (id: string, content: string, extra: Record<string, unknown> = {}, isError = false) => ({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] },
+    ...extra,
+  });
+  const launch = toolUse('a1', 'Agent', {
+    description: 'Security review',
+    prompt: 'Look for holes',
+    subagent_type: 'general-purpose',
+  });
+  const helper = { id: 'a1', description: 'Security review', agentType: 'general-purpose' };
+
+  it('attributes a tool to the helper that called it, and leaves the leader-s unmarked', () => {
+    const items = build([launch, toolUse('t1', 'Read', { file_path: '/a' }, 'a1'), toolUse('t2', 'Read', {})]);
+    expect(items[1]).toMatchObject({ name: 'Read', helper });
+    expect(items[2]).not.toHaveProperty('helper');
+  });
+
+  it('leaves a tool plain when its parent is unknown', () => {
+    const items = build([toolUse('t1', 'Read', {}, 'nobody'), toolUse('h', 'SubagentHandback', {}, 'nobody')]);
+    expect(items[0]).not.toHaveProperty('helper');
+    expect(items[1]).toMatchObject({ name: 'SubagentHandback' });
+  });
+
+  it('marks a helper back when its foreground call returns, with that result as its report', () => {
+    const items = build([launch, toolResult('a1', 'All clear')]);
+    expect(items[1]).toMatchObject({ kind: 'helper-back', helper, outcome: 'returned', report: 'All clear' });
+  });
+
+  it('marks a helper failed when its call errors, and not back at all when it was denied', () => {
+    expect(build([launch, toolResult('a1', 'It broke', {}, true)])[1]).toMatchObject({
+      kind: 'helper-back',
+      outcome: 'failed',
+      report: 'It broke',
+    });
+    const denied = build([
+      launch,
+      toolResult(
+        'a1',
+        'Refused',
+        { tool_result_meta: [{ id: 'a1', permission_decision: { decision: 'reject' } }] },
+        true,
+      ),
+    ]);
+    expect(denied.map((item) => item.kind)).toEqual(['tool']);
+  });
+
+  it('waits for a background helper-s notification, not its launch', () => {
+    const launched = toolResult('a1', 'Launched', { tool_use_result: { isAsync: true } });
+    expect(build([launch, launched]).map((item) => item.kind)).toEqual(['tool']);
+    const finished = { type: 'system', subtype: 'task_notification', tool_use_id: 'a1', status: 'completed' };
+    expect(build([launch, launched, finished])[1]).toMatchObject({ kind: 'helper-back', outcome: 'returned' });
+  });
+
+  it('gives one return line when a helper is notified twice', () => {
+    const finished = { type: 'system', subtype: 'task_notification', tool_use_id: 'a1', status: 'completed' };
+    expect(build([launch, finished, finished]).filter((item) => item.kind === 'helper-back')).toHaveLength(1);
+    expect(build([launch, toolResult('a1', 'x'), finished]).filter((i) => i.kind === 'helper-back')).toHaveLength(1);
+  });
+
+  it('reads failed and stopped from the notification', () => {
+    const ended = (status: string) => ({ type: 'system', subtype: 'task_notification', tool_use_id: 'a1', status });
+    expect(build([launch, ended('failed')])[1]).toMatchObject({ outcome: 'failed' });
+    expect(build([launch, ended('stopped')])[1]).toMatchObject({ outcome: 'stopped' });
+    expect(build([launch, ended('killed')])[1]).toMatchObject({ outcome: 'stopped' });
+  });
+
+  it('ignores the notification of a background command', () => {
+    const items = build([
+      toolUse('b1', 'Bash', { command: 'sleep 1' }),
+      { type: 'system', subtype: 'task_notification', tool_use_id: 'b1', status: 'completed' },
+    ]);
+    expect(items.map((item) => item.kind)).toEqual(['tool']);
+  });
+
+  it('turns a real background agent-s handback into its report, with no card', () => {
+    const envelopes = lines(backgroundAgentFixture).map((raw, i) => claude(raw as Record<string, unknown>, i));
+    const items = buildView(envelopes);
+    expect(items.filter((item) => item.kind === 'tool' && item.name === 'SubagentHandback')).toEqual([]);
+    const back = items.filter((item) => item.kind === 'helper-back');
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ outcome: 'returned', report: 'done' });
+    expect(back[0]).toHaveProperty('helper.description', 'Say done');
   });
 });

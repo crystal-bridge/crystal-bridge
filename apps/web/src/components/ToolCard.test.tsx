@@ -1,7 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { isSummonStart, SummonLine, ToolCard } from './ToolCard.js';
+import type { HeroManifest } from '../heroes.js';
+import { HelperBackLine, isAgentCall, isSummonStart, SetOutLine, SkillLine, SummonLine, ToolCard } from './ToolCard.js';
 
 const tool = (name: string, input: unknown, output?: string) => ({
   kind: 'tool' as const,
@@ -12,6 +13,71 @@ const tool = (name: string, input: unknown, output?: string) => ({
   isError: false,
   denied: false,
   done: output !== undefined,
+});
+
+const manifest: HeroManifest = {
+  leader: 'paladin',
+  fallback: 'wizard',
+  classes: {
+    paladin: { name: 'Paladin', match: ['security'], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} },
+    wizard: { name: 'Wizard', match: ['build'], work: 'spellcast', verb: 'Cast', victory: 'spellcast', anims: {} },
+  },
+};
+const helper = { id: 'a1', description: 'Build the docs', agentType: 'general-purpose' };
+
+describe('the party in the chat', () => {
+  afterEach(() => cleanup());
+
+  it('marks a helper-s tool with its sprite, and leaves the leader-s alone', () => {
+    const { rerender } = render(<ToolCard tool={{ ...tool('Read', {}, 'x'), helper }} manifest={manifest} />);
+    expect(screen.getByRole('img', { name: 'Wizard · Build the docs' })).toBeTruthy();
+    rerender(<ToolCard tool={tool('Read', {}, 'x')} manifest={manifest} />);
+    expect(screen.queryByRole('img')).toBeNull();
+  });
+
+  it('announces a helper setting out, with its prompt folded inside', () => {
+    const call = tool('Agent', { description: 'Build the docs', prompt: 'Go build', subagent_type: 'general-purpose' });
+    expect(isAgentCall(call)).toBe(true);
+    expect(isAgentCall(tool('Read', {}))).toBe(false);
+    render(<SetOutLine tool={{ ...call, sent: helper }} manifest={manifest} />);
+    expect(screen.getByText('Wizard sets out: Build the docs!')).toBeTruthy();
+    expect(screen.getByText('Go build')).toBeTruthy();
+    expect(screen.getByText('Wizard sets out: Build the docs!').closest('details')!.open).toBe(false);
+  });
+
+  it('gives a helper the same Class setting out as on its tools', () => {
+    const call = tool('Agent', { description: 'Security review', subagent_type: 'general-purpose' });
+    const sent = { ...helper, description: 'Security review' };
+    render(<SetOutLine tool={{ ...call, sent }} manifest={manifest} />);
+    expect(screen.getByText('Paladin sets out: Security review!')).toBeTruthy();
+  });
+
+  it('announces a return with the report folded inside, and a KO', () => {
+    const back = { kind: 'helper-back' as const, id: 'e9', helper, report: 'All built' };
+    const { rerender } = render(<HelperBackLine item={{ ...back, outcome: 'returned' }} manifest={manifest} />);
+    expect(screen.getByText('Wizard returns from Build the docs!')).toBeTruthy();
+    expect(screen.getByText('All built')).toBeTruthy();
+    rerender(<HelperBackLine item={{ ...back, outcome: 'failed' }} manifest={manifest} />);
+    expect(screen.getByText('Wizard was KO’d on Build the docs!')).toBeTruthy();
+  });
+
+  it('lets a helper-s skill be its own', () => {
+    render(<SkillLine tool={{ ...tool('Skill', { skill: 'deploy' }), helper }} manifest={manifest} />);
+    expect(screen.getByText('Wizard casts deploy!')).toBeTruthy();
+  });
+
+  it('says on a chip what the Hero is doing, by the Class doing it, with the plain word as its hint', () => {
+    const { rerender } = render(<ToolCard tool={tool('Read', {})} manifest={manifest} />);
+    expect(screen.getByText('Attacking').getAttribute('title')).toBe('running');
+    rerender(<ToolCard tool={{ ...tool('Read', {}), helper }} manifest={manifest} />);
+    expect(screen.getByText('Casting').getAttribute('title')).toBe('running');
+    rerender(<ToolCard tool={tool('Read', {}, 'x')} manifest={manifest} />);
+    expect(screen.getByText('Success').getAttribute('title')).toBe('done');
+    rerender(<ToolCard tool={{ ...tool('Read', {}, 'x'), isError: true }} manifest={manifest} />);
+    expect(screen.getByText('Miss').getAttribute('title')).toBe('failed');
+    rerender(<ToolCard tool={{ ...tool('Read', {}, 'x'), isError: true, denied: true }} manifest={manifest} />);
+    expect(screen.getByText('Blocked').getAttribute('title')).toBe('denied');
+  });
 });
 
 describe('ToolCard', () => {
