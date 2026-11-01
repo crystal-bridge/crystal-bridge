@@ -72,6 +72,7 @@ export default defineConfig({
         items: [
           { text: 'Themes and art packs', link: '/theme' },
           { text: 'Engines and the protocol', link: '/engines' },
+          { text: 'Summons design', link: '/summons' },
           { text: 'Contributing', link: '/contributing' },
         ],
       },
