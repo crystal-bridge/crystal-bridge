@@ -5,6 +5,11 @@ one entry.
 
 ## Unreleased
 
+### Changed
+
+- Helpers take their Class from their job first, then their agent type, and anything left gets a stable pick, so a party
+  of helpers is no longer all Wizards. The Party and the Battle card agree on each one.
+
 ### Fixed
 
 - A Cast no longer loses the last lines of its log when a routine check notices it ended before the log has been read.

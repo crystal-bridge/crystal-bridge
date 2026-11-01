@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { BattleOutcome, BattleResult } from '../battle.js';
 import { duration, tokens } from '../format.js';
-import { type HeroManifest, type HeroState, matchClass } from '../heroes.js';
+import { type Helper, helperClass, type HeroManifest, type HeroState } from '../heroes.js';
 import { type Concept, hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { Gold } from './Gold.js';
@@ -56,22 +56,30 @@ function Prs({ links }: { links: string[] }) {
   );
 }
 
-function Heroes({ types, manifest }: { types: string[]; manifest?: HeroManifest }) {
-  if (types.length === 0) return <>none</>;
+/** Helpers of the same type and Class share an entry, so a long Quest's row stays short. */
+function Heroes({ helpers, manifest }: { helpers: Helper[]; manifest?: HeroManifest }) {
+  if (helpers.length === 0) return <>none</>;
+  const entries = new Map<string, { type: string; classId: string | undefined; count: number }>();
+  for (const helper of helpers) {
+    const type = helper.agentType || 'agent';
+    const classId = manifest ? helperClass(manifest, helper) : undefined;
+    const key = `${type}/${classId ?? ''}`;
+    const entry = entries.get(key);
+    if (entry) entry.count += 1;
+    else entries.set(key, { type, classId, count: 1 });
+  }
   return (
     <span className="inline-flex flex-wrap gap-2">
-      {types.map((type, i) => {
-        const classId = manifest ? matchClass(manifest, type) : undefined;
-        return (
-          <span key={`${type}-${i}`} className="inline-flex items-center gap-1">
-            {manifest && classId && (
-              <HeroSprite manifest={manifest} classId={classId} state="victory" size={20} decorative />
-            )}
-            <span>{type || 'agent'}</span>
-            {manifest && classId && <span className="text-neutral-500">({manifest.classes[classId]?.name})</span>}
-          </span>
-        );
-      })}
+      {[...entries].map(([key, { type, classId, count }]) => (
+        <span key={key} className="inline-flex items-center gap-1">
+          {manifest && classId && (
+            <HeroSprite manifest={manifest} classId={classId} state="victory" size={20} decorative />
+          )}
+          <span>{type}</span>
+          {manifest && classId && <span className="text-neutral-500">({manifest.classes[classId]?.name})</span>}
+          {count > 1 && <span className="text-neutral-500">×{count}</span>}
+        </span>
+      ))}
     </span>
   );
 }
@@ -97,7 +105,7 @@ function Details({ result, manifest }: { result: BattleResult; manifest?: HeroMa
         </Row>
       )}
       <Row concept="heroes">
-        <Heroes types={result.heroes} manifest={manifest} />
+        <Heroes helpers={result.heroes} manifest={manifest} />
       </Row>
       <Row concept="sideQuests">{result.sideQuests}</Row>
     </div>

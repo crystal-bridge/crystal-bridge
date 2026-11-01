@@ -157,7 +157,7 @@ Picked by the owner on 2026-10-29 from the "Hero Class Audition". Recipes and ma
 | Class | Look | Covers | Working |
 |---|---|---|---|
 | **Paladin** | Holy Knight: plate, blue cape, sword and shield | the party leader (main agent), security agents | Smite |
-| **Wizard** | Classic: navy robe, pointed black hat, shadow face, staff | general-purpose and builder agents; anything unmatched | Cast |
+| **Wizard** | Classic: navy robe, pointed black hat, shadow face, staff | builder agents | Cast |
 | **Cleric** | Hooded: white hooded robe, staff | reviewers, verifiers, testers, debuggers | Heal |
 | **Ranger** | Hooded archer: green hood, leather, bow | research, web and docs agents | Shoot |
 | **Rogue** | Shadow: dark hood, tattered cape, dagger | Explore and search agents | Sneak |
@@ -166,7 +166,12 @@ Picked by the owner on 2026-10-29 from the "Hero Class Audition". Recipes and ma
 **The party leader** is the art pack's `leader` (Paladin) unless the Kingdom picks another: any Class, or *A different
 Hero per Quest* (a stable pick from the Quest's id), chosen in Config behind the Kingdom's icon button, with its icon and banner colour, and
 synced the same way (#20). Every view of a Quest (its tab, card, Party, skill lines, Battle cards) shows the same
-leader; subagents still take their Class from their name.
+leader.
+
+**Subagents** take their Class from their job first: a "Security review" is a Paladin and a "Correctness review" a
+Cleric, whatever the agent's type. Next comes the agent's type, and anything left gets a stable pick from its id (#136),
+so a party of helpers has some variety and each helper stays the same Class in every view. A Guild member on the Belt has
+only a name, so it matches on that, and an unmatched name is the art pack's `fallback`.
 
 **Heroes on Side Quests:** a subagent stays in the Party for as long as it works. A background one stays after its
 launch and leaves when the CLI reports it finished, however that ends: done, failed or stopped.

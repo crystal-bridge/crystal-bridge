@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { type HeroManifest, heroAnimation, leaderFor, matchClass, questState, VARIED, withLeader } from './heroes.js';
+import {
+  type HeroManifest,
+  helperClass,
+  heroAnimation,
+  leaderFor,
+  matchClass,
+  questState,
+  VARIED,
+  withLeader,
+} from './heroes.js';
 import shippedRaw from '../public/heroes/manifest.json?raw';
 import recipesRaw from '../../../tools/sprites/classes.json?raw';
 
@@ -66,6 +75,66 @@ describe('matchClass', () => {
   it('falls back for unknown or missing agent names', () => {
     expect(matchClass(manifest, 'statusline-setup')).toBe('wizard');
     expect(matchClass(manifest, undefined)).toBe('wizard');
+  });
+});
+
+describe('helperClass', () => {
+  const pack: HeroManifest = {
+    ...manifest,
+    classes: {
+      ...manifest.classes,
+      wizard: { ...manifest.classes.wizard!, match: ['build'] },
+    },
+  };
+
+  it('goes by the job before the agent type', () => {
+    expect(helperClass(pack, { id: 'a', description: 'Security review', agentType: 'general-purpose' })).toBe(
+      'paladin',
+    );
+    expect(helperClass(pack, { id: 'a', description: 'Correctness review', agentType: 'Explore' })).toBe('cleric');
+  });
+
+  it('goes by the agent type when the job says nothing', () => {
+    expect(helperClass(pack, { id: 'a', description: 'Tidy up', agentType: 'Explore' })).toBe('rogue');
+  });
+
+  it('matches whole words in a job, so "latest" is not a test', () => {
+    const picks = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id) =>
+      helperClass(
+        { ...pack, classes: { rogue: pack.classes.rogue!, cleric: pack.classes.cleric! } },
+        {
+          id,
+          description: 'Check the latest',
+        },
+      ),
+    );
+    expect(new Set(picks)).toEqual(new Set(['rogue', 'cleric']));
+    expect(helperClass(pack, { id: 'a', description: 'Run the tests' })).toBe('cleric');
+  });
+
+  it('gives unmatched helpers a stable pick, not all the same Class', () => {
+    const helper = (id: string) => ({ id, description: 'Do the thing', agentType: 'general-purpose' });
+    const picks = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8'].map((id) => helperClass(pack, helper(id)));
+    expect(new Set(picks).size).toBeGreaterThan(1);
+    expect(picks).toEqual(['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8'].map((id) => helperClass(pack, helper(id))));
+  });
+
+  it('copes with an art pack of one Class or no match lists', () => {
+    const one: HeroManifest = {
+      leader: 'solo',
+      fallback: 'solo',
+      classes: { solo: { ...pack.classes.wizard!, match: [] } },
+    };
+    expect(helperClass(one, { id: 'a', description: 'Security review' })).toBe('solo');
+    const bare = { ...pack, classes: { x: { ...pack.classes.wizard!, match: undefined } } } as unknown as HeroManifest;
+    expect(helperClass(bare, { id: 'a', description: 'Security review', agentType: 'Explore' })).toBe('x');
+    expect(matchClass(bare, 'Explore')).toBe(pack.fallback);
+  });
+
+  it('no longer treats general-purpose as a Wizard in the shipped pack', () => {
+    for (const raw of [shippedRaw, recipesRaw]) {
+      expect(raw).not.toContain('general-purpose');
+    }
   });
 });
 
