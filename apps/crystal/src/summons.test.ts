@@ -69,6 +69,15 @@ describe('sshArgs', () => {
   });
 });
 
+describe('summonDescription', () => {
+  // A resumed conversation keeps the description it first loaded (test/fixtures/README.md), so the list can be old.
+  it('says its list can be old and how to get the current one', () => {
+    const text = summonDescription([{ name: HERE }, { name: 'render', host: 'render' }]);
+    expect(text).toContain('Machines when this tool was loaded: here (this machine), render.');
+    expect(text).toMatch(/`machines` gives the current list/);
+  });
+});
+
 describe('summonCall', () => {
   const calls: unknown[] = [];
   const fake = {
@@ -84,6 +93,14 @@ describe('summonCall', () => {
       summonCall(fake, 's', { action: 'start', summon: 'here', command: 'x', onFinish: 'wake' }),
     ).resolves.toMatchObject({ id: 'c' });
     expect(calls).toEqual([{ session: 's', summon: 'here', command: 'x', onFinish: 'wake' }]);
+  });
+
+  it('names the machines as they are now', async () => {
+    const live = { list: () => [{ name: 'here', local: true }, { name: 'render' }] } as unknown as Summons;
+    await expect(summonCall(live, 's', { action: 'machines' })).resolves.toEqual([
+      { name: 'here', local: true },
+      { name: 'render' },
+    ]);
   });
 
   it('needs a Cast to cancel', async () => {

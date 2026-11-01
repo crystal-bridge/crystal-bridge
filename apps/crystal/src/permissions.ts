@@ -68,7 +68,7 @@ const ApproveInputShape = {
 };
 
 const SummonInputShape = {
-  action: z.enum(['start', 'status', 'cancel']),
+  action: z.enum(['start', 'status', 'cancel', 'machines']),
   summon: z.string().optional().describe('start: which machine'),
   command: z.string().optional().describe('start: what to run'),
   onFinish: z

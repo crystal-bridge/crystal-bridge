@@ -315,3 +315,10 @@ Not a recording: real Quests against a real SSH target, while building #126.
   `system/init` lists the server there with no `source` field.
 - Stream engine, `auto`: the same, no approval.
 - Interactive engine in `manual` wasn't checked.
+
+### A resumed session keeps the description it loaded (2.1.316)
+
+A deferred MCP tool's description goes into the transcript when it's loaded, as a `deferred_tools_record` attachment. On
+`--resume` the model still sees that text, even after loading the tool again, while calls reach the live tool: a stub
+whose description and result changed from `alpha` to `beta` between runs read as `alpha` and returned `beta`. So nothing
+that changes between processes can be told through a tool description. `summon machines` exists for this.
