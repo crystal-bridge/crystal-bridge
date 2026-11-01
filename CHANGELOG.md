@@ -12,6 +12,8 @@ one entry.
 
 ### Fixed
 
+- Messages the agent wrote for you now show in the chat and in search. The CLI can send one as a thinking block with no
+  text, which the chat hid, and about a fifth of a Quest's messages could go missing that way.
 - A finished Cast stays on record until its folder has really gone from the target. A machine that was off at the end
   of the week used to keep the folder for good, with nothing trying again.
 - A refused `summon start` shows only the reason, without the SSH client's own warnings or a server's banner above it.

@@ -75,6 +75,18 @@ export function launchedInBackground(raw: Record<string, unknown>): boolean {
 }
 
 /** Tool-result `content` is a string or an array of `{ type: 'text', text }` blocks. */
+function saidInThinking(block: Obj): boolean {
+  return block.type === 'thinking' && (str(block.thinking) ?? '') !== '';
+}
+
+/**
+ * What a content block says to the person. The CLI can send a message as a second thinking block with no text block in
+ * that message, so it counts as speech (apps/crystal/test/fixtures/README.md). The reasoning itself arrives empty.
+ */
+export function spokenWords(block: Obj): string {
+  return (block.type === 'text' ? str(block.text) : saidInThinking(block) ? str(block.thinking) : undefined) ?? '';
+}
+
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -244,7 +256,9 @@ export class ViewBuilder {
     }
     if (event.type === 'content_block_delta') {
       const delta = isObj(event.delta) ? event.delta : {};
-      if (delta.type === 'text_delta') this.streamingText(messageId, index, id).text += str(delta.text) ?? '';
+      const words = delta.type === 'text_delta' ? str(delta.text) : str(delta.thinking);
+      // An empty thinking delta starts no item: that block is the reasoning, which stays private.
+      if (words) this.streamingText(messageId, index, id).text += words;
     }
   }
 
@@ -266,8 +280,8 @@ export class ViewBuilder {
     const content = Array.isArray(message.content) ? message.content : [];
     content.forEach((block, i) => {
       if (!isObj(block)) return;
-      if (block.type === 'text') {
-        const text = str(block.text) ?? '';
+      if (block.type === 'text' || saidInThinking(block)) {
+        const text = spokenWords(block);
         // The earliest still-streaming text block of this message is the one this line completes.
         const entry = [...this.streaming].find(([key]) => key.startsWith(`${messageId}:`));
         if (entry) {

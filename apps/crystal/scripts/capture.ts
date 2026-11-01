@@ -319,12 +319,12 @@ const allow: Answer = async () => ({ behavior: 'allow' });
 async function rescrub(): Promise<void> {
   for (const name of await readdir(FIXTURES)) {
     const path = join(FIXTURES, name);
-    const text = await readFile(path, 'utf8');
     if (name.endsWith('.ndjson')) {
+      const text = await readFile(path, 'utf8');
       const lines = text.split('\n').filter((l) => l.trim());
       await writeFile(path, lines.map((l) => `${scrub(l, '')}\n`).join(''));
     } else if (name === 'permission-calls.json') {
-      await writeFile(path, scrubText(text, ''));
+      await writeFile(path, scrubText(await readFile(path, 'utf8'), ''));
     } else continue;
     console.log(`rescrubbed ${name}`);
   }

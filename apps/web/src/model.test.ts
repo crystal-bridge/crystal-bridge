@@ -3,6 +3,7 @@ import type { Envelope } from '@crystal-bridge/protocol';
 import allowFixture from './__fixtures__/allow.ndjson?raw';
 import backgroundAgentFixture from './__fixtures__/background-agent.ndjson?raw';
 import denyFixture from './__fixtures__/deny.ndjson?raw';
+import spokenThinkingFixture from './__fixtures__/spoken-thinking.ndjson?raw';
 import {
   buildView,
   IncrementalView,
@@ -143,6 +144,58 @@ describe('permission card placement', () => {
       .push('permission.request', { requestId: 'r1', toolName: 'Bash', input: {}, toolUseId: 'toolu_other' });
 
     expect(buildView(stream.envelopes).map((item) => item.kind)).toEqual(['user', 'tool', 'permission']);
+  });
+});
+
+// A real turn: the CLI sent what the agent wrote for the person as a second, non-empty thinking block, with no text
+// block in the message. Hidden, a fifth of a Quest's messages went missing (apps/crystal/test/fixtures/README.md).
+describe('buildView over spoken-thinking.ndjson', () => {
+  const words = (fixture: string) =>
+    buildView(new Stream().started().claude(lines(fixture)).envelopes)
+      .filter((item) => item.kind === 'assistant')
+      .map((item) => (item as { text: string }).text);
+
+  it('shows what the agent wrote, in order, and stops streaming each', () => {
+    const shown = words(spokenThinkingFixture);
+    expect(shown).toHaveLength(4);
+    expect(shown[0]).toMatch(/^Step 1 returned 820/);
+    expect(shown[1]).toMatch(/dedupe key/);
+    expect(shown[2]).toMatch(/^Step 3 came back as arm64/);
+    expect(shown[3]).toMatch(/^All four steps ran/);
+    const items = buildView(new Stream().started().claude(lines(spokenThinkingFixture)).envelopes);
+    expect(items.filter((item) => item.kind === 'assistant' && item.streaming)).toEqual([]);
+  });
+
+  it('keeps it in place among the tools', () => {
+    const kinds = buildView(new Stream().started().claude(lines(spokenThinkingFixture)).envelopes).map((i) => i.kind);
+    expect(kinds).toEqual([
+      'user',
+      'tool',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'assistant',
+      'result',
+    ]);
+  });
+
+  it('shows the words as they stream, before the block ends', () => {
+    const partial = lines(spokenThinkingFixture).filter((line) => (line as { type?: string }).type === 'stream_event');
+    const shown = buildView(new Stream().started().claude(partial).envelopes).filter((i) => i.kind === 'assistant');
+    expect(shown[0]).toMatchObject({ streaming: true });
+    expect((shown[0] as { text: string }).text).toMatch(/^Step 1 returned 820/);
+  });
+
+  it('never shows an empty thinking block, the reasoning that stays private', () => {
+    const empty = {
+      type: 'assistant',
+      message: { id: 'm', content: [{ type: 'thinking', thinking: '', signature: 'x' }] },
+    };
+    const items = buildView(new Stream().started().claude([empty]).envelopes);
+    expect(items.filter((item) => item.kind === 'assistant')).toEqual([]);
   });
 });
 
