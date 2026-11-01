@@ -8,6 +8,7 @@ import {
   FOLLOW_LINE,
   posixScripts,
   QUEUED_LINE,
+  STARTED_QUEUED,
   TURN_LINE,
   type TargetScripts,
 } from './summon-scripts.js';
@@ -506,6 +507,8 @@ export function createSummons(options: SummonsOptions): Summons {
         const why = stderr.trim().slice(-500) || `it exited with ${code ?? 'no code'}`;
         throw new Error(`could not start on ${summon}: ${why}`);
       }
+      // The follow will read this too, and it also hears the turn come.
+      if (stdout.split('\n').some((line) => line.trim() === STARTED_QUEUED)) rec.queued = true;
       if (target.host && stdout.includes(NOT_DETACHED)) {
         rec.logTail = `This machine wouldn't let the job leave its SSH session, so it ended with that session.\n`;
       }
@@ -566,7 +569,7 @@ export function summonDescription(targets: readonly Target[]): string {
     'Choose `onFinish` each time: `notify` tells the user and costs nothing, `wake` sends you a message with the result,',
     'which costs a turn. After starting, end your turn or do other work. Never poll with `status` or sleep to wait.',
     '`status` shows this Quest’s Casts, with the end of each log. `cancel` stops one.',
-    'A machine runs one Cast at a time by default, so a Cast may wait its turn.',
+    'A machine runs one Cast at a time by default, so a Cast may wait its turn: `queued: true` means it hasn’t begun.',
     'A script can print `::summon name Video Upscaler` to name its Cast, and `::summon progress 12/50 episode-12.mkv` to',
     'show a live count, from any language. Add these to a batch you write.',
     'The command runs in the machine’s own shell, so write PowerShell for a Windows machine.',

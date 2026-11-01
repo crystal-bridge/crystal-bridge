@@ -130,7 +130,7 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     const a = await start(made, 'cmd /c "ping -n 300 127.0.0.1"');
     await until(() => reports.some((report) => report.logTail.includes('Pinging')));
     const b = await start(made, 'Write-Output never');
-    await until(() => reports.some((report) => report.id === b.id && report.queued));
+    expect(b.queued).toBe(true);
     await made.cancel(SESSION, b.id);
     expect(await final(b.id)).toMatchObject({ state: 'cancelled' });
     await made.cancel(SESSION, a.id);
