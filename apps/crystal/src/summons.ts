@@ -11,7 +11,7 @@ import {
   TURN_LINE,
   type TargetScripts,
 } from './summon-scripts.js';
-import { windowsEnvelope, WINDOWS_COMMAND, windowsScripts } from './summon-scripts-windows.js';
+import { NOT_DETACHED, windowsEnvelope, WINDOWS_COMMAND, windowsScripts } from './summon-scripts-windows.js';
 
 /** What a Quest calls the Kingdom it runs on. */
 export const HERE = 'here';
@@ -504,6 +504,9 @@ export function createSummons(options: SummonsOptions): Summons {
         save();
         const why = stderr.trim().slice(-500) || `it exited with ${code ?? 'no code'}`;
         throw new Error(`could not start on ${summon}: ${why}`);
+      }
+      if (target.host && stdout.includes(NOT_DETACHED)) {
+        rec.logTail = `This machine wouldn't let the job leave its SSH session, so it ended with that session.\n`;
       }
       report(outward(rec));
       if (!closed) follow(rec);

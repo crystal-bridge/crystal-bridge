@@ -89,10 +89,11 @@ same lines, under `%USERPROFILE%`. Nothing is installed there either, and the to
 things differ:
 
 - **The command is PowerShell,** so a Quest writes it in that. It runs with no profile loaded, so a tool must be on the
-  system or user `PATH`. Set a tool's exit code with `exit`; a native tool's is passed on by itself.
+  system or user `PATH`, or be called by its full path: `& "C:\Program Files\Tool\tool.exe"`. Set a tool's exit code with `exit`; a native tool's is passed on by itself.
 - **Nobody needs to be signed in.** The job leaves the SSH session's job object, so it survives the session closing. It
   runs without a desktop, in session 0, so a tool that needs one, or a licence tied to a signed-in user, may not work.
-  Try the real tool once by hand over SSH first.
+  Try the real tool once by hand over SSH first. If a machine's SSH server won't let a job leave, the Cast is reported as
+  lost, and its log says why.
 - **Cancel** ends a job object holding the command and everything it started.
 - **Following** reads the log from a small script on the target, which ends itself every five minutes and is started
   again from the same offset, since it can't tell when a connection has gone.

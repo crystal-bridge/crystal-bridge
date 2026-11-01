@@ -337,6 +337,15 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     await made.cancel(SESSION, a.id);
   });
 
+  it('says so in the log when a machine won’t let a job outlive its SSH session', async () => {
+    const made = summons({
+      targets: [{ name: 'old', host: 'old.example' }],
+      spawnOn: () => spawn('sh', ['-c', 'cat >/dev/null; echo not-detached; echo started']),
+    });
+    const cast = await made.start({ session: SESSION, summon: 'old', command: 'x', onFinish: 'notify' });
+    expect(cast.logTail).toMatch(/SSH session/);
+  });
+
   it('survives noise a shell startup file prints before the log', async () => {
     const made = summons({
       spawnOn: () =>

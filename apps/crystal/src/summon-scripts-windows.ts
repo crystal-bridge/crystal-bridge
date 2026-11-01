@@ -14,6 +14,9 @@ import { FINISHED_LINE, FOLLOW_LINE, QUEUED_LINE, TURN_LINE, type TargetScripts 
  *   reconnects from its offset, which keeps a dead connection's follow from lasting.
  */
 
+/** Printed by a start when the target wouldn't let the job leave the SSH session. */
+export const NOT_DETACHED = 'not-detached';
+
 /** How long one follow runs. */
 export const FOLLOW_SECONDS = 300;
 
@@ -108,13 +111,14 @@ public static class CrystalCast {
     return pi;
   }
 
-  // Out of the SSH session's job, which ends everything in it when the session closes. A job that forbids leaving is
-  // no SSH session's, as under a CI runner, so there it just starts.
-  public static int Detach(string command, string cwd) {
-    try { return Spawn(command, cwd, NoWindow | NewGroup | Breakaway).id; }
+  // Out of the SSH session's job, which ends everything in it when the session closes. Whether a job may leave is that
+  // job's choice, so this answers whether it left: under a CI runner it needn't, but over SSH the job won't last.
+  public static bool Detach(string command, string cwd) {
+    try { Spawn(command, cwd, NoWindow | NewGroup | Breakaway); return true; }
     catch (System.ComponentModel.Win32Exception e) {
       if (e.NativeErrorCode != 5) throw;
-      return Spawn(command, cwd, NoWindow | NewGroup).id;
+      Spawn(command, cwd, NoWindow | NewGroup);
+      return false;
     }
   }
 
@@ -226,10 +230,11 @@ ${writeFile('command', `${command}\n`)}${writeFile('command.ps1', commandFile(co
       cwd === undefined ? '' : writeFile('cwd', cwd)
     }${writeFile('limit', String(limit))}${writeFile('runner.ps1', RUNNER, true)}[IO.File]::WriteAllText("$dir\\log", '', $utf8)
 ${NATIVE}
-[void][CrystalCast]::Detach(${PS.replace('"$env', '"""$env').replace('.exe"', '.exe"""')} + " ${PS_ARGS} -File """"$dir\\runner.ps1"""" """"$dir""""", $dir)
+$left = [CrystalCast]::Detach(${PS.replace('"$env', '"""$env').replace('.exe"', '.exe"""')} + " ${PS_ARGS} -File """"$dir\\runner.ps1"""" """"$dir""""", $dir)
 $tries = 0
 while (-not (Test-Path "$dir\\pid") -and $tries -lt 150) { Start-Sleep -Milliseconds 200; $tries++ }
 if (-not (Test-Path "$dir\\pid")) { exit 71 }
+if (-not $left) { [Console]::Out.WriteLine('${NOT_DETACHED}') }
 [Console]::Out.WriteLine('started')
 `;
   },
