@@ -1,8 +1,8 @@
 # Crystal Bridge
 
 Do all your [Claude Code](https://code.claude.com) work from one place. Crystal Bridge brings every session on every
-machine, across one Claude account or several, into a single web app that works as well on your phone as on your
-laptop. Each session streams into a tab; approvals and questions show up as cards you can answer from anywhere;
+machine, across one Claude account or several, into a single web app built for larger screens, with your phone for
+keeping an eye on things. Each session streams into a tab; approvals and questions show up as cards you can answer from anywhere;
 notifications tell you when a session needs you.
 
 It wraps the real, unmodified `claude` CLI on each machine, under that machine's own login. It doesn't reimplement
@@ -27,8 +27,10 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 - **Summons:** hand a long job to a machine you can reach by SSH, with nothing installed there, and stop spending tokens
   watching it. It survives dropped connections and restarts, and tells you when it ends.
 - **Bring sessions in:** adopt sessions you started in a terminal, and carry on from the browser.
-- **A theme you can turn off:** the default dresses everything up as a 16-bit RPG; the Classic theme uses plain words.
-  Words, colours and art are pluggable (`apps/web/src/theme`, [themes and art packs](docs/THEME.md)).
+- **A theme with a plain alternative:** the default dresses everything up as a 16-bit RPG. The Classic theme uses plain
+  words, and is a build choice, so it means running from a checkout (`VITE_CB_THEME=classic pnpm dev`): the released
+  packages are always the RPG theme. Words, colours and art are pluggable (`apps/web/src/theme`,
+  [themes and art packs](docs/THEME.md)).
 
 ## How it works
 
@@ -100,16 +102,19 @@ If you need API-key billing or want to offer it to others, read those terms firs
 
 ## Quick Start
 
-There are two ways to run it. **One machine** puts everything on your own computer and takes a couple of minutes,
-which is the best way to try it. **Several machines** puts the hub on an always-on host, with a Crystal on each machine
+There are two ways to run it. **One machine** puts everything on your own computer, which is the best way to try it,
+and a normal way to use it. **Several machines** puts the hub on an always-on host, with a Crystal on each machine
 you run Claude Code on. The hub can sit on your tailnet, or anywhere you can give it HTTPS.
 
 ### One machine
 
 <!-- #region one-machine -->
-You need Node 22+, pnpm (`corepack enable`), and Claude Code installed and signed in (run `claude` once).
+You need Node 22+, pnpm (`npm install -g pnpm`, or `corepack enable` where your Node has it), and Claude Code installed
+and signed in (run `claude` once). The hub doesn't run on Windows, so a Windows PC needs a hub on another machine.
 
 ```sh
+git clone https://github.com/crystal-bridge/crystal-bridge.git
+cd crystal-bridge
 pnpm install
 pnpm dev
 ```

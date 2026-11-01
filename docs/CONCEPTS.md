@@ -8,7 +8,7 @@ guides assume.
 
 ## The parts
 
-- **The Airship** is the hub. It's one small server on an always-on host. It serves the web app, stores what every
+- **The Airship** is the hub. It's one small server, on your own computer or on an always-on host. It serves the web app, stores what every
   session does, and relays messages. It doesn't run Claude itself, and it holds no Claude credentials.
 - **A Kingdom** is a machine you run Claude Code on, together with the Claude account signed in there. Two machines can
   use one account or separate ones.
@@ -36,7 +36,8 @@ gain pointless levels as you use them.
 ## The words
 
 The default theme has its own word for everything, and a tooltip gives the plain term. If you'd rather not have any of
-this, the Classic theme uses plain words throughout. See [Themes and art packs](./THEME.md).
+this, the Classic theme uses plain words throughout. It's a build choice, so it means running from a checkout: see
+[Themes and art packs](./THEME.md).
 
 <!--@include: ../README.md#the-world-->
 

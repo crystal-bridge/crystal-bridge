@@ -14,7 +14,7 @@ const BASE = process.env.DOCS_BASE ?? '/';
 
 export default defineConfig({
   title: 'Crystal Bridge',
-  description: 'Every Claude Code session on every machine, in one web app.',
+  description: 'Every Claude Code session, on one machine or many, in one web app.',
   base: BASE,
   // VitePress adds the base to the theme's links, but not to a `head` entry.
   head: [['link', { rel: 'icon', type: 'image/svg+xml', href: `${BASE}logo.svg` }]],
@@ -25,7 +25,9 @@ export default defineConfig({
   rewrites: (id) => id.toLowerCase(),
   markdown: {
     config(md) {
-      // A link out of docs/ works when read on GitHub; on the site it goes to the same file there, if it exists.
+      // A link out of docs/ works when read on GitHub; on the site it goes to the same file there, if it exists. A link
+      // to another page keeps its file name's case for GitHub, so here it needs the lower case its address has: VitePress
+      // doesn't apply `rewrites` to links in the text. scripts/check-docs-links.mjs holds this on the built site.
       const render = md.renderer.rules.link_open!;
       md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
         const link = tokens[idx]!;
@@ -34,6 +36,9 @@ export default defineConfig({
           const [path = '', anchor] = href.slice('../'.length).split('#');
           if (!existsSync(join(ROOT, path))) throw new Error(`dead link: ${href} in ${env.relativePath}`);
           link.attrSet('href', `${REPO}/blob/HEAD/${path}${anchor ? `#${anchor}` : ''}`);
+        } else if (href && !/^[a-z]+:/i.test(href) && /\.md(#|$)/.test(href)) {
+          const [path = '', anchor] = href.split('#');
+          link.attrSet('href', `${path.toLowerCase()}${anchor ? `#${anchor}` : ''}`);
         }
         return render(tokens, idx, options, env, self);
       };
@@ -58,6 +63,7 @@ export default defineConfig({
         items: [
           { text: 'Configuration reference', link: '/configuration' },
           { text: 'Operations', link: '/operations' },
+          { text: 'Summons', link: '/summons' },
         ],
       },
       {
@@ -72,7 +78,6 @@ export default defineConfig({
         items: [
           { text: 'Themes and art packs', link: '/theme' },
           { text: 'Engines and the protocol', link: '/engines' },
-          { text: 'Summons', link: '/summons' },
           { text: 'Contributing', link: '/contributing' },
         ],
       },
