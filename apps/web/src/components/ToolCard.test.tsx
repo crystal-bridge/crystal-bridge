@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ToolCard } from './ToolCard.js';
+import { isSummonStart, SummonLine, ToolCard } from './ToolCard.js';
 
 const tool = (name: string, input: unknown, output?: string) => ({
   kind: 'tool' as const,
@@ -74,5 +75,26 @@ describe('ToolCard', () => {
   it('falls back to the raw input for other tools', () => {
     render(<ToolCard tool={tool('WebFetch', { url: 'https://example.com', prompt: 'summarize' })} />);
     expect(screen.getByText(/"prompt": "summarize"/)).toBeTruthy();
+  });
+});
+
+describe('SummonLine', () => {
+  const start = {
+    kind: 'tool',
+    id: 't',
+    name: 'mcp__crystal__summon',
+    input: { action: 'start', summon: 'Shiva', command: './encode --all' },
+  } as unknown as ComponentProps<typeof SummonLine>['tool'];
+
+  it('announces a Cast in one line, with the command folded inside', () => {
+    render(<SummonLine tool={start} />);
+    expect(screen.getByText('You summoned Shiva!')).toBeTruthy();
+    expect(screen.getByText('./encode --all').closest('details')).not.toBeNull();
+  });
+
+  it('takes only a start: status and cancel stay ordinary tool cards', () => {
+    expect(isSummonStart(start)).toBe(true);
+    expect(isSummonStart({ ...start, input: { action: 'status' } })).toBe(false);
+    expect(isSummonStart({ ...start, name: 'Bash' })).toBe(false);
   });
 });

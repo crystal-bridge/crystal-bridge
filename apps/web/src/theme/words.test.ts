@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLASSIC, CRYSTAL, hint, stepWord, useLine, w } from './words.js';
+import { CLASSIC, CRYSTAL, hint, stepWord, useLine, w, castLine, summonLine } from './words.js';
 
 describe('theme words', () => {
   it('gives the themed word, and a hint with the plain term when they differ', () => {
@@ -57,5 +57,35 @@ describe('useLine', () => {
 
   it('reads plainly in the Classic theme', () => {
     expect(useLine('spells', 'Paladin', 'deploy', CLASSIC).themed).toBe('Used skill: deploy');
+  });
+
+  it('tells a Cast like a game line, and plainly in the hint', () => {
+    const cast = { name: 'Video Upscaler', state: 'running' as const };
+    const progress = { done: 12, total: 50 };
+    expect(castLine({ ...cast, progress }, 'Shiva', CRYSTAL)).toEqual({
+      themed: 'Shiva is casting Video Upscaler! 12/50',
+      plain: 'Running 12/50',
+    });
+    expect(castLine({ ...cast, queued: true }, 'Shiva', CRYSTAL).themed).toBe(
+      'Video Upscaler awaits its turn on Shiva',
+    );
+    expect(castLine({ ...cast, state: 'succeeded' }, 'Shiva', CRYSTAL).themed).toBe('Video Upscaler landed!');
+    expect(castLine({ ...cast, state: 'failed', exitCode: 3 }, 'Shiva', CRYSTAL)).toEqual({
+      themed: 'Video Upscaler fizzled! (3)',
+      plain: 'Failed with exit code 3',
+    });
+    expect(castLine({ ...cast, state: 'cancelled' }, 'Shiva', CRYSTAL).themed).toBe('Video Upscaler was dispelled!');
+    expect(castLine({ ...cast, state: 'lost' }, 'Shiva', CRYSTAL)).toEqual({
+      themed: 'Shiva vanished!',
+      plain: 'Lost: the job is gone and has no result',
+    });
+  });
+
+  it('keeps Classic’s Cast lines plain', () => {
+    expect(castLine({ name: 'encode', state: 'succeeded' }, 'render', CLASSIC).themed).toBe(
+      'encode on render: Finished',
+    );
+    expect(summonLine('render', CRYSTAL)).toEqual({ themed: 'You summoned render!', plain: 'Started a job on render' });
+    expect(summonLine('render', CLASSIC).themed).toBe('Started a job on render');
   });
 });

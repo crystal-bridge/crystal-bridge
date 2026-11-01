@@ -106,6 +106,10 @@ When a Hero uses something from the Inventory, the chat says so in one line, wit
 **casts** deploy!" (Spells), "**uses**" (Items), "**invokes**" (Runes). The skill's own text stays folded under
 it. Words in `useLine` (`apps/web/src/theme/words.ts`); Classic: "Used skill: deploy".
 
+When a Quest starts a Cast, the chat says "You summoned Shiva!". In the Summoning Circle a Cast reads "Shiva is casting
+Video Upscaler! 12/50", then **landed**, **fizzled**, **was dispelled** or "Shiva vanished!", each with the plain words as
+its tooltip. Words in `summonLine` and `castLine` (`apps/web/src/theme/words.ts`); Classic: "encode on render: Finished".
+
 ### Stats
 
 HP, Stamina and MP bars drain in five colour steps, green when full through yellow and orange to red near empty

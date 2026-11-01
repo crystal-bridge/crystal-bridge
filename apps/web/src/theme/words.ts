@@ -294,3 +294,39 @@ export function useLine(kind: UseKind, hero: string, name: string, theme: Words 
   const plain = `Used ${USE_PLAIN[kind]}: ${name}`;
   return { themed: theme === CLASSIC ? plain : `${hero} ${USE_VERBS[kind]} ${name}!`, plain };
 }
+
+/** The chat's line when a Quest starts a Cast, e.g. "You summoned Shiva!". */
+export function summonLine(summon: string, theme: Words = words): Word {
+  const plain = `Started a job on ${summon}`;
+  return { themed: theme === CLASSIC ? plain : `You summoned ${summon}!`, plain };
+}
+
+/** What `castLine` needs to know about a Cast. */
+export interface CastLineInput {
+  name: string;
+  state: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'lost';
+  queued?: boolean | undefined;
+  exitCode?: number | undefined;
+  progress?: { done: number; total: number } | undefined;
+}
+
+/** How a Cast stands as a game would print it, e.g. "Shiva is casting Video Upscaler! 12/50"; the plain form is the hint. */
+export function castLine(cast: CastLineInput, summon: string, theme: Words = words): Word {
+  const { name, state, queued, exitCode, progress } = cast;
+  const count = progress ? ` ${progress.done}/${progress.total}` : '';
+  const code = exitCode === undefined ? '' : ` (${exitCode})`;
+  const line: Record<CastLineInput['state'], Word> = {
+    running: queued
+      ? { themed: `${name} awaits its turn on ${summon}`, plain: 'Waiting for its turn' }
+      : { themed: `${summon} is casting ${name}!${count}`, plain: `Running${count}` },
+    succeeded: { themed: `${name} landed!`, plain: 'Finished' },
+    failed: {
+      themed: `${name} fizzled!${code}`,
+      plain: exitCode === undefined ? 'Failed' : `Failed with exit code ${exitCode}`,
+    },
+    cancelled: { themed: `${name} was dispelled!`, plain: 'Cancelled' },
+    lost: { themed: `${summon} vanished!`, plain: 'Lost: the job is gone and has no result' },
+  };
+  const { themed, plain } = line[state];
+  return { themed: theme === CLASSIC ? `${name} on ${summon}: ${plain}` : themed, plain };
+}

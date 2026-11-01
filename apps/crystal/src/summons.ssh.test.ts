@@ -84,6 +84,34 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
     onTarget(`rm -rf ~/.crystal-bridge/summons/${cast.id} /tmp/cb-summon-release`);
   }, 60_000);
 
+  it('takes turns between two Kingdoms over SSH, with a live count', async () => {
+    const release = '/tmp/cb-summon-turn';
+    onTarget(`rm -f ${release}`);
+    const one = summons();
+    const two = createSummons({
+      targets: [{ name: 'box', host: HOST! }],
+      statePath: join(home, 'two.json'),
+      spawnOn: shell,
+      report: (cast) => reports.push(cast),
+      reportMs: 10,
+      settleMs: 50,
+    });
+    running.push(two);
+    const first = await one.start({
+      session: SESSION,
+      summon: 'box',
+      command: `echo '::summon progress 1/2 first'; while [ ! -f ${release} ]; do sleep 0.2; done`,
+      onFinish: 'notify',
+    });
+    await until(() => reports.some((report) => report.progress?.done === 1));
+    const second = await two.start({ session: SESSION, summon: 'box', command: 'echo mine', onFinish: 'notify' });
+    await until(() => reports.some((report) => report.id === second.id && report.queued));
+    onTarget(`touch ${release}`);
+    const done = await until(() => reports.find((report) => report.id === second.id && report.state !== 'running'));
+    expect(done).toMatchObject({ state: 'succeeded', logTail: 'mine\n' });
+    onTarget(`rm -rf ${release} ~/.crystal-bridge/summons/${first.id} ~/.crystal-bridge/summons/${second.id}`);
+  }, 60_000);
+
   it('cancels over SSH', async () => {
     const made = summons();
     const cast = await made.start({ session: SESSION, summon: 'box', command: 'sleep 300', onFinish: 'notify' });

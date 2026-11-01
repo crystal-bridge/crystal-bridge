@@ -520,7 +520,12 @@ export function Castle({
         {circle && hasCircle(circle.summons, circle.casts) && (
           // A desktop panel for now: a phone's actions need their own design.
           <div className="hidden px-3 md:block">
-            <SummoningCircle summons={circle.summons} casts={circle.casts} now={now ?? Date.now()} />
+            <SummoningCircle
+              summons={circle.summons}
+              casts={circle.casts}
+              now={now ?? Date.now()}
+              kingdom={kingdom.name}
+            />
           </div>
         )}
 

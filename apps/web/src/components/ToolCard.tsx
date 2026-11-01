@@ -2,7 +2,7 @@ import { useContext } from 'react';
 import { type DiffLine, diffLines } from '../diff.js';
 import type { HeroManifest } from '../heroes.js';
 import type { ViewItem } from '../model.js';
-import { useLine } from '../theme/words.js';
+import { summonLine, useLine } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext } from './markdown.js';
 
@@ -164,6 +164,32 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
       <div className="space-y-2 border-t border-neutral-300 px-3 py-2 dark:border-neutral-700">
         <Detail tool={tool} change={change} />
       </div>
+    </details>
+  );
+}
+
+/** Whether a tool call is a Quest starting a Cast, as opposed to asking about one. */
+export function isSummonStart(tool: ToolItem): boolean {
+  return tool.name === 'mcp__crystal__summon' && isObj(tool.input) && tool.input.action === 'start';
+}
+
+/** A Cast started, as one line ("You summoned Shiva!"), with the command folded inside. */
+export function SummonLine({ tool }: { tool: ToolItem }) {
+  const input = isObj(tool.input) ? tool.input : {};
+  const line = summonLine(str(input.summon) ?? 'a machine');
+  const failed = tool.denied || tool.isError;
+  return (
+    <details className="text-sm">
+      <summary
+        title={line.plain}
+        className="flex cursor-pointer items-center gap-2 py-0.5 text-amber-700 dark:text-gold-bright"
+      >
+        <span className="cb-display text-base leading-none">{line.themed}</span>
+        {failed && <span className="text-xs text-red-600 dark:text-red-400">{tool.denied ? 'denied' : 'failed'}</span>}
+      </summary>
+      <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-neutral-300 bg-neutral-50 p-2 font-mono text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+        {failed ? (tool.output ?? '') : (str(input.command) ?? '')}
+      </pre>
     </details>
   );
 }
