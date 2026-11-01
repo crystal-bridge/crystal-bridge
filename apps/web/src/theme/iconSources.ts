@@ -39,7 +39,7 @@ export const ICON_SOURCES = {
   spells: { pack: 'game-icons', icon: 'spell-book', author: 'Delapouite' },
   items: { pack: 'game-icons', icon: 'round-potion', author: 'Caro Asercion' },
   runes: { pack: 'game-icons', icon: 'rune-stone', author: 'Lorc' },
-  gear: { pack: 'game-icons', icon: 'battle-gear', author: 'Lorc' },
+  gear: { pack: 'game-icons', icon: 'chest-armor', author: 'Delapouite' },
   guild: { pack: 'game-icons', icon: 'barracks-tent', author: 'Delapouite' },
   abilities: { pack: 'game-icons', icon: 'lightning-helix', author: 'Lorc' },
   // The Belt
