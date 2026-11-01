@@ -155,6 +155,24 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     expect(readFileSync(join(folder(cast.id), 'command'), 'utf8')).toBe(`${command}\n`);
   });
 
+  it('keeps a job’s last lines when a routine check finds it ended before the log has been read', async () => {
+    let spawned = 0;
+    const slowFollow = (target: Target) => {
+      spawned += 1;
+      if (spawned !== 2) return spawnOn(target);
+      // The start is the first shell, so this is the follow: slow to connect, as PowerShell is over SSH.
+      return spawn('sh', ['-c', 'sleep 0.5; exec sh -s'], {
+        cwd: home,
+        env: { PATH: process.env.PATH, HOME: home, SHELL: '/bin/sh' },
+      });
+    };
+    const made = summons({ spawnOn: slowFollow, probeMs: 50, settleMs: 2000 });
+    const cast = await start(made, 'echo last; exit 3');
+    const done = await final(cast.id);
+    expect(done).toMatchObject({ state: 'failed', exitCode: 3 });
+    expect(done.logTail).toBe('last\n');
+  });
+
   it('isn’t fooled by a script printing the last line', async () => {
     const made = summons();
     const cast = await start(made, 'echo ::summon finished; sleep 1; echo real; exit 4');
