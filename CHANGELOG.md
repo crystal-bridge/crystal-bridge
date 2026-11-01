@@ -3,6 +3,20 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
+## Unreleased
+
+### Fixed
+
+- A Quest's background command or agent counts as busy only while it runs. A Quest that had ever started one used to
+  count as busy until it closed, which held its Kingdom back from updates through several releases, with no reason
+  shown.
+- A running Monitor no longer holds a Kingdom's update or deploy on the stream engine, as it already didn't on the
+  interactive one. It still keeps its Quest's process from an idle stop.
+- A turn the CLI starts by itself, when background work reports in, now counts as a turn: an update waits for it, an
+  idle stop can't cut it off, and its files changed show.
+- A background command or Monitor that has finished or been stopped leaves the Party, and Background Tasks shows it as
+  finished rather than running.
+
 ## 0.4.3
 
 ### Added

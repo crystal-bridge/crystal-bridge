@@ -175,8 +175,20 @@ export function liveTranscriptEvent(line: unknown): ClaudeEventPayload | undefin
   const message = line.message as Obj;
   if (line.type === 'user' && promptText(message) !== undefined) return undefined;
   const raw: Obj = { type: line.type, message };
-  if (isObj(line.toolUseResult) && line.toolUseResult.isAsync === true) raw.tool_use_result = { isAsync: true };
+  const marks = isObj(line.toolUseResult) ? resultMarks(line.toolUseResult) : undefined;
+  if (marks) raw.tool_use_result = marks;
   return { engine: 'claude', raw };
+}
+
+/**
+ * What the client reads from a tool result's `toolUseResult`, which can otherwise be long: that a call went to the
+ * background, the task id each kind of launch gives, and the id `TaskStop` answers with.
+ */
+const RESULT_MARKS = ['isAsync', 'backgroundTaskId', 'taskId', 'agentId', 'task_id'];
+
+function resultMarks(result: Obj): Obj | undefined {
+  const marks = Object.entries(result).filter(([key]) => RESULT_MARKS.includes(key));
+  return marks.length > 0 ? Object.fromEntries(marks) : undefined;
 }
 
 const TASK_NOTIFICATION = /^<task-notification>[\s\S]*?<tool-use-id>([^<]+)<[\s\S]*?<status>([^<]+)</;

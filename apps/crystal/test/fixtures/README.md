@@ -238,6 +238,25 @@ to three places: a `queue-operation` with `operation: "enqueue"` the moment the 
 `origin.kind: "task-notification"`, or an `attachment` of type `queued_command` when a running turn absorbs it.
 `liveTranscriptEvent` relays these in the stream-json shape, so the client reads one form. One agent can notify twice.
 
+## Background commands and a Monitor (2.1.316, recorded 2026-11-01)
+
+`background-command.ndjson` starts two background `Bash` commands and a `Monitor` in one turn, lets one command and the
+Monitor end by themselves, then stops the other with `TaskStop`.
+
+- Each gets `system/task_started` with `tool_use_id`, its own `task_id` and `is_backgrounded: true`. The Monitor has
+  `task_type: "local_bash"` like the commands, so only its `tool_use` tells them apart.
+- `system/task_updated` then `system/task_notification` end each one, finished or stopped alike, with `tool_use_id` and
+  `status` of `completed` or `stopped`. For a `TaskStop` they arrive inside the turn, before its tool result.
+- `system/background_tasks_changed` follows each start and end with the CLI's whole list in `tasks` (`task_id`, not
+  `tool_use_id`), so `tasks: []` means nothing is left.
+- A launch's `tool_use_result` holds the CLI's task id: `backgroundTaskId` for a command, `taskId` for a Monitor,
+  `agentId` for an agent. `TaskStop`'s holds the id it stopped as `task_id`.
+- An interactive transcript has no `<task-notification>` for a `TaskStop`, seen in a real Quest on 2026-11-01. There the
+  stop shows only in the tool's result, so the client ties that `task_id` back to the launch. The Stop hook's
+  `background_tasks` covers busy.
+- Output from a Monitor and a task ending each start a turn with nobody sending anything: a new `system/init`, then a
+  `result`. Each of those turns has its own `result`, so a result doesn't mean the process has gone quiet.
+
 An MCP server the CLI once reported as `needs-auth` stays that way for a while under that name, without a request
 being made: `system/init` shows the status and the permission tool fails as "not found". Seen under a network sandbox
 that blocks localhost, and it outlasted the sandbox. Any other server name connects.

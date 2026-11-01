@@ -1,6 +1,7 @@
 import type { Envelope } from '@crystal-bridge/protocol';
 import { describe, expect, it } from 'vitest';
 import backgroundAgent from './__fixtures__/background-agent.ndjson?raw';
+import backgroundCommand from './__fixtures__/background-command.ndjson?raw';
 import { sessionInfo } from './info.js';
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
@@ -228,7 +229,54 @@ describe('sessionInfo', () => {
     expect(info.effort).toBe('xhigh');
   });
 
-  it('tracks a Monitor as a Side Quest too, running until the process ends', () => {
+  it('drops a background command and a Monitor when they finish, and a command that was stopped', () => {
+    seq = 0;
+    const lines = backgroundCommand
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string; subtype?: string; status?: string });
+    const at = (status: string) =>
+      lines.map((line) => line.subtype === 'task_notification' && line.status === status).lastIndexOf(true);
+    const running = (count: number) =>
+      sessionInfo([env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }), ...lines.slice(0, count).map(raw)])
+        .tasks.filter((task) => task.running)
+        .map((task) => task.description);
+
+    const firstResult = lines.findIndex((line) => line.type === 'result');
+    expect(running(firstResult + 1)).toEqual(['Short ping', 'Long ping', 'Short watch']);
+    expect(running(at('completed') + 1)).toEqual(['Long ping']);
+    expect(running(at('stopped') + 1)).toEqual([]);
+  });
+
+  it('drops a stopped command when the stop is all that says so, as in an interactive transcript', () => {
+    seq = 0;
+    const launch = { ...toolResult('b1'), tool_use_result: { backgroundTaskId: 'task1' } };
+    const before = [
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(toolUse('b1', 'Bash', { command: 'ping', run_in_background: true })),
+      raw(launch),
+      raw(toolUse('s1', 'TaskStop', { task_id: 'task1' })),
+    ];
+    const stopped = { ...toolResult('s1'), tool_use_result: { task_id: 'task1' } };
+
+    expect(sessionInfo(before).tasks[0]?.running).toBe(true);
+    expect(sessionInfo([...before, raw(stopped)]).tasks[0]?.running).toBe(false);
+  });
+
+  it('keeps a Monitor running when a stop aimed at it failed', () => {
+    seq = 0;
+    const launch = { ...toolResult('m1'), tool_use_result: { taskId: 'task1' } };
+    const info = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(toolUse('m1', 'Monitor', { description: 'Watch' })),
+      raw(launch),
+      raw(toolUse('s1', 'TaskStop', { task_id: 'task1' })),
+      raw({ ...toolResult('s1'), tool_use_result: { message: 'No such task' } }),
+    ]);
+    expect(info.tasks[0]?.running).toBe(true);
+  });
+
+  it('tracks a Monitor as a Side Quest too, running until the CLI reports it ended', () => {
     seq = 0;
     const info = sessionInfo([
       env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),

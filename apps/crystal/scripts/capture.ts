@@ -4,7 +4,8 @@
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
- * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, weekly-only.
+ * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command,
+ * weekly-only.
  * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
  * Every fixture line is passed through `scrub()`.
  *
@@ -36,6 +37,13 @@ const MODEL_RE = /\bclaude-(?!code\b|model\b)[a-z0-9][a-z0-9.-]*[a-z0-9]\b/g;
 // (permission_decision source "config", reason "subcommandResults") and never calls the
 // permission tool. `touch` has a side effect, so it goes through `approve`.
 const BASH_PROMPT = 'Run the shell command `touch crystal.txt` with Bash, then reply with the single word DONE.';
+const BACKGROUND_COMMAND_PROMPT =
+  'Start three things, then reply with the single word started and end your turn: (1) Bash with run_in_background, ' +
+  'description "Short ping", command `ping -c 12 127.0.0.1`; (2) Bash with run_in_background, description "Long ping", ' +
+  'command `ping -c 900 127.0.0.1`; (3) the Monitor tool, description "Short watch", command ' +
+  '`for i in 1 2 3; do echo tick; sleep 3; done`. Load any tool you need first. When told something finished, reply ' +
+  'with the single word noted and do nothing else.';
+const BACKGROUND_STOP_PROMPT = 'Stop the "Long ping" background command, then reply with the single word stopped.';
 const BACKGROUND_AGENT_PROMPT =
   'Use the Agent tool exactly once, in the background, with description "Say done" and a prompt asking it to reply ' +
   'with the single word done and use no tools. After launching it, reply with the single word started and end your ' +
@@ -424,6 +432,31 @@ async function main(): Promise<void> {
             if (msg.type === 'system' && msg.subtype === 'task_notification') finished = true;
             // The turn the notification starts, not the one that launched the agent.
             if (finished && msg.type === 'result') ctl.end();
+          },
+        }),
+      );
+    }
+    if (want('background-command')) {
+      const session = randomUUID();
+      sessionScenario.set(session, 'background-command');
+      let notified = 0;
+      let stopping = false;
+      await record(
+        'background-command',
+        await runClaude({
+          repo,
+          mcpUrl: mcpUrl(session),
+          noApprovals: true,
+          sessionArgs: ['--session-id', session, '--permission-mode', 'auto'],
+          firstPrompt: BACKGROUND_COMMAND_PROMPT,
+          onLine: (msg, ctl) => {
+            if (msg.type === 'system' && msg.subtype === 'task_notification') notified += 1;
+            if (msg.type !== 'result') return;
+            // Both short ones have ended and their turns are done: stop the long one.
+            if (notified >= 2 && !stopping) {
+              stopping = true;
+              ctl.send(BACKGROUND_STOP_PROMPT);
+            } else if (stopping && notified >= 3) ctl.end();
           },
         }),
       );
