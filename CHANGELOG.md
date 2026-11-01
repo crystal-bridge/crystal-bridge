@@ -3,6 +3,14 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
+## Unreleased
+
+### Fixed
+
+- `summon start` refuses a folder that isn't on the target, where the Cast used to fail later with an exit code that read
+  as a missing command.
+- The `summon` tool says that a cancel sends no wake.
+
 ## 0.4.1
 
 ### Added
