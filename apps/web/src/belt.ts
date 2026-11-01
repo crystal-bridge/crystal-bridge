@@ -22,8 +22,19 @@ function fit(slots: readonly (BeltSlot | null)[]): Belt {
   return Array.from({ length: BELT_SIZE }, (_, index) => slots[index] ?? null);
 }
 
+/**
+ * A slot saved while MCP servers were called Equipment. That key is retired, and plugins took the new one, `gear`, so
+ * it can only mean this. Plugins can't go on the Belt, so that's the only old key a saved slot can hold.
+ */
+function upToDate(slot: BeltSlot | null): BeltSlot | null {
+  if (!slot) return slot;
+  const icon = slot.icon === 'equipment' ? 'runes' : slot.icon;
+  const source = slot.source?.category === 'equipment' ? { ...slot.source, category: 'runes' } : slot.source;
+  return { ...slot, ...(icon ? { icon } : {}), ...(source ? { source } : {}) };
+}
+
 export function beltFor(appearance: Appearance, kingdom: string): Belt {
-  return fit(appearance.belts?.[kingdom] ?? STARTER);
+  return fit((appearance.belts?.[kingdom] ?? STARTER).map(upToDate));
 }
 
 export function withBelt(appearance: Appearance, kingdom: string, belt: Belt): Appearance {

@@ -83,7 +83,7 @@ function Tile({
 
 /** What a row says under its name. */
 function rowNote(entry: InventoryEntry, plugin: string | undefined, inventory: InventoryData): string | undefined {
-  if (entry.category !== 'relics') return entry.detail ?? plugin;
+  if (entry.category !== 'gear') return entry.detail ?? plugin;
   const { spells, items } = grantsOf(inventory, entry.name);
   const grants = [
     ...(spells > 0 ? [`${w('spells')} ${spells}`] : []),
@@ -258,8 +258,7 @@ export function Inventory({ inventory, onUse, onSend, belt, onBeltChange, manife
     else if (held.from !== index) onBeltChange(swapSlots(belt, held.from, index));
   }
 
-  const connectorNote =
-    category === 'equipment' && !empty && !inventory.equipment.some((e) => e.name.startsWith('claude.ai '));
+  const connectorNote = category === 'runes' && !empty && !inventory.runes.some((e) => e.name.startsWith('claude.ai '));
 
   return (
     <div className="flex h-full min-h-[34rem] flex-col gap-2 text-sm">

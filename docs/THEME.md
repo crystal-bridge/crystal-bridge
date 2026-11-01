@@ -22,7 +22,7 @@ flavour and never hides what something is.
   scrolls; under it, a bar of settings for what you send next (Permission Mode and Effort, the CLI's `--effort`; on New Quest also Engine), a **+** to attach files (or paste an
   image) shown as chips above the text, and
   one round button at the end: **Stop** while a turn runs and the box is empty, **Send** otherwise (mid-turn it
-  queues), **Run** for a Command Rune. Selects there wear the theme (icon, display-font value, chevron) over the
+  queues), **Run** for a Command Sigil. Selects there wear the theme (icon, display-font value, chevron) over the
   browser's own select, so the phone's native picker still opens.
 - **Opt-in complexity.** Show what you can act on now (active Quests, things waiting on you). History and detail are
   one or two clicks away and collapsed by default.
@@ -79,19 +79,19 @@ Grouped by how a thing behaves, not where it came from, so new kinds slot in. An
 |---|---|---|
 | **Spells** | Cast, with an optional target or argument; shapes how a Hero acts | Skills |
 | **Items** | Use once and it's done | Slash commands (`/compact` is an Ether) |
-| **Equipment** | Always on; a connection that shows whether it works | MCP servers |
-| **Relics** | A bundle that brings Spells, Items and Abilities; nothing to watch | Plugins |
+| **Runes** | Always on; a connection to something outside that shows whether it works | MCP servers |
+| **Equipment** | Gear that grants Spells, Items and Abilities; nothing to watch | Plugins |
 | **Guild** | Agents you can send out, each drawn as its Hero Class | Agents |
 | **Abilities** | Passive triggers that fire by themselves; read-only | Hooks |
 
 The panel ("Inventory Audition", #78) stacks the Belt, a 3×2 grid of large icon-only tiles, and the picked tile's list,
 which takes the remaining height. Tiles always show, in this order, so the grid doesn't shift between engines: an
 empty one stays in place, dimmed, and a tile with something failed in it wears a red mark. Interactive Quests report
-only Spells and Equipment. Tiles and slots share one dark socket frame with the colour in the icon, so nothing in the
+only Spells and Runes. Tiles and slots share one dark socket frame with the colour in the icon, so nothing in the
 panel competes with a blue window.
 
 **The Belt** is a Kingdom's eight quick actions, synced across the user's devices with the Kingdom's look, because a
-Kingdom's skills are its own. A slot holds prompt text, so it can be a Spell, Item, Equipment or Guild member, or
+Kingdom's skills are its own. A slot holds prompt text, so it can be a Spell, Item, Rune or Guild member, or
 anything typed; Abilities can't go on it. A Kingdom starts with plain prompts that need no plugin, skill or hook
 (`apps/web/src/belt.ts`). A click fills the prompt, and a slot set to send at once (the lightning mark) sends instead.
 Alt+1 to Alt+8 fire a slot while the panel is open. A slot whose source isn't in this Quest is dimmed and still works.
@@ -103,7 +103,7 @@ the same rules with the category's icon as the fallback. Both are data in `apps/
 Class keywords. In the rules, a specific one goes before a broader one.
 
 When a Hero uses something from the Inventory, the chat says so in one line, with a verb per category: "Paladin
-**casts** deploy!" (Spells), "**uses**" (Items), "**wields**" (Equipment). The skill's own text stays folded under
+**casts** deploy!" (Spells), "**uses**" (Items), "**invokes**" (Runes). The skill's own text stays folded under
 it. Words in `useLine` (`apps/web/src/theme/words.ts`); Classic: "Used skill: deploy".
 
 ### Stats
@@ -118,7 +118,7 @@ HP, Stamina and MP bars drain in five colour steps, green when full through yell
 | **Bars that warn** | when the plan reports a limit is nearly out or used up, its bar turns orange or red however much it shows left: the tightest limit is what stops you |
 | **MP** | context left before compaction, as a draining bar: measured to the configured `autoCompactWindow` when there is one, else to the window's end. The CLI compacts a little before that size, so MP can read a few percent at that moment |
 | **Gold** | cost, one coin per US cent (118 Gold is $1.18), grouped by locale; a tiny info icon shows the dollars (hover, focus or tap). Classic: dollars |
-| **Command Rune** | shell mode: a follow-up starting with `!` on an interactive Quest (the prompt box turns rose) |
+| **Command Sigil** | shell mode: a follow-up starting with `!` on an interactive Quest (the prompt box turns rose) |
 | **Loot** | files changed |
 | **Expedition** | where and how a Quest runs (Kingdom, project, branch, model, mode): the side panel's section under Stats |
 | **Resting at the Inn** | plan usage resetting (flavour text, not a label) |

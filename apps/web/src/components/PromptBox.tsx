@@ -32,7 +32,7 @@ export function PromptBox({
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   disabled?: boolean;
-  /** The text is a shell command (the Command Rune): the box turns rose and the button says Run. */
+  /** The text is a shell command (the Command Sigil): the box turns rose and the button says Run. */
   shell?: boolean;
   /** A turn is running, so an empty box offers Stop. */
   running: boolean;

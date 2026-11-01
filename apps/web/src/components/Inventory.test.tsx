@@ -14,12 +14,12 @@ const inventory: InventoryData = {
     { category: 'items', name: 'compact', use: '/compact ' },
     { category: 'items', name: 'clear', use: '/clear ' },
   ],
-  equipment: [
-    { category: 'equipment', name: 'github', use: 'Use the github tools to ', detail: '2 tools · user', status: 'ok' },
-    { category: 'equipment', name: 'flaky', use: 'Use the flaky tools to ', detail: 'MCP server', status: 'failed' },
-    { category: 'equipment', name: 'sentry', use: 'Use the sentry tools to ', status: 'needs-auth' },
+  runes: [
+    { category: 'runes', name: 'github', use: 'Use the github tools to ', detail: '2 tools · user', status: 'ok' },
+    { category: 'runes', name: 'flaky', use: 'Use the flaky tools to ', detail: 'MCP server', status: 'failed' },
+    { category: 'runes', name: 'sentry', use: 'Use the sentry tools to ', status: 'needs-auth' },
   ],
-  relics: [{ category: 'relics', name: 'forge', detail: 'plugin 2.1.0' }],
+  gear: [{ category: 'gear', name: 'forge', detail: 'plugin 2.1.0' }],
   guild: [{ category: 'guild', name: 'code-reviewer', use: 'Use the code-reviewer agent to ' }],
   abilities: [{ category: 'abilities', name: 'SessionStart:startup', detail: 'SessionStart', status: 'ok' }],
 };
@@ -83,8 +83,8 @@ describe('Inventory tiles', () => {
     expect(tiles.map((button) => button.getAttribute('aria-label'))).toEqual([
       'Spells (skills): 2',
       'Items (slash commands): 2',
-      'Equipment (MCP servers): 3',
-      'Relics (plugins): 1',
+      'Runes (MCP servers): 3',
+      'Equipment (plugins): 1',
       'Guild (agents): 1',
       'Abilities (hooks): 1',
     ]);
@@ -92,7 +92,7 @@ describe('Inventory tiles', () => {
 
   it('marks each tile with its themed icon', () => {
     const { container } = view();
-    for (const name of ['spells', 'items', 'equipment', 'relics', 'guild', 'abilities']) {
+    for (const name of ['spells', 'items', 'runes', 'gear', 'guild', 'abilities']) {
       expect(container.querySelector(`[data-tile='${name}'] svg`)?.classList.contains(`cb-icon-${name}`)).toBe(true);
     }
   });
@@ -101,7 +101,7 @@ describe('Inventory tiles', () => {
     const { container } = view();
     expect(container.querySelector('[data-tile][title]')).toBeNull();
     const tips = screen.getAllByRole('tooltip', { hidden: true }).map((tip) => tip.textContent);
-    expect(tips).toContain('Relics (plugins)');
+    expect(tips).toContain('Equipment (plugins)');
   });
 
   it('opens on Spells, and a tile swaps the list below', () => {
@@ -123,7 +123,7 @@ describe('Inventory tiles', () => {
 
   it('flags a tile when something in it has failed', () => {
     view();
-    expect(tile(/^Equipment/).querySelector('[data-alert]')).not.toBeNull();
+    expect(tile(/^Runes/).querySelector('[data-alert]')).not.toBeNull();
     expect(tile(/^Spells/).querySelector('[data-alert]')).toBeNull();
   });
 
@@ -157,36 +157,36 @@ describe('Inventory rows', () => {
     expect(within(list('Abilities')).getByText('SessionStart:startup')).toBeTruthy();
   });
 
-  it('shows whether each piece of Equipment works, and what it brings', () => {
+  it('shows whether each Rune works, and what it brings', () => {
     view();
-    fireEvent.click(tile(/^Equipment/));
-    const equipment = within(list('Equipment'));
-    expect(equipment.getByText('flaky').closest('li')!.getAttribute('data-status')).toBe('failed');
-    expect(equipment.getByText('sentry').closest('li')!.getAttribute('data-status')).toBe('needs-auth');
-    expect(equipment.getByText('2 tools · user')).toBeTruthy();
+    fireEvent.click(tile(/^Runes/));
+    const runes = within(list('Runes'));
+    expect(runes.getByText('flaky').closest('li')!.getAttribute('data-status')).toBe('failed');
+    expect(runes.getByText('sentry').closest('li')!.getAttribute('data-status')).toBe('needs-auth');
+    expect(runes.getByText('2 tools · user')).toBeTruthy();
   });
 
   it('notes that account connectors arrive after the first turn until one is listed', () => {
     view();
-    fireEvent.click(tile(/^Equipment/));
+    fireEvent.click(tile(/^Runes/));
     expect(screen.getByText(/connectors.*after the first turn/i)).toBeTruthy();
     cleanup();
     view({
       inventory: {
         ...inventory,
-        equipment: [{ category: 'equipment', name: 'claude.ai Gmail', use: 'x', status: 'ok' }],
+        runes: [{ category: 'runes', name: 'claude.ai Gmail', use: 'x', status: 'ok' }],
       },
     });
-    fireEvent.click(tile(/^Equipment/));
+    fireEvent.click(tile(/^Runes/));
     expect(screen.queryByText(/connectors.*after the first turn/i)).toBeNull();
   });
 
-  it('shows what a Relic brings, with nothing to use', () => {
+  it('shows what Equipment brings, with nothing to use', () => {
     view();
-    fireEvent.click(tile(/^Relics/));
-    const relics = list('Relics');
-    expect(within(relics).getByText('plugin 2.1.0 · Spells 1')).toBeTruthy();
-    expect(within(relics).queryAllByRole('button')).toHaveLength(0);
+    fireEvent.click(tile(/^Equipment/));
+    const gear = list('Equipment');
+    expect(within(gear).getByText('plugin 2.1.0 · Spells 1')).toBeTruthy();
+    expect(within(gear).queryAllByRole('button')).toHaveLength(0);
   });
 
   it('leaves Abilities read-only', () => {

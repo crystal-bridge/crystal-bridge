@@ -102,7 +102,7 @@ a PermissionRequest hook in a generated `--settings` file that calls Crystal's l
 session's transcript, a format the CLI calls internal, so check an interactive Quest after each CLI update. The node
 needs `curl`. Recruits offers the same engine choice, and a Quest keeps its engine: the hub names it in the resume it
 sends, so after a Crystal restart a follow-up resumes on the same engine (and a node that no longer runs that engine
-refuses rather than switching quietly). Not yet: cost and token Stats, the Inventory's Items, Relics, Guild and Abilities (it lists Spells and Equipment), and switching mode mid-session.
+refuses rather than switching quietly). Not yet: cost and token Stats, the Inventory's Items, Equipment, Guild and Abilities (it lists Spells and Runes), and switching mode mid-session.
 
 A Quest's Effort can change from its prompt bar, on either engine. The CLI takes it only when a process starts, so nothing
 running changes: the next message moves to a new process with it and the conversation carries on, which shows as the

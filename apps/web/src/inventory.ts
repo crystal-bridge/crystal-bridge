@@ -2,10 +2,9 @@ import type { Envelope } from '@crystal-bridge/protocol';
 
 /**
  * The Inventory: what a Quest's engine can use, grouped by how it behaves (docs/THEME.md). Spells and Items are used
- * by inserting them into the prompt; Equipment is always on and shows whether it works; Relics are bundles that bring
- * the others; the Guild are agents to send out; Abilities fire by themselves.
+ * by inserting them into the prompt; Runes are always on and show whether they work; Equipment brings the others; the Guild are agents to send out; Abilities fire by themselves.
  */
-export type InventoryCategory = 'spells' | 'items' | 'equipment' | 'relics' | 'guild' | 'abilities';
+export type InventoryCategory = 'spells' | 'items' | 'runes' | 'gear' | 'guild' | 'abilities';
 
 export interface InventoryEntry {
   /** One of InventoryCategory; any other kind a source reports lands in Items. */
@@ -23,17 +22,10 @@ export type Inventory = Record<InventoryCategory, InventoryEntry[]>;
 /** Reads one engine's events into entries. Another engine adds its own source; the panel doesn't change. */
 export type InventorySource = (envelopes: readonly Envelope[]) => InventoryEntry[];
 
-export const CATEGORIES: readonly InventoryCategory[] = [
-  'spells',
-  'items',
-  'equipment',
-  'relics',
-  'guild',
-  'abilities',
-];
+export const CATEGORIES: readonly InventoryCategory[] = ['spells', 'items', 'runes', 'gear', 'guild', 'abilities'];
 
 export function emptyInventory(): Inventory {
-  return { spells: [], items: [], equipment: [], relics: [], guild: [], abilities: [] };
+  return { spells: [], items: [], runes: [], gear: [], guild: [], abilities: [] };
 }
 
 function isObj(value: unknown): value is Record<string, unknown> {
@@ -64,7 +56,7 @@ function toolCount(tools: string[], server: string): number {
   return tools.filter((tool) => tool.startsWith(prefix)).length;
 }
 
-/** The bridge's own permission tool, which every Quest has; it's plumbing, not equipment. */
+/** The bridge's own permission tool, which every Quest has; it's plumbing, not a Rune. */
 const BRIDGE_SERVER = 'crystal';
 
 /** The session's own main agent, which `agents` lists too; it isn't one you can send out. */
@@ -105,7 +97,7 @@ export const claudeInventory: InventorySource = (envelopes) => {
       const count = toolCount(tools, server.name);
       const kind = count > 0 ? `${count} ${count === 1 ? 'tool' : 'tools'}` : 'MCP server';
       entries.push({
-        category: 'equipment',
+        category: 'runes',
         name: server.name,
         use: `Use the ${server.name} tools to `,
         detail: `${kind}${typeof server.source === 'string' ? ` · ${server.source}` : ''}`,
@@ -117,7 +109,7 @@ export const claudeInventory: InventorySource = (envelopes) => {
       if (typeof plugin.name !== 'string') continue;
       const version = typeof plugin.version === 'string' ? ` ${plugin.version}` : '';
       entries.push({
-        category: 'relics',
+        category: 'gear',
         name: plugin.name,
         detail: plugin.path === 'builtin' ? 'plugin · built in' : `plugin${version}`,
       });
