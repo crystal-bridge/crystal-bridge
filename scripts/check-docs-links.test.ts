@@ -52,4 +52,12 @@ describe('the built docs site’s links', () => {
     };
     assert.deepEqual(check(files, '/repo/'), ['index.html: /other']);
   });
+
+  it('resolves relative links and anchors from where a page really is under a base path', () => {
+    const files = {
+      'index.html': '<a href="./other#deep">a</a>',
+      'other.html': '<p id="deep"><a href="#deep">b</a><a href="./">c</a><a href="./gone">d</a></p>',
+    };
+    assert.deepEqual(check(files, '/repo/'), ['other.html: ./gone']);
+  });
 });

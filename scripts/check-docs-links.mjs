@@ -32,14 +32,14 @@ export function findBadLinks(dist, base = '/') {
     pages.map((page) => [page, new Set([...html.get(page).matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]))]),
   );
 
+  const prefix = base.replace(/\/*$/, '/');
   const bad = [];
   for (const page of pages) {
-    const pageUrl = new URL(`http://site/${page.replace(/(index)?\.html$/, '')}`);
+    const pageUrl = new URL(`http://site${prefix}${page.replace(/(index)?\.html$/, '')}`);
     for (const [, href] of html.get(page).matchAll(/\shref="([^"]*)"/g)) {
       // Anything with a scheme or a host of its own is outside the site.
       if (href === '' || href === '#' || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')) continue;
       const url = new URL(href, pageUrl);
-      const prefix = base.replace(/\/*$/, '/');
       if (!url.pathname.startsWith(prefix)) {
         bad.push(`${page}: ${href}`);
         continue;
