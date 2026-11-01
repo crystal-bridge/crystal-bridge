@@ -813,6 +813,39 @@ describe('startNode', () => {
     expect(created[1]!.fake.setMode).toHaveBeenCalledWith('acceptEdits');
   });
 
+  it('keeps a Quest’s permission mode on record, so a rebuild can never loosen it', async () => {
+    createNode({ defaultMode: 'auto' });
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+    const session = randomUUID();
+    conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'p' }));
+    expect(await waitForFrame(conn, (frame) => frame.type === 'session.started')).toMatchObject({
+      payload: { mode: 'auto' },
+    });
+
+    conn.socket.send(JSON.stringify({ type: 'session.mode', session, mode: 'manual' }));
+    expect(await waitForFrame(conn, (frame) => frame.type === 'session.mode')).toMatchObject({
+      session,
+      payload: { mode: 'manual' },
+    });
+  });
+
+  it('rebuilds a Quest in its own mode, not the node’s default', async () => {
+    createNode({ defaultMode: 'auto' });
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+    conn.socket.send(
+      JSON.stringify({
+        type: 'session.send',
+        session: randomUUID(),
+        text: 'carry on',
+        resume: { cwd: '/w', nextSeq: 4, mode: 'manual' },
+      }),
+    );
+    await waitUntil(() => created.length === 1);
+    expect(created[0]!.opts.permissionMode).toBe('manual');
+  });
+
   it('answers a question by approving with the answers added to its input', async () => {
     createNode();
     const conn = await nextConnection(harness, 0);

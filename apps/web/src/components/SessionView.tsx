@@ -269,6 +269,12 @@ function Item({
         <div className="border-t border-neutral-300 pt-2 text-xs text-neutral-500 dark:border-neutral-700">
           {item.reason === 'idle' ? (
             'Paused while idle. Send a follow-up to resume.'
+          ) : item.reason === 'restart' ? (
+            item.resuming ? (
+              'Cut off by a restart. Coming back by itself.'
+            ) : (
+              'Cut off by a restart. Send a follow-up to carry on.'
+            )
           ) : (
             <>
               Session ended (exit {item.exitCode ?? '–'}

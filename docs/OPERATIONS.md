@@ -133,6 +133,13 @@ Deploys keep the line.
 - A Quest with a Monitor running is never idle-stopped, but it doesn't hold a deploy or an update: a persistent Monitor
   never ends, and the Quest can start it again after a restart.
 
+A Quest cut off mid-turn all the same, by `--force`, a crash, a reboot or a Quest restarting Crystal itself, comes back by
+itself. When the Kingdom reconnects, the hub sees that it no longer holds a Quest whose turn never finished, records the
+cut, and starts a new turn telling the agent what happened, in the Quest's own permission mode. That turn costs plan usage
+like any other. It stops there instead, and you're notified, if the cut was more than 30 minutes ago, if the turn cut off
+was already such a turn, or if the Quest started before its mode was recorded. A follow-up then carries on as usual. A turn
+the CLI started by itself, when background work reported in, isn't noticed, because nothing marks its start on the hub.
+
 A Crystal restart stops only Crystal's own process (`KillMode=process`): Crystal closes its `claude` sessions on
 SIGTERM, and anything a Quest deliberately left running in the background (detached workers, long jobs) keeps
 running. Before this, a deploy killed every process in the service's cgroup, detached or not. Those jobs still belong to

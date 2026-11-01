@@ -5,6 +5,12 @@ one entry.
 
 ## Unreleased
 
+### Added
+
+- A Quest cut off mid-turn by a Crystal restart, crash or reboot comes back by itself, and the agent is told what happened
+  to its last tool call. If it was cut off more than 30 minutes ago, or twice in a row, it stays stopped and you're
+  notified.
+
 ### Changed
 
 - Editing `CRYSTAL_SUMMONS` in `crystal.env` no longer needs a Crystal restart. The list is read again at each `summon`
@@ -14,6 +20,8 @@ one entry.
   128 MB stays on disk, and a long job loses no place in the log. macOS targets keep the whole log.
 
 ### Fixed
+
+- A rebuilt Quest keeps its own permission mode. It used to come back in the Kingdom's default, which could be looser.
 
 - A Quest's background command or agent counts as busy only while it runs. A Quest that had ever started one used to
   count as busy until it closed, which held its Kingdom back from updates through several releases, with no reason

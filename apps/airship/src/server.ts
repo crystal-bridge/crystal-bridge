@@ -27,6 +27,7 @@ import {
   NodeHello,
   NodeSummons,
   type Cast,
+  type Resume,
   type Summon,
   PROTOCOL_VERSION,
   isOlderVersion,
@@ -44,7 +45,7 @@ import { cleanHubName, type HubSettings } from './hub-settings.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
-import type { Store } from './store.js';
+import type { SessionRow, Store } from './store.js';
 
 export interface BuildServerOptions {
   store: Store;
@@ -201,6 +202,15 @@ export function wakeText(casts: readonly Cast[]): string {
   });
   return `[Crystal Bridge, not the user: you asked to be woken when this finished.]\n\n${parts.join('\n\n')}`;
 }
+
+/** What a Quest is told when it comes back from being cut off, which is also how a second cut in a row is known. */
+export const REVIVE_TEXT =
+  '[Crystal Bridge, not the user: this machine’s Crystal restarted while your last turn was running, so that turn ' +
+  'stopped there.]\n\nAny tool call in progress ended with it, and may show only a bare kill code. Check what really ' +
+  'finished, then carry on from there, without repeating work that did.';
+
+/** How long after a cut a Quest still comes back by itself. Later than this, nobody may want it to. */
+const REVIVE_WINDOW_MS = 30 * 60_000;
 
 function parseFrame(data: unknown): unknown | undefined {
   try {
@@ -372,6 +382,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       detail = typeof payload.summary === 'string' ? payload.summary : undefined;
     } else if (envelope.type === 'session.ended' && payload.reason === 'error') {
       reason = 'failed';
+    } else if (envelope.type === 'session.ended' && payload.reason === 'restart' && payload.resuming !== true) {
+      reason = 'failed';
+      detail = 'Cut off by a restart';
     } else {
       return undefined;
     }
@@ -395,25 +408,61 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   }
 
   /** Sends a Quest one message for the Casts that ended together. Undelivered ones go again on the node's next connect. */
+  /** What a node needs to rebuild a session it doesn't hold, always from the store. */
+  function resumeOf(session: SessionRow): Resume {
+    const engine = store.sessionEngine(session.id);
+    const effort = store.sessionEffort(session.id);
+    const mode = store.sessionMode(session.id);
+    return {
+      cwd: session.cwd,
+      nextSeq: store.nextSeq(session.id),
+      ...(engine ? { engine } : {}),
+      ...(effort ? { effort } : {}),
+      ...(mode ? { mode } : {}),
+    };
+  }
+
   function wakeQuest(node: string, session: string, casts: readonly Cast[]): void {
     const socket = nodes.get(node);
     const quest = store.getSession(session);
     if (!socket || !quest) return;
-    const engine = store.sessionEngine(session);
-    const effort = store.sessionEffort(session);
-    const send: NodeCommand = {
-      type: 'session.send',
-      session,
-      text: wakeText(casts),
-      resume: {
-        cwd: quest.cwd,
-        nextSeq: store.nextSeq(session),
-        ...(engine ? { engine } : {}),
-        ...(effort ? { effort } : {}),
-      },
-    };
+    const send: NodeCommand = { type: 'session.send', session, text: wakeText(casts), resume: resumeOf(quest) };
     sendJson(socket, send);
     for (const cast of casts) store.markCastDelivered(cast.id);
+  }
+
+  /**
+   * A node said hello without a session whose turn never finished, so its process went with the node. Records that, so
+   * nothing goes on showing it as working, and brings it back with word of what happened. Only once in a row, because
+   * a Quest whose own turn restarts its node would otherwise go round for ever. Only soon after, and only in the mode
+   * it's known to have been in, since nobody is there to watch it. Otherwise the user hears and decides.
+   */
+  function reviveCutOff(node: string, socket: WebSocket, id: string): void {
+    const quest = store.getSession(id);
+    const turn = store.cutOffTurn(id);
+    if (!quest || !turn) return;
+    const resuming =
+      store.sessionMode(id) !== undefined &&
+      Date.now() - turn.lastActivity < REVIVE_WINDOW_MS &&
+      !turn.prompt.startsWith(REVIVE_TEXT);
+    const ended: Envelope = {
+      node,
+      session: id,
+      seq: store.nextSeq(id),
+      ts: Date.now(),
+      type: 'session.ended',
+      payload: { exitCode: null, signal: null, reason: 'restart', resuming },
+    };
+    store.appendEvent(ended);
+    broadcast(ended);
+    const attention = attentionFor(ended);
+    if (attention) {
+      for (const client of clients) sendToClient(client, attention);
+      push?.pusher.notify(attention).catch((error: unknown) => app.log.warn({ error }, 'Web Push failed'));
+    }
+    if (!resuming) return;
+    const send: NodeCommand = { type: 'session.send', session: id, text: REVIVE_TEXT, resume: resumeOf(quest) };
+    sendJson(socket, send);
   }
 
   /** Tells whoever should hear that a Cast ended, once. A cancel was someone's own doing, so it says nothing. */
@@ -519,15 +568,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     if (command.type === 'session.send' || command.type === 'session.close' || command.type === 'session.effort') {
       // Always the store's values, so a client can't point a node at another directory.
-      const engine = store.sessionEngine(command.session);
-      const effort = store.sessionEffort(command.session);
-      const resume = {
-        cwd: session.cwd,
-        nextSeq: store.nextSeq(command.session),
-        ...(engine ? { engine } : {}),
-        ...(effort ? { effort } : {}),
-      };
-      routeToNode(clientSocket, session.node, { ...command, resume });
+      routeToNode(clientSocket, session.node, { ...command, resume: resumeOf(session) });
       return;
     }
     routeToNode(clientSocket, session.node, command);
@@ -848,6 +889,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           if (hello.data.sessions) {
             const released = store.releaseOrphans(helloNode, hello.data.sessions);
             if (released.length > 0) app.log.info({ node: helloNode, released }, 'marked orphaned sessions idle');
+            for (const id of released) reviveCutOff(helloNode, socket, id);
           }
           return;
         }

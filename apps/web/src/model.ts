@@ -48,7 +48,15 @@ export type ViewItem =
       durationMs: number | undefined;
     }
   | { kind: 'notice'; id: string; text: string }
-  | { kind: 'ended'; id: string; exitCode: number | null; signal: string | null; reason: 'idle' | 'exit' | 'error' }
+  | {
+      kind: 'ended';
+      id: string;
+      exitCode: number | null;
+      signal: string | null;
+      reason: 'idle' | 'exit' | 'error' | 'restart';
+      /** A restart's cut: the hub is bringing the Quest back. */
+      resuming?: boolean;
+    }
   | { kind: 'resumed'; id: string }
   | { kind: 'closed'; id: string; worktree: { removed: boolean; reason?: string } | undefined }
   /** A terminal asking something only it shows. At most one, kept where it was raised and replaced as it changes. */
@@ -186,7 +194,8 @@ export class ViewBuilder {
           id,
           exitCode: num(p.exitCode) ?? null,
           signal: str(p.signal) ?? null,
-          reason: p.reason === 'idle' || p.reason === 'error' ? p.reason : 'exit',
+          reason: p.reason === 'idle' || p.reason === 'error' || p.reason === 'restart' ? p.reason : 'exit',
+          ...(p.resuming === true ? { resuming: true } : {}),
         });
         return;
       }
