@@ -28,6 +28,20 @@ flavour and never hides what something is.
   one or two clicks away and collapsed by default.
 - **Sprites are small and tasteful.** They never cost screen space or readability.
 
+## Tone
+
+Written docs wear the same blend as the UI: plain writing in a retro RPG costume. `Voice: retro-rpg` in `CLAUDE.md`
+names this tone for anyone writing here, and a tool that doesn't read that line loses nothing.
+
+- **Headings carry the flavour,** with the plain task beside it: `## Gear up: install`. The flavour comes from the
+  framing, so it needs no new facts.
+- **A page opens with one short framing line** in the same flavour.
+- **The working parts stay plain.** Steps, commands, warnings, errors and licensing read the same with the flavour
+  skipped.
+- **One flourish per section.** Flavour a reader has to decode has failed.
+- **Words keep one meaning.** A word from the tables below is only ever used for its concept: Quest always means a
+  session.
+
 ## Type and controls
 
 Decided in #18. The test for each piece of text: is it read at length, or glanced at and picked?
