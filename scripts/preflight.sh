@@ -36,10 +36,10 @@ echo "preflight: node $node_version_raw OK"
 # --- pnpm: just needs to run --------------------------------------------------
 
 if ! command -v pnpm >/dev/null 2>&1; then
-  fail "pnpm not found on PATH. Run 'corepack enable' (Node 22 ships corepack) or install pnpm, then try again."
+  fail "pnpm not found on PATH. Run 'npm install -g pnpm' (or 'corepack enable', where your Node has corepack), then try again."
 fi
 
-pnpm_version=$(pnpm -v 2>/dev/null) || fail "'pnpm -v' did not run cleanly. Run 'corepack enable' or reinstall pnpm."
+pnpm_version=$(pnpm -v 2>/dev/null) || fail "'pnpm -v' did not run cleanly. Reinstall pnpm with 'npm install -g pnpm', then try again."
 echo "preflight: pnpm $pnpm_version OK"
 
 # --- claude: just needs to run -----------------------------------------------

@@ -3,13 +3,13 @@ layout: home
 hero:
   name: Crystal Bridge
   text: All your Claude Code, in one app
-  tagline: Run sessions on every machine you have, then start, watch and approve them from your laptop or your phone. It's dressed up as a 16-bit RPG, and you can turn that off.
+  tagline: Run sessions on one machine or all of them, then start, watch and approve them from one app. It's dressed up as a 16-bit RPG, with a plain Classic theme if you build your own.
   image:
     src: /logo.svg
     alt: The Crystal Bridge crystal
   actions:
     - theme: brand
-      text: Try it in two minutes
+      text: Try it on one machine
       link: /getting-started
     - theme: alt
       text: How it fits together
@@ -26,7 +26,7 @@ features:
   - title: Yours to run
     details: The hub runs on your own hardware, with no cloud service to sign up for and no telemetry. The web app only talks to your hub.
   - title: A game, if you want one
-    details: Sessions are Quests, agents are Heroes who level up, and plan usage is HP. Classic mode uses plain words for all of it.
+    details: Sessions are Quests, agents are Heroes who level up, and plan usage is HP. The Classic theme uses plain words for all of it, if you build from a checkout.
 ---
 
 <div class="cb-tour">
@@ -43,5 +43,8 @@ Crystal Bridge is for you if you run Claude Code on more than one machine, or on
 at. You might keep a repository on a home server, a work account on another computer, and want to check on both from the
 sofa. Instead of opening terminals, you open one app.
 
+**Only have one machine?** [That's a normal setup](./GETTING-STARTED.md#can-i-use-this-on-one-machine).
+
 It's a personal project, and you host it yourself. [Try it on one machine](./GETTING-STARTED.md), then read
-[how it fits together](./CONCEPTS.md).
+[how it fits together](./CONCEPTS.md). To look around first, `pnpm demo` in a checkout runs the whole app with invented
+machines, and needs no Claude Code.

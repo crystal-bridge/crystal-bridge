@@ -19,6 +19,8 @@ one entry.
 
 ### Fixed
 
+- The docs site's links inside page text work again: 29 of them were dead. A check of the built site now holds this.
+- The docs answer whether one machine is enough, and the Getting started steps work with no checkout on a current Node.
 - A Cast no longer loses the last lines of its log when a routine check notices it ended before the log has been read.
 
 ## 0.4.0

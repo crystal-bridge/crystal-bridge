@@ -402,8 +402,11 @@ identity. Old revisions and commit metadata stay behind.
 ## The docs site
 
 `docs/` builds into a VitePress site. It's its own pnpm workspace with its own lockfile, so its dependencies never
-reach a hub or Kingdom install. `.github/workflows/docs.yml` builds it on every pull request and on `main`, and a dead
-link fails the build. Links out of `docs/` work on GitHub, and on the site go to the same file on GitHub. The logo is a
+reach a hub or Kingdom install. `.github/workflows/docs.yml` builds it on every pull request and on `main`. Two checks
+catch dead links. VitePress's own build compares each link to the source file names, and `scripts/check-docs-links.mjs`
+then checks every internal link and anchor in the built HTML, case-sensitively, as Pages serves it. The second one matters
+because page addresses are lower case and file names aren't. Links out of `docs/` work on GitHub, and on the site go to
+the same file on GitHub. The logo is a
 copy of the app's `favicon.svg`. `scripts/docs-site.test.ts` holds that, and other things a build can't see, such as
 every page being in the sidebar.
 

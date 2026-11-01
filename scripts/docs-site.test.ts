@@ -37,6 +37,41 @@ describe('docs site', () => {
     assert.equal(logo, readFileSync(join(ROOT, 'apps/web/public/favicon.svg'), 'utf8'));
   });
 
+  it('answers the one-machine question, and the home page leads to the answer', () => {
+    const start = readFileSync(join(DOCS, 'GETTING-STARTED.md'), 'utf8');
+    assert.match(start, /^## Can I use this on one machine\?$/m);
+    assert.match(home, /GETTING-STARTED\.md#can-i-use-this-on-one-machine/);
+    for (const heading of [
+      'Try it',
+      'Keep it running on this computer',
+      'Reach it from another device',
+      'On Windows',
+    ]) {
+      assert.ok(start.includes(`\n## ${heading}\n`), `Getting started has no "${heading}"`);
+    }
+  });
+
+  it('lets a reader with no checkout follow the steps', () => {
+    const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+    const steps = /#region one-machine -->([\s\S]*?)<!-- #endregion one-machine/.exec(readme)?.[1] ?? '';
+    assert.match(steps, /git clone /);
+    assert.match(steps, /npm install -g pnpm/);
+  });
+
+  it('points at the demo', () => {
+    assert.match(home, /pnpm demo/);
+    assert.match(readFileSync(join(DOCS, 'GETTING-STARTED.md'), 'utf8'), /pnpm demo/);
+  });
+
+  it('files Summons under running it, as the feature it is', () => {
+    const run = config.slice(config.indexOf("text: 'Run it'"), config.indexOf("text: 'Keep it safe'"));
+    assert.ok(run.includes("link: '/summons'"));
+  });
+
+  it('marks nothing that has shipped as planned', () => {
+    assert.doesNotMatch(readFileSync(join(DOCS, 'THEME.md'), 'utf8'), /\(planned\)/);
+  });
+
   it('opens with what it is, something to look at, and the way into the concepts', () => {
     assert.match(home, /src: \/logo\.svg/);
     assert.match(home, /demo\.gif/);
