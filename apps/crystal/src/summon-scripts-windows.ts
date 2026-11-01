@@ -20,8 +20,10 @@ import {
  * - A follow hears nothing when its connection ends: over SSH on Windows, neither stdin closing nor the client dying
  *   reaches it, and an idle log gives it nothing to fail on writing. So it ends itself on a timer and the Kingdom
  *   reconnects from its offset, which keeps a dead connection's follow from lasting.
- * - `cmd`'s `>>` keeps its own file position, so cutting a long log short would only leave the next write far past the
- *   end. Marking the file sparse and zeroing its start frees the space and leaves every offset where it was.
+ * - A job's output handle keeps its own file position, so cutting a long log short would only leave the next write far
+ *   past the end. Marking the file sparse and zeroing its start frees the space and leaves every offset where it was.
+ *   That takes a second handle that can write while the job does, which `cmd`'s `>>` doesn't allow, so the runner opens
+ *   the log itself and hands it to the job.
  */
 
 /** Printed by a start when the target wouldn't let the job leave the SSH session. */
@@ -106,6 +108,8 @@ public static class CrystalCast {
   static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
   [DllImport("kernel32.dll", SetLastError = true)]
   static extern bool TerminateJobObject(IntPtr job, uint code);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
   [DllImport("kernel32.dll")] static extern uint ResumeThread(IntPtr thread);
   [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
   [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
@@ -119,12 +123,15 @@ public static class CrystalCast {
     out int returned, IntPtr overlapped);
 
   const uint NoWindow = 0x08000000, Suspended = 0x4, Breakaway = 0x01000000, NewGroup = 0x200;
+  const uint Inherit = 1, UseStdHandles = 0x100;
   const uint Timeout = 258, KillOnClose = 0x2000, SetSparse = 0x900C4, SetZeroData = 0x980C8;
 
-  static ProcessInfo Spawn(string command, string cwd, uint flags) {
+  static ProcessInfo Spawn(string command, string cwd, uint flags, IntPtr output) {
     StartupInfo si = new StartupInfo(); si.cb = Marshal.SizeOf(si);
+    bool inherit = output != IntPtr.Zero;
+    if (inherit) { si.flags = (int)UseStdHandles; si.stdOut = output; si.stdErr = output; }
     ProcessInfo pi;
-    if (!CreateProcessW(null, command, IntPtr.Zero, IntPtr.Zero, false, flags, IntPtr.Zero, cwd, ref si, out pi))
+    if (!CreateProcessW(null, command, IntPtr.Zero, IntPtr.Zero, inherit, flags, IntPtr.Zero, cwd, ref si, out pi))
       throw new System.ComponentModel.Win32Exception();
     return pi;
   }
@@ -132,10 +139,10 @@ public static class CrystalCast {
   // Out of the SSH session's job, which ends everything in it when the session closes. Whether a job may leave is that
   // job's choice, so this answers whether it left: under a CI runner it needn't, but over SSH the job won't last.
   public static bool Detach(string command, string cwd) {
-    try { Spawn(command, cwd, NoWindow | NewGroup | Breakaway); return true; }
+    try { Spawn(command, cwd, NoWindow | NewGroup | Breakaway, IntPtr.Zero); return true; }
     catch (System.ComponentModel.Win32Exception e) {
       if (e.NativeErrorCode != 5) throw;
-      Spawn(command, cwd, NoWindow | NewGroup);
+      Spawn(command, cwd, NoWindow | NewGroup, IntPtr.Zero);
       return false;
     }
   }
@@ -172,7 +179,13 @@ public static class CrystalCast {
     limits.basic.flags = KillOnClose;
     if (!SetInformationJobObject(job, 9, ref limits, Marshal.SizeOf(limits)))
       throw new System.ComponentModel.Win32Exception();
-    ProcessInfo pi = Spawn(command, cwd, NoWindow | Suspended);
+    ProcessInfo pi;
+    // Shared for writing, unlike a redirect of cmd's, so Trim can reach the file while the job writes to it.
+    using (FileStream output = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete)) {
+      IntPtr handle = output.SafeFileHandle.DangerousGetHandle();
+      if (!SetHandleInformation(handle, Inherit, Inherit)) throw new System.ComponentModel.Win32Exception();
+      pi = Spawn(command, cwd, NoWindow | Suspended, handle);
+    }
     if (!AssignProcessToJobObject(job, pi.process)) throw new System.ComponentModel.Win32Exception();
     ResumeThread(pi.thread);
     long trimmed = 0;
@@ -239,7 +252,7 @@ $cwd = $env:USERPROFILE
 if (Test-Path "$dir\cwd") { $cwd = [IO.File]::ReadAllText("$dir\cwd") }
 try {
   if (-not (Test-Path -LiteralPath $cwd -PathType Container)) { throw "no such folder: $cwd" }
-  $line = 'cmd.exe /d /c ""' + ${PS} + '" ${PS_ARGS} -File "' + "$dir\command.ps1" + '" < NUL >> "' + "$dir\log" + '" 2>&1"'
+  $line = 'cmd.exe /d /c ""' + ${PS} + '" ${PS_ARGS} -File "' + "$dir\command.ps1" + '" < NUL"'
   $trim = ([IO.File]::ReadAllText("$dir\trim")).Trim() -split ' '
   $code = [CrystalCast]::Run($line, $cwd, "$dir\cancel", "$dir\log", [long]$trim[0], [long]$trim[1])
 } catch {
