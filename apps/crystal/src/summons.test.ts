@@ -367,6 +367,17 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     await final(b.id);
   });
 
+  it('says so at once when a Cast has to wait, and not when it doesn’t', async () => {
+    const made = summons();
+    const first = await start(made, 'sleep 30');
+    const second = await start(made, 'echo done');
+    expect(first.queued).toBeUndefined();
+    expect(second.queued).toBe(true);
+    await made.cancel(SESSION, first.id);
+    expect(await final(second.id)).toMatchObject({ state: 'succeeded' });
+    expect(reports.filter((cast) => cast.id === second.id).at(-1)?.queued).toBeUndefined();
+  });
+
   it('runs up to a raised limit at once', async () => {
     const made = summons({ targets: [{ name: HERE, limit: 2 }] });
     const hold = (name: string) => `echo x > ${name}; while [ ! -f release ]; do sleep 0.1; done`;

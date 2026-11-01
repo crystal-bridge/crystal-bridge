@@ -1,4 +1,11 @@
-import { FINISHED_LINE, FOLLOW_LINE, QUEUED_LINE, TURN_LINE, type TargetScripts } from './summon-scripts.js';
+import {
+  FINISHED_LINE,
+  FOLLOW_LINE,
+  QUEUED_LINE,
+  STARTED_QUEUED,
+  TURN_LINE,
+  type TargetScripts,
+} from './summon-scripts.js';
 
 /**
  * The same job on a Windows target, in the PowerShell that comes with Windows: the same folder and the same lines as
@@ -166,6 +173,7 @@ function Take-Turn {
       $slot = "$slots\$n"
       if ([CrystalCast]::Claim($slot)) {
         [IO.File]::WriteAllText("$slot\owner", "$PID $(Start-Time $PID)", $utf8)
+        [IO.File]::WriteAllText("$dir\turn", '', $utf8)
         if ($waiting) { Add-Line '${TURN_LINE}' }
         return $slot
       }
@@ -177,7 +185,12 @@ function Take-Turn {
         }
       }
     }
-    if (-not $waiting) { $waiting = $true; Add-Line '${QUEUED_LINE}' }
+    if (-not $waiting) {
+      $waiting = $true
+      [IO.File]::WriteAllText("$dir\queued", '', $utf8)
+      [IO.File]::WriteAllText("$dir\turn", '', $utf8)
+      Add-Line '${QUEUED_LINE}'
+    }
     Start-Sleep -Seconds 2
   }
 }
@@ -234,6 +247,9 @@ $left = [CrystalCast]::Detach(${PS.replace('"$env', '"""$env').replace('.exe"', 
 $tries = 0
 while (-not (Test-Path "$dir\\pid") -and $tries -lt 150) { Start-Sleep -Milliseconds 200; $tries++ }
 if (-not (Test-Path "$dir\\pid")) { exit 71 }
+$tries = 0
+while (-not (Test-Path "$dir\\turn") -and $tries -lt 150) { Start-Sleep -Milliseconds 200; $tries++ }
+if (Test-Path "$dir\\queued") { [Console]::Out.WriteLine('${STARTED_QUEUED}') }
 if (-not $left) { [Console]::Out.WriteLine('${NOT_DETACHED}') }
 [Console]::Out.WriteLine('started')
 `;

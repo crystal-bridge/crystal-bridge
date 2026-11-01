@@ -1,7 +1,8 @@
 /**
  * The POSIX `sh` a Cast runs on its target (docs/SUMMONS.md). Each script arrives over stdin, so nothing depends on
  * shell quoting and nothing has to be installed there. The target keeps a job folder, which is the record:
- * `command`, `cwd`, `limit`, `runner`, `pid` (process id, process group, start time), `boot`, `log`, `cancel` and `exit`.
+ * `command`, `cwd`, `limit`, `runner`, `pid` (process id, process group, start time), `boot`, `turn`, `queued`, `log`,
+ * `cancel` and `exit`.
  */
 
 /** Printed to the log after `exit` is in place. It only wakes the Kingdom: `exit` is the result. */
@@ -9,6 +10,8 @@ export const FINISHED_LINE = '::summon finished';
 /** Printed to the log when a job has to wait for its turn, and when it gets it. */
 export const QUEUED_LINE = '::summon queued';
 export const TURN_LINE = '::summon turn';
+/** Printed by a start, before `started`, when the job found it has to wait. */
+export const STARTED_QUEUED = 'queued';
 /** Printed before a follow's log, so anything a shell startup file prints isn't taken for the log. */
 export const FOLLOW_LINE = '::summon follow';
 
@@ -77,6 +80,7 @@ take_turn() {
       if mkdir "$slots/$n" 2>/dev/null; then
         slot="$slots/$n"
         printf '%s %s\\n' "$$" "$(start_time $$)" > "$slot/owner"
+        : > "$dir/turn"
         [ -z "$waiting" ] || printf '${TURN_LINE}\\n' >> "$dir/log"
         return 0
       fi
@@ -90,6 +94,8 @@ take_turn() {
     done
     if [ -z "$waiting" ]; then
       waiting=1
+      : > "$dir/queued"
+      : > "$dir/turn"
       printf '${QUEUED_LINE}\\n' >> "$dir/log"
     fi
     sleep 2
@@ -145,6 +151,13 @@ while [ ! -s "$dir/pid" ] && [ "$tries" -lt 50 ]; do
   tries=$((tries + 1))
 done
 [ -s "$dir/pid" ] || exit 71
+# The job's first try for a turn, so a start can say it's waiting. A job this slow only goes unmentioned.
+tries=0
+while [ ! -f "$dir/turn" ] && [ "$tries" -lt 50 ]; do
+  sleep 0.1 2>/dev/null || sleep 1
+  tries=$((tries + 1))
+done
+[ -f "$dir/queued" ] && echo ${STARTED_QUEUED}
 echo started
 `;
 }

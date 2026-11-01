@@ -163,7 +163,8 @@ Flush each line, as Python here, or a buffered script shows them late. A line th
 Each Summon runs one Cast at a time unless its limit is raised (`/2` in `CRYSTAL_SUMMONS`). A Cast that has to wait shows
 as waiting, and starts by itself. This happens on the target: a turn is a folder that an atomic `mkdir` claims, under
 `~/.crystal-bridge/summons/.slots`, so several Kingdoms can share a machine with no knowledge of each other, and each sees
-only its own Casts. A turn left by a killed job or a reboot is taken back.
+only its own Casts. A turn left by a killed job or a reboot is taken back. `start` says when a Cast has to wait,
+with `queued: true`.
 
 Sharing works when the Kingdoms log in as the same SSH user, because that's whose home the turns are in. Under different
 users they don't see each other's turns. Waiting Casts don't always start in the order they were made.
