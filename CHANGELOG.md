@@ -12,6 +12,7 @@ one entry.
 - The `summon` tool says that a cancel sends no wake.
 - An approval or question on the stream engine stays open for a day. The CLI used to give up after 5 minutes with a tool
   error, and the agent could retry and leave the card you were reading stale.
+- `summon cancel` returns the Cast's final state, where a slow target such as Windows could still show it as running.
 
 ## 0.4.1
 

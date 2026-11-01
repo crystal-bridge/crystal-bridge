@@ -161,7 +161,8 @@ interface Follower {
   retryMs: number;
   retry?: NodeJS.Timeout;
   reportTimer?: NodeJS.Timeout;
-  checking: boolean;
+  /** The check in progress, for anyone who needs its answer. */
+  checking?: Promise<void>;
 }
 
 interface Result {
@@ -373,7 +374,7 @@ export function createSummons(options: SummonsOptions): Summons {
 
   function follow(rec: CastRecord): void {
     const target = targetOf(rec);
-    const follower = followers.get(rec.id) ?? { pending: Buffer.alloc(0), inLog: false, retryMs, checking: false };
+    const follower = followers.get(rec.id) ?? { pending: Buffer.alloc(0), inLog: false, retryMs };
     followers.set(rec.id, follower);
     follower.pending = Buffer.alloc(0);
     follower.inLog = false;
@@ -408,24 +409,28 @@ export function createSummons(options: SummonsOptions): Summons {
   async function check(rec: CastRecord, settle = true): Promise<void> {
     const follower = followers.get(rec.id);
     const target = targetOf(rec);
-    if (!follower || !target || follower.checking || rec.state !== 'running') return;
-    follower.checking = true;
-    try {
-      const { code, stdout } = await ask(target, (scripts) => scripts.probe(rec.id));
-      if (code !== 0) return;
-      const answer = stdout.trim().split('\n').at(-1) ?? '';
-      const exit = /^exit (\d+)( cancelled)?$/.exec(answer);
-      if (exit) {
-        // Found rather than read to the end of the log, so its last lines may still be on their way.
-        if (settle) await new Promise((resolve) => setTimeout(resolve, settleMs));
-        const cancelled = exit[2] !== undefined || rec.cancelling === true;
-        const exitCode = Number(exit[1]);
-        finish(rec, cancelled ? 'cancelled' : exitCode === 0 ? 'succeeded' : 'failed', exitCode);
-      } else if (answer === 'dead' || answer === 'gone') {
-        finish(rec, 'lost');
-      }
-    } finally {
-      follower.checking = false;
+    if (!follower || !target || rec.state !== 'running') return;
+    if (follower.checking) return follower.checking;
+    const checking = probe(rec, target, settle).finally(() => {
+      follower.checking = undefined;
+    });
+    follower.checking = checking;
+    return checking;
+  }
+
+  async function probe(rec: CastRecord, target: Target, settle: boolean): Promise<void> {
+    const { code, stdout } = await ask(target, (scripts) => scripts.probe(rec.id));
+    if (code !== 0) return;
+    const answer = stdout.trim().split('\n').at(-1) ?? '';
+    const exit = /^exit (\d+)( cancelled)?$/.exec(answer);
+    if (exit) {
+      // Found rather than read to the end of the log, so its last lines may still be on their way.
+      if (settle) await new Promise((resolve) => setTimeout(resolve, settleMs));
+      const cancelled = exit[2] !== undefined || rec.cancelling === true;
+      const exitCode = Number(exit[1]);
+      finish(rec, cancelled ? 'cancelled' : exitCode === 0 ? 'succeeded' : 'failed', exitCode);
+    } else if (answer === 'dead' || answer === 'gone') {
+      finish(rec, 'lost');
     }
   }
 
@@ -536,6 +541,8 @@ export function createSummons(options: SummonsOptions): Summons {
         save();
         throw new Error(`could not reach ${rec.summon}: ${stderr.trim().slice(-500) || 'no answer'}`);
       }
+      await check(rec);
+      // That may have been a check already on its way, which asked before the job stopped.
       await check(rec);
       return outward(rec);
     },

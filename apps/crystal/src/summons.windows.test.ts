@@ -137,8 +137,7 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     expect(b.queued).toBe(true);
     await made.cancel(SESSION, b.id);
     expect(await final(b.id)).toMatchObject({ state: 'cancelled' });
-    await made.cancel(SESSION, a.id);
-    expect(await final(a.id)).toMatchObject({ state: 'cancelled' });
+    expect((await made.cancel(SESSION, a.id)).state).toBe('cancelled');
     expect(powershell('(Get-Process ping -ErrorAction Ignore | Measure-Object).Count').trim()).toBe('0');
     forget(a.id);
     forget(b.id);
