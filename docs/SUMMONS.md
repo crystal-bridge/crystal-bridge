@@ -124,18 +124,21 @@ change to a Quest's event stream.
 
 ## For agents
 
-A `summon` tool on the Quest's `crystal` MCP server has three actions: start, status and cancel. Its description
+A `summon` tool on the Quest's `crystal` MCP server has four actions: start, status, cancel and machines. Its description
 explains itself, so an agent can use it unprompted.
 
 | Input | Meaning |
 |---|---|
-| `action` | `start`, `status` or `cancel` |
+| `action` | `start`, `status`, `cancel` or `machines` |
 | `summon` | which Summon, or `here` for the Kingdom itself |
 | `command` | what to run, in the machine's own shell: PowerShell on Windows |
 | `onFinish` | `notify` or `wake`, required so the agent chooses each time |
 | `name` | optional, what to call this Cast |
 | `cwd` | optional, where to run it; otherwise the home folder. A folder that isn't there is refused at the start |
 | `cast` | which Cast, for `status` and `cancel` |
+
+A resumed Quest keeps the tool description it first loaded, so the machines listed there can be out of date, though the
+tool itself is current. `machines` gives the current list, and a start with a wrong name names them too.
 
 The tool works on both engines. Whether a start asks you first follows the Quest's permission mode: in manual it shows
 the machine and the command on its approval card, and in auto the CLI can run it without asking.

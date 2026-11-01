@@ -614,7 +614,7 @@ export function summonDescription(targets: readonly Target[]): string {
     'The command runs in the machine’s own shell, so write PowerShell for a Windows machine.',
     'Use it for builds, renders, batches and anything else over a minute or so. A Cast is lost, not retried, if its',
     'machine restarts, since only you know whether it can safely run twice.',
-    `Machines: ${names.join(', ')}.`,
+    `Machines when this tool was loaded: ${names.join(', ')}. \`machines\` gives the current list.`,
   ].join(' ');
 }
 
@@ -622,6 +622,7 @@ export function summonDescription(targets: readonly Target[]): string {
 export async function summonCall(summons: Summons, session: string, args: Record<string, unknown>): Promise<unknown> {
   const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : undefined);
   const cast = text(args.cast);
+  if (args.action === 'machines') return summons.list();
   if (args.action === 'status') return summons.status(session, cast);
   if (args.action === 'cancel') {
     if (!cast) throw new Error('cancel needs a cast: the id start gave you');

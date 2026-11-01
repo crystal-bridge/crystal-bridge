@@ -5,6 +5,11 @@ one entry.
 
 ## Unreleased
 
+### Added
+
+- `summon machines` gives the Kingdom's current machines. A resumed Quest keeps the tool description it first loaded, so
+  the list there can be out of date, and the description now says so.
+
 ### Fixed
 
 - A finished Cast stays on record until its folder has really gone from the target. A machine that was off at the end
