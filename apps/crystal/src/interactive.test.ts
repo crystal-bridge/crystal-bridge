@@ -371,7 +371,7 @@ describe('InteractiveSession', () => {
     expect(session.busy).toBe(false);
 
     session.send('are you there?');
-    await tick(80);
+    await until(() => spawned[0]!.pty.killed.length > 0);
     expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
     spawned[0]!.pty.emitExit(143);
     await tick();
@@ -381,7 +381,7 @@ describe('InteractiveSession', () => {
     expect(session.busy).toBe(true);
 
     hook('SessionStart', { source: 'resume' });
-    await tick(10);
+    await until(() => spawned[1]!.pty.written.join('').endsWith('\r'));
     expect(spawned[1]!.pty.written.join('')).toBe('\x1b[200~are you there?\x1b[201~\r');
     hook('UserPromptSubmit', { prompt: 'are you there?' });
     await tick(80);
@@ -424,7 +424,7 @@ describe('InteractiveSession', () => {
     );
     session.send('are you there?');
     const typed = spawned[0]!.pty.written.length;
-    await tick(60);
+    await until(() => spawned[0]!.pty.written.length >= typed + 3);
     expect(spawned[0]!.pty.killed).toEqual([]);
     expect(spawned[0]!.pty.written.slice(typed)).toEqual(['\x1b', '\x1b[200~are you there?\x1b[201~', '\r']);
     hook('UserPromptSubmit', { prompt: 'are you there?' });
@@ -448,7 +448,7 @@ describe('InteractiveSession', () => {
     spawned[0]!.pty.emitExit(143);
     hook('SessionStart', { source: 'resume' });
     spawned[1]!.pty.emitData('Some earlier output\r\n\r\n  A dialog the bridge cannot see\r\n  1. Yes  2. No\r\n');
-    await tick(50);
+    await until(() => events.some((e) => e.type === 'terminal.screen'));
     expect(events.find((e) => e.type === 'terminal.screen')?.payload).toEqual({
       open: true,
       raised: true,
@@ -524,7 +524,7 @@ describe('InteractiveSession', () => {
       expect(spawned[1]!.args).toEqual(expect.arrayContaining(['--resume', '--effort', 'low']));
       expect(events.find((e) => e.type === 'session.ended')).toBeUndefined();
       hook('SessionStart', { source: 'resume' });
-      await tick(10);
+      await until(() => spawned[1]!.pty.written.includes('\x1b[200~next\x1b[201~'));
       expect(spawned[1]!.pty.written).toContain('\x1b[200~next\x1b[201~');
     });
 
@@ -626,7 +626,7 @@ describe('InteractiveSession', () => {
       const { session, spawned, events, hook } = harness({ startWaitMs: 15, screenUpdateMs: 5 });
       session.start('hello');
       spawned[0]!.pty.emitData('  Sign in to continue\r\n');
-      await tick(30);
+      await until(() => screens(events).length > 0);
       expect(screens(events)[0]).toEqual({
         open: true,
         raised: true,
@@ -635,7 +635,7 @@ describe('InteractiveSession', () => {
       });
       session.keys({ keys: '\r' });
       hook('SessionStart', {});
-      await tick(10);
+      await until(() => spawned[0]!.pty.written.includes('\x1b[200~hello\x1b[201~'));
       expect(screens(events).at(-1)).toEqual({ open: false });
       expect(spawned[0]!.pty.written).toContain('\x1b[200~hello\x1b[201~');
     });
@@ -643,7 +643,7 @@ describe('InteractiveSession', () => {
     it('stops a start nobody answered, so the next message can begin again', async () => {
       const { spawned, events, session } = harness({ startWaitMs: 5, terminalWaitMs: 10 });
       session.start('hello');
-      await tick(40);
+      await until(() => events.at(-1)?.type === 'turn.finished');
       expect(events.at(-1)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
       expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
     });
@@ -710,7 +710,7 @@ describe('InteractiveSession', () => {
     await tick();
     session.close();
     expect(spawned[0]!.pty.written.join('')).toContain('/exit');
-    await tick(60);
+    await until(() => spawned[0]!.pty.killed.length > 0);
     expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
   });
 });
