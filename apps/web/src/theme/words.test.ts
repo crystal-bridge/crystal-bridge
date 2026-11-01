@@ -1,6 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { CLASSIC, CRYSTAL, helperLine, hint, stepWord, toolChip, useLine, w, castLine, summonLine } from './words.js';
 
@@ -133,9 +130,14 @@ describe('useLine', () => {
 
   // A word typed into a label stays themed in the Classic build, where `w()` would give the plain one.
   it('keeps theme words out of the labels components hard-code', () => {
-    const folder = join(dirname(fileURLToPath(import.meta.url)), '..', 'components');
-    for (const file of readdirSync(folder).filter((name) => name.endsWith('.tsx') && !name.includes('.test.'))) {
-      expect(readFileSync(join(folder, file), 'utf8'), file).not.toMatch(/label="(Kingdom|Quest|Party|Hero)"/);
+    const sources = import.meta.glob<string>(['../components/*.tsx', '!../components/*.test.tsx'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    expect(Object.keys(sources).length).toBeGreaterThan(0);
+    for (const [file, source] of Object.entries(sources)) {
+      expect(source, file).not.toMatch(/label="(Kingdom|Quest|Party|Hero)"/);
     }
   });
 });
