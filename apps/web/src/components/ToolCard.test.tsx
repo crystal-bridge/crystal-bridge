@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react';
-import type { ToolItem } from '../model.js';
+import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isSummonStart, SummonLine, ToolCard } from './ToolCard.js';
 
@@ -84,7 +84,7 @@ describe('SummonLine', () => {
     id: 't',
     name: 'mcp__crystal__summon',
     input: { action: 'start', summon: 'Shiva', command: './encode --all' },
-  } as unknown as ToolItem;
+  } as unknown as ComponentProps<typeof SummonLine>['tool'];
 
   it('announces a Cast in one line, with the command folded inside', () => {
     render(<SummonLine tool={start} />);
