@@ -332,7 +332,8 @@ export function createSummons(options: SummonsOptions): Summons {
     if (text === FINISHED_LINE) {
       // The wrapper's own newline goes first, for a log that didn't end its last line.
       if (rec.logTail === '\n' || rec.logTail.endsWith('\n\n')) rec.logTail = rec.logTail.slice(0, -1);
-      void check(rec);
+      // Read to the end, so there's nothing left to wait for.
+      void check(rec, false);
       return;
     }
     if (!readSignal(rec, text)) rec.logTail = `${rec.logTail}${text}\n`.slice(-MAX_CAST_TAIL);
@@ -384,7 +385,7 @@ export function createSummons(options: SummonsOptions): Summons {
       if (followers.get(rec.id) !== follower || closed || rec.state !== 'running') return;
       follower.retry = setTimeout(() => {
         follow(rec);
-        void check(rec, true);
+        void check(rec);
       }, follower.retryMs);
       follower.retry.unref?.();
       follower.retryMs = Math.min(follower.retryMs * 2, MAX_RETRY_MS);
@@ -403,7 +404,7 @@ export function createSummons(options: SummonsOptions): Summons {
   }
 
   /** Asks the target how a job stands, and acts on a final answer. Not reaching it says nothing about the job. */
-  async function check(rec: CastRecord, settle = false): Promise<void> {
+  async function check(rec: CastRecord, settle = true): Promise<void> {
     const follower = followers.get(rec.id);
     const target = targetOf(rec);
     if (!follower || !target || follower.checking || rec.state !== 'running') return;
@@ -532,7 +533,7 @@ export function createSummons(options: SummonsOptions): Summons {
         save();
         throw new Error(`could not reach ${rec.summon}: ${stderr.trim().slice(-500) || 'no answer'}`);
       }
-      await check(rec, true);
+      await check(rec);
       return outward(rec);
     },
 
@@ -542,7 +543,7 @@ export function createSummons(options: SummonsOptions): Summons {
       for (const rec of records.values()) {
         if (rec.state !== 'running') continue;
         follow(rec);
-        void check(rec, true);
+        void check(rec);
       }
     },
 

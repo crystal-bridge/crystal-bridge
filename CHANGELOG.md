@@ -5,6 +5,10 @@ one entry.
 
 ## Unreleased
 
+### Fixed
+
+- A Cast no longer loses the last lines of its log when a routine check notices it ended before the log has been read.
+
 ## 0.4.0
 
 ### Added
