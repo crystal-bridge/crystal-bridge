@@ -5,6 +5,12 @@ one entry.
 
 ## Unreleased
 
+### Changed
+
+- Editing `CRYSTAL_SUMMONS` in `crystal.env` no longer needs a Crystal restart. The list is read again at each `summon`
+  call and every few minutes, and a typo keeps the last good list. A Cast running on a machine taken off the list is
+  seen through to its end.
+
 ### Fixed
 
 - A Quest's background command or agent counts as busy only while it runs. A Quest that had ever started one used to

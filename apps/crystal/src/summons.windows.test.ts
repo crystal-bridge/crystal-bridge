@@ -48,7 +48,7 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
 
   const summons = (statePath = 'casts.json') => {
     const made = createSummons({
-      targets: [target],
+      targets: () => [target],
       statePath: join(home, statePath),
       spawnOn: (to) => {
         const child = shell(to);

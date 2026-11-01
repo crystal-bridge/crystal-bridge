@@ -6,7 +6,9 @@ import type { Cast } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createSummons,
+  envFileOf,
   HERE,
+  liveTargets,
   parseSummons,
   sshArgs,
   summonCall,
@@ -54,6 +56,71 @@ describe('parseSummons', () => {
   it('refuses a host that ssh would read as an option', () => {
     expect(() => parseSummons('-oProxyCommand=x', 'linux')).toThrow(/CRYSTAL_SUMMONS/);
     expect(() => parseSummons('a=b c', 'linux')).toThrow(/CRYSTAL_SUMMONS/);
+  });
+});
+
+describe('liveTargets', () => {
+  let dir: string;
+  let envFile: string;
+  const logged: string[] = [];
+  const live = (file: string | undefined, value?: string) =>
+    liveTargets(file, value, 'linux', (message) => logged.push(message));
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cb-targets-'));
+    envFile = join(dir, 'crystal.env');
+    logged.length = 0;
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('reads the env file each time, so an edit counts with no restart', () => {
+    writeFileSync(envFile, 'CRYSTAL_HUB=wss://hub\nCRYSTAL_SUMMONS=render\n');
+    const targets = live(envFile, 'render');
+    expect(targets().map((target) => target.name)).toEqual([HERE, 'render']);
+
+    writeFileSync(envFile, 'CRYSTAL_SUMMONS="render,Shiva=gpu.lan/2"\n');
+    expect(targets()).toEqual([
+      { name: HERE },
+      { name: 'render', host: 'render' },
+      { name: 'Shiva', host: 'gpu.lan', limit: 2 },
+    ]);
+  });
+
+  it('takes a line removed from the file as no machines', () => {
+    writeFileSync(envFile, 'CRYSTAL_HUB=wss://hub\n');
+    expect(live(envFile, 'render')()).toEqual([{ name: HERE }]);
+  });
+
+  it('keeps the last good list through a typo, and says why once', () => {
+    writeFileSync(envFile, 'CRYSTAL_SUMMONS=render\n');
+    const targets = live(envFile, 'render');
+    targets();
+
+    writeFileSync(envFile, 'CRYSTAL_SUMMONS=-oProxyCommand=x\n');
+    expect(targets()).toEqual([{ name: HERE }, { name: 'render', host: 'render' }]);
+    targets();
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatch(/CRYSTAL_SUMMONS/);
+  });
+
+  it('keeps the list while the file is missing, as during an editor’s save', () => {
+    const targets = live(envFile, 'render');
+    expect(targets()).toEqual([{ name: HERE }, { name: 'render', host: 'render' }]);
+  });
+
+  it('stays on the startup list when Crystal wasn’t started from a file', () => {
+    expect(live(undefined, 'render')()).toEqual([{ name: HERE }, { name: 'render', host: 'render' }]);
+  });
+
+  it('still refuses a bad list at startup', () => {
+    expect(() => live(undefined, '-oProxyCommand=x')).toThrow(/CRYSTAL_SUMMONS/);
+  });
+});
+
+describe('envFileOf', () => {
+  it('finds the file Crystal was started with', () => {
+    expect(envFileOf(['--enable-source-maps', '--env-file=/x/crystal.env'])).toBe('/x/crystal.env');
+    expect(envFileOf(['--enable-source-maps'])).toBeUndefined();
   });
 });
 
@@ -133,7 +200,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
   function summons(options: Partial<SummonsOptions> = {}): Summons {
     const made = createSummons({
-      targets: [{ name: HERE }],
+      targets: () => [{ name: HERE }],
       statePath,
       spawnOn,
       report: (cast) => reports.push(cast),
@@ -151,6 +218,88 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     made.start({ session: SESSION, summon: HERE, command, onFinish: 'notify', ...extra });
   const final = (id: string) => until(() => reports.find((cast) => cast.id === id && cast.state !== 'running'));
   const folder = (id: string) => join(home, '.crystal-bridge', 'summons', id);
+
+  describe('when the machine list changes', () => {
+    const shell = () =>
+      spawn('sh', ['-s'], { cwd: home, env: { PATH: process.env.PATH, HOME: home, SHELL: '/bin/sh' } });
+    const RENDER = { name: 'render', host: 'render' };
+
+    it('finds a machine added since it started, at a start, with no restart', async () => {
+      let list: Target[] = [{ name: HERE }];
+      const made = summons({ targets: () => list, spawnOn: shell });
+      await expect(
+        made.start({ session: SESSION, summon: 'render', command: 'x', onFinish: 'notify' }),
+      ).rejects.toThrow(/no Summon called render/);
+
+      list = [{ name: HERE }, RENDER];
+      const cast = await made.start({ session: SESSION, summon: 'render', command: 'exit 0', onFinish: 'notify' });
+      expect((await final(cast.id)).state).toBe('succeeded');
+    });
+
+    it('tells the hub of a change by itself, and only of a change', async () => {
+      let list: Target[] = [{ name: HERE }];
+      const lists: unknown[] = [];
+      const made = summons({ targets: () => list, onList: (next) => lists.push(next), probeMs: 10 });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(lists).toEqual([]);
+
+      list = [{ name: HERE }, RENDER];
+      await until(() => lists.length > 0);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(lists).toEqual([[{ name: HERE, local: true }, { name: 'render' }]]);
+      expect(made.list()).toEqual([{ name: HERE, local: true }, { name: 'render' }]);
+    });
+
+    it('sees a Cast through to its end on a machine taken off the list, but starts nothing new there', async () => {
+      let list: Target[] = [{ name: HERE }, RENDER];
+      const made = summons({ targets: () => list, spawnOn: shell, probeMs: 10 });
+      const cast = await made.start({
+        session: SESSION,
+        summon: 'render',
+        command: 'sleep 1; echo finished; exit 0',
+        onFinish: 'notify',
+      });
+
+      list = [{ name: HERE }];
+      await expect(
+        made.start({ session: SESSION, summon: 'render', command: 'x', onFinish: 'notify' }),
+      ).rejects.toThrow(/no Summon called render/);
+      expect(await final(cast.id)).toMatchObject({ state: 'succeeded', logTail: 'finished\n' });
+    });
+
+    it('stays with the machine a Cast started on when its name moves to another', async () => {
+      const seen: Array<string | undefined> = [];
+      let list: Target[] = [{ name: HERE }, RENDER];
+      const made = summons({
+        targets: () => list,
+        spawnOn: (target) => (seen.push(target.host), shell()),
+        probeMs: 10,
+      });
+      const cast = await made.start({ session: SESSION, summon: 'render', command: 'sleep 1', onFinish: 'notify' });
+
+      list = [{ name: HERE }, { name: 'render', host: 'other-box' }];
+      await final(cast.id);
+      expect(seen).not.toContain('other-box');
+    });
+
+    it('asks a name that moved to another machine which kind it is', async () => {
+      let list: Target[] = [RENDER];
+      const asked: Array<string | undefined> = [];
+      const made = summons({
+        targets: () => list,
+        spawnOn: shell,
+        kindOf: async (target) => (asked.push(target.host), 'posix'),
+      });
+      const run = async () => {
+        const cast = await made.start({ session: SESSION, summon: 'render', command: 'exit 0', onFinish: 'notify' });
+        await final(cast.id);
+      };
+      await run();
+      list = [{ name: 'render', host: 'other-box' }];
+      await run();
+      expect(asked).toEqual(['render', 'other-box']);
+    });
+  });
 
   it('runs a command, returns before it ends, and reports the log and the exit code', async () => {
     const made = summons();
@@ -425,7 +574,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
   });
 
   it('runs up to a raised limit at once', async () => {
-    const made = summons({ targets: [{ name: HERE, limit: 2 }] });
+    const made = summons({ targets: () => [{ name: HERE, limit: 2 }] });
     const hold = (name: string) => `echo x > ${name}; while [ ! -f release ]; do sleep 0.1; done`;
     const a = await start(made, hold('a'));
     const b = await start(made, hold('b'));
@@ -551,7 +700,11 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
       await final(cast.id);
       first.close();
       clock += WEEK + 1;
-      const later = summons({ now: () => clock, probeMs: 60_000, targets: [{ name: 'other', host: 'other.example' }] });
+      const later = summons({
+        now: () => clock,
+        probeMs: 60_000,
+        targets: () => [{ name: 'other', host: 'other.example' }],
+      });
       later.resume();
       expect(later.casts()).toEqual([]);
     });
@@ -574,7 +727,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
   it('says so in the log when a machine won’t let a job outlive its SSH session', async () => {
     const made = summons({
-      targets: [{ name: 'old', host: 'old.example' }],
+      targets: () => [{ name: 'old', host: 'old.example' }],
       spawnOn: () => spawn('sh', ['-c', 'cat >/dev/null; echo not-detached; echo started']),
     });
     const cast = await made.start({ session: SESSION, summon: 'old', command: 'x', onFinish: 'notify' });

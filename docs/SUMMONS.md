@@ -25,13 +25,21 @@ needs Node 22 and an install on each one, and it would put a broker on the hub. 
 
 ## Setting up
 
-List the machines in the Kingdom's `crystal.env`, then restart Crystal. A Quest that does the restart itself is running
-inside Crystal, so it loses its tool call and stays down until something messages it. Restart from a terminal, or between
-turns:
+List the machines in the Kingdom's `crystal.env`:
 
 ```sh
 CRYSTAL_SUMMONS=render-box,Shiva=gpu.example.lan/2
 ```
+
+Crystal reads the list again at each `summon` call and every few minutes, so a change needs no restart. If the new list
+can't be read, Crystal keeps the last good one and says why in its log. This works for a Kingdom started from that file,
+as `join` and `adopt` set it up. One started any other way, such as `pnpm dev`, keeps its list until a restart, and
+a Quest that does that restart itself is running inside Crystal, so it loses its tool call and stays down until
+something messages it.
+
+Taking a machine off the list stops new Casts there, and any Cast running on it is still seen through to its end,
+unless Crystal restarts first, when it's reported as lost. The same goes for a name moved to another machine: a running
+Cast stays with the machine it started on.
 
 Each entry is an SSH host name, as `ssh` on the Kingdom knows it. `name=` gives it a name of your own, and `/2` lets it run
 two Casts at once. The Kingdom

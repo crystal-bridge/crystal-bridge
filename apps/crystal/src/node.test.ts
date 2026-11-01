@@ -380,6 +380,16 @@ describe('startNode', () => {
       crystal.reportCast({ ...cast, state: 'succeeded', exitCode: 0 });
       expect(await waitForFrame(conn, (frame) => frame.kind === 'cast')).toMatchObject({ cast: { exitCode: 0 } });
     });
+
+    it('passes on a changed machine list', async () => {
+      const crystal = createNode({});
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      crystal.reportSummons([{ name: 'here', local: true }]);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'summons')).toMatchObject({
+        summons: [{ name: 'here', local: true }],
+      });
+    });
   });
 
   describe('updating the agent CLI', () => {

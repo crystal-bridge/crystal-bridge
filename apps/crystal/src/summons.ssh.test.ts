@@ -31,7 +31,7 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
 
   const summons = () => {
     const made = createSummons({
-      targets: [{ name: 'box', host: HOST! }],
+      targets: () => [{ name: 'box', host: HOST! }],
       statePath: join(home, 'casts.json'),
       spawnOn: (target) => {
         const child = shell(target);
@@ -89,7 +89,7 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
     onTarget(`rm -f ${release}`);
     const one = summons();
     const two = createSummons({
-      targets: [{ name: 'box', host: HOST! }],
+      targets: () => [{ name: 'box', host: HOST! }],
       statePath: join(home, 'two.json'),
       spawnOn: shell,
       report: (cast) => reports.push(cast),
@@ -125,7 +125,7 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
 
   it('fails at once on a host it can’t reach, without prompting', async () => {
     const made = createSummons({
-      targets: [{ name: 'nowhere', host: 'nowhere.invalid' }],
+      targets: () => [{ name: 'nowhere', host: 'nowhere.invalid' }],
       statePath: join(home, 'none.json'),
       spawnOn: shell,
       report: () => undefined,

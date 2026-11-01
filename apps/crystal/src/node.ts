@@ -136,6 +136,8 @@ export interface CrystalNode {
   reportSelfUpdate(state: SelfUpdate): void;
   /** Tells the hub how a Cast stands. A frame lost to a dropped connection is sent again on the next connect. */
   reportCast(cast: Cast): void;
+  /** Tells the hub the machine list changed. A frame lost to a dropped connection is sent again on the next connect. */
+  reportSummons(summons: Summon[]): void;
   /** Whether a session is open here, so only a real Quest can use the `summon` tool. */
   holds(session: string): boolean;
   /**
@@ -846,10 +848,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     wsSend({ kind: 'cast', cast } satisfies NodeCast);
   }
 
+  function reportSummons(summons: Summon[]): void {
+    wsSend({ kind: 'summons', summons } satisfies NodeSummons);
+  }
+
   function holds(session: string): boolean {
     const state = sessions.get(session);
     return state !== undefined && !state.closed;
   }
 
-  return { handlePermissionRequest, status, reportSelfUpdate, reportCast, holds, close };
+  return { handlePermissionRequest, status, reportSelfUpdate, reportCast, reportSummons, holds, close };
 }
