@@ -127,4 +127,17 @@ describe('useLine', () => {
     expect(summonLine('render', CRYSTAL)).toEqual({ themed: 'You summoned render!', plain: 'Started a job on render' });
     expect(summonLine('render', CLASSIC).themed).toBe('Started a job on render');
   });
+
+  // A word typed into a label stays themed in the Classic build, where `w()` would give the plain one.
+  it('keeps theme words out of the labels components hard-code', () => {
+    const sources = import.meta.glob<string>(['../components/*.tsx', '!../components/*.test.tsx'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    expect(Object.keys(sources).length).toBeGreaterThan(0);
+    for (const [file, source] of Object.entries(sources)) {
+      expect(source, file).not.toMatch(/label="(Kingdom|Quest|Party|Hero)"/);
+    }
+  });
 });

@@ -35,6 +35,28 @@
   border-radius: 8px;
   box-shadow: var(--vp-shadow-3);
 }
+.cb-tour-switch {
+  display: flex;
+  justify-content: center;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+.cb-tour-switch button {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  color: var(--vp-c-text-2);
+  font-size: 0.875rem;
+}
+.cb-tour-switch button[aria-pressed='true'] {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-text-1);
+  font-weight: 600;
+}
+.cb-tour-switch button:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
 .cb-caption {
   margin-top: 0.5rem;
   color: var(--vp-c-text-2);
