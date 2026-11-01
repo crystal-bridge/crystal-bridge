@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { CLASSIC, CRYSTAL, helperLine, hint, stepWord, toolChip, useLine, w, castLine, summonLine } from './words.js';
 
@@ -126,5 +129,13 @@ describe('useLine', () => {
     );
     expect(summonLine('render', CRYSTAL)).toEqual({ themed: 'You summoned render!', plain: 'Started a job on render' });
     expect(summonLine('render', CLASSIC).themed).toBe('Started a job on render');
+  });
+
+  // A word typed into a label stays themed in the Classic build, where `w()` would give the plain one.
+  it('keeps theme words out of the labels components hard-code', () => {
+    const folder = join(dirname(fileURLToPath(import.meta.url)), '..', 'components');
+    for (const file of readdirSync(folder).filter((name) => name.endsWith('.tsx') && !name.includes('.test.'))) {
+      expect(readFileSync(join(folder, file), 'utf8'), file).not.toMatch(/label="(Kingdom|Quest|Party|Hero)"/);
+    }
   });
 });

@@ -21,6 +21,7 @@ one entry.
 
 ### Fixed
 
+- The side panel says Node, not Kingdom, in the Classic theme.
 - A rebuilt Quest keeps its own permission mode. It used to come back in the Kingdom's default, which could be looser.
 
 - A Quest's background command or agent counts as busy only while it runs. A Quest that had ever started one used to

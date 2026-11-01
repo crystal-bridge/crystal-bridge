@@ -29,13 +29,7 @@ features:
     details: Sessions are Quests, agents are Heroes who level up, and plan usage is HP. The Classic theme uses plain words for all of it, if you build from a checkout.
 ---
 
-<div class="cb-tour">
-
-![A tour of the app: the home page across three machines, a busy session with its party and meters, an approval, and Split View across two machines](./images/demo.gif)
-
-<p class="cb-caption">A tour of the app, running a scripted world of invented machines.</p>
-
-</div>
+<TourSwitch />
 
 ## Who it's for
 

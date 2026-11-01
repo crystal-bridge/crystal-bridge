@@ -329,7 +329,7 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
       </Section>
 
       <Section title={w('expedition')} tooltip={hint('expedition')} plate="expedition">
-        <Row label="Kingdom">{kingdom}</Row>
+        <Row label={w('kingdom')}>{kingdom}</Row>
         {info.cwd && (
           <Row label="Project">
             <span className="font-mono">{info.cwd}</span>

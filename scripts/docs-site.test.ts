@@ -74,7 +74,37 @@ describe('docs site', () => {
 
   it('opens with what it is, something to look at, and the way into the concepts', () => {
     assert.match(home, /src: \/logo\.svg/);
-    assert.match(home, /demo\.gif/);
+    assert.match(home, /TourSwitch/);
     assert.match(home, /link: \/concepts/);
+  });
+
+  describe('the tour', () => {
+    const tour = readFileSync(join(DOCS, '.vitepress/theme/TourSwitch.vue'), 'utf8');
+
+    it('is on the home page, by way of the switch', () => {
+      assert.match(home, /<TourSwitch \/>/);
+    });
+
+    it('shows the themed version until a reader asks for the plain one', () => {
+      assert.match(tour, /const plain = ref\(false\)/);
+      assert.match(tour, /import themedGif from '..\/..\/images\/demo.gif'/);
+      assert.match(tour, /import plainGif from '..\/..\/images\/demo-plain.gif'/);
+      // Nothing may name the plain file in markup, or a browser would fetch it with the page.
+      assert.doesNotMatch(tour, /rel="preload"|<img[^>]*plainGif/);
+    });
+
+    it('gives each version its own words', () => {
+      assert.match(tour, /Quest/);
+      assert.doesNotMatch(
+        tour.slice(tour.indexOf('const PLAIN'), tour.indexOf('const shown')),
+        /Quest|Kingdom|Airship/,
+      );
+    });
+
+    it('leaves the README with the themed one alone, which can’t hold a switch', () => {
+      const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+      assert.match(readme, /docs\/images\/demo\.gif/);
+      assert.doesNotMatch(readme, /demo-plain/);
+    });
   });
 });
