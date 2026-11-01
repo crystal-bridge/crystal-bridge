@@ -7,6 +7,15 @@ one entry.
 
 ## 0.4.0
 
+### Added
+
+- Summons: a Quest can start a long job on a machine you can reach by SSH, or on its own Kingdom, and stop spending
+  tokens on it. The job survives dropped connections and Crystal restarts, shows in the Castle's Summoning Circle, and
+  ends with one notification or one wake-up. List machines in `CRYSTAL_SUMMONS`; nothing is installed on them.
+- Each Summon runs one Cast at a time unless you raise its limit, and Kingdoms sharing a machine take turns. A script
+  can name its Cast and show a live count with `::summon` lines.
+- A Windows machine can be a Summon, with OpenSSH on it and nothing installed.
+
 ### Changed
 
 - In the Crystal theme, MCP servers are now Runes, plugins are Equipment, and shell mode is the Command Sigil. Relics are
