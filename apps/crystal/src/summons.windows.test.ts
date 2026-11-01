@@ -59,7 +59,8 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
       report: (cast) => reports.push(cast),
       reportMs: 10,
       retryMs: 200,
-      settleMs: 300,
+      // Longer than a follow takes to connect: PowerShell is slow to start on a busy runner.
+      settleMs: 5000,
       probeMs: 1000,
     });
     running.push(made);
