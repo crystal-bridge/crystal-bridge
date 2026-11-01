@@ -12,6 +12,14 @@ import { z } from 'zod';
 /** `updatedInput` replaces the tool's input, e.g. AskUserQuestion's input with the answers added. */
 export type PermissionDecision = { behavior: 'allow'; updatedInput?: unknown } | { behavior: 'deny'; message: string };
 
+/** How long the CLI lets a call to this server stay silent, which is its default of 300 s until told otherwise. */
+const MCP_IDLE_MS = 86_400_000;
+
+/** The `--mcp-config` for a Quest. A human may take far longer to answer than the CLI waits by default, and neither `MCP_TOOL_TIMEOUT` nor stream traffic extends it. */
+export function mcpConfig(url: string): string {
+  return JSON.stringify({ mcpServers: { crystal: { type: 'http', url, timeout: MCP_IDLE_MS } } });
+}
+
 /** What the MCP tool call is asking a human to decide. */
 export interface PermissionRequest {
   session: string;

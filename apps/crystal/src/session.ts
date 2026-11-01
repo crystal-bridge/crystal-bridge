@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { Effort, EventType, PermissionMode, UsagePayload } from '@crystal-bridge/protocol';
+import { mcpConfig } from './permissions.js';
 import { usageFromRaw } from './usage.js';
 
 /** The subset of protocol event types a running `claude` process can emit on its own. */
@@ -155,7 +156,6 @@ function buildArgs(
   effort?: Effort,
   addDirs: readonly string[] = [],
 ): string[] {
-  const mcpConfig = JSON.stringify({ mcpServers: { crystal: { type: 'http', url: permissionUrl } } });
   return [
     '-p',
     '--input-format',
@@ -165,7 +165,7 @@ function buildArgs(
     '--verbose',
     '--include-partial-messages',
     '--mcp-config',
-    mcpConfig,
+    mcpConfig(permissionUrl),
     '--permission-prompt-tool',
     'mcp__crystal__approve',
     '--permission-mode',

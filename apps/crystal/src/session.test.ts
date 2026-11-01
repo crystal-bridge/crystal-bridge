@@ -172,7 +172,7 @@ describe('ClaudeSession', () => {
       '--verbose',
       '--include-partial-messages',
       '--mcp-config',
-      JSON.stringify({ mcpServers: { crystal: { type: 'http', url: PERMISSION_URL } } }),
+      JSON.stringify({ mcpServers: { crystal: { type: 'http', url: PERMISSION_URL, timeout: 86_400_000 } } }),
       '--permission-prompt-tool',
       'mcp__crystal__approve',
       '--permission-mode',

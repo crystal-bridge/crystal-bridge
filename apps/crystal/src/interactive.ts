@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { spawn as nodePtySpawn } from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
+import { mcpConfig } from './permissions.js';
 import { type ClaudeSessionEvent, neutralTokens } from './session.js';
 import {
   applyListing,
@@ -449,9 +450,7 @@ export class InteractiveSession extends EventEmitter {
       // One folder per flag, each followed by another flag: --add-dir takes a list.
       ...(this.opts.addDirs ?? []).flatMap((dir) => ['--add-dir', dir]),
       // Only for the `summon` tool: this engine's approvals come through hooks, not `approve`.
-      ...(this.opts.permissionUrl
-        ? ['--mcp-config', JSON.stringify({ mcpServers: { crystal: { type: 'http', url: this.opts.permissionUrl } } })]
-        : []),
+      ...(this.opts.permissionUrl ? ['--mcp-config', mcpConfig(this.opts.permissionUrl)] : []),
       '--settings',
       this.settingsFile,
     ];

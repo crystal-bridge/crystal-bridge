@@ -200,7 +200,12 @@ was loaded: the first turn read 27466 cached input tokens, against about 12.9k f
 
 It completes. `slow-allow` answered after 60.0 s (`at` → `answeredAt` in `permission-calls.json`), the command ran,
 and the result was `success` / `DONE` with `duration_ms` 64688. No `MCP_TOOL_TIMEOUT` was needed at 60 s. The script
-retries with `MCP_TOOL_TIMEOUT=300000` only when the slow run fails. Longer holds (minutes) were not tested.
+retries with `MCP_TOOL_TIMEOUT=300000` only when the slow run fails.
+
+Past 300 s it fails unless the server's entry says otherwise. On CLI 2.1.316 a call held for 400 s ended at 300 s with a tool
+error, "sent no response or progress for 300s", and the agent retried, so a second request arrived. `MCP_TOOL_TIMEOUT` and
+SSE comments on the stream made no difference. A per-server `"timeout"` in milliseconds in `--mcp-config` did: the same hold
+ran to `success` / `DONE`. An unknown key in that entry is ignored, so a CLI without this setting still starts.
 
 ## How a deny shows up
 
