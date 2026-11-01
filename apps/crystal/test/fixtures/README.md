@@ -4,7 +4,7 @@ Recorded by `scripts/capture.ts` against the real CLI, version **2.1.312**, on 2
 Re-record with:
 
 ```
-pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow|background-agent ...]
+pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow|background-agent|weekly-only ...]
 ```
 
 Every run uses these flags, with `cwd` set to a fresh `mkdtemp` git repo:
@@ -29,6 +29,7 @@ JSON-RPC `params` the CLI sends, so the "wire" section of `permission-calls.json
 | `interrupt.ndjson` | Bash `python3 -c 'import time; time.sleep(30)'`; SIGINT 2 s after the `tool_use` | allow | exit **0** about 0.6 s after SIGINT, `result/error_during_execution` |
 | `resume.ndjson` | `--resume <interrupt session>`, "Reply with the single word RESUMED." | none | exit 0, `result/success`, `result: "RESUMED"`, same `session_id` |
 | `slow-allow.ndjson` | same prompt as allow; answer held for 60 s | allow after 60 s | exit 0, `result/success`, `duration_ms` 64688 |
+| `weekly-only.ndjson` | "Reply with the single word DONE.", on a plan with only a weekly limit (2.1.316) | none | exit 0, `result/success`; see Plan windows |
 | `permission-calls.json` | `onRequest`: what Task 4's `onRequest` received. `wire`: raw `initialize`, `tools/list` and `tools/call` params per scenario | | |
 
 **The prompt differs from the plan.** The plan's `echo crystal` never reached the permission tool. The CLI allows
@@ -250,11 +251,16 @@ every `resetsAt` and `utilization` is `0`, `overageStatus` is `rejected`, and `o
 ## Plan windows
 
 Recorded from a plan with both limits (2.1.312, and again on 2026-10-31): `unifiedWindows` has `five_hour` and
-`seven_day`, in that order, each with `utilization`, `resetsAt` and `status`. `rateLimitType` names one of them. A plan
-with only weekly limits has not been recorded: nothing here shows what its window names are. `src/usage.ts` therefore
-reads the length from the name (`seven_day`, `seven_day_<scope>`, `30_day`) rather than expecting set names, and passes
-on any other name with no length. `status` is scrubbed to `allowed`; the app also handles `allowed_warning` and
-`rejected`.
+`seven_day`, in that order, each with `utilization`, `resetsAt` and `status`. `rateLimitType` names one of them.
+
+Recorded from a plan with only a weekly limit (2.1.316, 2026-10-31, `weekly-only.ndjson`): `unifiedWindows` has just
+`seven_day`, in the same shape, and `rateLimitType` is `seven_day`. `five_hour` is absent, not empty. Record this one by
+naming it, on such an account: `capture.ts weekly-only`. A run with no scenarios skips it.
+
+`src/usage.ts` reads the length from the name (`seven_day`, `seven_day_<scope>`, `30_day`) rather than expecting set
+names, and passes on any other name with no length. `status` is scrubbed to `allowed`; the app also handles
+`allowed_warning` and `rejected`. An interactive Quest's statusline hasn't been recorded on a weekly-only plan; it's read
+by the same rule.
 
 ## The interactive engine (2.1.312, observed 2026-10-29)
 

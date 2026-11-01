@@ -64,8 +64,14 @@ describe('window lengths', () => {
     ]);
   });
 
-  it('reads a plan with no five-hour window the same way', () => {
-    expect(usageFromRaw(report('seven_day'))?.windows).toMatchObject([{ label: '7d', spanHours: 168 }]);
+  it('reads a recorded plan with only a weekly limit', () => {
+    const weeklyOnly = readFileSync(new URL('../test/fixtures/weekly-only.ndjson', import.meta.url), 'utf8')
+      .split('\n')
+      .find((text) => text.includes('rate_limit_event'))!;
+    const usage = usageFromRaw(JSON.parse(weeklyOnly));
+    expect(usage?.windows.map(({ id, label, spanHours }) => ({ id, label, spanHours }))).toEqual([
+      { id: 'seven_day', label: '7d', spanHours: 168 },
+    ]);
   });
 
   it('keeps what follows the length, so a narrower limit stays apart from the plan’s own', () => {

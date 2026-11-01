@@ -4,8 +4,9 @@
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
- * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent.
- * With no arguments, all of them run. Every fixture line is passed through `scrub()`.
+ * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, weekly-only.
+ * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
+ * Every fixture line is passed through `scrub()`.
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts --rescrub
  *
@@ -333,6 +334,7 @@ async function main(): Promise<void> {
   if (process.argv.includes('--rescrub')) return rescrub();
   const wanted = new Set(process.argv.slice(2));
   const want = (s: string) => wanted.size === 0 || wanted.has(s);
+  const asked = (s: string) => wanted.has(s);
 
   const repo = await mkdtemp(join(tmpdir(), 'crystal-capture-'));
   execFileSync('git', ['init', '-q'], { cwd: repo });
@@ -402,6 +404,9 @@ async function main(): Promise<void> {
 
   try {
     if (want('allow')) await record('allow', await simple('allow', BASH_PROMPT, allow));
+    if (asked('weekly-only')) {
+      await record('weekly-only', await simple('weekly-only', 'Reply with the single word DONE.', allow));
+    }
     if (want('background-agent')) {
       const session = randomUUID();
       sessionScenario.set(session, 'background-agent');
