@@ -241,7 +241,7 @@ fi
 `;
 }
 
-/** Removes a finished job's folder. */
+/** Removes a finished job's folder, exiting 0 only once it has gone. */
 export function cleanScript(id: string): string {
   return `${folder(id)}\nrm -rf "$dir"\n`;
 }

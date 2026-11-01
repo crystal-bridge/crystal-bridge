@@ -63,6 +63,10 @@ describe('sshArgs', () => {
     expect(args).toContain('BatchMode=yes');
     expect(args.slice(-3)).toEqual(['--', 'render', 'sh -s']);
   });
+
+  it('keeps the client’s own warnings out of what a target said', () => {
+    expect(sshArgs('render')).toContain('LogLevel=ERROR');
+  });
 });
 
 describe('summonCall', () => {
@@ -433,6 +437,122 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     expect(await final(b.id)).toMatchObject({ state: 'cancelled' });
     expect(existsSync(join(home, 'ran'))).toBe(false);
     await made.cancel(SESSION, a.id);
+  });
+
+  describe('a finished Cast past its week', () => {
+    const WEEK = 7 * 24 * 60 * 60_000;
+    let clock: number;
+    let reachable: boolean;
+    let cleans: number;
+
+    // A target that's off: anything but a script that would clean fails the way ssh does.
+    const flaky = (target: Target) => {
+      const child = spawnOn(target);
+      if (reachable) return child;
+      cleans += 1;
+      child.kill('SIGKILL');
+      return child;
+    };
+    const finished = async (made: Summons) => {
+      const cast = await start(made, 'echo done');
+      await final(cast.id);
+      clock += WEEK + 1;
+      return cast;
+    };
+    const recorded = (id: string): boolean => existsSync(statePath) && readFileSync(statePath, 'utf8').includes(id);
+
+    beforeEach(() => {
+      clock = 1_000_000;
+      reachable = true;
+      cleans = 0;
+    });
+
+    it('removes its folder, then its record', async () => {
+      const made = summons({ now: () => clock, probeMs: 20 });
+      const cast = await finished(made);
+      await until(() => !existsSync(folder(cast.id)) && !recorded(cast.id));
+      expect(made.casts()).toEqual([]);
+    });
+
+    it('stays on record until a target that was off is back', async () => {
+      const made = summons({ now: () => clock, probeMs: 20, spawnOn: flaky });
+      const cast = await start(made, 'echo done');
+      await final(cast.id);
+      reachable = false;
+      clock += WEEK + 1;
+      await until(() => cleans >= 3);
+      expect(existsSync(folder(cast.id))).toBe(true);
+      expect(made.casts().map((c) => c.id)).toEqual([cast.id]);
+
+      reachable = true;
+      await until(() => !existsSync(folder(cast.id)));
+      await until(() => made.casts().length === 0);
+    });
+
+    it('spends one connection on a target that’s off, however many Casts are waiting', async () => {
+      const made = summons({ now: () => clock, probeMs: 40, spawnOn: flaky });
+      await final((await start(made, 'echo a')).id);
+      await final((await start(made, 'echo b')).id);
+      await final((await start(made, 'echo c')).id);
+      reachable = false;
+      clock += WEEK + 1;
+      const passes = 5;
+      const opened = Date.now();
+      await until(() => cleans >= passes);
+      // Three Casts a pass would get here in two passes.
+      expect(Date.now() - opened).toBeGreaterThanOrEqual((passes - 2) * 40);
+      expect(made.casts()).toHaveLength(3);
+    });
+
+    it('goes on to the next Cast when the target answers but one folder won’t go', async () => {
+      const stuck: string[] = [];
+      const made = summons({
+        now: () => clock,
+        probeMs: 20,
+        spawnOn: (target) => {
+          const child = spawnOn(target);
+          const end = child.stdin.end.bind(child.stdin);
+          child.stdin.end = ((script: string) =>
+            end(stuck.some((id) => script.includes(`rm -rf`) && script.includes(id)) ? 'exit 1\n' : script)) as never;
+          return child;
+        },
+      });
+      const a = await start(made, 'echo a');
+      await final(a.id);
+      const b = await start(made, 'echo b');
+      await final(b.id);
+      stuck.push(a.id);
+      clock += WEEK + 1;
+      await until(() => !existsSync(folder(b.id)));
+      await until(() => made.casts().length === 1);
+      expect(made.casts()[0]?.id).toBe(a.id);
+    });
+
+    it('forgets a Cast whose Summon is off the list, since nothing can reach its folder', async () => {
+      const first = summons({ now: () => clock, probeMs: 60_000 });
+      const cast = await start(first, 'echo done');
+      await final(cast.id);
+      first.close();
+      clock += WEEK + 1;
+      const later = summons({ now: () => clock, probeMs: 60_000, targets: [{ name: 'other', host: 'other.example' }] });
+      later.resume();
+      expect(later.casts()).toEqual([]);
+    });
+
+    it('keeps trying after a restart', async () => {
+      const first = summons({ now: () => clock, probeMs: 60_000 });
+      const cast = await start(first, 'echo done');
+      await final(cast.id);
+      first.close();
+      clock += WEEK + 1;
+      reachable = false;
+      const later = summons({ now: () => clock, probeMs: 20, spawnOn: flaky });
+      later.resume();
+      await until(() => cleans >= 2);
+      expect(later.casts().map((c) => c.id)).toEqual([cast.id]);
+      reachable = true;
+      await until(() => !existsSync(folder(cast.id)));
+    });
   });
 
   it('says so in the log when a machine won’t let a job outlive its SSH session', async () => {

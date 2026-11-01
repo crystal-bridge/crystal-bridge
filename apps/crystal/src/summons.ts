@@ -46,13 +46,16 @@ export function parseSummons(value: string | undefined, platform: NodeJS.Platfor
 
 /**
  * The machine's own `ssh`, with its own config, keys and agent. `BatchMode` means it fails rather than prompts, since
- * a service has no terminal. The keepalive is what ends a connection to a machine that went away.
+ * a service has no terminal. `LogLevel=ERROR` keeps the client's own warnings and a server's banner out of what the
+ * target said, and leaves its real failures in. The keepalive is what ends a connection to a machine that went away.
  */
 export function sshArgs(host: string, command = 'sh -s'): string[] {
   return [
     '-T',
     '-o',
     'BatchMode=yes',
+    '-o',
+    'LogLevel=ERROR',
     '-o',
     'ConnectTimeout=15',
     '-o',
@@ -64,6 +67,9 @@ export function sshArgs(host: string, command = 'sh -s'): string[] {
     command,
   ];
 }
+
+/** How `ssh` exits when the connection failed, as opposed to the command on the far side. */
+const SSH_FAILED = 255;
 
 /** Which wrapper a target takes. */
 export type TargetKind = 'posix' | 'windows';
@@ -92,7 +98,7 @@ export function targetKind(env: NodeJS.ProcessEnv) {
       child.stderr.on('data', (data: Buffer) => (stderr += data.toString()));
       child.on('error', reject);
       child.on('close', (code) => {
-        if (code === 255) reject(new Error(stderr.trim().slice(-500) || 'no answer'));
+        if (code === SSH_FAILED) reject(new Error(stderr.trim().slice(-500) || 'no answer'));
         else resolve(code === 0 && !/MINGW|MSYS|CYGWIN/.test(stdout) ? 'posix' : 'windows');
       });
       child.stdin.end();
@@ -201,6 +207,8 @@ export function createSummons(options: SummonsOptions): Summons {
 
   const records = new Map<string, CastRecord>();
   const followers = new Map<string, Follower>();
+  /** Targets with a clean-up on its way. */
+  const cleaning = new Set<string>();
   let closed = false;
   let saveTimer: NodeJS.Timeout | undefined;
 
@@ -444,17 +452,41 @@ export function createSummons(options: SummonsOptions): Summons {
     report(outward(rec));
   }
 
-  /** Forgets finished Casts past their time, and their folders. A target that can't be reached keeps its folder. */
+  /**
+   * Removes one target's folders, forgetting each Cast only once the target says its folder has gone. One at a time,
+   * and a target that can't be reached ends the pass, so a machine that's off costs one connection however many wait.
+   */
+  async function clean(target: Target, expired: readonly CastRecord[]): Promise<void> {
+    cleaning.add(target.name);
+    for (const rec of expired) {
+      const { code } = await ask(target, (scripts) => scripts.clean(rec.id));
+      if (closed) break;
+      if (code === 0) {
+        records.delete(rec.id);
+        save();
+      } else if (code === null || code === SSH_FAILED) {
+        break;
+      }
+    }
+    cleaning.delete(target.name);
+  }
+
+  /** Cleans up finished Casts past their time. A Summon taken off the list can't be reached, so its Casts just go. */
   function prune(): void {
+    const expired = new Map<Target, CastRecord[]>();
     let changed = false;
     for (const rec of [...records.values()]) {
       if (rec.state === 'running' || now() - (rec.finishedAt ?? rec.startedAt) < KEEP_MS) continue;
-      records.delete(rec.id);
-      changed = true;
       const target = targetOf(rec);
-      if (target) void ask(target, (scripts) => scripts.clean(rec.id));
+      if (target) {
+        expired.set(target, [...(expired.get(target) ?? []), rec]);
+      } else {
+        records.delete(rec.id);
+        changed = true;
+      }
     }
     if (changed) save();
+    for (const [target, recs] of expired) if (!cleaning.has(target.name)) void clean(target, recs);
   }
 
   const probeTimer = setInterval(
