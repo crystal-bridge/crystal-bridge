@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { createSummons, sshArgs, targetShell, type Summons } from './summons.js';
+import { createSummons, sshArgs, targetShell, type Summons, type SummonsOptions } from './summons.js';
 
 /** A real `sshd`, which CI's `summons-ssh` job sets up. Elsewhere this file is skipped. */
 const HOST = process.env.SUMMON_TEST_HOST;
@@ -29,7 +29,7 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
   let reports: Cast[] = [];
   let children: ReturnType<typeof spawn>[] = [];
 
-  const summons = () => {
+  const summons = (extra: Partial<SummonsOptions> = {}) => {
     const made = createSummons({
       targets: () => [{ name: 'box', host: HOST! }],
       statePath: join(home, 'casts.json'),
@@ -42,6 +42,7 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
       reportMs: 10,
       retryMs: 100,
       settleMs: 50,
+      ...extra,
     });
     running.push(made);
     return made;
@@ -55,6 +56,29 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
   });
 
   afterAll(() => rmSync(home, { recursive: true, force: true }));
+
+  // Needs a Linux target whose file system can punch holes; other targets keep the whole log.
+  it('really frees a long log’s disk space, and still reads to the end', async () => {
+    const made = summons({ logTrim: { keepBytes: 1024 * 1024, everySeconds: 1 } });
+    const cast = await made.start({
+      session: SESSION,
+      summon: 'box',
+      command: 'head -c 8388608 /dev/zero | tr "\\0" x; echo; sleep 3; echo end',
+      onFinish: 'notify',
+    });
+    const done = await until(() => reports.find((r) => r.id === cast.id && r.state !== 'running'));
+    expect(done).toMatchObject({ state: 'succeeded' });
+    expect(done.logTail.trim().endsWith('end')).toBe(true);
+
+    const log = `.crystal-bridge/summons/${cast.id}/log`;
+    const stats = execFileSync('ssh', [
+      ...sshArgs(HOST!, `stat -c '%s %b %B' ${log}; cat ${log}-trimmed; rm -rf .crystal-bridge/summons/${cast.id}`),
+    ]).toString();
+    const [size = 0, blocks = 0, blockSize = 0, trimmed = 0] = stats.trim().split(/\s+/).map(Number);
+    expect(size).toBeGreaterThan(8 * 1024 * 1024);
+    expect(trimmed).toBeGreaterThan(6 * 1024 * 1024);
+    expect(blocks * blockSize).toBeLessThan(3 * 1024 * 1024);
+  }, 60_000);
 
   it('survives a dropped connection and a restart, and leaves no tail behind', async () => {
     const first = summons();

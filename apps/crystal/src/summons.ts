@@ -11,6 +11,7 @@ import {
   QUEUED_LINE,
   STARTED_QUEUED,
   TURN_LINE,
+  type LogTrim,
   type TargetScripts,
 } from './summon-scripts.js';
 import { NOT_DETACHED, windowsEnvelope, WINDOWS_COMMAND, windowsScripts } from './summon-scripts-windows.js';
@@ -167,6 +168,8 @@ export interface SummonsOptions {
   reportMs?: number;
   /** How long a job found finished gets for its last lines to arrive. */
   settleMs?: number;
+  /** How much of a running job's log stays on the target; default `DEFAULT_LOG_TRIM`. */
+  logTrim?: LogTrim;
 }
 
 export interface StartCast {
@@ -219,6 +222,9 @@ interface Result {
   stderr: string;
 }
 
+const FOLLOW_FROM = new RegExp(`^${FOLLOW_LINE} (\\d+)$`);
+/** Shown in a Cast's log where a Kingdom missed the part a target had freed. */
+const LOG_GAP = '[older lines of this log are gone: only the end is kept]\n';
 const NAME_LINE = /^::summon name (.+)$/;
 const PROGRESS_LINE = /^::summon progress (\d+)\/(\d+)(?: (.*))?$/;
 const NEWLINE = 10;
@@ -396,7 +402,13 @@ export function createSummons(options: SummonsOptions): Summons {
   function onLine(rec: CastRecord, follower: Follower, line: Buffer): void {
     const text = line.toString('utf8').replace(/\r$/, '');
     if (!follower.inLog) {
-      if (text === FOLLOW_LINE) follower.inLog = true;
+      const from = FOLLOW_FROM.exec(text)?.[1];
+      if (from === undefined) return;
+      follower.inLog = true;
+      if (Number(from) > rec.offset) {
+        rec.offset = Number(from);
+        rec.logTail = `${rec.logTail}${LOG_GAP}`.slice(-MAX_CAST_TAIL);
+      }
       return;
     }
     rec.offset += line.length + 1;
@@ -586,7 +598,7 @@ export function createSummons(options: SummonsOptions): Summons {
       const kind = await kindOf(target).catch((error: unknown) => {
         throw new Error(`could not reach ${summon}: ${error instanceof Error ? error.message : String(error)}`);
       });
-      const script = scriptsFor(kind).start(id, command, cwd, target.limit);
+      const script = scriptsFor(kind).start(id, command, cwd, target.limit, options.logTrim);
       if (!script) throw new Error('the command holds a line reserved for the wrapper');
       const rec: CastRecord = {
         id,

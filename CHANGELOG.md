@@ -10,6 +10,8 @@ one entry.
 - Editing `CRYSTAL_SUMMONS` in `crystal.env` no longer needs a Crystal restart. The list is read again at each `summon`
   call and every few minutes, and a typo keeps the last good list. A Cast running on a machine taken off the list is
   seen through to its end.
+- A running Cast's log no longer fills its target's disk: on Windows and most Linux file systems, only the last 64 to
+  128 MB stays on disk, and a long job loses no place in the log. macOS targets keep the whole log.
 
 ### Fixed
 

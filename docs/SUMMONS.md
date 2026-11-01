@@ -77,6 +77,7 @@ The job folder is the record, and the target holds it:
   command     what was asked for
   pid         the job's process id and group, with its start time
   log         stdout and stderr together
+  log-trimmed how far the start of a long log has been freed
   exit        the exit code, present only once it finished
   cancel      present if a cancel was asked for
 ```
@@ -117,12 +118,15 @@ things differ:
 - **The target** holds the job folder. The Kingdom removes it a week after the Cast ends, and keeps trying if the machine
   is off, so the Cast stays on record until its folder has gone. Take a Summon off the list and the Kingdom can't reach
   it any more, so that machine's folders stay until you remove them. The folder is in the SSH user's home, which on
-  Windows is usually the system drive, and the log has no size limit, so a chatty tool over a long job can fill it. Send
-  real output elsewhere with `cwd` or the tool's own option, and keep what it prints modest.
+  Windows is usually the system drive, so a job's real output should go elsewhere, with `cwd` or the tool's own option.
+- **A long log** keeps only its last 64 to 128 MB on disk while the job runs. The target frees the start of the file in
+  place, so a Kingdom that's connected never notices, and one that was away for a long stretch moves on to what's left
+  and marks the gap in the log. This works on Windows (NTFS) and on Linux where `fallocate` can punch holes, as on ext4,
+  XFS and Btrfs. On macOS, or a file system that can't, the log keeps growing, so keep what a job prints modest there.
 - **The Kingdom** holds the list of its Summons, the record of its Casts in `~/.crystal-bridge/casts.json`, so a restart
   can find them, and the SSH access. Keys stay here, so separate identities stay separate with no extra work.
 - **The hub** stores each Cast's state and the end of its log, shows them and sends notifications. It never connects to
-  a target, and the full log stays on the target.
+  a target, and the log stays on the target.
 
 The Castle's **Summoning Circle** lists a Kingdom's Summons and their Casts, running and past, with the end of each log.
 It appears once a Kingdom has a Summon or a Cast, and stays off phones for now.

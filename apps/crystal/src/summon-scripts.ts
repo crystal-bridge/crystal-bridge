@@ -1,8 +1,8 @@
 /**
  * The POSIX `sh` a Cast runs on its target (docs/SUMMONS.md). Each script arrives over stdin, so nothing depends on
  * shell quoting and nothing has to be installed there. The target keeps a job folder, which is the record:
- * `command`, `cwd`, `limit`, `runner`, `pid` (process id, process group, start time), `boot`, `turn`, `queued`, `log`,
- * `cancel` and `exit`.
+ * `command`, `cwd`, `limit`, `trim`, `runner`, `pid` (process id, process group, start time), `boot`, `turn`, `queued`,
+ * `log`, `log-trimmed`, `cancel` and `exit`.
  */
 
 /** Printed to the log after `exit` is in place. It only wakes the Kingdom: `exit` is the result. */
@@ -15,9 +15,20 @@ export const STARTED_QUEUED = 'queued';
 /** Printed before a follow's log, so anything a shell startup file prints isn't taken for the log. */
 export const FOLLOW_LINE = '::summon follow';
 
+/**
+ * How much of a running job's log stays on disk, and how often that's checked. The target frees the start of the log
+ * in place, so the file's length and every byte offset stay as they were: `log-trimmed` says how far it has gone.
+ */
+export interface LogTrim {
+  keepBytes: number;
+  everySeconds: number;
+}
+
+export const DEFAULT_LOG_TRIM: LogTrim = { keepBytes: 64 * 1024 * 1024, everySeconds: 30 };
+
 /** The scripts a Cast needs on one kind of target. */
 export interface TargetScripts {
-  start(id: string, command: string, cwd?: string, limit?: number): string | undefined;
+  start(id: string, command: string, cwd?: string, limit?: number, trim?: LogTrim): string | undefined;
   follow(id: string, offset: number): string;
   probe(id: string): string;
   cancel(id: string): string;
@@ -61,11 +72,32 @@ write_exit() {
 `;
 
 /**
+ * Frees the start of a long log while the job writes to it. A punched hole leaves the file's length alone, which is what
+ * keeps a Kingdom's offset right. It's skipped where `fallocate` is missing and given up where the file system refuses,
+ * as on macOS, where the log keeps growing. It starts only once there's as much to free as to keep.
+ */
+const TRIM_LOG = `
+trim_log() {
+  read -r keep every < "$dir/trim" || return 0
+  command -v fallocate >/dev/null 2>&1 || return 0
+  trimmed=0
+  while kill -0 $$ 2>/dev/null; do
+    sleep "$every"
+    end=$(($(wc -c < "$dir/log") - keep))
+    [ $((end - trimmed)) -ge "$keep" ] || continue
+    fallocate --punch-hole --offset "$trimmed" --length $((end - trimmed)) "$dir/log" 2>/dev/null || return 0
+    trimmed=$end
+    printf '%s\\n' "$trimmed" > "$dir/log-trimmed.tmp" && mv -f "$dir/log-trimmed.tmp" "$dir/log-trimmed"
+  done
+}
+`;
+
+/**
  * Runs the command under the user's login shell, then records how it ended. It leads the job's process group, so it
  * waits out a TERM aimed at the group: a trap, not an ignore, because children inherit an ignore.
  */
 const RUNNER = `dir=$1
-${START_TIME}${WRITE_EXIT}${BOOT_ID}
+${START_TIME}${WRITE_EXIT}${BOOT_ID}${TRIM_LOG}
 # Turns are folders that \`mkdir\` claims, which is atomic, so Kingdoms sharing a machine need no word of each other. Each
 # holds its owner, so a turn left by a job that was killed, or by a reboot, is taken back.
 slots="$HOME/.crystal-bridge/summons/.slots"
@@ -115,8 +147,11 @@ if [ -f "$dir/cwd" ] && ! cd "$(cat "$dir/cwd")" 2>>"$dir/log"; then
   write_exit 127
   exit 0
 fi
+trim_log &
+trimmer=$!
 "\${SHELL:-/bin/sh}" -l "$dir/command" </dev/null >>"$dir/log" 2>&1
 code=$?
+kill "$trimmer" 2>/dev/null
 rm -rf "$slot"
 # A job the shutdown ended has no result of its own: with no exit written, the Kingdom reports it lost. Its log line could
 # reach the Kingdom before the machine goes down, so this can't wait for the boot id to change.
@@ -127,7 +162,13 @@ write_exit "$code"
 `;
 
 /** Starts a job detached and returns once it's running, printing `started`. Undefined for text it can't carry. */
-export function startScript(id: string, command: string, cwd?: string, limit = 1): string | undefined {
+export function startScript(
+  id: string,
+  command: string,
+  cwd?: string,
+  limit = 1,
+  trim = DEFAULT_LOG_TRIM,
+): string | undefined {
   const delimiter = delimiterFor(id, `${command}\n${cwd ?? ''}`);
   if (!delimiter) return undefined;
   const heredoc = (file: string, text: string) => `cat > "$dir/${file}" <<'${delimiter}'\n${text}\n${delimiter}\n`;
@@ -135,6 +176,7 @@ export function startScript(id: string, command: string, cwd?: string, limit = 1
 ${folder(id)}
 mkdir -p "$dir" || exit 70
 echo ${limit} > "$dir/limit"
+echo ${trim.keepBytes} ${trim.everySeconds} > "$dir/trim"
 ${heredoc('command', command)}${cwd === undefined ? '' : heredoc('cwd', cwd)}if [ -f "$dir/cwd" ] && [ ! -d "$(cat "$dir/cwd")" ]; then
   printf 'no folder %s\\n' "$(cat "$dir/cwd")" >&2
   rm -rf "$dir"
@@ -170,12 +212,18 @@ echo started
 /**
  * Streams the log from a byte offset. It holds stdin open for the Kingdom's side of the connection: when that goes,
  * \`cat\` ends and takes \`tail\` with it, because an idle \`tail\` would never notice by itself. The log is only ever added
- * to, so plain \`-f\` is enough and works everywhere.
+ * to, so plain \`-f\` is enough and works everywhere. Its first line gives the offset it really starts from, which is
+ * further on if the log's start was freed in the meantime.
  */
 export function followScript(id: string, offset: number): string {
   return `${folder(id)}
-printf '${FOLLOW_LINE}\\n'
-tail -c +${offset + 1} -f "$dir/log" 2>/dev/null &
+from=${offset}
+if [ -s "$dir/log-trimmed" ]; then
+  read -r trimmed < "$dir/log-trimmed"
+  [ "$trimmed" -le "$from" ] || from=$trimmed
+fi
+printf '${FOLLOW_LINE} %s\\n' "$from"
+tail -c +$((from + 1)) -f "$dir/log" 2>/dev/null &
 follower=$!
 cat >/dev/null
 kill "$follower" 2>/dev/null
