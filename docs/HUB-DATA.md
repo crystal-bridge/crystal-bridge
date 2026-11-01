@@ -7,7 +7,7 @@ into a chat, every reply, and every tool's input and output. Plan for it like yo
 
 | Where | What | Kept for |
 | --- | --- | --- |
-| Hub database (`AIRSHIP_DB`, SQLite) | `events`: every event of every Quest (prompts, replies, tool calls and results, approvals); `sessions`: each Quest's id, Kingdom, folder, title and status; `push_subscriptions`: each browser's push endpoint and notification levels; `appearance`: each user's Kingdom icons and colours, and each Kingdom's Belt, including any prompt text typed into a slot; `relay`: bytes sent to browsers per Quest | Until deleted by hand. Nothing expires. |
+| Hub database (`AIRSHIP_DB`, SQLite) | `events`: every event of every Quest (prompts, replies, tool calls and results, approvals); `sessions`: each Quest's id, Kingdom, folder, title and status; `push_subscriptions`: each browser's push endpoint and notification levels; `appearance`: each user's Kingdom icons and colours, and each Kingdom's Belt, including any prompt text typed into a slot; `relay`: bytes sent to browsers per Quest; `casts`: each job on a Summon, with its command and the end of its log | Until deleted by hand. Nothing expires. |
 | Hub backups (`AIRSHIP_BACKUP_DIR`) | A full copy of the database, taken nightly and before each schema migration | The newest `AIRSHIP_BACKUP_KEEP` (default 14). |
 | Off-box backup mirror (optional, `AIRSHIP_BACKUP_SSH`) | The same backup folder, mirrored | The same count as the hub's folder. |
 | Hub keys | `nodes.json` (only SHA-256 hashes of node tokens), `vapid.json` (Web Push keys) | Until replaced. |

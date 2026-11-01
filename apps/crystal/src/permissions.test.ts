@@ -303,3 +303,60 @@ describe('Crystal hook endpoint (interactive engine)', () => {
     }
   });
 });
+
+describe('the summon tool', () => {
+  let server: PermissionServer;
+  let client: Client;
+  let calls: { session: string; args: Record<string, unknown> }[];
+
+  beforeEach(async () => {
+    calls = [];
+    server = await createPermissionServer({
+      port: 0,
+      onRequest: async () => ({ behavior: 'allow' }),
+      summon: {
+        description: () => 'Machines: here, render',
+        call: async (session, args) => {
+          calls.push({ session, args });
+          if (args.action === 'cancel') throw new Error('no such Cast');
+          return { started: true };
+        },
+      },
+    });
+    client = await connectClient(server, 'quest-1');
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it('offers the tool, with what the Kingdom can reach in its description', async () => {
+    const { tools } = await client.listTools();
+    const summon = tools.find((tool) => tool.name === 'summon');
+    expect(summon?.description).toContain('Machines: here, render');
+    expect(Object.keys(summon?.inputSchema.properties ?? {})).toEqual(
+      expect.arrayContaining(['action', 'summon', 'command', 'onFinish']),
+    );
+  });
+
+  it('passes a call on with the Quest it came from', async () => {
+    const result = await client.callTool({ name: 'summon', arguments: { action: 'status' } });
+    expect(calls).toEqual([{ session: 'quest-1', args: { action: 'status' } }]);
+    expect(result.content).toEqual([{ type: 'text', text: '{"started":true}' }]);
+  });
+
+  it('turns a refusal into a tool error the agent can read', async () => {
+    const result = await client.callTool({ name: 'summon', arguments: { action: 'cancel', cast: 'x' } });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: 'text', text: 'no such Cast' }]);
+  });
+
+  it('isn’t offered by a Kingdom without Summons', async () => {
+    const bare = await createPermissionServer({ port: 0, onRequest: async () => ({ behavior: 'allow' }) });
+    const bareClient = await connectClient(bare, 'quest-2');
+    expect((await bareClient.listTools()).tools.map((tool) => tool.name)).toEqual(['approve']);
+    await bareClient.close();
+    await bare.close();
+  });
+});

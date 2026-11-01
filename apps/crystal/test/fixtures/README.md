@@ -298,3 +298,14 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   `failedMcpServers`. A server offering only `authenticate`/`complete_authentication` is waiting on sign-in. Slash
   commands other than skills aren't listed anywhere a session can read for free. `agent_listing_delta` (`addedTypes`)
   lists agent types.
+
+## The `summon` tool (live check, CLI 2.1.316)
+
+Not a recording: real Quests against a real SSH target, while building #126.
+
+- `system/init.tools` lists `mcp__crystal__summon`, though it hides `mcp__crystal__approve`.
+- Stream engine, `manual`: the call reaches the permission tool as `mcp__crystal__summon`, with the whole input, so the
+  approval card shows the machine and the command.
+- Interactive engine, `auto`: the CLI ran the call with no approval. That engine gets the tool through `--mcp-config`, and
+  `system/init` lists the server there with no `source` field.
+- Stream engine in `auto`, and interactive in `manual`, weren't checked.

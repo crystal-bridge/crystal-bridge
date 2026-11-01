@@ -5,6 +5,7 @@ import {
   type Envelope,
   type FileReply,
   HubToClient,
+  type Cast,
   type NodeCommand,
 } from '@crystal-bridge/protocol';
 import { insertBySeq } from './model.js';
@@ -46,6 +47,7 @@ export class HubClient {
   private readonly listeners = new Set<() => void>();
   private readonly errorListeners = new Set<(message: string) => void>();
   private readonly attentionListeners = new Set<(attention: Attention) => void>();
+  private readonly castListeners = new Set<(node: string, cast: Cast) => void>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
   private readonly fileRequests = new Map<string, (reply: FileReply) => void>();
   private outbox: ClientMessage[] = [];
@@ -67,6 +69,12 @@ export class HubClient {
   onAttention(listener: (attention: Attention) => void): () => void {
     this.attentionListeners.add(listener);
     return () => this.attentionListeners.delete(listener);
+  }
+
+  /** A Cast changed on any Kingdom. */
+  onCast(listener: (node: string, cast: Cast) => void): () => void {
+    this.castListeners.add(listener);
+    return () => this.castListeners.delete(listener);
   }
 
   /** The user's Kingdom appearance, changed on another of their devices. */
@@ -213,6 +221,11 @@ export class HubClient {
     }
     if (frame.data.kind === 'attention') {
       for (const listener of this.attentionListeners) listener(frame.data);
+      return;
+    }
+    if (frame.data.kind === 'cast') {
+      const { node, cast } = frame.data;
+      for (const listener of this.castListeners) listener(node, cast);
       return;
     }
     if (frame.data.kind === 'appearance') {

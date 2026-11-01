@@ -160,6 +160,42 @@ export const NodeCommand = z.discriminatedUnion('type', [
 ]);
 export type NodeCommand = z.infer<typeof NodeCommand>;
 
+/** How a Cast (a job on a Summon, docs/SUMMONS.md) stands. Every state but `running` is final. */
+export const CastState = z.enum(['running', 'succeeded', 'failed', 'cancelled', 'lost']);
+export type CastState = z.infer<typeof CastState>;
+
+/** What happens when a Cast ends: `notify` tells the user, `wake` sends the Quest a message, which costs a turn. */
+export const CastFinish = z.enum(['notify', 'wake']);
+export type CastFinish = z.infer<typeof CastFinish>;
+
+/** The longest command and log end a Cast carries to the hub, in characters. The full log stays on the target. */
+export const MAX_CAST_COMMAND = 4000;
+export const MAX_CAST_TAIL = 8000;
+
+/** One job, as the hub stores and shows it. */
+export const Cast = z.object({
+  id: z.uuid(),
+  /** The Quest that started it. */
+  session: z.uuid(),
+  /** The Summon's name, never its address. */
+  summon: z.string().min(1).max(200),
+  name: z.string().min(1).max(200),
+  command: z.string().max(MAX_CAST_COMMAND),
+  cwd: z.string().max(4096).optional(),
+  onFinish: CastFinish,
+  state: CastState,
+  exitCode: z.number().int().optional(),
+  startedAt: z.number().int(),
+  finishedAt: z.number().int().optional(),
+  /** The end of the log. */
+  logTail: z.string().max(MAX_CAST_TAIL),
+});
+export type Cast = z.infer<typeof Cast>;
+
+/** A machine a Kingdom may use. `local` is the Kingdom itself, which needs no SSH. */
+export const Summon = z.object({ name: z.string().min(1).max(200), local: z.boolean().optional() });
+export type Summon = z.infer<typeof Summon>;
+
 // node -> hub control frames
 /**
  * The node link's protocol version. Bump it only for a change an older peer can't handle; additive changes
@@ -295,6 +331,14 @@ export function isOlderVersion(a: string | undefined, b: string | undefined): bo
   return comparePrerelease(left[4], right[4]) < 0;
 }
 
+/** Node -> hub: the Summons this Kingdom may use, replacing the previous list. */
+export const NodeSummons = z.object({ kind: z.literal('summons'), summons: z.array(Summon) });
+export type NodeSummons = z.infer<typeof NodeSummons>;
+
+/** Node -> hub: a Cast as it stands now. Resent after each connect, so the hub keeps what it hasn't heard. */
+export const NodeCast = z.object({ kind: z.literal('cast'), cast: Cast });
+export type NodeCast = z.infer<typeof NodeCast>;
+
 export const NodeProjects = z.object({ kind: z.literal('projects'), projects: z.array(Project) });
 export type NodeProjects = z.infer<typeof NodeProjects>;
 
@@ -338,7 +382,7 @@ export const Attention = z.object({
   node: z.string(),
   session: z.uuid(),
   label: z.string(),
-  reason: z.enum(['needs-you', 'done', 'failed']),
+  reason: z.enum(['needs-you', 'done', 'failed', 'cast-done', 'cast-failed']),
   detail: z.string().optional(),
 });
 export type Attention = z.infer<typeof Attention>;
@@ -363,6 +407,8 @@ export const HubToClient = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('appearance'), appearance: Appearance }),
   /** The answer to this client's `file.read`; clients that don't know this frame ignore it. */
   FileReply,
+  /** A Cast changed; clients that don't know this frame ignore it. */
+  z.object({ kind: z.literal('cast'), node: z.string(), cast: Cast }),
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
 

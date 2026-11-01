@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Attention } from './commands.js';
 import { PushSubscriptionPut, notificationFor, pushNotificationFor } from './notify.js';
 
 const base = { kind: 'attention' as const, node: 'n', session: 's', label: 'Fix the login test' };
@@ -71,5 +72,24 @@ describe('PushSubscriptionPut', () => {
     expect(PushSubscriptionPut.safeParse({ subscription, prefs: { ...prefs, notify: { n: 'loud' } } }).success).toBe(
       false,
     );
+  });
+
+  it('says a job finished or failed, and a Discreet Kingdom keeps its name out', () => {
+    const cast: Attention = {
+      kind: 'attention',
+      node: 'n',
+      session: '00000000-0000-4000-8000-000000000000',
+      label: 'Upscale',
+      reason: 'cast-failed',
+      detail: 'encode on render',
+    };
+    expect(notificationFor(cast, 'Forge', 'full')).toEqual({
+      title: 'Forge had a job fail',
+      body: 'Upscale: encode on render',
+    });
+    expect(notificationFor({ ...cast, reason: 'cast-done' }, 'Forge', 'discreet')).toEqual({
+      title: 'Forge finished a job',
+      body: 'Open Crystal Bridge to see it.',
+    });
   });
 });

@@ -5,6 +5,7 @@ import { hint, w } from '../theme/words.js';
 import type { Engine, ExternalSession, SelfUpdate } from '@crystal-bridge/protocol';
 import type { Kingdom } from '../kingdoms.js';
 import { isActiveQuest } from '../quests.js';
+import type { Circle } from '../summons.js';
 import { FoundSessions } from './FoundSessions.js';
 import { NodeUsage, type NodeUsageRow } from './NodeUsage.js';
 import { type SearchHit, SearchResults } from './SearchResults.js';
@@ -13,6 +14,7 @@ import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
+import { hasCircle, SummoningCircle } from './SummoningCircle.js';
 import { HOME_PAGE, HOME_PAIR, QUEST_GRID, QuestCard, StatTiles } from './HomeParts.js';
 
 export interface CastleProps {
@@ -50,6 +52,8 @@ export interface CastleProps {
   onRemove?: (id: string) => Promise<void>;
   /** Who fights here; without it, as in the plain theme, no Garrison. */
   garrison?: GarrisonProps | undefined;
+  /** This Kingdom's Summons and their Casts. */
+  circle?: Circle;
   /** This Kingdom has no token and no connection: it can no longer be removed, only forgotten. */
   removed?: boolean;
   /** Deletes the hub's copy of a removed Kingdom's Quests. */
@@ -307,6 +311,7 @@ function ForgetKingdom({ kingdom, onForget }: { kingdom: Kingdom; onForget: (id:
  */
 export function Castle({
   kingdom,
+  circle,
   sessions,
   waiting,
   usage,
@@ -511,6 +516,13 @@ export function Castle({
             </div>
           )}
         </div>
+
+        {circle && hasCircle(circle.summons, circle.casts) && (
+          // A desktop panel for now: a phone's actions need their own design.
+          <div className="hidden px-3 md:block">
+            <SummoningCircle summons={circle.summons} casts={circle.casts} now={now ?? Date.now()} />
+          </div>
+        )}
 
         {!removed && onRemove && <RemoveKingdom key={kingdom.id} kingdom={kingdom} onRemove={onRemove} />}
         {removed && onForget && <ForgetKingdom key={kingdom.id} kingdom={kingdom} onForget={onForget} />}

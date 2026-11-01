@@ -155,6 +155,16 @@ describe('liveTranscriptEvent', () => {
 describe('InteractiveSession', () => {
   afterEach(() => {});
 
+  it('gets the Quest’s MCP server for the summon tool, but no permission tool', () => {
+    const { session, spawned } = harness({ permissionUrl: 'http://127.0.0.1:7701/mcp/x' });
+    session.start('hello');
+    const { args } = spawned[0]!;
+    const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]!);
+    expect(config.mcpServers.crystal.url).toBe('http://127.0.0.1:7701/mcp/x');
+    expect(args).not.toContain('--permission-prompt-tool');
+    expect(args[args.indexOf('--mcp-config') + 2]).toMatch(/^--/); // the flag takes a list
+  });
+
   it('runs the interactive claude with Crystal hooks in a generated settings file, and a clean environment', () => {
     const { session, spawned } = harness({ chrome: true });
     session.start('hello');

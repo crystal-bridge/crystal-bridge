@@ -15,6 +15,7 @@ import { runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.
 import { verifyRelease } from './provenance.js';
 import { activateRelease, heldVersions, releaseId, selfUpdateBase, stageRelease, type ReleaseDeps } from './release.js';
 import { createUpdater } from './self-update.js';
+import { createSummons, parseSummons, summonCall, summonDescription, targetShell } from './summons.js';
 import { execFile } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { realpathSync, writeFileSync } from 'node:fs';
@@ -102,10 +103,26 @@ async function main(): Promise<void> {
         })
       : undefined;
 
+  const targets = parseSummons(process.env.CRYSTAL_SUMMONS, process.platform);
+  const summons = createSummons({
+    targets,
+    // Beside the Kingdom's own job folders, and outside any release, so an update keeps it.
+    statePath: join(homedir(), '.crystal-bridge', 'casts.json'),
+    spawnOn: targetShell(sessionEnv, homedir()),
+    report: (cast) => node.reportCast(cast),
+  });
+
   const permissionServer = await createPermissionServer({
     port: MCP_PORT,
     host: '127.0.0.1',
     onRequest: (request) => node.handlePermissionRequest(request),
+    summon: {
+      description: () => summonDescription(targets),
+      call: async (session, args) => {
+        if (!node.holds(session)) throw new Error('This session is not running on this node.');
+        return summonCall(summons, session, args);
+      },
+    },
     status: () => node.status(),
     onHook: (session, event, body) => hooks.dispatch(session, event, body),
   });
@@ -134,6 +151,7 @@ async function main(): Promise<void> {
     cliVersion: cachedCliVersion({ exec: execCliVersion(CLAUDE_BIN, sessionEnv) }),
     updateCli: execCliUpdate(CLAUDE_BIN, sessionEnv),
     ...(updater ? { onKingdomVersion: updater.target } : {}),
+    summons,
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
@@ -163,6 +181,8 @@ async function main(): Promise<void> {
     permissionServer,
   });
 
+  summons.resume();
+
   console.log(
     `[crystal] node "${NODE_ID}" dialing ${HUB_URL}, permission server on http://127.0.0.1:${permissionServer.port}`,
   );
@@ -176,6 +196,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     console.log(`[crystal] ${reason}, shutting down`);
     updater?.close();
+    summons.close();
     // Wait for the claude processes to stop: with KillMode=process nothing else would end them.
     await node.close();
     await permissionServer.close();

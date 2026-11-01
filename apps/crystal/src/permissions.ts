@@ -27,10 +27,18 @@ export interface PermissionRequest {
  */
 export type OnPermissionRequest = (request: PermissionRequest) => Promise<PermissionDecision>;
 
+/** The `summon` tool's work (`summons.ts`). The description is asked for each time, as it names the Kingdom's machines. */
+export interface SummonTool {
+  description(): string;
+  call(session: string, args: Record<string, unknown>): Promise<unknown>;
+}
+
 export interface CreatePermissionServerOptions {
   port: number;
   host?: string;
   onRequest: OnPermissionRequest;
+  /** Offers Quests the `summon` tool. */
+  summon?: SummonTool;
   /** Served on `GET /status` (localhost only), e.g. so a deploy can wait until no session is mid-turn. */
   status?: () => unknown;
   /** Hook calls other than PermissionRequest from interactive sessions (SessionStart, Stop, Notification). */
@@ -51,7 +59,20 @@ const ApproveInputShape = {
   tool_use_id: z.string().optional(),
 };
 
-function buildMcpServer(session: string, onRequest: OnPermissionRequest): McpServer {
+const SummonInputShape = {
+  action: z.enum(['start', 'status', 'cancel']),
+  summon: z.string().optional().describe('start: which machine'),
+  command: z.string().optional().describe('start: what to run'),
+  onFinish: z
+    .enum(['notify', 'wake'])
+    .optional()
+    .describe('start, required: notify tells the user and spends nothing; wake sends you the result, costing a turn'),
+  name: z.string().optional().describe('start: what to call this Cast; defaults to the first word of the command'),
+  cwd: z.string().optional().describe('start: where to run it; defaults to the home folder'),
+  cast: z.string().optional().describe('status: one Cast, or leave it out for all of this Quest; cancel: which Cast'),
+};
+
+function buildMcpServer(session: string, onRequest: OnPermissionRequest, summon?: SummonTool): McpServer {
   const server = new McpServer({ name: 'crystal-permissions', version: '0.0.0' });
 
   server.registerTool(
@@ -80,6 +101,22 @@ function buildMcpServer(session: string, onRequest: OnPermissionRequest): McpSer
     },
   );
 
+  if (summon) {
+    server.registerTool(
+      'summon',
+      { description: summon.description(), inputSchema: SummonInputShape },
+      async (args) => {
+        try {
+          const result = await summon.call(session, args);
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          return { content: [{ type: 'text' as const, text }], isError: true };
+        }
+      },
+    );
+  }
+
   return server;
 }
 
@@ -104,7 +141,7 @@ export async function createPermissionServer(options: CreatePermissionServerOpti
 
   app.post('/mcp/:session', async (req, res) => {
     const session = req.params.session as string;
-    const mcpServer = buildMcpServer(session, onRequest);
+    const mcpServer = buildMcpServer(session, onRequest, options.summon);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {

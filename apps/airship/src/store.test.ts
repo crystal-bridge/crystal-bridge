@@ -1,3 +1,4 @@
+import type { Cast } from '@crystal-bridge/protocol';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -608,5 +609,47 @@ describe('store', () => {
       finish(a, 'n1', 2, 300, { outcome: 'success', summary: 'Second' });
       expect(store.listSessions().find((s) => s.id === a)?.preview).toBe('Second');
     });
+  });
+});
+
+describe('casts', () => {
+  const cast: Cast = {
+    id: '11111111-1111-4111-8111-111111111111',
+    session: '22222222-2222-4222-8222-222222222222',
+    summon: 'render',
+    name: 'encode',
+    command: 'encode all',
+    onFinish: 'notify',
+    state: 'running',
+    startedAt: 5,
+    logTail: '',
+  };
+
+  it('keeps the newest report of each Cast, for its own Kingdom only', () => {
+    const store = openStore(':memory:');
+    expect(store.upsertCast('a', cast)).toEqual(cast);
+    store.upsertCast('a', { ...cast, logTail: 'more' });
+    expect(store.casts('a', 10)).toEqual([{ ...cast, logTail: 'more' }]);
+    expect(store.casts('b', 10)).toEqual([]);
+    expect(store.upsertCast('b', { ...cast, logTail: 'taken over' })).toBeUndefined();
+    expect(store.casts('a', 10)[0]!.logTail).toBe('more');
+  });
+
+  it('won’t let a late report undo a finished Cast', () => {
+    const store = openStore(':memory:');
+    store.upsertCast('a', { ...cast, state: 'succeeded', exitCode: 0 });
+    expect(store.upsertCast('a', cast)).toBeUndefined();
+    expect(store.casts('a', 10)[0]!.state).toBe('succeeded');
+  });
+
+  it('remembers once a Cast’s end was delivered, and forgets it with its Kingdom', () => {
+    const store = openStore(':memory:');
+    store.upsertCast('a', { ...cast, state: 'failed' });
+    expect(store.castDelivered(cast.id)).toBe(false);
+    store.markCastDelivered(cast.id);
+    store.upsertCast('a', { ...cast, state: 'failed' });
+    expect(store.castDelivered(cast.id)).toBe(true);
+    store.forgetNode('a');
+    expect(store.casts('a', 10)).toEqual([]);
   });
 });

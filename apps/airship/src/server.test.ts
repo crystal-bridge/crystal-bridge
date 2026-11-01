@@ -81,7 +81,7 @@ describe('airship server', () => {
 
   beforeEach(async () => {
     store = openStore(':memory:');
-    app = await buildServer({ store, release: 'test-release' });
+    app = await buildServer({ store, release: 'test-release', wakeDelayMs: 20 });
     await app.listen({ port: 0, host: '127.0.0.1' });
     const address = app.server.address() as AddressInfo;
     baseUrl = `http://127.0.0.1:${address.port}`;
@@ -109,6 +109,106 @@ describe('airship server', () => {
     const frames = new FrameRecorder(socket);
     return { socket, frames };
   }
+
+  describe('Casts', () => {
+    const SESSION = '22222222-2222-4222-8222-222222222222';
+    const cast = (id: string, extra = {}) => ({
+      id,
+      session: SESSION,
+      summon: 'render',
+      name: 'encode',
+      command: 'encode all',
+      onFinish: 'notify',
+      state: 'running',
+      startedAt: 1,
+      logTail: 'working',
+      ...extra,
+    });
+    const A = '11111111-1111-4111-8111-11111111111a';
+    const B = '11111111-1111-4111-8111-11111111111b';
+
+    async function quest() {
+      const node = await connectNode('node-a');
+      send(node.socket, sessionStartedEnvelope(SESSION, 'node-a'));
+      await node.frames.waitFor((frame) => frame.kind === 'ack');
+      return node;
+    }
+
+    const isAttention = (frame: Record<string, unknown>) => frame.kind === 'attention';
+
+    it('stores and shows a Kingdom’s Summons and Casts, live', async () => {
+      const node = await quest();
+      const client = await connectClient();
+      send(node.socket, { kind: 'summons', summons: [{ name: 'here', local: true }, { name: 'render' }] });
+      send(node.socket, { kind: 'cast', cast: cast(A) });
+      await client.frames.waitFor((frame) => frame.kind === 'cast' && frame.node === 'node-a');
+      const body = (await (await fetch(`${baseUrl}/api/nodes/node-a/summons`)).json()) as Record<string, unknown[]>;
+      expect(body.summons).toHaveLength(2);
+      expect(body.casts).toMatchObject([{ id: A, logTail: 'working' }]);
+    });
+
+    it('drops a Cast claiming another Kingdom’s Quest', async () => {
+      await quest();
+      const other = await connectNode('node-b');
+      send(other.socket, { kind: 'cast', cast: cast(A) });
+      send(other.socket, { kind: 'summons', summons: [] });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(store.casts('node-b', 10)).toEqual([]);
+    });
+
+    it('notifies once when a Cast ends, however many times the Kingdom resends it', async () => {
+      const node = await quest();
+      const client = await connectClient();
+      const done = cast(A, { state: 'succeeded', exitCode: 0 });
+      send(node.socket, { kind: 'cast', cast: cast(A) });
+      send(node.socket, { kind: 'cast', cast: done });
+      send(node.socket, { kind: 'cast', cast: done });
+      const attention = await client.frames.waitFor(isAttention);
+      expect(attention).toMatchObject({ session: SESSION, reason: 'cast-done', detail: 'encode on render' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(client.frames.frames.filter(isAttention)).toHaveLength(1);
+    });
+
+    it('says when a Cast failed or was lost, and stays quiet about a cancel', async () => {
+      const node = await quest();
+      const client = await connectClient();
+      send(node.socket, { kind: 'cast', cast: cast(A, { state: 'cancelled' }) });
+      send(node.socket, { kind: 'cast', cast: cast(B, { state: 'lost' }) });
+      expect(await client.frames.waitFor(isAttention)).toMatchObject({ reason: 'cast-failed' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(client.frames.frames.filter(isAttention)).toHaveLength(1);
+    });
+
+    it('wakes the Quest once for Casts finishing together, with what the node needs to resume', async () => {
+      const node = await quest();
+      const client = await connectClient();
+      const wake = { onFinish: 'wake', exitCode: 0, state: 'succeeded' };
+      send(node.socket, { kind: 'cast', cast: cast(A, wake) });
+      send(node.socket, { kind: 'cast', cast: cast(B, { ...wake, state: 'failed', exitCode: 2, name: 'mux' }) });
+      const sent = await node.frames.waitFor((frame) => frame.type === 'session.send');
+      expect(sent).toMatchObject({ session: SESSION, resume: { cwd: '/tmp/work' } });
+      expect(sent.text).toContain('encode');
+      expect(sent.text).toContain('mux');
+      expect(sent.text).toContain('exit 2');
+      send(node.socket, { kind: 'cast', cast: cast(A, wake) });
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(node.frames.frames.filter((frame) => frame.type === 'session.send')).toHaveLength(1);
+      expect(client.frames.frames.filter(isAttention)).toHaveLength(0);
+    });
+
+    it('notifies instead of waking a closed Quest', async () => {
+      const node = await quest();
+      const client = await connectClient();
+      send(
+        node.socket,
+        makeEnvelope({ session: SESSION, node: 'node-a', seq: 1, type: 'session.closed', payload: {} }),
+      );
+      await node.frames.waitFor((frame) => frame.kind === 'ack' && frame.seq === 1);
+      send(node.socket, { kind: 'cast', cast: cast(A, { onFinish: 'wake', state: 'succeeded', exitCode: 0 }) });
+      expect(await client.frames.waitFor(isAttention)).toMatchObject({ reason: 'cast-done' });
+      expect(node.frames.frames.filter((frame) => frame.type === 'session.send')).toHaveLength(0);
+    });
+  });
 
   it('closes a node that speaks another protocol version, and accepts one that names none', async () => {
     const socket = await openSocket(`${wsUrl}/node`);
