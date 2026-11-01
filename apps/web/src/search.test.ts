@@ -28,6 +28,15 @@ describe('snippet', () => {
     expect(snippet(env('claude.event', reply), 'flaky')).toBe('Fixed the Flaky test.');
   });
 
+  it('finds what the agent said in a thinking block, and never the reasoning’s empty one', () => {
+    const said = (thinking: string) => ({
+      engine: 'claude',
+      raw: { type: 'assistant', message: { content: [{ type: 'thinking', thinking, signature: 'x' }] } },
+    });
+    expect(snippet(env('claude.event', said('Fixed the Flaky test.')), 'flaky')).toBe('Fixed the Flaky test.');
+    expect(snippet(env('claude.event', said('')), 'flaky')).toBeUndefined();
+  });
+
   it('matches inside tool calls too, and skips events that only match in their JSON plumbing', () => {
     const tool = {
       engine: 'claude',

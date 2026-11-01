@@ -1,4 +1,5 @@
 import type { Envelope } from '@crystal-bridge/protocol';
+import { spokenWords } from './model.js';
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -19,7 +20,8 @@ function texts(envelope: Envelope): string[] {
   const out: string[] = [];
   for (const block of content) {
     if (!isObj(block)) continue;
-    if (block.type === 'text' && str(block.text)) out.push(block.text as string);
+    const words = spokenWords(block);
+    if (words) out.push(words);
     if (block.type === 'tool_use') {
       const input = isObj(block.input) ? block.input : {};
       const what = ['command', 'file_path', 'pattern', 'url', 'description'].map((k) => str(input[k])).find(Boolean);

@@ -81,7 +81,8 @@ line carries `session_id` and `uuid`.
 
 Other delta types: `input_json_delta` (`partial_json`) for tool input, which starts with a `content_block_start` of
 `{"type":"tool_use","id":"toolu_…","name":"Bash","input":{}}`. Thinking blocks also appear (`content_block_start`
-`{"type":"thinking"}`). Their thinking text is empty and only the `signature` is filled.
+`{"type":"thinking"}`). The reasoning's text is empty and only the `signature` is filled, but a second thinking block
+can carry words, as below.
 
 ### Assistant message with `tool_use`
 
@@ -240,6 +241,17 @@ to three places: a `queue-operation` with `operation: "enqueue"` the moment the 
 An MCP server the CLI once reported as `needs-auth` stays that way for a while under that name, without a request
 being made: `system/init` shows the status and the permission tool fails as "not found". Seen under a network sandbox
 that blocks localhost, and it outlasted the sandbox. Any other server name connects.
+
+## Messages sent as thinking (2.1.316, recorded 2026-11-01)
+
+`spoken-thinking.ndjson` is a turn asked to reason and then report before each command. Where the agent has reasoned
+first, what it writes for the person can arrive as a second thinking block, with `thinking_delta`s and a signature, and
+the message has no `text` block: `thinking` (empty), `thinking` (the words), `tool_use`. A message with no reasoning
+sends plain `text`, and so did this turn's last message, though one turn-ending message in the survey below didn't.
+
+Of 919 such blocks in 180 local transcripts, from three CLI versions back to 2026-10-29, none shared a message with
+text. So the web model treats non-empty thinking as speech, and the empty block stays private. To record another, run a
+turn like that by hand with the stream engine's flags, put the output here and run `capture.ts --rescrub`.
 
 ## Scrubbing
 
