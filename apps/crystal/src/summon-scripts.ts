@@ -217,6 +217,9 @@ echo started
  */
 export function followScript(id: string, offset: number): string {
   return `${folder(id)}
+# On the Kingdom itself this shell gets a signal too, and dying from it would leave \`tail\` running for good.
+follower=
+trap '[ -z "$follower" ] || kill "$follower" 2>/dev/null; exit 0' TERM HUP INT
 from=${offset}
 if [ -s "$dir/log-trimmed" ]; then
   read -r trimmed < "$dir/log-trimmed"

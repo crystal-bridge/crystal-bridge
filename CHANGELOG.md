@@ -20,6 +20,8 @@ one entry.
   shown.
 - A running Monitor no longer holds a Kingdom's update or deploy on the stream engine, as it already didn't on the
   interactive one. It still keeps its Quest's process from an idle stop.
+- A follow on the Kingdom itself no longer leaves its `tail` running once it stops, which kept a process and the log's
+  disk space for good.
 - A turn the CLI starts by itself, when background work reports in, now counts as a turn: an update waits for it, an
   idle stop can't cut it off, and its files changed show.
 - A background command or Monitor that has finished or been stopped leaves the Party, and Background Tasks shows it as
