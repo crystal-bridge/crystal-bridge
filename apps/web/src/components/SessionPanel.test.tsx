@@ -6,6 +6,7 @@ import { LevelContext } from '../levels.js';
 import { SessionPanel } from './SessionPanel.js';
 
 const info: SessionInfo = {
+  party: [],
   cwd: '/home/me/code/app/.worktrees/0123abcd',
   branch: 'cb/0123abcd',
   model: 'model-x',
@@ -196,6 +197,7 @@ describe('SessionPanel', () => {
     render(
       <SessionPanel
         info={{
+          party: [],
           costUsd: 0,
           stats: { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, turns: 0, workingMs: 0 },
           outputs: [],
@@ -246,6 +248,35 @@ describe('SessionPanel', () => {
     expect(screen.getByRole('img', { name: 'Wizard, Cast' })).toBeTruthy();
     expect(party.textContent).toContain('Map the repo');
     expect(party.textContent).not.toContain('Old helper');
+  });
+
+  it('draws a team as the Quest-s Party picked, so helpers on one job differ', () => {
+    const shared = { work: 'slash', verb: 'Work', victory: 'emote', anims: {} };
+    const manifest: HeroManifest = {
+      leader: 'paladin',
+      fallback: 'wizard',
+      classes: {
+        paladin: { ...shared, name: 'Paladin' },
+        wizard: { ...shared, name: 'Wizard', match: ['fix'] },
+        rogue: { ...shared, name: 'Rogue' },
+      },
+    };
+    render(
+      <SessionPanel
+        info={{
+          ...info,
+          tasks: [
+            { id: 'a', kind: 'agent', description: 'Fix one', running: true },
+            { id: 'b', kind: 'agent', description: 'Fix two', running: true },
+          ],
+          party: [{ out: { id: 'a', description: 'Fix one' } }, { out: { id: 'b', description: 'Fix two' } }],
+        }}
+        kingdom="k"
+        party={{ manifest, leaderState: 'working' }}
+      />,
+    );
+    const names = screen.getAllByRole('img').map((sprite) => sprite.getAttribute('aria-label'));
+    expect(names.filter((name) => name === 'Wizard, Work')).toHaveLength(1);
   });
 
   it('brings a companion along on each running Side Quest: the Owl on a Monitor', () => {

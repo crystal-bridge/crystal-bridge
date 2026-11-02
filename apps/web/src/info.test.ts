@@ -286,6 +286,30 @@ describe('sessionInfo', () => {
     expect(info.tasks).toEqual([{ id: 'm1', kind: 'monitor', description: 'Watch the deploy log', running: true }]);
   });
 
+  it('records who went out and who came back, in order, however they came back', () => {
+    seq = 0;
+    const { party } = sessionInfo([
+      env('session.started', { cwd: '/r', prompt: 'p', label: 'p' }),
+      raw(toolUse('a1', 'Agent', { description: 'Fix it', subagent_type: 'general-purpose' })),
+      raw(toolUse('a2', 'Task', { description: 'Find it' })),
+      raw(toolUse('a2', 'Task', { description: 'Find it' })),
+      raw(toolUse('b1', 'Bash', { command: 'sleep 9', description: 'Wait', run_in_background: true })),
+      raw({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a1', content: 'done' }] } }),
+      raw({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a1', content: 'again' }] } }),
+      raw({ type: 'system', subtype: 'task_notification', tool_use_id: 'b1', status: 'completed' }),
+      raw(toolUse('a3', 'Agent', { description: 'Check it' })),
+      env('session.ended', { exitCode: 0, signal: null, reason: 'exit' }),
+    ]);
+    expect(party).toEqual([
+      { out: { id: 'a1', description: 'Fix it', agentType: 'general-purpose' } },
+      { out: { id: 'a2', description: 'Find it' } },
+      { back: 'a1' },
+      { out: { id: 'a3', description: 'Check it' } },
+      { back: 'a2' },
+      { back: 'a3' },
+    ]);
+  });
+
   it('marks everything still running as stopped once the process ends', () => {
     seq = 0;
     const info = sessionInfo([

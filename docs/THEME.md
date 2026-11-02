@@ -172,9 +172,9 @@ Picked by the owner on 2026-10-29 from the "Hero Class Audition". Recipes and ma
 
 | Class | Look | Covers | Working |
 |---|---|---|---|
-| **Paladin** | Holy Knight: plate, blue cape, sword and shield | the party leader (main agent), security agents | Smite |
+| **Paladin** | Holy Knight: plate, blue cape, sword and shield | the party leader (main agent), security, auth and audit agents | Smite |
 | **Wizard** | Classic: navy robe, pointed black hat, shadow face, staff | builder agents | Cast |
-| **Cleric** | Hooded: white hooded robe, staff | reviewers, verifiers, testers, debuggers | Heal |
+| **Cleric** | Hooded: white hooded robe, staff | verifiers, testers, debuggers, bug fixers | Heal |
 | **Ranger** | Hooded archer: green hood, leather, bow | research, web and docs agents | Shoot |
 | **Rogue** | Shadow: dark hood, tattered cape, dagger | Explore and search agents | Sneak |
 | **Sage** | Elder: old man in purple, starry hat, staff | Plan and architect agents | Scan |
@@ -185,9 +185,12 @@ synced the same way (#20). Every view of a Quest (its tab, card, Party, skill li
 leader.
 
 **Subagents** take their Class from their job first: a "Security review" is a Paladin and a "Correctness review" a
-Cleric, whatever the agent's type. Next comes the agent's type, and anything left gets a stable pick from its id (#136),
-so a party of helpers has some variety and each helper stays the same Class in every view. A Guild member on the Belt has
-only a name, so it matches on that, and an unmatched name is the art pack's `fallback`.
+Cleric, whatever the agent's type. Next comes the agent's type. A team sent out together spreads across the Classes
+(#201): each helper takes the first Class that suits it and nobody out holds, else a free Class by a stable hash of its
+id, and only with every Class held does one share. "Review" alone picks no Class, so reviewers vary by what they review.
+The Party is who's out when a helper sets out, built from event order and ids, so a helper keeps its Class in every view,
+as others return, and across reloads and devices. A Guild member on the Belt has only a name, so it matches on that, and
+an unmatched name is the art pack's `fallback`.
 
 **The party in the chat** (#137): a helper's tool cards carry a small still sprite, with its Class and job as the tooltip;
 the leader's stay unmarked, so a solo Quest gets no column of identical sprites. Tool names, commands and paths stay as

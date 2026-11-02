@@ -1,6 +1,6 @@
 import { type ReactNode, useContext, useState } from 'react';
 import { type DiffLine, diffLines } from '../diff.js';
-import { type Helper, helperClass, type HeroManifest, type HeroState } from '../heroes.js';
+import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
 import { helperLine, summonLine, toolChip, useLine, type Word } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
@@ -127,9 +127,10 @@ function filePath(tool: ToolItem): string | undefined {
 }
 
 /** The Class making a tool call: its helper's, else the party leader's. */
-function callerClass(tool: ToolItem, manifest: HeroManifest | undefined): string | undefined {
+function useCallerClass(tool: ToolItem, manifest: HeroManifest | undefined): string | undefined {
+  const party = useContext(PartyContext);
   if (!manifest) return undefined;
-  return tool.helper ? helperClass(manifest, tool.helper) : manifest.leader;
+  return tool.helper ? helperClass(manifest, tool.helper, party) : manifest.leader;
 }
 
 /** What to call a helper in a line or a tooltip. */
@@ -137,8 +138,9 @@ const helperTask = (helper: Helper) => helper.description ?? helper.agentType ??
 
 /** The small sprite beside a helper's row, saying whose it is. Still, since a long Quest has hundreds of rows. */
 function HelperMark({ helper, manifest }: { helper: Helper | undefined; manifest: HeroManifest | undefined }) {
+  const party = useContext(PartyContext);
   if (!helper || !manifest) return null;
-  const classId = helperClass(manifest, helper);
+  const classId = helperClass(manifest, helper, party);
   const name = manifest.classes[classId]?.name ?? classId;
   return (
     <HeroSprite
@@ -163,7 +165,7 @@ export function ToolCard({ tool, manifest }: { tool: ToolItem; manifest?: HeroMa
     running: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
   }[state];
   const change = fileChange(tool);
-  const caller = callerClass(tool, manifest);
+  const caller = useCallerClass(tool, manifest);
   const chip = toolChip(state, caller ? manifest?.classes[caller]?.work : undefined);
   // A long Quest holds thousands of these, nearly all folded: what's inside is only worth drawing once it's read.
   const [unfolded, setUnfolded] = useState(false);
@@ -271,7 +273,7 @@ export function SummonLine({ tool, manifest }: { tool: ToolItem; manifest?: Hero
 export function SkillLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroManifest | undefined }) {
   const input = isObj(tool.input) ? tool.input : {};
   const name = str(input.skill) ?? 'a skill';
-  const caller = callerClass(tool, manifest);
+  const caller = useCallerClass(tool, manifest);
   const hero = (caller && manifest?.classes[caller]?.name) ?? 'Hero';
   return (
     <GameLine
@@ -291,9 +293,10 @@ export function isAgentCall(tool: ToolItem): boolean {
 }
 
 /** A helper's Class as a sprite and a name, for its lines. */
-function helperHero(helper: Helper, manifest: HeroManifest | undefined, state: HeroState) {
+function useHelperHero(helper: Helper, manifest: HeroManifest | undefined, state: HeroState) {
+  const party = useContext(PartyContext);
   if (!manifest) return { name: 'Hero', mark: null };
-  const classId = helperClass(manifest, helper);
+  const classId = helperClass(manifest, helper, party);
   return {
     name: manifest.classes[classId]?.name ?? 'Hero',
     mark: <HeroSprite manifest={manifest} classId={classId} state={state} size={20} still decorative />,
@@ -303,7 +306,7 @@ function helperHero(helper: Helper, manifest: HeroManifest | undefined, state: H
 /** A helper leaving ("Wizard sets out: Security review!"), with the prompt it was given folded inside. */
 export function SetOutLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroManifest | undefined }) {
   const helper = tool.sent ?? { id: tool.id };
-  const { name, mark } = helperHero(helper, manifest, 'working');
+  const { name, mark } = useHelperHero(helper, manifest, 'working');
   const input = isObj(tool.input) ? tool.input : {};
   return (
     <GameLine
@@ -325,7 +328,7 @@ export function HelperBackLine({
   manifest?: HeroManifest | undefined;
 }) {
   const returned = item.outcome === 'returned';
-  const { name, mark } = helperHero(item.helper, manifest, returned ? 'victory' : 'ko');
+  const { name, mark } = useHelperHero(item.helper, manifest, returned ? 'victory' : 'ko');
   return (
     <GameLine
       line={helperLine(item.outcome, name, helperTask(item.helper))}

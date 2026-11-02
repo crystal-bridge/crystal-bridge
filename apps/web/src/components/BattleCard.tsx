@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useContext } from 'react';
 import type { BattleOutcome, BattleResult } from '../battle.js';
 import { duration, tokens } from '../format.js';
-import { type Helper, helperClass, type HeroManifest, type HeroState } from '../heroes.js';
+import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { type Concept, hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { Gold } from './Gold.js';
@@ -58,11 +58,12 @@ function Prs({ links }: { links: string[] }) {
 
 /** Helpers of the same type and Class share an entry, so a long Quest's row stays short. */
 function Heroes({ helpers, manifest }: { helpers: Helper[]; manifest?: HeroManifest }) {
+  const party = useContext(PartyContext);
   if (helpers.length === 0) return <>none</>;
   const entries = new Map<string, { type: string; classId: string | undefined; count: number }>();
   for (const helper of helpers) {
     const type = helper.agentType || 'agent';
-    const classId = manifest ? helperClass(manifest, helper) : undefined;
+    const classId = manifest ? helperClass(manifest, helper, party) : undefined;
     const key = `${type}/${classId ?? ''}`;
     const entry = entries.get(key);
     if (entry) entry.count += 1;

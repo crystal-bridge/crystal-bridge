@@ -4,7 +4,7 @@
   "classes": {
     "paladin": {
       "name": "Paladin",
-      "match": ["security", "guard"],
+      "match": ["security", "guard", "auth", "audit", "harden"],
       "work": "slash",
       "verb": "Smite",
       "victory": "emote",
@@ -33,7 +33,7 @@
     },
     "wizard": {
       "name": "Wizard",
-      "match": ["worker", "build"],
+      "match": ["worker", "build", "implement"],
       "work": "spellcast",
       "verb": "Cast",
       "victory": "spellcast",
@@ -54,7 +54,7 @@
     },
     "cleric": {
       "name": "Cleric",
-      "match": ["review", "verif", "test", "debug", "fix"],
+      "match": ["reviewer", "verif", "test", "debug", "fix", "bug", "correct"],
       "work": "spellcast",
       "verb": "Heal",
       "victory": "spellcast",

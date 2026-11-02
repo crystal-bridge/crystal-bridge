@@ -4,7 +4,7 @@
   "classes": {
     "paladin": {
       "name": "Paladin",
-      "match": ["security", "guard"],
+      "match": ["security", "guard", "auth", "audit", "harden"],
       "look": {
         "body": "male",
         "work": "slash",
@@ -26,7 +26,7 @@
     },
     "wizard": {
       "name": "Wizard",
-      "match": ["worker", "build"],
+      "match": ["worker", "build", "implement"],
       "look": {
         "body": "female",
         "work": "spellcast",
@@ -45,7 +45,7 @@
     },
     "cleric": {
       "name": "Cleric",
-      "match": ["review", "verif", "test", "debug", "fix"],
+      "match": ["reviewer", "verif", "test", "debug", "fix", "bug", "correct"],
       "look": {
         "body": "female",
         "work": "spellcast",

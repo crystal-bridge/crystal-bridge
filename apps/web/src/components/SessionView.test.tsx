@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
+import shippedManifest from '../../public/heroes/manifest.json?raw';
+import type { HeroManifest } from '../heroes.js';
 import { SessionView } from './SessionView.js';
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
@@ -52,6 +54,43 @@ function renderView(envelopes: Envelope[], errors = errorSource(), onAnswer = vi
   const view = render(<SessionView envelopes={envelopes} {...props} />);
   return { ...view, rerenderWith: (next: Envelope[]) => view.rerender(<SessionView envelopes={next} {...props} />) };
 }
+
+describe('SessionView team of helpers', () => {
+  afterEach(cleanup);
+
+  it('shows a team on one job as different Classes, in the chat', () => {
+    const manifest = JSON.parse(shippedManifest) as HeroManifest;
+    const call = (seq: number, id: string, description: string) =>
+      envelope(seq, 'claude.event', {
+        engine: 'claude',
+        raw: {
+          type: 'assistant',
+          message: { id: `m-${id}`, content: [{ type: 'tool_use', id, name: 'Agent', input: { description } }] },
+        },
+      });
+    render(
+      <SessionView
+        envelopes={[
+          envelope(0, 'session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+          call(1, 'a1', 'Fix hub'),
+          call(2, 'a2', 'Fix web'),
+          call(3, 'a3', 'Fix node'),
+        ]}
+        onAnswer={() => {}}
+        onSend={() => {}}
+        onInterrupt={() => {}}
+        onMode={() => {}}
+        subscribeErrors={() => () => {}}
+        party={{ manifest, leaderState: 'working' }}
+      />,
+    );
+
+    const chat = (job: string) => screen.getByText(new RegExp(`sets out: ${job}!`)).textContent!.split(' sets out')[0]!;
+    const classes = ['Fix hub', 'Fix web', 'Fix node'].map(chat);
+    expect(new Set(classes).size).toBe(3);
+    expect(classes[0]).toBe('Cleric');
+  });
+});
 
 describe('SessionView permission answers', () => {
   beforeEach(() => {

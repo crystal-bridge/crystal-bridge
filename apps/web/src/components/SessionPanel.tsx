@@ -1,7 +1,7 @@
 import type { UsageWindow } from '@crystal-bridge/protocol';
 import { type ReactNode, useContext, useEffect, useState } from 'react';
 import type { Activity } from '../activity.js';
-import { helperClass, type HeroManifest, type HeroState, QUIET_MS } from '../heroes.js';
+import { helperClass, type HeroManifest, type HeroState, partyClasses, QUIET_MS } from '../heroes.js';
 import { FileOpenContext } from './markdown.js';
 import { contextRoom, type SessionInfo } from '../info.js';
 import { MODES } from '../modes.js';
@@ -179,6 +179,7 @@ function Party({
   const leader = manifest.classes[manifest.leader];
   const level = useContext(LevelContext)[manifest.leader];
   const helpers = info.tasks.filter((task) => task.kind === 'agent' && task.running);
+  const party = partyClasses(manifest, info.party);
   // Background commands and Monitors bring a companion along (#20).
   const errands = info.tasks.filter((task) => task.kind !== 'agent' && task.running);
   // At work, the leader's word follows what it's doing; otherwise its state (resting, needs you, …).
@@ -212,7 +213,7 @@ function Party({
           </li>
         )}
         {helpers.map((task) => {
-          const classId = helperClass(manifest, task);
+          const classId = helperClass(manifest, task, party);
           const cls = manifest.classes[classId];
           return (
             <li key={task.id} className="flex items-center gap-2 text-xs">
