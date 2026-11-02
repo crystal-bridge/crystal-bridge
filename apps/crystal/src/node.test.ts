@@ -937,6 +937,56 @@ describe('startNode', () => {
     expect(created[0]!.opts.permissionMode).toBe('manual');
   });
 
+  it('takes a mode change for a Quest it lost to a restart, so tightening it isn’t missed', async () => {
+    createNode({ defaultMode: 'auto' });
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+    const session = randomUUID();
+    conn.socket.send(
+      JSON.stringify({
+        type: 'session.mode',
+        session,
+        mode: 'manual',
+        resume: { cwd: '/w', nextSeq: 4, mode: 'auto' },
+      }),
+    );
+    expect(await waitForFrame(conn, (frame) => frame.type === 'session.mode')).toMatchObject({
+      session,
+      seq: 4,
+      payload: { mode: 'manual' },
+    });
+    expect(created[0]!.opts.cwd).toBe('/w');
+    expect(created[0]!.fake.setMode).toHaveBeenCalledWith('manual');
+    expect(conn.frames.some((frame) => frame.kind === 'node-error')).toBe(false);
+  });
+
+  it('still says so for a mode change on a Quest it can’t find, from a hub that sends no resume', async () => {
+    createNode();
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+    conn.socket.send(JSON.stringify({ type: 'session.mode', session: randomUUID(), mode: 'manual' }));
+    expect(await waitForFrame(conn, (frame) => frame.kind === 'node-error')).toMatchObject({
+      message: expect.stringContaining('unknown session'),
+    });
+  });
+
+  it('says why the hub turned it away for a duplicate id, and keeps retrying', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    createNode();
+    const conn = await nextConnection(harness, 0);
+    await waitForFrame(conn, (f) => f.kind === 'hello');
+
+    conn.socket.close(4009, 'another Crystal is connected as this node');
+
+    await vi.waitFor(() =>
+      expect(errors).toHaveBeenCalledWith(
+        '[crystal:node] the hub refused this node: another Crystal is connected as this node',
+      ),
+    );
+    await nextConnection(harness, 1);
+    errors.mockRestore();
+  });
+
   it('answers a question by approving with the answers added to its input', async () => {
     createNode();
     const conn = await nextConnection(harness, 0);

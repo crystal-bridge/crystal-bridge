@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { backupRecord, backupStore, runBackup } from './backup.js';
 import { openStore } from './store.js';
@@ -48,6 +49,63 @@ describe('backupStore', () => {
       'airship-20261006-000000.db',
       'notes.txt',
     ]);
+  });
+
+  it.each([0, -3])('keeps the new copy even at keep %i', async (keep) => {
+    openStore(dbPath).close();
+    const path = await backupStore(dbPath, backups, { keep });
+    expect(readdirSync(backups)).toEqual([basename(path)]);
+  });
+
+  it('finishes while the hub commits, though each commit restarts an online backup', async () => {
+    const store = openStore(dbPath);
+    const session = randomUUID();
+    const bulk = 'x'.repeat(4000);
+    for (let seq = 0; seq < 2000; seq++) {
+      store.appendEvent({ node: 'n', session, seq, ts: 1, type: 'claude.event', payload: { bulk } });
+    }
+    let seq = 2000;
+    let writing = true;
+    const commits = async () => {
+      while (writing) {
+        store.appendEvent({ node: 'n', session, seq: seq++, ts: 1, type: 'claude.event', payload: {} });
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    };
+    const writer = commits();
+
+    const finished = await Promise.race([
+      backupStore(dbPath, backups).then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+    ]);
+    writing = false;
+    await writer;
+    store.close();
+
+    expect(finished).toBe(true);
+  });
+
+  it.skipIf(process.platform === 'win32')('makes each copy private, and tightens older ones', async () => {
+    openStore(dbPath).close();
+    const previous = umask(0o022);
+    try {
+      const older = await backupStore(dbPath, backups, { now: new Date('2026-10-01T00:00:00Z') });
+      chmodSync(older, 0o644);
+      const newer = await backupStore(dbPath, backups, { now: new Date('2026-10-02T00:00:00Z') });
+      expect(statSync(newer).mode & 0o777).toBe(0o600);
+      expect(statSync(older).mode & 0o777).toBe(0o600);
+    } finally {
+      umask(previous);
+    }
+  });
+
+  it('leaves no empty copy behind when the backup fails, which would pass for the newest', async () => {
+    await expect(backupStore(join(dir, 'missing.db'), backups)).rejects.toThrow();
+    expect(existsSync(backups) ? readdirSync(backups) : []).toEqual([]);
+
+    writeFileSync(join(dir, 'broken.db'), 'not a database'.repeat(1000));
+    await expect(backupStore(join(dir, 'broken.db'), backups)).rejects.toThrow();
+    expect(readdirSync(backups)).toEqual([]);
   });
 
   it('runBackup finds the store and the backups in the same places the hub does', async () => {

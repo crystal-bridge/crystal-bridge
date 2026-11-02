@@ -149,7 +149,9 @@ itself. When the Kingdom reconnects, the hub sees that it no longer holds a Ques
 cut, and starts a new turn telling the agent what happened, in the Quest's own permission mode. That turn costs plan usage
 like any other. It stops there instead, and you're notified, if the cut was more than 30 minutes ago, if the turn cut off
 was already such a turn, or if the Quest started before its mode was recorded. A follow-up then carries on as usual. A turn
-the CLI started by itself, when background work reported in, isn't noticed, because nothing marks its start on the hub.
+the CLI started by itself, when background work reported in, isn't noticed, because nothing marks its start on the hub,
+unless it was waiting on an approval: then the hub records the cut and stops there. A Quest stops counting as waiting
+while its Kingdom is offline, since nobody can answer it, so a removed or dead Kingdom leaves nothing waiting for good.
 
 A Crystal restart stops only Crystal's own process (`KillMode=process`): Crystal closes its `claude` sessions on
 SIGTERM, and anything a Quest deliberately left running in the background (detached workers, long jobs) keeps
@@ -173,7 +175,9 @@ npx --yes --package=https://github.com/crystal-bridge/crystal-bridge/releases/do
 
 Everything the hub keeps is in `AIRSHIP_DATA`, so back up that folder and keep it across upgrades. The hub refuses to
 listen on anything but loopback without token login. `crystal-bridge-airship backup` copies the database into its backups
-folder safely while the hub runs, keeping the newest `AIRSHIP_BACKUP_KEEP`.
+folder safely while the hub runs, keeping the newest `AIRSHIP_BACKUP_KEEP` (and always at least the one it just made). The
+database and each backup are readable by their owner only (0600), whatever the umask, so a tool that reads them as another
+user needs to run as the hub's.
 
 Updating a packaged hub is a step outside the app, because a hub can't replace what's running it: pull the newer image
 and recreate the container, or start the newer tarball. A browser tab then offers to reload, and Kingdoms made by `join`
@@ -210,7 +214,9 @@ crystal-bridge-airship token add laptop
 docker exec crystal-bridge crystal-bridge-airship token add laptop
 ```
 
-It's shown once, and the login page takes it. In place of `add laptop`, `list` shows the names, and `remove <name>` revokes one at once. In a checkout, the `pnpm` scripts `token:add`, `token:list` and `token:remove` do the same. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
+It's shown once, and the login page takes it. In place of `add laptop`, `list` shows the names, and `remove <name>` revokes one. Requests with it are refused at once, and a tab already open is closed at its next heartbeat, within 30 seconds. In a checkout, the `pnpm` scripts `token:add`, `token:list` and `token:remove` do the same. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
+
+On `tailscale-serve` the allow list is `AIRSHIP_ALLOWED_USERS`, read when the hub starts, so removing a login means editing it and restarting the hub, and that closes every tab anyway.
 
 ### First run
 
@@ -469,8 +475,9 @@ with the OS's own temp cleanup.
 
 ## Closed Quests
 
-A closed Quest stays closed: the store ignores its process's later end or resume. Migration 5 repaired Quests closed
-before that fix (marked ended or idle again by their exit); rolling back past it refuses to start, like any migration.
+A closed Quest stays closed: the store ignores its process's later end or resume, and the hub refuses a message, mode or
+effort change for one, so a tab left open from before can't run a turn on it. Migration 5 repaired Quests closed before
+that fix (marked ended or idle again by their exit); rolling back past it refuses to start, like any migration.
 
 ## Monitoring
 
@@ -486,6 +493,41 @@ link that was silent for a whole interval. A Kingdom then reconnects by itself w
 the hub never acknowledged, and a vanished Kingdom leaves the list as quickly. Each logs it: the Kingdom says "the hub
 stopped answering", the hub "a Kingdom stopped answering". Pings are WebSocket control frames, so either side can be
 updated first. A Quest keeps running through all of this.
+
+The hub pings browser tabs the same way, and browsers answer by themselves. It drops a tab that stopped answering, and
+one that fell more than 32 MiB behind, and either catches up from where it was when it reconnects. A long Quest's replay
+may be larger than that, so it gets time to arrive.
+
+Each answer is also when the hub checks a link still has the right to be there: a node token that was rotated or removed
+closes its Kingdom's link (code 4007), and a removed login closes its tab (code 4008), both within 30 seconds, which
+covers a token changed from a shell, out of the hub's sight. If the token file can't be read at that moment, the link
+stays and the next beat tries again.
+
+### Two Crystals on one node id
+
+A cloned VM or a forgotten service can bring a second Crystal with the same node id, and the same token. If the Crystal
+already connected answered within the last 45 seconds, the hub keeps it and logs an error, "two Crystals are using this
+node id". It believes nothing the newcomer says, so the first one's Quests aren't marked cut off. It holds the newcomer's
+connection for 30 seconds and then closes it with code 4009, and the newcomer logs that it was refused and tries again,
+so the error repeats about twice a minute until you stop one of them or give it its own node id and token. Holding
+matters because every Kingdom, older releases included, redials a second after any close.
+
+A Kingdom coming back after a dead link is let in as before, and at worst waits out one hold: the old link has gone quiet
+by then.
+
+## When a write fails
+
+If the hub can't write to its database, say on a full disk, it logs the error and carries on. An event it couldn't store
+isn't acknowledged, so the Kingdom keeps it in memory and sends it again the next time it connects. Nothing asks it to
+sooner, so after freeing space, restart the hub: Kingdoms reconnect and resend. Restarting a Crystal instead loses them,
+because memory is the only place they are. An event the hub can never store, such as a `session.started` with the wrong
+shape, is acknowledged and dropped, and the Quest's viewers are told.
+
+## Search
+
+Search reads the hub's database, one Kingdom at a time, the most recently active Quests first and a few thousand events
+at a go, so Quests keep running while it looks. It leaves out streaming fragments, whose words are in the full messages. It
+stops at 100 matches or after 5 seconds, so on a very long history the oldest Quests can go unsearched.
 
 ## Publishing
 

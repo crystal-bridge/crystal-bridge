@@ -1,5 +1,7 @@
+import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { migrate } from './migrations.js';
+import { makePrivate } from './paths.js';
 import { z } from 'zod';
 import {
   Appearance,
@@ -81,7 +83,16 @@ export interface NodeUsage extends UsagePayload {
   ts: number;
 }
 
+/** An event `appendEvent` can never take. Anything else it throws is the database failing, and may pass. */
+export class BadEvent extends Error {}
+
+/** How many events of a Quest one step of a search reads, before the hub gets to do anything else. */
+const SEARCH_STEP = 2000;
+/** How long one search goes on looking. Quests it hasn't reached by then go unsearched. */
+const SEARCH_BUDGET_MS = 5000;
+
 export interface Store {
+  /** Stores an event; false for a duplicate. Throws `BadEvent` for one that can never be stored. */
   appendEvent(event: Envelope): boolean;
   eventsSince(session: string, seq: number): Envelope[];
   listSessions(): ListedSession[];
@@ -116,9 +127,11 @@ export interface Store {
   releaseOrphans(node: string, held: readonly string[]): string[];
   /**
    * The newest events of one node whose payload contains `query` (case-insensitive for ASCII), among the kinds a
-   * person reads: session starts, follow-ups and engine events. Deciding which engine events matter is the client's.
+   * person reads: session starts, follow-ups and engine events, without streaming fragments. Deciding which engine
+   * events matter is the client's. Reads the most recently active Quests first, a step at a time so the hub keeps
+   * working, and stops at `limit` hits or when its time is up, so a long history can come back incomplete.
    */
-  search(node: string, query: string, limit: number): SearchHit[];
+  search(node: string, query: string, limit: number): Promise<SearchHit[]>;
   /** The newest usage report from each node, ordered by node id. */
   latestUsage(): NodeUsage[];
   getSession(id: string): SessionRow | undefined;
@@ -176,7 +189,24 @@ interface SessionTableRow {
   created_at: number;
 }
 
+/** One field of a stored payload, which a node can have left as anything JSON can be, and `null` has no fields. */
+function payloadField(json: string, field: string): unknown {
+  const payload: unknown = JSON.parse(json);
+  return typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>)[field] : undefined;
+}
+
+/**
+ * Keeps the database to its owner, whatever the umask: it holds every conversation. SQLite gives a new -wal and -shm the
+ * database's mode, but ones an older release left keep their own.
+ */
+function keepPrivate(path: string): void {
+  if (path === ':memory:') return;
+  makePrivate(path);
+  for (const file of [`${path}-wal`, `${path}-shm`]) if (existsSync(file)) makePrivate(file);
+}
+
 export function openStore(path: string): Store {
+  keepPrivate(path);
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
 
@@ -295,10 +325,17 @@ export function openStore(path: string): Store {
   const getSessionStmt = db.prepare(`SELECT id, node, cwd, label, status, created_at FROM sessions WHERE id = ?`);
 
   const maxSeqStmt = db.prepare(`SELECT MAX(seq) AS seq FROM events WHERE session = ?`);
-  const searchStmt = db.prepare(
-    `SELECT e.session, e.seq, e.node, e.ts, e.type, e.payload, s.label FROM events e JOIN sessions s ON s.id = e.session
-     WHERE e.node = ? AND e.type IN ('session.started', 'user.message', 'claude.event') AND e.payload LIKE ? ESCAPE '\\'
-     ORDER BY e.ts DESC, e.seq DESC LIMIT ?`,
+  const searchQuestsStmt = db.prepare(
+    `SELECT id, label FROM sessions WHERE node = ?
+     ORDER BY (SELECT ts FROM events WHERE session = sessions.id ORDER BY seq DESC LIMIT 1) DESC`,
+  );
+  // `+type` keeps this on the primary key: a step reads its rows in order, and the type index would look each one up.
+  // A fragment's words are in the full message too, so they'd only use up the limit; checked last, on matches alone.
+  const searchStepStmt = db.prepare(
+    `SELECT session, seq, node, ts, type, payload FROM events
+     WHERE session = ? AND seq BETWEEN ? AND ? AND +type IN ('session.started', 'user.message', 'claude.event')
+       AND payload LIKE ? ESCAPE '\\' AND json_extract(payload, '$.raw.type') IS NOT 'stream_event'
+     ORDER BY seq DESC LIMIT ?`,
   );
   const putPushStmt = db.prepare(
     `INSERT INTO push_subscriptions (endpoint, keys, prefs, updated_at) VALUES (?, ?, ?, ?)
@@ -371,6 +408,11 @@ export function openStore(path: string): Store {
     };
   }
 
+  function nextSeq(session: string): number {
+    const row = maxSeqStmt.get(session) as { seq: number | null };
+    return row.seq === null ? 0 : row.seq + 1;
+  }
+
   function toSessionRow(row: SessionTableRow): SessionRow {
     return {
       id: row.id,
@@ -384,7 +426,14 @@ export function openStore(path: string): Store {
 
   return {
     appendEvent(event) {
-      return appendEventTxn(event);
+      try {
+        return appendEventTxn(event);
+      } catch (error) {
+        const refused =
+          error instanceof z.ZodError ||
+          (error instanceof Database.SqliteError && error.code.startsWith('SQLITE_CONSTRAINT'));
+        throw refused ? new BadEvent(error.message) : error;
+      }
     },
     eventsSince(session, seq) {
       return (eventsSinceStmt.all(session, seq) as EventTableRow[]).map(toEnvelope);
@@ -469,19 +518,23 @@ export function openStore(path: string): Store {
         };
       });
     },
-    search(node, query, limit) {
+    async search(node, query, limit) {
       const pattern = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-      return (searchStmt.all(node, pattern, limit) as (EventTableRow & { label: string })[]).map((row) => ({
-        session: row.session,
-        seq: row.seq,
-        label: row.label,
-        event: toEnvelope(row),
-      }));
+      const deadline = Date.now() + SEARCH_BUDGET_MS;
+      const hits: SearchHit[] = [];
+      const newestFirst = () => hits.sort((a, b) => b.event.ts - a.event.ts || b.seq - a.seq);
+      for (const { id, label } of searchQuestsStmt.all(node) as { id: string; label: string }[]) {
+        for (let top = nextSeq(id) - 1; top >= 0; top -= SEARCH_STEP) {
+          const left = limit - hits.length;
+          const rows = searchStepStmt.all(id, top - SEARCH_STEP + 1, top, pattern, left) as EventTableRow[];
+          for (const row of rows) hits.push({ session: id, seq: row.seq, label, event: toEnvelope(row) });
+          if (hits.length >= limit || Date.now() >= deadline) return newestFirst();
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+      }
+      return newestFirst();
     },
-    nextSeq(session) {
-      const row = maxSeqStmt.get(session) as { seq: number | null };
-      return row.seq === null ? 0 : row.seq + 1;
-    },
+    nextSeq,
     releaseOrphans(node, held) {
       const keep = new Set(held);
       const orphans = (runningOnNodeStmt.all(node) as { id: string }[])
@@ -500,26 +553,25 @@ export function openStore(path: string): Store {
     sessionEngine(id) {
       const row = startedPayloadStmt.get(id) as { payload: string } | undefined;
       if (!row) return undefined;
-      const engine = Engine.safeParse((JSON.parse(row.payload) as { engine?: unknown }).engine);
+      const engine = Engine.safeParse(payloadField(row.payload, 'engine'));
       return engine.success && engine.data !== 'stream' ? engine.data : undefined;
     },
     sessionEffort(id) {
       const row = (latestEffortStmt.get(id) ?? startedPayloadStmt.get(id)) as { payload: string } | undefined;
       if (!row) return undefined;
-      const effort = Effort.safeParse((JSON.parse(row.payload) as { effort?: unknown }).effort);
+      const effort = Effort.safeParse(payloadField(row.payload, 'effort'));
       return effort.success ? effort.data : undefined;
     },
     sessionMode(id) {
       const row = (latestModeStmt.get(id) ?? startedPayloadStmt.get(id)) as { payload: string } | undefined;
       if (!row) return undefined;
-      const mode = PermissionMode.safeParse((JSON.parse(row.payload) as { mode?: unknown }).mode);
+      const mode = PermissionMode.safeParse(payloadField(row.payload, 'mode'));
       return mode.success ? mode.data : undefined;
     },
     cutOffTurn(id) {
       const last = lastTurnEventStmt.get(id) as { type: string; payload: string } | undefined;
       if (last?.type !== 'session.started' && last?.type !== 'user.message') return undefined;
-      const payload = JSON.parse(last.payload) as { prompt?: unknown; text?: unknown };
-      const prompt = last.type === 'user.message' ? payload.text : payload.prompt;
+      const prompt = payloadField(last.payload, last.type === 'user.message' ? 'text' : 'prompt');
       const { ts } = lastActivityStmt.get(id) as { ts: number };
       return { prompt: typeof prompt === 'string' ? prompt : '', lastActivity: ts };
     },

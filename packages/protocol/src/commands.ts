@@ -94,6 +94,8 @@ export const NodeCommand = z.discriminatedUnion('type', [
     type: z.literal('session.mode'),
     session: z.uuid(),
     mode: PermissionMode,
+    /** Filled in by the hub from its store, never by clients; see `Resume`. */
+    resume: Resume.optional(),
   }),
   z.object({
     type: z.literal('session.send'),

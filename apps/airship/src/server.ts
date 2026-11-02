@@ -6,9 +6,10 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
-import type { WebSocket } from 'ws';
+import type { RawData, WebSocket } from 'ws';
 import {
   ClientMessage,
+  HEARTBEAT_MS,
   Envelope,
   FileReply,
   HubAck,
@@ -46,12 +47,18 @@ import { cleanHubName, type HubSettings } from './hub-settings.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
-import type { SessionRow, Store } from './store.js';
+import { BadEvent, type SessionRow, type Store } from './store.js';
 
 export interface BuildServerOptions {
   store: Store;
-  /** How often to check each Kingdom is still there. Default `HEARTBEAT_MS`. */
+  /** How often to check each Kingdom is still there and its token still good. Default `HEARTBEAT_MS`. */
   nodeHeartbeatMs?: number;
+  /** How often to check each open tab is still there and its login still good. Default `HEARTBEAT_MS`. */
+  clientHeartbeatMs?: number;
+  /** How much may wait to go out to one tab before it's dropped. Default `MAX_CLIENT_BACKLOG`. */
+  clientBacklogBytes?: number;
+  /** How long a second Crystal on a node id is left waiting before it's closed. Default `DUPLICATE_HOLD_MS`. */
+  duplicateHoldMs?: number;
   /** Fastify's own request logging; off by default so tests stay quiet. */
   logger?: boolean;
   /**
@@ -110,8 +117,23 @@ function fromAnotherSite(headers: FastifyRequest['headers']): boolean {
 /** Close code for a node whose hello names a protocol version this hub doesn't speak. */
 const CLOSE_WRONG_PROTOCOL = 4006;
 
-/** Close code for a node whose token was just revoked. */
+/** Close code for a node whose token was revoked or replaced. */
 const CLOSE_TOKEN_REVOKED = 4007;
+
+/** Close code for a tab whose login has been removed. */
+const CLOSE_LOGIN_REVOKED = 4008;
+
+/** Close code for a node whose id another Crystal holds and is still answering on: a clone, or a leftover service. */
+const CLOSE_DUPLICATE_NODE = 4009;
+
+/**
+ * Every Kingdom redials a second after any close, and older ones can't be told otherwise, since connecting resets their
+ * backoff. So a second Crystal is held, unanswered, this long first: that's the backoff, and it's the hub's own doing.
+ */
+const DUPLICATE_HOLD_MS = 30_000;
+
+/** Most tabs never get near this. One that does has stopped reading, and catches up by `fromSeq` when it reconnects. */
+const MAX_CLIENT_BACKLOG = 32 * 1024 * 1024;
 
 /** How long the file viewer waits for a node's answer before telling the client it didn't come. */
 const FILE_TIMEOUT_MS = 15_000;
@@ -183,10 +205,6 @@ function sendJson(socket: WebSocket, data: unknown): void {
   }
 }
 
-function sendToClient(socket: WebSocket, message: HubToClient): void {
-  sendJson(socket, message);
-}
-
 /** Sends a frame about one session; returns its size in bytes (0 when the socket is gone). */
 function sendSessionFrame(socket: WebSocket, message: HubToClient): number {
   if (socket.readyState !== socket.OPEN) return 0;
@@ -253,8 +271,25 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     push,
     relayFlushMs = 30_000,
     wakeDelayMs = 2000,
+    nodeHeartbeatMs = HEARTBEAT_MS,
+    clientHeartbeatMs = HEARTBEAT_MS,
+    clientBacklogBytes = MAX_CLIENT_BACKLOG,
+    duplicateHoldMs = DUPLICATE_HOLD_MS,
   } = options;
   const app = fastify({ logger });
+  /**
+   * For work outside any request: a socket event or a timer. A throw there is uncaught and ends the hub, and every link
+   * with it, so a failed write (a full disk, say) costs what it was doing and no more.
+   */
+  const guarded =
+    <Args extends unknown[]>(what: string, work: (...args: Args) => void) =>
+    (...args: Args): void => {
+      try {
+        work(...args);
+      } catch (error) {
+        app.log.error({ err: error }, `${what} failed`);
+      }
+    };
   /** The release to name to Kingdoms now: the hub's own, or under approvals the last approved, never past the hub's. */
   const namedVersion = (): string | undefined => {
     const choice = settings?.kingdomUpdates();
@@ -332,6 +367,30 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const clientLogins = new Map<WebSocket, string>();
   // File viewer requests in flight: who asked, and which node may answer. An answer from anyone else goes nowhere.
   const fileRequests = new Map<string, { client: WebSocket; node: string; timer: NodeJS.Timeout }>();
+  // When each node socket was last heard from, to tell a live Crystal from a link that died without a close.
+  const lastHeard = new WeakMap<WebSocket, number>();
+  // What a replay left queued for each tab: a long Quest's can pass the limit alone, and the tab is owed time to read it.
+  const replayBacklog = new WeakMap<WebSocket, number>();
+
+  /** Whether a node socket is a live Crystal. One answers every beat, so this can't miss one that's just quiet. */
+  const stillAnswering = (socket: WebSocket): boolean =>
+    socket.readyState === socket.OPEN && Date.now() - (lastHeard.get(socket) ?? 0) < nodeHeartbeatMs * 1.5;
+
+  /** Ends a tab's socket when frames pile up faster than it reads, since they'd otherwise sit in the hub's memory. */
+  function dropIfBehind(socket: WebSocket): void {
+    const backlog = socket.bufferedAmount;
+    if (backlog <= clientBacklogBytes) {
+      replayBacklog.delete(socket);
+    } else if (backlog > clientBacklogBytes + (replayBacklog.get(socket) ?? 0)) {
+      app.log.warn({ login: clientLogins.get(socket), backlog }, 'a tab fell too far behind, dropping it');
+      socket.terminate();
+    }
+  }
+
+  function sendToClient(socket: WebSocket, message: HubToClient): void {
+    sendJson(socket, message);
+    dropIfBehind(socket);
+  }
 
   function answerFile(client: WebSocket, requestId: string, reason: string): void {
     sendToClient(client, { kind: 'file', requestId, ok: false, reason });
@@ -386,6 +445,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       if (envelope.seq <= sub.lastSeq) continue;
       sub.lastSeq = envelope.seq;
       relay(sub.socket, envelope.session, { kind: 'event', event: envelope });
+      dropIfBehind(sub.socket);
     }
   }
 
@@ -450,23 +510,27 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   function wakeQuest(node: string, session: string, casts: readonly Cast[]): void {
     const socket = nodes.get(node);
     const quest = store.getSession(session);
-    if (!socket || !quest) return;
+    if (!socket || !quest || quest.status === 'closed') return;
     const send: NodeCommand = { type: 'session.send', session, text: wakeText(casts), resume: resumeOf(quest) };
-    sendJson(socket, send);
+    // Recorded first: a wake costs a turn, and one sent but not recorded goes again on the node's next connect.
     for (const cast of casts) store.markCastDelivered(cast.id);
+    sendJson(socket, send);
   }
 
   /**
    * A node said hello without a session whose turn never finished, so its process went with the node. Records that, so
    * nothing goes on showing it as working, and brings it back with word of what happened. Only once in a row, because
    * a Quest whose own turn restarts its node would otherwise go round for ever. Only soon after, and only in the mode
-   * it's known to have been in, since nobody is there to watch it. Otherwise the user hears and decides.
+   * it's known to have been in, since nobody is there to watch it. Otherwise the user hears and decides. A request
+   * nobody can answer now gets the same record even with no turn on file, or the Quest would go on showing as waiting.
    */
   function reviveCutOff(node: string, socket: WebSocket, id: string): void {
     const quest = store.getSession(id);
     const turn = store.cutOffTurn(id);
-    if (!quest || !turn) return;
+    const stranded = store.waiting().some((entry) => entry.session === id);
+    if (!quest || (!turn && !stranded)) return;
     const resuming =
+      turn !== undefined &&
       store.sessionMode(id) !== undefined &&
       Date.now() - turn.lastActivity < REVIVE_WINDOW_MS &&
       !turn.prompt.startsWith(REVIVE_TEXT);
@@ -502,11 +566,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         waiting.casts.set(cast.id, cast);
         return;
       }
-      const timer = setTimeout(() => {
+      const wake = guarded('waking a Quest', () => {
         const due = wakes.get(cast.session);
         wakes.delete(cast.session);
         if (due) wakeQuest(node, cast.session, [...due.casts.values()]);
-      }, wakeDelayMs);
+      });
+      const timer = setTimeout(wake, wakeDelayMs);
       timer.unref();
       wakes.set(cast.session, { casts: new Map([[cast.id, cast]]), timer });
     } else {
@@ -553,6 +618,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       });
     }
     relay(socket, session, { kind: 'synced', session, seq: sub.lastSeq });
+    replayBacklog.set(socket, socket.bufferedAmount);
   }
 
   function routeToNode(clientSocket: WebSocket, nodeId: string, command: NodeCommand): void {
@@ -591,7 +657,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       sendToClient(clientSocket, { kind: 'error', message: `unknown session: ${command.session}` });
       return;
     }
-    if (command.type === 'session.send' || command.type === 'session.close' || command.type === 'session.effort') {
+    const rebuilds =
+      command.type === 'session.send' || command.type === 'session.mode' || command.type === 'session.effort';
+    if (rebuilds && session.status === 'closed') {
+      // A node that restarted since would rebuild it from `resume`, and a turn would run behind a closed status.
+      sendToClient(clientSocket, { kind: 'error', message: `session is closed: ${command.session}` });
+      return;
+    }
+    if (rebuilds || command.type === 'session.close') {
       // Always the store's values, so a client can't point a node at another directory.
       routeToNode(clientSocket, session.node, { ...command, resume: resumeOf(session) });
       return;
@@ -763,7 +836,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     return reply.code(204).send();
   });
-  app.get('/api/waiting', async () => store.waiting());
+  // Only what can be answered now: a Kingdom that's removed or dead may never come back to end its Quests.
+  app.get('/api/waiting', async () => store.waiting().filter(({ node }) => nodes.has(node)));
   app.get('/api/cli-latest', async () => {
     const latest = await latestCli?.();
     return latest ? { latest } : {};
@@ -861,12 +935,30 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       // Set when tokens are on: the only node id this connection may claim.
       const tokenNode = registry?.verify(bearer(request.headers.authorization));
       let helloNode: string | null = null;
+      // A second Crystal on a node id: nothing it sends counts, and it's closed once its hold is up.
+      let held = false;
 
-      keepBeating(socket, options.nodeHeartbeatMs, () =>
+      keepBeating(socket, nodeHeartbeatMs, () =>
         app.log.warn({ node: helloNode }, 'a Kingdom stopped answering, dropping it'),
       );
 
-      socket.on('message', (data) => {
+      const heard = (): void => void lastHeard.set(socket, Date.now());
+      heard();
+      socket.on('pong', heard);
+      socket.on('message', heard);
+
+      // A token can go while its link is up: rotated by hand, by a script or from a shell, out of the hub's sight.
+      socket.on(
+        'pong',
+        guarded('checking a node token', () => {
+          if (!registry || registry.verify(bearer(request.headers.authorization)) === tokenNode) return;
+          app.log.warn({ node: tokenNode }, 'closed a link whose node token no longer works');
+          socket.close(CLOSE_TOKEN_REVOKED, 'node token revoked');
+        }),
+      );
+
+      const handleFrame = guarded('handling a frame from a node', (data: RawData): void => {
+        if (held) return;
         const parsed = parseFrame(data);
         if (parsed === undefined) {
           app.log.warn('dropped malformed JSON frame from node');
@@ -896,8 +988,25 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
             socket.close(CLOSE_WRONG_NODE, 'hello does not match token');
             return;
           }
+          const existing = nodes.get(hello.data.node);
+          // A live Crystal answers every beat, so one heard this recently isn't the leftover of a dead link: this is a
+          // cloned machine or a forgotten service, and its list of sessions says nothing about the first's Quests.
+          if (existing && stillAnswering(existing)) {
+            held = true;
+            app.log.error(
+              { node: hello.data.node, release: hello.data.release },
+              'two Crystals are using this node id: keeping the one that is connected and turning the other away. ' +
+                'Stop the extra service, or give that machine its own node id and token',
+            );
+            const hold = setTimeout(
+              () => socket.close(CLOSE_DUPLICATE_NODE, 'another Crystal is connected as this node'),
+              duplicateHoldMs,
+            );
+            hold.unref();
+            socket.on('close', () => clearTimeout(hold));
+            return;
+          }
           helloNode = hello.data.node;
-          const existing = nodes.get(helloNode);
           nodes.set(helloNode, socket);
           if (existing && existing !== socket) existing.close();
           // Only engines this hub knows: a newer node may offer more.
@@ -918,9 +1027,17 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           }
           // A node that lists what it holds lets us release sessions whose process died with it.
           if (hello.data.sessions) {
-            const released = store.releaseOrphans(helloNode, hello.data.sessions);
-            if (released.length > 0) app.log.info({ node: helloNode, released }, 'marked orphaned sessions idle');
-            for (const id of released) reviveCutOff(helloNode, socket, id);
+            const node = helloNode;
+            const released = store.releaseOrphans(node, hello.data.sessions);
+            if (released.length > 0) app.log.info({ node, released }, 'marked orphaned sessions idle');
+            // Also what an earlier hub left waiting: those aren't running, so nothing above released them.
+            const unheld = store
+              .waiting()
+              .filter((entry) => entry.node === node && !hello.data.sessions?.includes(entry.session))
+              .map((entry) => entry.session);
+            for (const id of new Set([...released, ...unheld])) {
+              guarded('recording a cut-off Quest', reviveCutOff)(node, socket, id);
+            }
           }
           return;
         }
@@ -998,8 +1115,15 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
         const nodeError = NodeError.safeParse(parsed);
         if (nodeError.success) {
-          app.log.warn({ node: helloNode, session: nodeError.data.session }, nodeError.data.message);
-          broadcastError(nodeError.data.session, nodeError.data.message);
+          const { session, message } = nodeError.data;
+          // None on record yet is fine: a tab can be waiting on a Quest the Kingdom refused to start.
+          const owner = session === undefined ? undefined : store.getSession(session)?.node;
+          if (owner !== undefined && owner !== helloNode) {
+            app.log.warn({ node: helloNode, owner, session }, 'dropped a node-error about another node-s session');
+            return;
+          }
+          app.log.warn({ node: helloNode, session }, message);
+          broadcastError(session, message);
           return;
         }
 
@@ -1022,21 +1146,22 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           return;
         }
         let inserted = false;
-        let failed = false;
         try {
           inserted = store.appendEvent(envelope.data);
         } catch (error) {
-          // It will never succeed, so ack it anyway; otherwise the node resends it forever.
-          failed = true;
-          app.log.error({ error, session, seq, type }, 'failed to append event with a bad payload');
-        }
-
-        sendJson(socket, { kind: 'ack', session, seq } satisfies HubAck);
-
-        if (failed) {
+          if (!(error instanceof BadEvent)) {
+            // No ack: the Kingdom keeps it and sends it again when it next connects.
+            app.log.error({ err: error, session, seq, type }, 'could not store an event, leaving it unacked');
+            return;
+          }
+          // It will never succeed, so ack it anyway; otherwise the node resends it on every connect.
+          app.log.error({ err: error, session, seq, type }, 'failed to append event with a bad payload');
+          sendJson(socket, { kind: 'ack', session, seq } satisfies HubAck);
           broadcastError(session, `dropped a ${type} event (seq ${seq}) with a bad payload`);
           return;
         }
+
+        sendJson(socket, { kind: 'ack', session, seq } satisfies HubAck);
 
         if (inserted) {
           broadcast(envelope.data);
@@ -1047,6 +1172,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           }
         }
       });
+      socket.on('message', handleFrame);
 
       socket.on('close', () => {
         if (helloNode !== null && nodes.get(helloNode) === socket) {
@@ -1067,27 +1193,43 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   );
 
   app.get('/client', { websocket: true }, (socket, request) => {
+    const login = loginOf(request);
     clients.add(socket);
-    clientLogins.set(socket, loginOf(request));
-    socket.on('message', (data) => {
-      const parsed = parseFrame(data);
-      if (parsed === undefined) {
-        app.log.warn('dropped malformed JSON frame from client');
-        return;
-      }
+    clientLogins.set(socket, login);
 
-      const message = ClientMessage.safeParse(parsed);
-      if (!message.success) {
-        app.log.warn('dropped unrecognized frame from client');
-        return;
-      }
+    keepBeating(socket, clientHeartbeatMs, () => app.log.info({ login }, 'a tab stopped answering, dropping it'));
+    // The login was checked at the upgrade, and can go while the tab stays open: a token removed from a shell, say.
+    socket.on(
+      'pong',
+      guarded('checking a login', () => {
+        if (!auth || auth.identify(request) === login) return;
+        app.log.warn({ login }, 'closed a tab whose login is no longer allowed');
+        socket.close(CLOSE_LOGIN_REVOKED, 'login removed');
+      }),
+    );
 
-      if (message.data.kind === 'subscribe') {
-        handleSubscribe(socket, message.data.session, message.data.fromSeq);
-      } else {
-        handleCommand(socket, message.data.command);
-      }
-    });
+    socket.on(
+      'message',
+      guarded('handling a frame from a client', (data: RawData) => {
+        const parsed = parseFrame(data);
+        if (parsed === undefined) {
+          app.log.warn('dropped malformed JSON frame from client');
+          return;
+        }
+
+        const message = ClientMessage.safeParse(parsed);
+        if (!message.success) {
+          app.log.warn('dropped unrecognized frame from client');
+          return;
+        }
+
+        if (message.data.kind === 'subscribe') {
+          handleSubscribe(socket, message.data.session, message.data.fromSeq);
+        } else {
+          handleCommand(socket, message.data.command);
+        }
+      }),
+    );
 
     socket.on('close', () => {
       clients.delete(socket);

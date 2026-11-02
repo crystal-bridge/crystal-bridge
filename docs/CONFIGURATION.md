@@ -44,7 +44,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `AIRSHIP_CLI_CHECK` | on | Airship: `off` stops it asking npm for the latest Claude Code version |
 | `AIRSHIP_RELEASE_CHECK` | on | Airship: `off` stops a packaged hub asking GitHub for this project's latest release |
 | `AIRSHIP_BACKUP_DIR` | `./backups`, or in `AIRSHIP_DATA` | Airship: where database backups go |
-| `AIRSHIP_BACKUP_KEEP` | `14` | Airship: how many backups to keep |
+| `AIRSHIP_BACKUP_KEEP` | `14` | Airship: how many backups to keep, at least one |
 | `AIRSHIP_BACKUP_SSH` | unset | Backup mirror (`deploy/airship/push-backups.sh`): the off-box `user@host`; unset keeps backups local |
 | `AIRSHIP_CLIENT_URL` | `ws://127.0.0.1:7700/client` | `pnpm smoke`: the hub to test against |
 | `VITE_CB_THEME` | `crystal` | Web build: `classic` builds the plain theme |

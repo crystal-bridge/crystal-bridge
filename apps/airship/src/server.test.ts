@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { ClientMessage, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
 import type { Attention, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
@@ -274,6 +275,328 @@ describe('airship server', () => {
       await connect();
       await new Promise((resolve) => setTimeout(resolve, 150));
       expect(await listed()).toEqual(['node-q']);
+    });
+  });
+
+  describe('two Crystals on one node id', () => {
+    const SESSION = '33333333-3333-4333-8333-333333333333';
+    const running = () =>
+      store.appendEvent(
+        sessionStartedEnvelope(SESSION, 'node-a', {
+          payload: { cwd: '/tmp/work', prompt: 'p', label: 'p', mode: 'auto' },
+        }),
+      );
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+    async function sayHello(sessions: string[]) {
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: 'node-a', sessions });
+      return { socket, frames };
+    }
+
+    async function firstCrystal() {
+      running();
+      const first = await sayHello([SESSION]);
+      const start = Date.now();
+      while (Date.now() - start < 2000) {
+        const listed = (await (await fetch(`${baseUrl}/api/nodes`)).json()) as string[];
+        if (listed.includes('node-a')) break;
+      }
+      return first;
+    }
+
+    it('leaves the first alone: no false cut, no revival, and it keeps the link', async () => {
+      const first = await firstCrystal();
+      const second = await sayHello([]);
+      await settle();
+
+      expect(store.eventsSince(SESSION, 0).map((event) => event.type)).toEqual(['session.started']);
+      expect(store.getSession(SESSION)?.status).toBe('running');
+      expect(second.frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+      expect(first.socket.readyState).toBe(WebSocket.OPEN);
+
+      const { socket: tab } = await connectClient();
+      send(tab, { kind: 'command', command: { type: 'session.interrupt', session: SESSION } });
+      await first.frames.waitFor((frame) => frame.type === 'session.interrupt');
+    });
+
+    it('takes nothing from the newcomer while it holds it', async () => {
+      await firstCrystal();
+      const second = await sayHello([]);
+      await settle();
+
+      send(second.socket, makeEnvelope({ session: SESSION, seq: 1, node: 'node-a' }));
+      await settle();
+
+      expect(second.frames.frames.some((frame) => frame.kind === 'ack')).toBe(false);
+      expect(store.eventsSince(SESSION, 0)).toHaveLength(1);
+    });
+
+    it('holds the newcomer before closing it, since an older Kingdom redials a second after any close', async () => {
+      const held = await buildServer({ store, duplicateHoldMs: 60 });
+      await held.listen({ port: 0, host: '127.0.0.1' });
+      const url = `ws://127.0.0.1:${(held.server.address() as AddressInfo).port}/node`;
+      const first = await openSocket(url);
+      sockets.push(first);
+      send(first, { kind: 'hello', node: 'node-a' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      const second = await openSocket(url);
+      sockets.push(second);
+      const start = Date.now();
+      const closed = new Promise<number>((resolve) => second.once('close', (code) => resolve(code)));
+      send(second, { kind: 'hello', node: 'node-a' });
+
+      expect(await closed).toBe(4009);
+      expect(Date.now() - start).toBeGreaterThanOrEqual(55);
+      expect(first.readyState).toBe(WebSocket.OPEN);
+      await held.close();
+    });
+
+    it('lets a newcomer in when the first has gone quiet: a Kingdom back after a dead link', async () => {
+      const first = await firstCrystal();
+      const closed = new Promise((resolve) => first.socket.once('close', resolve));
+      const now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => now + 5 * 60_000);
+
+      const second = await sayHello([]);
+      await closed;
+      await second.frames.waitFor((frame) => frame.type === 'session.send');
+      clock.mockRestore();
+
+      expect(store.getSession(SESSION)?.status).toBe('idle');
+    });
+  });
+
+  describe('a failed write', () => {
+    const SESSION = '55555555-5555-4555-8555-555555555555';
+    const CAST = '66666666-6666-4666-8666-666666666666';
+    const cast = (extra = {}) => ({
+      id: CAST,
+      session: SESSION,
+      summon: 'render',
+      name: 'encode',
+      command: 'encode all',
+      onFinish: 'notify',
+      state: 'running',
+      startedAt: 1,
+      logTail: '',
+      ...extra,
+    });
+    const full = () => new Database.SqliteError('database or disk is full', 'SQLITE_FULL');
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+    let uncaught: unknown[];
+    const note = (error: unknown) => uncaught.push(error);
+    beforeEach(() => {
+      uncaught = [];
+      process.on('uncaughtException', note);
+    });
+    afterEach(() => {
+      process.off('uncaughtException', note);
+      vi.restoreAllMocks();
+    });
+
+    async function hubStillServes(node: WebSocket, frames: FrameRecorder): Promise<void> {
+      const event = makeEnvelope();
+      send(node, event);
+      await frames.waitFor((frame) => frame.kind === 'ack' && frame.session === event.session);
+      expect((await fetch(`${baseUrl}/api/health`)).status).toBe(200);
+      expect(uncaught).toEqual([]);
+    }
+
+    it('leaves a real event unacked on a database error, and takes it when the Kingdom resends it', async () => {
+      const { socket, frames } = await connectNode('node-a');
+      const { socket: tab, frames: tabFrames } = await connectClient();
+      const event = makeEnvelope({ session: SESSION });
+      send(tab, { kind: 'subscribe', session: SESSION, fromSeq: 0 });
+      await tabFrames.waitFor((frame) => frame.kind === 'synced');
+      const append = vi.spyOn(store, 'appendEvent').mockImplementationOnce(() => {
+        throw full();
+      });
+
+      send(socket, event);
+      await hubStillServes(socket, frames);
+      expect(frames.frames.filter((frame) => frame.session === SESSION)).toEqual([]);
+      expect(tabFrames.frames.some((frame) => frame.kind === 'error')).toBe(false);
+
+      append.mockRestore();
+      send(socket, event);
+      await frames.waitFor((frame) => frame.kind === 'ack' && frame.session === SESSION);
+      expect(store.eventsSince(SESSION, 0)).toEqual([event]);
+    });
+
+    it('still acks what can never be stored, or the Kingdom resends it on every connect', async () => {
+      const { socket, frames } = await connectNode('node-a');
+      store.appendEvent(sessionStartedEnvelope(SESSION, 'node-a'));
+
+      send(socket, sessionStartedEnvelope(SESSION, 'node-a', { seq: 1 }));
+      await frames.waitFor((frame) => frame.kind === 'ack' && frame.seq === 1);
+      expect(uncaught).toEqual([]);
+    });
+
+    it('survives a Cast it can’t store', async () => {
+      const { socket, frames } = await connectNode('node-a');
+      store.appendEvent(sessionStartedEnvelope(SESSION, 'node-a'));
+      vi.spyOn(store, 'upsertCast').mockImplementationOnce(() => {
+        throw full();
+      });
+      send(socket, { kind: 'cast', cast: cast() });
+      await settle();
+      await hubStillServes(socket, frames);
+    });
+
+    it('survives a hello whose orphans it can’t release', async () => {
+      store.appendEvent(sessionStartedEnvelope(SESSION, 'node-a'));
+      vi.spyOn(store, 'releaseOrphans').mockImplementationOnce(() => {
+        throw full();
+      });
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: 'node-a', sessions: [] });
+      await settle();
+      await hubStillServes(socket, frames);
+    });
+
+    it('still reaches the other cut-off Quests when recording one fails', async () => {
+      const other = randomUUID();
+      for (const session of [SESSION, other]) {
+        store.appendEvent(
+          sessionStartedEnvelope(session, 'node-a', {
+            payload: { cwd: '/tmp/work', prompt: 'p', label: 'p', mode: 'auto' },
+          }),
+        );
+      }
+      vi.spyOn(store, 'appendEvent').mockImplementationOnce(() => {
+        throw full();
+      });
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: 'node-a', sessions: [] });
+      await frames.waitFor((frame) => frame.type === 'session.send');
+      await hubStillServes(socket, frames);
+    });
+
+    it('survives a wake whose delivery it can’t record, without spending a turn it would repeat', async () => {
+      const { socket, frames } = await connectNode('node-a');
+      store.appendEvent(sessionStartedEnvelope(SESSION, 'node-a'));
+      vi.spyOn(store, 'markCastDelivered').mockImplementation(() => {
+        throw full();
+      });
+      send(socket, { kind: 'cast', cast: cast({ state: 'succeeded', onFinish: 'wake' }) });
+      await settle();
+      expect(frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+      await hubStillServes(socket, frames);
+    });
+
+    it('survives a cancelled Cast whose delivery it can’t record', async () => {
+      const { socket, frames } = await connectNode('node-a');
+      store.appendEvent(sessionStartedEnvelope(SESSION, 'node-a'));
+      vi.spyOn(store, 'markCastDelivered').mockImplementationOnce(() => {
+        throw full();
+      });
+      send(socket, { kind: 'cast', cast: cast({ state: 'cancelled' }) });
+      await settle();
+      await hubStillServes(socket, frames);
+    });
+
+    it('survives a client frame the store can’t answer', async () => {
+      const { socket, frames } = await connectNode('node-a');
+      const { socket: tab, frames: tabFrames } = await connectClient();
+      vi.spyOn(store, 'eventsSince').mockImplementationOnce(() => {
+        throw full();
+      });
+      vi.spyOn(store, 'getSession').mockImplementationOnce(() => {
+        throw full();
+      });
+      send(tab, { kind: 'subscribe', session: SESSION, fromSeq: 0 });
+      send(tab, { kind: 'command', command: { type: 'session.interrupt', session: SESSION } });
+      await settle();
+      await hubStillServes(socket, frames);
+      send(tab, { kind: 'subscribe', session: SESSION, fromSeq: 0 });
+      await tabFrames.waitFor((frame) => frame.kind === 'synced');
+    });
+  });
+
+  describe('a closed Quest', () => {
+    const closedQuest = async () => {
+      const session = randomUUID();
+      store.appendEvent(sessionStartedEnvelope(session, 'node-a'));
+      store.appendEvent(makeEnvelope({ session, seq: 1, type: 'session.closed', payload: {} }));
+      const node = await connectNode('node-a');
+      const tab = await connectClient();
+      return { session, node, tab };
+    };
+
+    it.each([
+      ['session.send', { text: 'one more thing' }],
+      ['session.mode', { mode: 'manual' }],
+      ['session.effort', { effort: 'low' }],
+    ])('refuses %s from a stale tab, so no turn runs behind a closed status', async (type, fields) => {
+      const { session, node, tab } = await closedQuest();
+
+      send(tab.socket, { kind: 'command', command: { type, session, ...fields } });
+
+      expect(await tab.frames.waitFor((frame) => frame.kind === 'error')).toEqual({
+        kind: 'error',
+        message: `session is closed: ${session}`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(node.frames.frames.some((frame) => frame.type === type)).toBe(false);
+    });
+
+    it('still lets a closed Quest’s files be read', async () => {
+      const { session, node, tab } = await closedQuest();
+      const requestId = randomUUID();
+      send(tab.socket, { kind: 'command', command: { type: 'file.read', session, requestId, path: 'a.txt' } });
+      await node.frames.waitFor((frame) => frame.type === 'file.read');
+    });
+
+    it('doesn’t wake a Quest closed while its Casts settled', async () => {
+      const session = randomUUID();
+      store.appendEvent(sessionStartedEnvelope(session, 'node-a'));
+      const node = await connectNode('node-a');
+      send(node.socket, {
+        kind: 'cast',
+        cast: {
+          id: randomUUID(),
+          session,
+          summon: 'render',
+          name: 'encode',
+          command: 'encode all',
+          onFinish: 'wake',
+          state: 'succeeded',
+          startedAt: 1,
+          logTail: '',
+        },
+      });
+      send(node.socket, makeEnvelope({ session, seq: 1, type: 'session.closed', payload: {} }));
+      await node.frames.waitFor((frame) => frame.kind === 'ack' && frame.seq === 1);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(node.frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+    });
+  });
+
+  it('passes session.mode on with the store’s resume, so a Quest idle since a restart can take it', async () => {
+    const session = randomUUID();
+    store.appendEvent(
+      sessionStartedEnvelope(session, 'node-a', {
+        payload: { cwd: '/tmp/work', prompt: 'p', label: 'p', mode: 'auto' },
+      }),
+    );
+    const { frames } = await connectNode('node-a');
+    const { socket: tab } = await connectClient();
+    send(tab, {
+      kind: 'command',
+      command: { type: 'session.mode', session, mode: 'manual', resume: { cwd: '/evil', nextSeq: 0 } },
+    });
+    expect(await frames.waitFor((frame) => frame.type === 'session.mode')).toMatchObject({
+      mode: 'manual',
+      resume: { cwd: '/tmp/work', nextSeq: 1, mode: 'auto' },
     });
   });
 
@@ -624,6 +947,50 @@ describe('airship server', () => {
       await frames.waitFor((frame) => frame.type === 'session.send');
     });
 
+    it('ends a Quest stuck on a request when no turn of its is on record, so nothing goes on waiting', async () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(finished(session));
+      // A turn the CLI started by itself: nothing on the hub marks its start.
+      store.appendEvent(
+        makeEnvelope({
+          session,
+          node: 'node-a',
+          seq: 2,
+          type: 'permission.request',
+          payload: { requestId: 'r', toolName: 'Bash', input: {} },
+        }),
+      );
+
+      const frames = await nodeSaysHello([]);
+      await settle();
+
+      expect(ended(session)).toEqual([{ exitCode: null, signal: null, reason: 'restart', resuming: false }]);
+      expect(store.waiting()).toEqual([]);
+      expect(frames.frames.some((frame) => frame.type === 'session.send')).toBe(false);
+    });
+
+    it('also ends one an earlier hub left waiting, which isn’t running any more', async () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(finished(session));
+      store.appendEvent(
+        makeEnvelope({
+          session,
+          node: 'node-a',
+          seq: 2,
+          type: 'permission.request',
+          payload: { requestId: 'r', toolName: 'Bash', input: {} },
+        }),
+      );
+      store.releaseOrphans('node-a', []);
+
+      await nodeSaysHello([]);
+      await settle();
+
+      expect(store.waiting()).toEqual([]);
+    });
+
     it('leaves a Quest the node still holds alone: that was only a dropped connection', async () => {
       const session = randomUUID();
       store.appendEvent(started(session));
@@ -883,7 +1250,16 @@ describe('airship server', () => {
         payload: { requestId: 'r', toolName: 'Bash', input: {} },
       }),
     );
-    expect(await (await fetch(`${baseUrl}/api/waiting`)).json()).toEqual([{ session, node: 'node-a' }]);
+    const { socket } = await connectNode('node-a');
+    const waiting = async () => (await (await fetch(`${baseUrl}/api/waiting`)).json()) as unknown[];
+    const start = Date.now();
+    while ((await waiting()).length === 0 && Date.now() - start < 2000);
+    expect(await waiting()).toEqual([{ session, node: 'node-a' }]);
+
+    // Nobody can answer it on a Kingdom that's gone, and a removed or dead one never comes back to say so.
+    socket.terminate();
+    while ((await waiting()).length > 0 && Date.now() - start < 2000);
+    expect(await waiting()).toEqual([]);
   });
 
   it('reports the agent CLI version a node sent, until it disconnects', async () => {
@@ -1417,6 +1793,35 @@ describe('airship server', () => {
     expect(store.eventsSince(sessionId, 0)).toHaveLength(1);
   });
 
+  it('drops a node-error about another node-s session, so a Kingdom can’t speak for it', async () => {
+    const sessionId = randomUUID();
+    store.appendEvent(sessionStartedEnvelope(sessionId, 'node-a'));
+    const { socket: other } = await connectNode('node-b');
+    const { socket: tab, frames: tabFrames } = await connectClient();
+    send(tab, { kind: 'subscribe', session: sessionId, fromSeq: 0 });
+    await tabFrames.waitFor((f) => f.kind === 'synced');
+
+    send(other, { kind: 'node-error', session: sessionId, message: 'paste your token here' });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(tabFrames.frames.some((f) => f.kind === 'error')).toBe(false);
+  });
+
+  it('relays a node-error about a Quest the hub hasn-t stored yet, for a tab waiting on its start', async () => {
+    const session = randomUUID();
+    const { socket: nodeSocket } = await connectNode('node-a');
+    const { socket: tab, frames: tabFrames } = await connectClient();
+    send(tab, { kind: 'subscribe', session, fromSeq: 0 });
+    await tabFrames.waitFor((f) => f.kind === 'synced');
+
+    send(nodeSocket, { kind: 'node-error', session, message: 'could not start that' });
+
+    expect(await tabFrames.waitFor((f) => f.kind === 'error')).toEqual({
+      kind: 'error',
+      message: 'could not start that',
+    });
+  });
+
   it('relays a node-error with no session to every client', async () => {
     const { socket: nodeSocket } = await connectNode('node-a');
     const { frames: aFrames } = await connectClient();
@@ -1439,6 +1844,177 @@ describe('airship server', () => {
 
     await frames.waitFor((f) => f.kind === 'ack' && f.seq === 1);
     expect(store.eventsSince(sessionId, 0).map((e) => e.seq)).toEqual([0]);
+  });
+});
+
+describe('airship server and open tabs', () => {
+  let store: Store;
+  let app: import('fastify').FastifyInstance;
+  let wsUrl: string;
+  let baseUrl: string;
+  const sockets: WebSocket[] = [];
+
+  async function start(options: Partial<Parameters<typeof buildServer>[0]>): Promise<void> {
+    app = await buildServer({ store, ...options });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    wsUrl = baseUrl.replace('http', 'ws');
+  }
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) socket.terminate();
+    await app.close();
+    store.close();
+  });
+
+  async function open(path: string): Promise<WebSocket> {
+    const socket = await openSocket(`${wsUrl}${path}`);
+    sockets.push(socket);
+    return socket;
+  }
+
+  /** A tab subscribed to a new Quest, with a Kingdom connected to feed it. */
+  async function watching() {
+    const session = randomUUID();
+    store.appendEvent(sessionStartedEnvelope(session, 'node-a'));
+    const node = await open('/node');
+    send(node, { kind: 'hello', node: 'node-a' });
+    const tab = await open('/client');
+    const frames = new FrameRecorder(tab);
+    send(tab, { kind: 'subscribe', session, fromSeq: 0 });
+    await frames.waitFor((frame) => frame.kind === 'synced');
+    return { session, node, tab, frames };
+  }
+
+  const closing = (socket: WebSocket) =>
+    new Promise<number>((resolve) => socket.once('close', (code) => resolve(code)));
+  const relayed = async (session: string) => {
+    const rows = (await (await fetch(`${baseUrl}/api/sessions`)).json()) as { id: string; relayedBytes: number }[];
+    return rows.find((row) => row.id === session)!.relayedBytes;
+  };
+
+  it('drops a tab that stopped answering, and stops sending to it', async () => {
+    await start({ clientHeartbeatMs: 20 });
+    const { session, node, tab } = await watching();
+    const closed = closing(tab);
+
+    tab.pause();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const before = await relayed(session);
+    send(node, makeEnvelope({ session, seq: 1 }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(await relayed(session)).toBe(before);
+    tab.resume();
+    expect(await closed).toBe(1006);
+  });
+
+  it('keeps a tab that answers', async () => {
+    await start({ clientHeartbeatMs: 50 });
+    const { tab } = await watching();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(tab.readyState).toBe(WebSocket.OPEN);
+  });
+
+  const bigEvent = (session: string, seq: number) =>
+    makeEnvelope({ session, seq, payload: { engine: 'claude', raw: { text: 'x'.repeat(256 * 1024) } } });
+
+  it('drops a tab too far behind, and stops piling frames up for it', async () => {
+    await start({ clientBacklogBytes: 64 * 1024 });
+    const { session, node, tab, frames } = await watching();
+    const closed = closing(tab);
+    tab.pause();
+
+    for (let seq = 1; seq <= 200; seq++) send(node, bigEvent(session, seq));
+    const begun = Date.now();
+    while (store.nextSeq(session) <= 200 && Date.now() - begun < 5000) await new Promise((r) => setTimeout(r, 10));
+    expect(await relayed(session)).toBeLessThan(200 * 256 * 1024);
+
+    tab.resume();
+    expect(await closed).toBe(1006);
+    expect(frames.frames.filter((frame) => frame.kind === 'event').length).toBeLessThan(200);
+  });
+
+  it('lets a replay bigger than the limit finish on a slow tab, and live events follow it', async () => {
+    await start({ clientBacklogBytes: 64 * 1024 });
+    const session = randomUUID();
+    store.appendEvent(sessionStartedEnvelope(session, 'node-a'));
+    for (let seq = 1; seq <= 200; seq++) store.appendEvent(bigEvent(session, seq));
+    const node = await open('/node');
+    send(node, { kind: 'hello', node: 'node-a' });
+    const tab = await open('/client');
+    const frames = new FrameRecorder(tab);
+    tab.pause();
+    send(tab, { kind: 'subscribe', session, fromSeq: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    send(node, makeEnvelope({ session, seq: 201 }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    tab.resume();
+    await frames.waitFor((frame) => frame.kind === 'synced', 5000);
+    await frames.waitFor((frame) => frame.kind === 'event', 5000);
+    expect(tab.readyState).toBe(WebSocket.OPEN);
+  });
+
+  describe('a login removed while its tab is open', () => {
+    const dial = async (headers: Record<string, string>) => {
+      const socket = new WebSocket(`${wsUrl}/client`, { headers });
+      sockets.push(socket);
+      await new Promise((resolve, reject) => {
+        socket.once('open', resolve);
+        socket.once('error', reject);
+      });
+      return socket;
+    };
+
+    it('closes a token login’s socket on the next heartbeat', async () => {
+      let valid = true;
+      await start({
+        clientHeartbeatMs: 50,
+        auth: accessTokens({ verify: (token) => (valid && token === 'good' ? 'laptop' : undefined) }),
+      });
+      const tab = await dial({ authorization: 'Bearer good' });
+      const closed = closing(tab);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(tab.readyState).toBe(WebSocket.OPEN);
+
+      valid = false;
+
+      expect(await closed).toBe(4008);
+    });
+
+    it('closes a tailnet login’s socket once it is off the allow list', async () => {
+      const allowed = new Set(['me@example.com']);
+      const real = tailscaleServe(['me@example.com']);
+      const auth = {
+        ...real,
+        identify: (request: Parameters<typeof real.identify>[0]) => {
+          const login = real.identify(request);
+          return login && allowed.has(login) ? login : undefined;
+        },
+      };
+      await start({ clientHeartbeatMs: 20, auth });
+      const tab = await dial({ 'tailscale-user-login': 'me@example.com' });
+      const closed = closing(tab);
+
+      allowed.clear();
+
+      expect(await closed).toBe(4008);
+    });
+
+    it('keeps the socket when the check itself fails, and tries again next beat', async () => {
+      const verify = vi.fn((token: string | undefined) => (token === 'good' ? 'laptop' : undefined));
+      await start({ clientHeartbeatMs: 50, auth: accessTokens({ verify }) });
+      const tab = await dial({ authorization: 'Bearer good' });
+      verify.mockImplementationOnce(() => {
+        throw new Error('half-written file');
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(tab.readyState).toBe(WebSocket.OPEN);
+    });
   });
 });
 
@@ -1856,6 +2432,43 @@ describe('airship server with node tokens', () => {
     expect(await connectedNodes()).toEqual([]);
     expect((await dial('token-a')).status).toBe(401);
     expect((await dial('token-b')).socket).toBeDefined();
+  });
+
+  describe('a token that stops working while its link is up', () => {
+    async function beating(): Promise<{ app: import('fastify').FastifyInstance; socket: WebSocket }> {
+      const beats = await buildServer({ store, nodes: registry, nodeHeartbeatMs: 50 });
+      await beats.listen({ port: 0, host: '127.0.0.1' });
+      const port = (beats.server.address() as AddressInfo).port;
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/node`, { headers: { authorization: 'Bearer token-a' } });
+      sockets.push(socket);
+      await new Promise((resolve) => socket.once('open', resolve));
+      send(socket, { kind: 'hello', node: 'node-a' });
+      return { app: beats, socket };
+    }
+
+    it('closes a rotated token’s link on the next heartbeat', async () => {
+      const { app: beats, socket } = await beating();
+      const closed = new Promise<number>((resolve) => socket.once('close', (code) => resolve(code)));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(socket.readyState).toBe(WebSocket.OPEN);
+
+      tokens.delete('token-a');
+      tokens.set('token-a2', 'node-a');
+
+      expect(await closed).toBe(4007);
+      await beats.close();
+    });
+
+    it('keeps the link when the token file can’t be read, and tries again next beat', async () => {
+      const { app: beats, socket } = await beating();
+      const verify = vi.spyOn(registry, 'verify').mockImplementationOnce(() => {
+        throw new Error('half-edited file');
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      verify.mockRestore();
+      expect(socket.readyState).toBe(WebSocket.OPEN);
+      await beats.close();
+    });
   });
 
   async function post(path: string, body: unknown, headers: Record<string, string> = {}): Promise<Response> {
