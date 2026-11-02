@@ -22,11 +22,10 @@ const SESSION = '11111111-1111-4111-8111-111111111111';
 const RELEASE = '$env:TEMP\\cb-summon-release';
 
 async function until<T>(read: () => T | undefined | false, timeoutMs = 45_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
+  for (let waited = 0; ; waited += 100) {
     const value = read();
     if (value) return value;
-    if (Date.now() - start > timeoutMs) throw new Error('timed out');
+    if (waited > timeoutMs) throw new Error('timed out');
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
