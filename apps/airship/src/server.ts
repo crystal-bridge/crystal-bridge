@@ -165,6 +165,12 @@ const OPEN_PATHS = new Set([
   '/api/setup',
 ]);
 
+/**
+ * Agent text and repository files are shown in the app, so images may load only from the hub or the page itself, or a
+ * stray `<img>` could carry data out with no tool call. The app's sprites, icons and favicons all come from here.
+ */
+const CONTENT_SECURITY_POLICY = "img-src 'self' data: blob:; frame-ancestors 'none'";
+
 /** Close code for a node whose hello names a different node than its token. */
 const CLOSE_WRONG_NODE = 4003;
 
@@ -302,6 +308,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   /** Whose request this is; one shared user when there's no login (pnpm dev, where the client side is open anyway). */
   const loginOf = (request: FastifyRequest): string => auth?.identify(request) ?? 'default';
+
+  // On every answer, refusals and misses included: what's left of an exfiltrating image if a client ever renders one.
+  app.addHook('onRequest', async (_request, reply) => {
+    void reply.header('content-security-policy', CONTENT_SECURITY_POLICY);
+  });
 
   app.addHook('onRequest', async (request, reply) => {
     const changes = request.method !== 'GET' && request.method !== 'HEAD';

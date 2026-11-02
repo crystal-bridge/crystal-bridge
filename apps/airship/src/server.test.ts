@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
@@ -72,6 +75,27 @@ function openSocket(url: string): Promise<WebSocket> {
 function send(socket: WebSocket, data: unknown): void {
   socket.send(JSON.stringify(data));
 }
+
+describe("the web app's responses", () => {
+  it('tell the browser to load images only from here, and not to be framed', async () => {
+    const store = openStore(':memory:');
+    const webRoot = mkdtempSync(path.join(tmpdir(), 'cb-web-'));
+    writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html>');
+    const app = await buildServer({ store, webRoot });
+    try {
+      for (const url of ['/', '/index.html', '/api/health']) {
+        const response = await app.inject({ method: 'GET', url });
+        expect(response.headers['content-security-policy'], url).toBe(
+          "img-src 'self' data: blob:; frame-ancestors 'none'",
+        );
+      }
+    } finally {
+      await app.close();
+      store.close();
+      rmSync(webRoot, { recursive: true });
+    }
+  });
+});
 
 describe('airship server', () => {
   let store: Store;

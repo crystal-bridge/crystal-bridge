@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import Markdown from 'react-markdown';
 import type { Attachment, Envelope, UsageWindow } from '@crystal-bridge/protocol';
 import {
   IncrementalView,
@@ -41,7 +40,7 @@ import { PromptBox } from './PromptBox.js';
 import { HelperBackLine, isAgentCall, isSummonStart, SetOutLine, SkillLine, SummonLine, ToolCard } from './ToolCard.js';
 import { ThemedSelect } from './ThemedSelect.js';
 import { HeroSprite } from './HeroSprite.js';
-import { FileOpenContext, MARKDOWN_COMPONENTS, REMARK_PLUGINS } from './markdown.js';
+import { FileOpenContext, QuestMarkdown } from './markdown.js';
 import { BattleCard } from './BattleCard.js';
 import { loadDraft, saveDraft } from '../drafts.js';
 import { attachedPaths, toAttachments } from '../attachments.js';
@@ -210,9 +209,7 @@ function Item({
             title={sentAt(ts)}
             className="cb-prose min-w-0 max-w-none [overflow-wrap:anywhere] [&_code]:font-mono [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-neutral-100 [&_pre]:p-2 [&_pre]:[overflow-wrap:normal] [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto dark:[&_pre]:bg-neutral-900"
           >
-            <Markdown components={MARKDOWN_COMPONENTS} remarkPlugins={REMARK_PLUGINS}>
-              {item.text}
-            </Markdown>
+            <QuestMarkdown>{item.text}</QuestMarkdown>
             {item.streaming && <span className="animate-pulse">▍</span>}
           </div>
           {!item.streaming && (

@@ -27,6 +27,7 @@ browser ──HTTPS──▶ tailscale serve ──▶ Airship (hub) on 127.0.0.
 | Kingdom → Summon | The Kingdom connects by its own `ssh`, only to machines in `CRYSTAL_SUMMONS` and those it still has Casts running on, and keys stay on the Kingdom. The hub never connects to a target. It holds only the Summon's name, which is the SSH host name unless you give it a `name=`. A Cast runs with the SSH user's full rights: it's not a sandbox. See [Summons](SUMMONS.md#security). |
 | Hub at rest | SQLite on the hub's disk holds every event: prompts, replies, tool inputs and outputs, anything pasted. Nightly backups copy it. The hub keeps the database, its `-wal` and `-shm`, and each backup at 0600 whatever the umask, and tightens existing ones when it opens them or next backs up. It's plain file permissions, not encryption. |
 | Hub → phone | Web Push payloads are encrypted end to end to each browser; Discreet and Off levels keep titles and text out of them. |
+| Agent text → browser | Replies and repository files are shown as markdown, and an image loads with no click, so one could carry data out in its address. A remote image shows as a link instead, and only `data:` and same-origin images draw. Every hub response also sends `Content-Security-Policy: img-src 'self' data: blob:; frame-ancestors 'none'`. |
 
 It also refuses `AIRSHIP_HOST` on anything but loopback unless `AIRSHIP_AUTH=token`, because anyone who could reach it directly could send the identity header themselves.
 
