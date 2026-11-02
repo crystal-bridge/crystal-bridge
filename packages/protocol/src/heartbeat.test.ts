@@ -5,6 +5,7 @@ import { keepBeating } from './heartbeat.js';
 class FakeSocket extends EventEmitter {
   readonly OPEN = 1;
   readyState = 1;
+  bufferedAmount = 0;
   ping = vi.fn();
   terminate = vi.fn();
 }
@@ -43,6 +44,27 @@ describe('keepBeating', () => {
 
     expect(socket.ping).toHaveBeenCalledTimes(5);
     expect(socket.terminate).not.toHaveBeenCalled();
+  });
+
+  it('spares a socket still working through its backlog: a ping waits behind what was queued first', () => {
+    const socket = new FakeSocket();
+    keepBeating(socket, 1000);
+
+    for (const left of [9000, 6000, 3000, 1000]) {
+      socket.bufferedAmount = left;
+      vi.advanceTimersByTime(1000);
+    }
+    expect(socket.terminate).not.toHaveBeenCalled();
+  });
+
+  it('ends a socket whose backlog stopped moving', () => {
+    const socket = new FakeSocket();
+    keepBeating(socket, 1000);
+
+    socket.bufferedAmount = 9000;
+    vi.advanceTimersByTime(3000);
+
+    expect(socket.terminate).toHaveBeenCalledTimes(1);
   });
 
   it('stops once the socket closes', () => {

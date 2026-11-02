@@ -1,9 +1,10 @@
 import type { Cast } from '@crystal-bridge/protocol';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { umask } from 'node:process';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
 import { openStore, type Store } from './store.js';
 
@@ -30,7 +31,7 @@ describe('store', () => {
     store.close();
   });
 
-  it('forgets a node: its sessions, events, relay counts and usage go, and other nodes are untouched', () => {
+  it('forgets a node: its sessions, events, relay counts and usage go, and other nodes are untouched', async () => {
     const gone = randomUUID();
     const kept = randomUUID();
     store.appendEvent(
@@ -63,7 +64,7 @@ describe('store', () => {
     expect(store.listSessions().map((s) => s.id)).toEqual([kept]);
     expect(store.getSession(gone)).toBeUndefined();
     expect(store.eventsSince(gone, -1)).toEqual([]);
-    expect(store.search('gone', 'a', 10)).toEqual([]);
+    expect(await store.search('gone', 'a', 10)).toEqual([]);
     expect(store.latestUsage().map((u) => u.node)).not.toContain('gone');
     expect(store.eventsSince(kept, -1)).toHaveLength(1);
     expect(store.listSessions()[0]?.relayedBytes).toBe(20);
@@ -388,7 +389,7 @@ describe('store', () => {
     expect(store.getSession(session)?.status).toBe('closed');
   });
 
-  it('searches one node-s history, newest first, case-insensitively, with each match-s session label', () => {
+  it('searches one node-s history, newest first, case-insensitively, with each match-s session label', async () => {
     const [a, b, other] = [randomUUID(), randomUUID(), randomUUID()];
     const start = (session: string, node: string, label: string) =>
       store.appendEvent(
@@ -425,7 +426,7 @@ describe('store', () => {
       }),
     );
 
-    const hits = store.search('node-a', 'FLAKY', 10);
+    const hits = await store.search('node-a', 'FLAKY', 10);
     expect(hits.map((h) => [h.session, h.seq, h.label])).toEqual([
       [b, 1, 'Write docs'],
       [a, 0, 'Fix the Flaky test'],
@@ -433,7 +434,150 @@ describe('store', () => {
     expect(hits[0]!.event.payload).toEqual({ text: 'also mention the flaky one' });
   });
 
-  it('treats search wildcards in the query as plain text', () => {
+  describe('searching a long history', () => {
+    const started = (session: string, ts: number) =>
+      store.appendEvent(
+        makeEnvelope({
+          session,
+          node: 'node-a',
+          seq: 0,
+          ts,
+          type: 'session.started',
+          payload: { cwd: '/w', prompt: 'p', label: 'p' },
+        }),
+      );
+    const said = (session: string, seq: number, text: string, ts = seq) =>
+      store.appendEvent(makeEnvelope({ session, node: 'node-a', seq, ts, type: 'user.message', payload: { text } }));
+    const fragment = (session: string, seq: number, text: string) =>
+      store.appendEvent(
+        makeEnvelope({
+          session,
+          node: 'node-a',
+          seq,
+          ts: seq,
+          type: 'claude.event',
+          payload: { engine: 'claude', raw: { type: 'stream_event', event: { delta: { text } } } },
+        }),
+      );
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('leaves out streaming fragments, whose text the full messages carry', async () => {
+      const session = randomUUID();
+      started(session, 1);
+      fragment(session, 1, 'needle');
+      said(session, 2, 'needle');
+      expect((await store.search('node-a', 'needle', 10)).map((hit) => hit.seq)).toEqual([2]);
+    });
+
+    it('stops at the limit in the Quests most recently active, whenever they started', async () => {
+      const [older, newer] = [randomUUID(), randomUUID()];
+      started(older, 1);
+      started(newer, 2);
+      said(newer, 1, 'needle', 10);
+      said(older, 1, 'needle', 20);
+      expect((await store.search('node-a', 'needle', 1)).map((hit) => hit.session)).toEqual([older]);
+    });
+
+    it('lets the hub breathe between steps instead of freezing every Quest', async () => {
+      const session = randomUUID();
+      started(session, 1);
+      for (let seq = 1; seq <= 6000; seq++) said(session, seq, 'hay');
+      let turns = 0;
+      let searching = true;
+      const count = () => {
+        turns++;
+        if (searching) setImmediate(count);
+      };
+      setImmediate(count);
+
+      await store.search('node-a', 'needle', 10);
+      searching = false;
+
+      expect(turns).toBeGreaterThan(1);
+    });
+
+    it('stops looking when its time is up, and returns what it found', async () => {
+      const session = randomUUID();
+      started(session, 1);
+      for (let seq = 1; seq <= 6000; seq++) said(session, seq, 'needle in the hay', seq);
+      said(session, 6001, 'needle at the top', 6001);
+      const now = Date.now();
+      vi.spyOn(Date, 'now')
+        .mockReturnValueOnce(now)
+        .mockReturnValue(now + 60 * 60_000);
+
+      const hits = await store.search('node-a', 'needle', 100_000);
+
+      expect(hits[0]?.seq).toBe(6001);
+      expect(hits.length).toBeLessThan(6001);
+    });
+
+    it('sees every step of a long Quest, not only its newest', async () => {
+      const session = randomUUID();
+      started(session, 1);
+      said(session, 1, 'needle');
+      for (let seq = 2; seq <= 6000; seq++) said(session, seq, 'hay');
+      expect((await store.search('node-a', 'needle', 10)).map((hit) => hit.seq)).toEqual([1]);
+    });
+  });
+
+  it('reads a null session.effort or session.mode payload as unset, whatever a node sends', () => {
+    const session = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        session,
+        seq: 0,
+        type: 'session.started',
+        payload: { cwd: '/w', prompt: 'p', label: 'p', mode: 'auto', effort: 'high' },
+      }),
+    );
+    store.appendEvent(makeEnvelope({ session, seq: 1, type: 'session.effort', payload: null }));
+    store.appendEvent(makeEnvelope({ session, seq: 2, type: 'session.mode', payload: null }));
+    expect(store.sessionEffort(session)).toBeUndefined();
+    expect(store.sessionMode(session)).toBeUndefined();
+  });
+
+  it('reads a null user.message payload as a prompt with no words', () => {
+    const session = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        session,
+        seq: 0,
+        ts: 1,
+        type: 'session.started',
+        payload: { cwd: '/w', prompt: 'p', label: 'p' },
+      }),
+    );
+    store.appendEvent(makeEnvelope({ session, seq: 1, ts: 2, type: 'user.message', payload: null }));
+    expect(store.cutOffTurn(session)).toEqual({ prompt: '', lastActivity: 2 });
+  });
+
+  it.skipIf(process.platform === 'win32')('keeps the database and its -wal and -shm private', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'airship-private-'));
+    const path = join(dir, 'airship.db');
+    const previous = umask(0o022);
+    try {
+      const fresh = openStore(path);
+      fresh.appendEvent(makeEnvelope());
+      for (const file of [path, `${path}-wal`, `${path}-shm`]) expect(statSync(file).mode & 0o777).toBe(0o600);
+      fresh.close();
+
+      // An install from before this: every file already as the umask left it.
+      const crashed = openStore(path);
+      crashed.appendEvent(makeEnvelope());
+      for (const file of [path, `${path}-wal`, `${path}-shm`]) chmodSync(file, 0o644);
+      const reopened = openStore(path);
+      for (const file of [path, `${path}-wal`, `${path}-shm`]) expect(statSync(file).mode & 0o777).toBe(0o600);
+      reopened.close();
+      crashed.close();
+    } finally {
+      umask(previous);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('treats search wildcards in the query as plain text', async () => {
     const s1 = randomUUID();
     store.appendEvent(
       makeEnvelope({
@@ -448,7 +592,7 @@ describe('store', () => {
     store.appendEvent(
       makeEnvelope({ session: s1, node: 'node-a', seq: 1, ts: 2, type: 'user.message', payload: { text: 'anything' } }),
     );
-    expect(store.search('node-a', '%', 10)).toEqual([]);
+    expect(await store.search('node-a', '%', 10)).toEqual([]);
   });
 
   it('keeps one push subscription per endpoint, with its device-s latest prefs, until deleted', () => {

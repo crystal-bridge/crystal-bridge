@@ -156,6 +156,8 @@ const CLOSE_WAIT_MS = 10_000;
 
 /** Close code from a hub that doesn't speak this node's protocol version. */
 const CLOSE_WRONG_PROTOCOL = 4006;
+/** Close code for a node whose id another Crystal holds and is still answering on: a clone, or a leftover service. */
+const CLOSE_DUPLICATE_NODE = 4009;
 
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
@@ -654,11 +656,11 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           break;
         }
         case 'session.mode': {
-          const state = sessions.get(cmd.session);
+          const state = sessionFor(cmd);
           if (state) {
             state.runtime.setMode(cmd.mode);
             sendEnvelope(cmd.session, 'session.mode', { mode: cmd.mode });
-          } else sendNodeError(cmd.session, `unknown session: ${cmd.session}`);
+          }
           break;
         }
         case 'session.adopt':
@@ -786,7 +788,9 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       clearTimeout(accepted);
       if (socket === ws) socket = null;
       // Still retried: updating the hub can end the refusal.
-      if (code === CLOSE_WRONG_PROTOCOL) log(`the hub refused this node: ${reason.toString()}`);
+      if (code === CLOSE_WRONG_PROTOCOL || code === CLOSE_DUPLICATE_NODE) {
+        log(`the hub refused this node: ${reason.toString()}`);
+      }
       scheduleReconnect();
     });
 

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { hubPaths } from './paths.js';
+import { hubPaths, makePrivate } from './paths.js';
 
 const BACKUP_NAME = /^airship-\d{8}-\d{6}\.db$/;
 const BACKUP_STAMP = /^airship-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.db$/;
@@ -13,8 +13,8 @@ function stamp(now: Date): string {
 
 /**
  * Copies the store with SQLite's online backup, which is safe while the Airship has it open, to
- * `<dir>/airship-YYYYMMDD-HHMMSS.db` (UTC), then deletes all but the newest `keep` copies. Other files
- * in `dir` are left alone. Returns the new copy's path.
+ * `<dir>/airship-YYYYMMDD-HHMMSS.db` (UTC), then deletes all but the newest `keep` copies, and at least keeps the new
+ * one. Each copy is readable by its owner only. Other files in `dir` are left alone. Returns the new copy's path.
  */
 export async function backupStore(
   dbPath: string,
@@ -25,7 +25,13 @@ export async function backupStore(
   const target = join(dir, `airship-${stamp(now)}.db`);
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
-    await db.backup(target);
+    makePrivate(target);
+    // SQLite starts an online backup over after each commit, so on a busy hub the usual small steps never finish.
+    await db.backup(target, { progress: () => 1e9 });
+  } catch (error) {
+    // An empty file with this name would pass for the newest copy.
+    rmSync(target, { force: true });
+    throw error;
   } finally {
     db.close();
   }
@@ -33,7 +39,10 @@ export async function backupStore(
   const copies = readdirSync(dir)
     .filter((name) => BACKUP_NAME.test(name))
     .sort();
-  for (const name of copies.slice(0, Math.max(0, copies.length - keep))) rmSync(join(dir, name));
+  // Always the new copy at least, whatever AIRSHIP_BACKUP_KEEP says.
+  const doomed = Math.max(0, copies.length - Math.max(1, keep));
+  for (const name of copies.slice(0, doomed)) rmSync(join(dir, name));
+  for (const name of copies.slice(doomed)) makePrivate(join(dir, name));
   return target;
 }
 
@@ -58,5 +67,5 @@ export async function runBackup(env: NodeJS.ProcessEnv): Promise<void> {
   const { db, backups } = hubPaths(env);
   const keep = Number(env.AIRSHIP_BACKUP_KEEP ?? '14');
   const path = await backupStore(db, backups, { keep });
-  console.log(`[airship] backed up ${db} to ${path} (keeping ${keep})`);
+  console.log(`[airship] backed up ${db} to ${path} (keeping ${Math.max(1, keep)})`);
 }
