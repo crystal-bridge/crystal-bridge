@@ -20,6 +20,13 @@ import {
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
 
+/**
+ * Holds a job until a test makes `file`. A run killed outright skips afterEach, so the hold has to end by itself, or
+ * its job would wait for good (#187). The default is a few minutes, far past any wait in here.
+ */
+const holdFor = (file: string, ticks = 1200) =>
+  `n=0; while [ ! -f ${file} ] && [ $n -lt ${ticks} ]; do sleep 0.1; n=$((n+1)); done`;
+
 /** Counts its own waits, not the clock: that jumps while a laptop sleeps, and a job asleep with it isn't late. */
 async function until<T>(read: () => T | undefined | false, timeoutMs = 8000): Promise<T> {
   for (let waited = 0; ; waited += 20) {
@@ -250,9 +257,14 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
   const final = (id: string) => until(() => reports.find((cast) => cast.id === id && cast.state !== 'running'));
   const folder = (id: string) => join(home, '.crystal-bridge', 'summons', id);
 
+  it('gives up holding when nothing ever releases the job', async () => {
+    const cast = await start(summons(), `${holdFor('release', 2)}; echo gave up`);
+    expect(await final(cast.id)).toMatchObject({ state: 'succeeded', logTail: 'gave up\n' });
+  });
+
   it('stops a job and one waiting for its turn, when a test leaves them running', async () => {
     const made = summons();
-    const held = await start(made, 'while [ ! -f release ]; do sleep 0.1; done');
+    const held = await start(made, holdFor('release'));
     const waiting = await start(made, 'exit 0');
     await until(() => reports.some((r) => r.id === waiting.id && r.queued));
     const runners = [held, waiting].map((cast) =>
@@ -413,7 +425,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
     it('moves past what was freed while it was away, and says so', async () => {
       const first = summons();
-      const cast = await start(first, 'echo old; while [ ! -f release ]; do sleep 0.1; done; echo new');
+      const cast = await start(first, `echo old; ${holdFor('release')}; echo new`);
       await until(() => reports.some((report) => report.logTail.includes('old')));
       first.close();
 
@@ -432,7 +444,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
     it('keeps its place when nothing it needed was freed', async () => {
       const first = summons();
-      const cast = await start(first, 'echo old; while [ ! -f release ]; do sleep 0.1; done; echo new');
+      const cast = await start(first, `echo old; ${holdFor('release')}; echo new`);
       await until(() => reports.some((report) => report.logTail.includes('old')));
       first.close();
 
@@ -464,7 +476,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
     it('leaves no tail behind when Crystal stops, with the job still running', async () => {
       const made = summons();
-      const cast = await start(made, 'while [ ! -f release ]; do sleep 0.1; done');
+      const cast = await start(made, holdFor('release'));
       await until(() => tails(cast.id) !== '');
       made.close();
       await until(() => tails(cast.id) === '');
@@ -574,7 +586,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
   it('picks up where it stopped after a restart, without repeating the log', async () => {
     const first = summons();
-    const cast = await start(first, 'echo before; touch go; while [ ! -f release ]; do sleep 0.1; done; echo after');
+    const cast = await start(first, `echo before; touch go; ${holdFor('release')}; echo after`);
     await until(() => reports.some((r) => r.id === cast.id && r.logTail.includes('before')));
     await new Promise((resolve) => setTimeout(resolve, 2100)); // the offset reaches the file
     first.close();
@@ -663,7 +675,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
         return child;
       },
     });
-    const cast = await start(made, 'echo one; while [ ! -f release ]; do sleep 0.1; done; echo two');
+    const cast = await start(made, `echo one; ${holdFor('release')}; echo two`);
     await until(() => reports.some((r) => r.id === cast.id && r.logTail.includes('one')));
     for (const child of children) child.kill();
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -676,7 +688,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     const made = summons({
       spawnOn: (target) => (reachable ? spawnOn(target) : spawn('sh', ['-c', 'exit 255'])),
     });
-    const cast = await start(made, 'while [ ! -f release ]; do sleep 0.1; done');
+    const cast = await start(made, holdFor('release'));
     reachable = false;
     made.close();
     const second = summons({ spawnOn: (target) => (reachable ? spawnOn(target) : spawn('sh', ['-c', 'exit 255'])) });
@@ -713,7 +725,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
   });
 
   it('runs one Cast at a time on a machine, and two Kingdoms sharing it take turns', async () => {
-    const hold = (name: string) => `echo started >> ${name}; while [ ! -f release-${name} ]; do sleep 0.1; done`;
+    const hold = (name: string) => `echo started >> ${name}; ${holdFor(`release-${name}`)}`;
     const first = summons();
     const a = await start(first, hold('a'));
     await until(() => existsSync(join(home, 'a')));
@@ -746,7 +758,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
   it('runs up to a raised limit at once', async () => {
     const made = summons({ targets: () => [{ name: HERE, limit: 2 }] });
-    const hold = (name: string) => `echo x > ${name}; while [ ! -f release ]; do sleep 0.1; done`;
+    const hold = (name: string) => `echo x > ${name}; ${holdFor('release')}`;
     const a = await start(made, hold('a'));
     const b = await start(made, hold('b'));
     await until(() => existsSync(join(home, 'a')) && existsSync(join(home, 'b')));
