@@ -228,6 +228,55 @@ describe('airship server', () => {
     expect(nodes).toEqual(['node-a']);
   });
 
+  describe('a Kingdom that goes quiet', () => {
+    let quiet: import('fastify').FastifyInstance;
+    let quietUrl: string;
+
+    async function listed(): Promise<string[]> {
+      const response = await fetch(`${quietUrl}/api/nodes`);
+      return (await response.json()) as string[];
+    }
+
+    async function connect(): Promise<WebSocket> {
+      const address = quiet.server.address() as AddressInfo;
+      const socket = await openSocket(`ws://127.0.0.1:${address.port}/node`);
+      sockets.push(socket);
+      send(socket, { kind: 'hello', node: 'node-q' });
+      const start = Date.now();
+      while (!(await listed()).includes('node-q') && Date.now() - start < 2000);
+      return socket;
+    }
+
+    beforeEach(async () => {
+      quiet = await buildServer({ store, nodeHeartbeatMs: 20 });
+      await quiet.listen({ port: 0, host: '127.0.0.1' });
+      const address = quiet.server.address() as AddressInfo;
+      quietUrl = `http://127.0.0.1:${address.port}`;
+    });
+
+    afterEach(async () => {
+      await quiet.close();
+    });
+
+    it('stops listing one that no longer answers, though nothing ever closed it', async () => {
+      const socket = await connect();
+      expect(await listed()).toEqual(['node-q']);
+
+      // The machine is gone without a word: the socket stays open and nothing reads it.
+      socket.pause();
+
+      const start = Date.now();
+      while ((await listed()).length > 0 && Date.now() - start < 2000);
+      expect(await listed()).toEqual([]);
+    });
+
+    it('keeps one that answers', async () => {
+      await connect();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(await listed()).toEqual(['node-q']);
+    });
+  });
+
   it('GET /api/health returns ok, the release, the protocol version and the connected nodes, for monitors', async () => {
     const response = await fetch(`${baseUrl}/api/health`);
     expect(await response.json()).toEqual({ ok: true, release: 'test-release', protocol: 1, nodes: [] });
