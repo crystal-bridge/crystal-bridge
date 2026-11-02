@@ -69,6 +69,7 @@ import { beltFor, withBelt } from './belt.js';
 import { useCircle } from './summons.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
+import { HotkeyList } from './components/HotkeyList.js';
 import { SplitPicker } from './components/SplitPicker.js';
 import { checkLogin, createJoinCode, refusal, saveHubName } from './api.js';
 import { loadDraft, saveDraft } from './drafts.js';
@@ -78,6 +79,7 @@ import { MODES } from './modes.js';
 import { isLooking, notificationFor } from './notify.js';
 import { disablePush, enablePush, openTarget, prefsForPush, pushSupported, syncPush } from './push.js';
 import { applyOrder, moveTo } from './tabOrder.js';
+import { type Hotkey, hotkeyFor, keyHint, needsYouNext, pickerOpen, step } from './hotkeys.js';
 import { loadPutAway, projectName, putAway as withPutAway, questTabs, savePutAway } from './quests.js';
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
@@ -934,6 +936,77 @@ export function App({ hub }: { hub: HubClient }) {
       )
     : [];
   const view = page === 'airship' ? 'airship' : shown ? 'quest' : page;
+
+  // One listener; the keys call the same navigation as the tabs, so Back returns from each move.
+  const [keysOpen, setKeysOpen] = useState(false);
+  const closeKeys = useCallback(() => setKeysOpen(false), []);
+  function moveQuest(by: 1 | -1) {
+    // In a split the keys move the pane last clicked, among its own Kingdom's tabs, and never onto the other pane.
+    const second = splitShown !== null && focused === splitShown ? splitShown : null;
+    const node = second ? sessions.find((s) => s.id === second)?.node : active;
+    if (!node) return;
+    const held = second ? shown : splitShown;
+    const ids = (
+      node === active
+        ? tabs
+        : applyOrder(
+            questTabs(
+              sessions.filter((s) => s.node === node),
+              { now: Date.now(), shown: second, waiting: waitingIds, putAway: putAway[node] ?? {} },
+            ),
+            prefs.questOrder?.[node],
+          )
+    )
+      .map((tab) => tab.id)
+      .filter((id) => id !== held);
+    const next = step(ids, second ?? shown, by);
+    if (!next || next === (second ?? shown)) return;
+    if (second) {
+      hub.subscribe(next);
+      setSplit(next);
+      setFocusedPane(next);
+    } else {
+      openQuest(next);
+    }
+  }
+  function moveKingdom(by: 1 | -1) {
+    const next = step(
+      visible.map((k) => k.id),
+      active,
+      by,
+    );
+    if (next) selectKingdom(next);
+  }
+  const runHotkey = useRef<(key: Hotkey) => void>(() => {});
+  runHotkey.current = (key) => {
+    if (key.action === 'next-quest') moveQuest(1);
+    else if (key.action === 'prev-quest') moveQuest(-1);
+    else if (key.action === 'next-kingdom') moveKingdom(1);
+    else if (key.action === 'prev-kingdom') moveKingdom(-1);
+    else if (key.action === 'keys') setKeysOpen(true);
+    else if (key.action === 'home') setPage('airship');
+    else if (key.action === 'new-quest') {
+      if (!active) return;
+      setPage('new');
+      setSelected(null);
+    } else if (key.action === 'kingdom') {
+      const target = visible[key.index ?? 0];
+      if (target) selectKingdom(target.id);
+    } else {
+      const next = needsYouNext(waiting, sessions, visibleIds);
+      if (next) openSession(next.node, next.session);
+    }
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const key = hotkeyFor(event);
+      if (!key || pickerOpen()) return;
+      event.preventDefault();
+      runHotkey.current(key);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   // The address follows the view, so a reload comes back here, and each new view is a history entry, so Back (a
   // phone's back gesture too) returns to the one before; the hashchange listener below follows it. The first write
   // after loading replaces, so settling on a view at startup doesn't add a step.
@@ -994,7 +1067,7 @@ export function App({ hub }: { hub: HubClient }) {
             <button
               type="button"
               onClick={() => setPage('airship')}
-              title={hint('home')}
+              title={`${hint('home')}${keyHint('home')}`}
               className="mb-1.5 flex shrink-0 items-center gap-2 rounded-md px-1 py-1 hover:bg-neutral-300 dark:hover:bg-neutral-700"
             >
               <img src="/favicon.svg" alt="" width={32} height={32} className="[image-rendering:pixelated]" />
@@ -1344,6 +1417,7 @@ export function App({ hub }: { hub: HubClient }) {
               onCancel={() => setPicking(false)}
             />
           )}
+          {keysOpen && <HotkeyList onClose={closeKeys} />}
         </div>
       </LevelContext.Provider>
     </LeaderContext.Provider>

@@ -869,6 +869,161 @@ describe('App Split View when a Quest closes', () => {
   });
 });
 
+describe('App keyboard shortcuts', () => {
+  const quest = (id: string, node: string, label: string, status = 'running') => ({
+    id,
+    node,
+    cwd: '/w',
+    label,
+    status,
+    createdAt: 1,
+    lastActivity: Date.now(),
+  });
+  const ids = {
+    one: '31111111-1111-4111-8111-111111111111',
+    two: '32222222-2222-4222-8222-222222222222',
+    three: '33333333-3333-4333-8333-333333333333',
+  };
+  const held = [
+    quest(ids.one, 'node-a', 'first quest'),
+    quest(ids.two, 'node-a', 'second quest'),
+    quest(ids.three, 'node-b', 'other quest'),
+  ];
+  let waiting: { session: string; node: string }[];
+
+  const press = (code: string, extra: KeyboardEventInit = {}) =>
+    fireEvent.keyDown(window, { code, altKey: true, ...extra });
+  const selected = (name: RegExp) => screen.queryByRole('tab', { name, selected: true });
+
+  beforeEach(() => {
+    localStorage.clear();
+    waiting = [];
+    window.history.replaceState(null, '', '/#/k/node-a/q/' + ids.one);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? held
+            : url === '/api/nodes'
+              ? ['node-a', 'node-b']
+              : url === '/api/waiting'
+                ? waiting
+                : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('steps through this Kingdom-s Quests, wrapping at the end', async () => {
+    await renderApp();
+    expect(selected(/first quest/)).toBeTruthy();
+    press('KeyJ');
+    expect(selected(/second quest/)).toBeTruthy();
+    press('KeyJ');
+    expect(selected(/first quest/)).toBeTruthy();
+    press('KeyK');
+    expect(selected(/second quest/)).toBeTruthy();
+  });
+
+  it('steps through Kingdoms, and picks one by number', async () => {
+    await renderApp();
+    press('KeyJ', { shiftKey: true });
+    expect(screen.getAllByRole('tab', { name: /node-b/, selected: true }).length).toBeGreaterThan(0);
+    press('Digit1', { shiftKey: true });
+    expect(screen.getAllByRole('tab', { name: /node-a/, selected: true }).length).toBeGreaterThan(0);
+  });
+
+  it('skips hidden Kingdoms', async () => {
+    localStorage.setItem('crystal-bridge.kingdoms', JSON.stringify({ names: {}, hidden: ['node-b'] }));
+    await renderApp();
+    press('KeyJ', { shiftKey: true });
+    expect(selected(/node-a/)).toBeTruthy();
+    press('Digit2', { shiftKey: true });
+    expect(selected(/node-a/)).toBeTruthy();
+  });
+
+  it('goes to the Quest needing you, on any Kingdom', async () => {
+    waiting = [{ session: ids.three, node: 'node-b' }];
+    await renderApp();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    press('KeyA');
+    expect(selected(/node-b/)).toBeTruthy();
+    expect(selected(/other quest/)).toBeTruthy();
+  });
+
+  it('opens New Quest and the Airship, and each move is a normal navigation', async () => {
+    await renderApp();
+    press('KeyN');
+    expect(window.location.hash).toBe('#/k/node-a/new');
+    press('KeyH');
+    expect(window.location.hash).toBe('#/airship');
+  });
+
+  it('works from the prompt box, and stops the key reaching it', async () => {
+    await renderApp();
+    const box = screen.getByPlaceholderText(/follow-up/i);
+    box.focus();
+    const event = new KeyboardEvent('keydown', { code: 'KeyJ', altKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      box.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(selected(/second quest/)).toBeTruthy();
+  });
+
+  it('stands down while a dialog is open', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /Split/ }));
+    expect(screen.getByRole('dialog', { name: /Split/ })).toBeTruthy();
+    press('KeyJ');
+    expect(selected(/first quest/)).toBeTruthy();
+  });
+
+  it('moves the pane last clicked in Split View', async () => {
+    localStorage.setItem('crystal-bridge.split', JSON.stringify({ primary: ids.one, second: ids.three }));
+    await renderApp();
+    press('KeyJ');
+    expect(selected(/second quest/)).toBeTruthy();
+    expect(screen.getByRole('region', { name: /other quest/ })).toBeTruthy();
+
+    fireEvent.pointerDown(screen.getByRole('region', { name: /second quest/ }));
+    press('KeyJ');
+    expect(selected(/first quest/)).toBeTruthy();
+    expect(screen.getByRole('region', { name: /other quest/ })).toBeTruthy();
+  });
+
+  it('never gives the second pane the Quest the main pane holds', async () => {
+    localStorage.setItem('crystal-bridge.split', JSON.stringify({ primary: ids.one, second: ids.two }));
+    await renderApp();
+    fireEvent.pointerDown(screen.getByRole('region', { name: /second quest/ }));
+    press('KeyJ');
+    expect(screen.getByRole('region', { name: /second quest/ })).toBeTruthy();
+    expect(screen.getByRole('region', { name: /first quest/ })).toBeTruthy();
+  });
+
+  it('lists the keys, and Escape closes the list', async () => {
+    await renderApp();
+    press('Slash');
+    const list = screen.getByRole('dialog', { name: /Keyboard shortcuts/ });
+    expect(within(list).getByText('Alt+J')).toBeTruthy();
+    expect(within(list).getByText('Alt+1-8')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: /Keyboard shortcuts/ })).toBeNull();
+  });
+
+  it('names the key in the New Quest tab-s tooltip', async () => {
+    await renderApp();
+    expect(screen.getByRole('tab', { name: /New Quest/ }).getAttribute('title')).toContain('Alt+N');
+  });
+});
+
 describe('App starting a Quest', () => {
   const BRIEF = 'Fix the login test';
 

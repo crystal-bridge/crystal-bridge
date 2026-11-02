@@ -265,6 +265,7 @@ describe('the Belt', () => {
     expect(onSend).toHaveBeenCalledWith('/compact');
     onUse.mockClear();
     fireEvent.keyDown(window, { altKey: true, code: 'Digit9' });
+    fireEvent.keyDown(window, { altKey: true, shiftKey: true, code: 'Digit1' });
     fireEvent.keyDown(window, { code: 'Digit1' });
     fireEvent.keyDown(window, { altKey: true, code: 'Digit3' });
     expect(onUse).not.toHaveBeenCalled();

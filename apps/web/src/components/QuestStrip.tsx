@@ -2,6 +2,7 @@ import { useContext } from 'react';
 import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import { projectName, questTitle } from '../quests.js';
 import { reorderHandlers } from '../tabOrder.js';
+import { keyHint } from '../hotkeys.js';
 import { hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import type { SessionSummary } from './SessionList.js';
@@ -129,7 +130,7 @@ export function QuestStrip({
         role="tab"
         aria-selected={current === 'new'}
         aria-label={w('newQuest')}
-        title={hint('newQuest')}
+        title={`${hint('newQuest')}${keyHint('new-quest')}`}
         onClick={onNew}
         className={`${TAB} ${current === 'new' ? ON : OFF}`}
       >
