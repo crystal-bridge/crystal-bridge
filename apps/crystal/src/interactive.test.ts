@@ -87,8 +87,7 @@ const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Waits until `ready()` holds (or `ms` pass), for timers whose firing a busy CI runner can delay. */
 async function until(ready: () => boolean, ms = 2000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!ready() && Date.now() < deadline) await tick(5);
+  for (let waited = 0; !ready() && waited < ms; waited += 5) await tick(5);
 }
 
 const assistant = (id: string, content: unknown[]) => ({
