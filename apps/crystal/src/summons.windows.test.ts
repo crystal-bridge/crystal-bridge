@@ -113,6 +113,33 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     forget(cast.id);
   }, 90_000);
 
+  it('ends a Cast with a negative exit code, as `exit -1` and a crash leave', async () => {
+    const made = summons();
+    const plain = await start(made, 'exit -1');
+    expect(await final(plain.id)).toMatchObject({ state: 'failed', exitCode: -1 });
+    forget(plain.id);
+    const crash = await start(made, 'cmd /c "exit -1073741819"');
+    expect(await final(crash.id)).toMatchObject({ state: 'failed', exitCode: -1073741819 });
+    forget(crash.id);
+  }, 90_000);
+
+  it.runIf(!HOST)(
+    'starts and runs where the profile folder has a space',
+    async () => {
+      const profile = join(home, 'Jane Doe');
+      mkdirSync(profile);
+      const parts = WINDOWS_COMMAND.split(' ');
+      const made = summons('spaced.json', {
+        spawnOn: () => spawn(parts[0]!, parts.slice(1), { env: { ...process.env, USERPROFILE: profile } }),
+      });
+      const cast = await start(made, 'Write-Output "in $env:USERPROFILE"');
+      const done = await final(cast.id);
+      expect(done).toMatchObject({ state: 'succeeded', exitCode: 0 });
+      expect(done.logTail.trim()).toBe(`in ${profile}`);
+    },
+    90_000,
+  );
+
   it('really frees a long log’s disk space with the job writing, and still reads to the end', async () => {
     const made = summons('trim.json', { logTrim: { keepBytes: 1024 * 1024, everySeconds: 1 } });
     const line = `$s = 'x' * 1048575`;

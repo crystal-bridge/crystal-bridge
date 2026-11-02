@@ -37,6 +37,7 @@ function fakeHub(): HubClient {
     onChange: () => () => {},
     onError: () => () => {},
     onCast: () => () => undefined,
+    onReconnect: () => () => undefined,
     onAttention: (listener: (attention: unknown) => void) => {
       attentionListener = listener;
       return () => {};

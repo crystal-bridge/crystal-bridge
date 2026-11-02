@@ -233,13 +233,29 @@ const CAST_ENDS: Record<Cast['state'], string> = {
   lost: 'was lost: its process is gone and no result was recorded, and it has not been retried',
 };
 
+/** A terminal's colour, cursor and title codes. */
+const TERMINAL_CODES = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|[@-_])/g;
+
+/**
+ * What a job wrote, made fit to quote in a message. Control and invisible characters go first, since they can hide a
+ * fence, and then no fence is left that could close ours and let a log pass for words from Crystal Bridge.
+ */
+function quotable(text: string): string {
+  return text
+    .replace(TERMINAL_CODES, '')
+    .replace(/\r\n?|[\p{Zl}\p{Zp}]/gu, '\n')
+    .replace(/[\p{Cc}\p{Cf}]/gu, (char) => (char === '\n' || char === '\t' ? char : ''))
+    .replace(/`{3,}/g, (fence) => "'".repeat(fence.length));
+}
+
 /** The message that wakes a Quest. It says who sent it, since it arrives as a follow-up. */
 export function wakeText(casts: readonly Cast[]): string {
   const parts = casts.map((cast) => {
     const code = cast.exitCode === undefined ? '' : ` (exit ${cast.exitCode})`;
-    const tail = cast.logTail.trimEnd().slice(-WAKE_TAIL);
+    const name = quotable(cast.name).replace(/\s+/g, ' ').trim().replaceAll('"', "'");
+    const tail = quotable(cast.logTail).trimEnd().slice(-WAKE_TAIL);
     const log = tail ? `\nThe end of its log:\n\`\`\`\n${tail}\n\`\`\`` : '';
-    return `Cast "${cast.name}" on ${cast.summon} ${CAST_ENDS[cast.state]}${code}. Its id is ${cast.id}.${log}`;
+    return `Cast "${name}" on ${cast.summon} ${CAST_ENDS[cast.state]}${code}. Its id is ${cast.id}.${log}`;
   });
   return `[Crystal Bridge, not the user: you asked to be woken when this finished.]\n\n${parts.join('\n\n')}`;
 }

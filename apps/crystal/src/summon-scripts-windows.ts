@@ -305,7 +305,7 @@ ${writeFile('command', `${command}\n`)}${writeFile('command.ps1', commandFile(co
       cwd === undefined ? '' : `${writeFile('cwd', cwd)}${MISSING_CWD}`
     }${writeFile('limit', String(limit))}${writeFile('trim', `${trim.keepBytes} ${trim.everySeconds}`)}${writeFile('runner.ps1', RUNNER, true)}[IO.File]::WriteAllText("$dir\\log", '', $utf8)
 ${NATIVE}
-$left = [CrystalCast]::Detach(${PS.replace('"$env', '"""$env').replace('.exe"', '.exe"""')} + " ${PS_ARGS} -File """"$dir\\runner.ps1"""" """"$dir""""", $dir)
+$left = [CrystalCast]::Detach(${PS.replace('"$env', '"""$env').replace('.exe"', '.exe"""')} + " ${PS_ARGS} -File ""$dir\\runner.ps1"" ""$dir""", $dir)
 $tries = 0
 while (-not (Test-Path "$dir\\pid") -and $tries -lt 150) { Start-Sleep -Milliseconds 200; $tries++ }
 if (-not (Test-Path "$dir\\pid")) { exit 71 }

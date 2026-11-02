@@ -779,6 +779,17 @@ describe('casts', () => {
     expect(store.casts('a', 10)[0]!.logTail).toBe('more');
   });
 
+  it('keeps a running Cast in the list however many newer ones have ended', () => {
+    const store = openStore(':memory:');
+    const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    store.upsertCast('a', cast);
+    for (const n of [1, 2, 3]) {
+      store.upsertCast('a', { ...cast, id: id(n), startedAt: 5 + n, state: 'succeeded', exitCode: 0 });
+    }
+    store.upsertCast('b', { ...cast, id: id(9) });
+    expect(store.casts('a', 2).map((listed) => listed.id)).toEqual([id(3), id(2), cast.id]);
+  });
+
   it('won’t let a late report undo a finished Cast', () => {
     const store = openStore(':memory:');
     store.upsertCast('a', { ...cast, state: 'succeeded', exitCode: 0 });

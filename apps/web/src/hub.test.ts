@@ -49,6 +49,23 @@ describe('HubClient replay', () => {
     return { hub, socket: FakeSocket.last, changes };
   }
 
+  it('says when the socket comes back, not when it first opens', () => {
+    const { hub, socket } = connected();
+    const back = vi.fn();
+    const stop = hub.onReconnect(back);
+    socket.dispatchEvent(new Event('close'));
+    vi.runOnlyPendingTimers();
+    expect(back).not.toHaveBeenCalled();
+    FakeSocket.last.open();
+    expect(back).toHaveBeenCalledTimes(1);
+
+    stop();
+    FakeSocket.last.dispatchEvent(new Event('close'));
+    vi.runOnlyPendingTimers();
+    FakeSocket.last.open();
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
   it('takes a replay batch in one change, reports progress, and is synced only at the marker', () => {
     const { hub, socket, changes } = connected();
     hub.subscribe(SESSION);

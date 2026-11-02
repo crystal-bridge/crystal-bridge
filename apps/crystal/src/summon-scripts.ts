@@ -1,8 +1,8 @@
 /**
  * The POSIX `sh` a Cast runs on its target (docs/SUMMONS.md). Each script arrives over stdin, so nothing depends on
  * shell quoting and nothing has to be installed there. The target keeps a job folder, which is the record:
- * `command`, `cwd`, `limit`, `trim`, `runner`, `pid` (process id, process group, start time), `boot`, `turn`, `queued`,
- * `log`, `log-trimmed`, `cancel` and `exit`.
+ * `command`, `cwd`, `limit`, `trim`, `umask`, `runner`, `pid` (process id, process group, start time), `boot`, `turn`,
+ * `queued`, `log`, `log-trimmed`, `cancel` and `exit`.
  */
 
 /** Printed to the log after `exit` is in place. It only wakes the Kingdom: `exit` is the result. */
@@ -45,14 +45,21 @@ function delimiterFor(id: string, text: string): string | undefined {
   return text.split('\n').includes(delimiter) ? undefined : delimiter;
 }
 
-/** Sets `started_at` to a process's start time; it tells a reused process id from the job's. */
+/**
+ * A process's start time, which tells a reused process id from the job's. `ps` prints it in local time and the session's
+ * language, and those change between connections, so both are fixed here. `started_as` is what to compare with: a job
+ * started before they were still has the old form on record, and a Kingdom can update under a running job.
+ */
 const START_TIME = `
 start_time() {
   if [ -r "/proc/$1/stat" ]; then
     sed 's/.*) //' "/proc/$1/stat" | cut -d' ' -f20
   else
-    ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' '_'
+    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' '_'
   fi
+}
+started_as() {
+  [ "$(start_time "$1")" = "$2" ] || [ "$(ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' '_')" = "$2" ]
 }
 `;
 
@@ -119,7 +126,7 @@ take_turn() {
         return 0
       fi
       if [ -s "$slots/$n/owner" ] && read -r owner owner_start < "$slots/$n/owner"; then
-        if ! kill -0 "$owner" 2>/dev/null || [ "$(start_time "$owner")" != "$owner_start" ]; then
+        if ! kill -0 "$owner" 2>/dev/null || ! started_as "$owner" "$owner_start"; then
           rm -rf "$slots/$n"
           continue
         fi
@@ -151,8 +158,11 @@ if [ -f "$dir/cwd" ] && ! cd "$(cat "$dir/cwd")" 2>>"$dir/log"; then
 fi
 trim_log &
 trimmer=$!
+# The folder is private, and the job's own files are the job's business.
+umask "$(cat "$dir/umask")"
 "\${SHELL:-/bin/sh}" -l "$dir/command" </dev/null >>"$dir/log" 2>&1
 code=$?
+umask 077
 kill "$trimmer" 2>/dev/null
 rm -rf "$slot"
 # A job the shutdown ended has no result of its own: with no exit written, the Kingdom reports it lost. Its log line could
@@ -174,9 +184,11 @@ export function startScript(
   const delimiter = delimiterFor(id, `${command}\n${cwd ?? ''}`);
   if (!delimiter) return undefined;
   const heredoc = (file: string, text: string) => `cat > "$dir/${file}" <<'${delimiter}'\n${text}\n${delimiter}\n`;
-  return `umask 077
+  return `login_umask=$(umask)
+umask 077
 ${folder(id)}
 mkdir -p "$dir" || exit 70
+echo "$login_umask" > "$dir/umask"
 echo ${limit} > "$dir/limit"
 echo ${trim.keepBytes} ${trim.everySeconds} > "$dir/trim"
 ${heredoc('command', command)}${cwd === undefined ? '' : heredoc('cwd', cwd)}if [ -f "$dir/cwd" ] && [ ! -d "$(cat "$dir/cwd")" ]; then
@@ -213,9 +225,11 @@ echo started
 
 /**
  * Streams the log from a byte offset. It holds stdin open for the Kingdom's side of the connection: when that goes,
- * \`cat\` ends and takes \`tail\` with it, because an idle \`tail\` would never notice by itself. The log is only ever added
- * to, so plain \`-f\` is enough and works everywhere. Its first line gives the offset it really starts from, which is
- * further on if the log's start was freed in the meantime.
+ * \`cat\` ends and takes \`tail\` with it, because an idle \`tail\` would never notice by itself. The two share a line
+ * because this script comes over that same stdin, and bash, which is macOS's \`sh\`, reads it a byte at a time: \`cat\`
+ * would swallow a next line instead of it running. The log is only ever added to, so plain \`-f\` is enough and works
+ * everywhere. Its first line gives the offset it really starts from, which is further on if the log's start was freed in
+ * the meantime.
  */
 export function followScript(id: string, offset: number): string {
   return `${folder(id)}
@@ -230,8 +244,7 @@ fi
 printf '${FOLLOW_LINE} %s\\n' "$from"
 tail -c +$((from + 1)) -f "$dir/log" 2>/dev/null &
 follower=$!
-cat >/dev/null
-kill "$follower" 2>/dev/null
+cat >/dev/null; kill "$follower" 2>/dev/null
 `;
 }
 
@@ -247,7 +260,7 @@ ${START_TIME}${BOOT_ID}
 state=dead
 if [ -s "$dir/pid" ]; then
   read -r pid group started < "$dir/pid"
-  if kill -0 "$pid" 2>/dev/null && [ "$(start_time "$pid")" = "$started" ]; then state=alive; fi
+  if kill -0 "$pid" 2>/dev/null && started_as "$pid" "$started"; then state=alive; fi
 fi
 # After the process check: a job ending between the two must read as ended, never as dead.
 if [ -f "$dir/exit" ]; then
@@ -272,7 +285,7 @@ ${START_TIME}${WRITE_EXIT}
 : > "$dir/cancel"
 [ -s "$dir/pid" ] || exit 0
 read -r pid group started < "$dir/pid"
-[ "$(start_time "$pid")" = "$started" ] || exit 0
+started_as "$pid" "$started" || exit 0
 signal() {
   if [ "$group" = "$pid" ]; then
     kill -s "$1" -- "-$group" 2>/dev/null
