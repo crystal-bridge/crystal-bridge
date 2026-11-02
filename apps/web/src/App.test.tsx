@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Envelope } from '@crystal-bridge/protocol';
 import { App } from './App.js';
 import type { HubClient } from './hub.js';
 
@@ -158,6 +159,14 @@ describe('App Kingdom tabs', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('says how many sends are waiting while the link is down', async () => {
+    render(<App hub={{ ...fakeHub(), status: 'closed', queued: 2 } as unknown as HubClient} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole('status').textContent).toMatch(/2 sends queued/);
   });
 
   it('shows a plain banner while the link to the hub is down', async () => {
@@ -367,6 +376,105 @@ describe('App Kingdom tabs', () => {
       window.dispatchEvent(new StorageEvent('storage', { key: 'crystal-bridge.kingdoms' }));
     });
     expect(screen.queryByRole('tab', { name: /node-a/ })).toBeNull();
+  });
+
+  it('alerts again when a new notice replaces an unread one for the same Quest', async () => {
+    const options: NotificationOptions[] = [];
+    class FakeNotification {
+      static permission = 'granted';
+      onclick: (() => void) | null = null;
+      constructor(_title: string, given: NotificationOptions) {
+        options.push(given);
+      }
+      close() {}
+    }
+    vi.stubGlobal('Notification', FakeNotification);
+    await renderApp();
+    act(() => {
+      attentionListener!({
+        kind: 'attention',
+        node: 'node-a',
+        session: '33333333-3333-4333-8333-333333333333',
+        label: 'private work',
+        reason: 'needs-you',
+        detail: 'Bash',
+      });
+    });
+    expect(options[0]).toMatchObject({ tag: '33333333-3333-4333-8333-333333333333', renotify: true });
+  });
+
+  it('keeps the waiting mark of a split pane a narrow screen hides', async () => {
+    const [primary, second] = sessions;
+    localStorage.setItem('crystal-bridge.split', JSON.stringify({ primary: primary!.id, second: second!.id }));
+    window.history.replaceState(null, '', `/#/k/node-b/q/${primary!.id}`);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/waiting'
+                ? [{ session: second!.id, node: second!.node }]
+                : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    await renderApp();
+    // The first poll has no Quests to go on yet; the next one, with the split open, is where the mark used to drop.
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    expect(screen.getByRole('region', { name: /private work/, hidden: true })).toBeTruthy();
+    expect(document.title).toBe('(1) Crystal Bridge');
+  });
+
+  describe('a login that stops working', () => {
+    const reload = vi.fn();
+    const refusing = (me: unknown) =>
+      vi.fn(async (url: string) =>
+        url === '/api/me'
+          ? new Response(JSON.stringify(me), { status: 200 })
+          : new Response(JSON.stringify({ error: 'not allowed' }), { status: 403 }),
+      );
+    beforeEach(() => {
+      reload.mockClear();
+      vi.stubGlobal('location', { hash: '', search: '', pathname: '/', reload });
+    });
+
+    it('goes back to the login page once the hub stops knowing this browser', async () => {
+      vi.stubGlobal('fetch', refusing({ login: null, canLogIn: true }));
+      await renderApp();
+      await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    });
+
+    it('stays put when the hub still knows this browser, or has no login page', async () => {
+      vi.stubGlobal('fetch', refusing({ login: 'me', canLogIn: true }));
+      await renderApp();
+      cleanup();
+      vi.stubGlobal('fetch', refusing({ login: null, canLogIn: false }));
+      await renderApp();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it('stays put when the hub is simply down', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));
+      await renderApp();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      expect(reload).not.toHaveBeenCalled();
+    });
   });
 
   it('uses the current Discreet setting when a notification fires, even if this tab never heard of the change', async () => {
@@ -608,6 +716,158 @@ describe('App Kingdom tabs', () => {
     const row = within(screen.getByRole('dialog', { name: /Split/ })).getByRole('button', { name: /private work/ });
     expect(row.querySelector('[data-project]')).toBeNull();
     expect(row.textContent).toContain('node-a');
+  });
+});
+
+describe('App starting a Quest', () => {
+  const BRIEF = 'Fix the login test';
+
+  /** A hub that lets a test deliver what the real one would. */
+  function liveHub() {
+    const changes = new Set<() => void>();
+    const errors = new Set<(message: string, notSent?: boolean) => void>();
+    const events = new Map<string, Envelope[]>();
+    const hub = {
+      ...fakeHub(),
+      onChange: (listener: () => void) => {
+        changes.add(listener);
+        return () => changes.delete(listener);
+      },
+      onError: (listener: (message: string, notSent?: boolean) => void) => {
+        errors.add(listener);
+        return () => errors.delete(listener);
+      },
+      events: (session: string) => events.get(session) ?? NO_EVENTS,
+    } as unknown as HubClient;
+    const started = () =>
+      (hub.send as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as { session: string; prompt: string };
+    return {
+      hub,
+      started,
+      /** The Kingdom reports the Quest running. */
+      reportStarted: () => {
+        const { session, prompt } = started();
+        const envelope = { node: 'node-b', session, seq: 0, ts: 1, type: 'session.started', payload: { prompt } };
+        events.set(session, [envelope as Envelope]);
+        act(() => {
+          for (const listener of changes) listener();
+        });
+      },
+      fail: (message: string, notSent?: boolean) =>
+        act(() => {
+          for (const listener of errors) listener(message, notSent);
+        }),
+    };
+  }
+
+  async function atTheForm(hub: HubClient) {
+    window.history.replaceState(null, '', '/#/k/node-b/new');
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: '/home/me/code/app' } });
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: BRIEF } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+  }
+  const prompt = () => screen.getByLabelText('Prompt') as HTMLTextAreaElement;
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body = url === '/api/nodes' ? ['node-b'] : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('waits on the form, then opens the Quest and clears the brief once it has started', async () => {
+    const { hub, reportStarted, started } = liveHub();
+    await atTheForm(hub);
+    expect(started()).toMatchObject({ type: 'session.start', prompt: BRIEF });
+    expect(prompt().value).toBe(BRIEF);
+    expect(prompt().disabled).toBe(true);
+
+    reportStarted();
+    expect(window.location.hash).toContain(started().session);
+    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+    expect(JSON.stringify(localStorage)).not.toContain(BRIEF);
+    expect(JSON.stringify(localStorage)).not.toContain('/home/me/code/app');
+  });
+
+  it('stays on the form with the brief intact when the start fails, ready to try again', async () => {
+    const { hub, fail } = liveHub();
+    await atTheForm(hub);
+    fail('could not create a worktree: not a git repository');
+    expect(screen.getByText(/could not create a worktree/)).toBeTruthy();
+    expect(prompt().value).toBe(BRIEF);
+    expect(prompt().disabled).toBe(false);
+    expect((screen.getByLabelText('Project') as HTMLInputElement).value).toBe('/home/me/code/app');
+    expect(JSON.stringify(localStorage)).toContain(BRIEF);
+    expect((screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('gives up after a long silence from the Kingdom, and says so', async () => {
+    const { hub } = liveHub();
+    window.history.replaceState(null, '', '/#/k/node-b/new');
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: '/home/me/code/app' } });
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: BRIEF } });
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    act(() => vi.advanceTimersByTime(59_000));
+    expect(prompt().disabled).toBe(true);
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(prompt().disabled).toBe(false);
+    expect(prompt().value).toBe(BRIEF);
+    expect(screen.getByText(/didn.t answer/)).toBeTruthy();
+  });
+
+  it('opens the Quest if it starts after all, when an error was about something else', async () => {
+    const { hub, fail, reportStarted, started } = liveHub();
+    await atTheForm(hub);
+    fail('a Quest elsewhere failed');
+    reportStarted();
+    expect(window.location.hash).toContain(started().session);
+    expect(JSON.stringify(localStorage)).not.toContain(BRIEF);
+  });
+
+  it('leaves the start alone when the client only dropped stale commands', async () => {
+    const { hub, fail } = liveHub();
+    await atTheForm(hub);
+    fail('Not sent while the hub was away: Stop', true);
+    expect(prompt().disabled).toBe(true);
+  });
+
+  it('leaves a newer brief alone when a start lands late', async () => {
+    const { hub, fail, reportStarted } = liveHub();
+    await atTheForm(hub);
+    fail('a Quest elsewhere failed');
+    fireEvent.change(prompt(), { target: { value: 'A different brief' } });
+    reportStarted();
+    expect(prompt().value).toBe('A different brief');
+    expect(JSON.stringify(localStorage)).toContain('A different brief');
+  });
+
+  it('does not pull the user off another page when the start lands', async () => {
+    const { hub, reportStarted, started } = liveHub();
+    await atTheForm(hub);
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Kingdoms' })).getByRole('tab', { name: /node-b/ }));
+    expect(window.location.hash).not.toContain('new');
+    reportStarted();
+    expect(window.location.hash).not.toContain(started().session);
+    expect(JSON.stringify(localStorage)).not.toContain(BRIEF);
   });
 });
 

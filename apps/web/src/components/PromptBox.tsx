@@ -2,6 +2,9 @@ import { type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState }
 import { addFiles } from '../attachments.js';
 import { Icon } from '../theme/icons.js';
 
+/** How long Stop ignores a press after the button becomes it. */
+const STOP_SETTLE_MS = 700;
+
 /**
  * The prompt box (#15): a text box that starts one line tall and grows to five before it scrolls, a bar of controls
  * under it (settings for what you send next), and one button that is Stop while a turn runs and the box is empty,
@@ -69,6 +72,12 @@ export function PromptBox({
   const empty = value.trim() === '' && !files?.list.length;
   const stop = running && empty;
   const name = stop ? 'Stop' : shell ? 'Run' : sendLabel;
+  // Sending empties the box, which turns the button into Stop under the finger; the second tap of a double tap is no Stop.
+  const became = useRef({ stop, at: 0 });
+  if (became.current.stop !== stop) became.current = { stop, at: Date.now() };
+  const pressStop = () => {
+    if (Date.now() - became.current.at >= STOP_SETTLE_MS) onStop();
+  };
   return (
     <div className="cb-prompt" data-shell={shell ? 'true' : undefined}>
       {files && files.list.length > 0 && (
@@ -135,7 +144,7 @@ export function PromptBox({
           aria-label={name}
           title={stop ? 'Stop this turn' : running ? `${name} (queues after this turn)` : (sendTitle ?? name)}
           disabled={disabled || (!stop && (empty || sendDisabled))}
-          onClick={stop ? onStop : undefined}
+          onClick={stop ? pressStop : undefined}
           data-kind={stop ? 'stop' : shell ? 'run' : 'send'}
           className="cb-prompt-go"
         >

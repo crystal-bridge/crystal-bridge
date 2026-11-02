@@ -8,8 +8,10 @@ import {
   type Cast,
   type NodeCommand,
   UnreadEventsFrame,
+  PONG_FRAME,
 } from '@crystal-bridge/protocol';
 import { insertBySeq } from './model.js';
+import { notSentLine } from './theme/words.js';
 
 export type HubStatus = 'connecting' | 'open' | 'closed';
 
@@ -29,6 +31,25 @@ const CHANGE_MS = 16;
 /** Past the hub's own wait for the node, so its plainer "didn't answer" usually arrives first. */
 const FILE_TIMEOUT_MS = 20_000;
 
+/** How often a quiet link is checked. Under the 30 to 60 s after which many proxies drop an idle socket. */
+const HEARTBEAT_MS = 25_000;
+
+/** How long a hub that answers pings gets to answer one. */
+const PONG_TIMEOUT_MS = 10_000;
+
+/**
+ * Commands that mean nothing once the link has been down: a Stop would hit whatever turn runs by then, keys whatever
+ * the terminal shows, and an answer may be to a card that has changed. Each with what the user is told wasn't sent.
+ */
+const STALE_AFTER_A_GAP: Partial<Record<NodeCommand['type'], string>> = {
+  'session.interrupt': 'Stop',
+  'session.keys': 'terminal keys',
+  'permission.answer': 'an approval',
+};
+
+/** A hub `error` frame, or with `notSent` this client's own word that it dropped commands it had queued. */
+export type ErrorListener = (message: string, notSent?: boolean) => void;
+
 export function hubUrl(loc: Pick<Location, 'protocol' | 'host'> = location): string {
   return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}/client`;
 }
@@ -46,7 +67,7 @@ export class HubClient {
   private readonly replays = new Map<string, ReplayProgress>();
   private changeTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly listeners = new Set<() => void>();
-  private readonly errorListeners = new Set<(message: string) => void>();
+  private readonly errorListeners = new Set<ErrorListener>();
   private readonly attentionListeners = new Set<(attention: Attention) => void>();
   private readonly castListeners = new Set<(node: string, cast: Cast) => void>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
@@ -54,9 +75,18 @@ export class HubClient {
   private outbox: ClientMessage[] = [];
   private retryMs = 500;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private beatTimer: ReturnType<typeof setInterval> | undefined;
+  /** Running while a ping waits for an answer. */
+  private pongTimer: ReturnType<typeof setTimeout> | undefined;
+  /** This hub has answered a ping on this socket. */
+  private answersPing = false;
   private closed = false;
 
   constructor(private readonly url: string = hubUrl()) {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', this.onWake);
+      document.addEventListener('visibilitychange', this.onWake);
+    }
     this.connect();
   }
 
@@ -106,7 +136,7 @@ export class HubClient {
     });
   }
 
-  onError(listener: (message: string) => void): () => void {
+  onError(listener: ErrorListener): () => void {
     this.errorListeners.add(listener);
     return () => this.errorListeners.delete(listener);
   }
@@ -145,9 +175,19 @@ export class HubClient {
     this.post({ kind: 'command', command });
   }
 
+  /** Commands waiting for the link to come back. */
+  get queued(): number {
+    return this.outbox.length;
+  }
+
   close(): void {
     this.closed = true;
     clearTimeout(this.retryTimer);
+    this.stopBeat();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.onWake);
+      document.removeEventListener('visibilitychange', this.onWake);
+    }
     this.socket?.close();
   }
 
@@ -157,8 +197,65 @@ export class HubClient {
     } else if (message.kind === 'command') {
       // Subscriptions are rebuilt from `sessions` on open; only commands need queueing.
       this.outbox.push(message);
+      this.emit();
     }
   }
+
+  /** Sends what waited for the link, apart from commands that only made sense against what was on screen then. */
+  private flushOutbox(socket: WebSocket): void {
+    const queued = this.outbox;
+    this.outbox = [];
+    const stale = new Set<string>();
+    for (const message of queued) {
+      const missed = message.kind === 'command' ? STALE_AFTER_A_GAP[message.command.type] : undefined;
+      if (missed) stale.add(missed);
+      else socket.send(JSON.stringify(message));
+    }
+    if (stale.size > 0) for (const listener of this.errorListeners) listener(notSentLine([...stale]), true);
+    if (queued.length > 0) this.emit();
+  }
+
+  /**
+   * Asks whether the link is alive. A hub that has answered before and now says nothing has gone, however healthy the
+   * socket looks: after a sleep or a network change the browser can sit on a half-open one for minutes.
+   */
+  private ping(socket: WebSocket): void {
+    if (this.pongTimer !== undefined) return;
+    socket.send(JSON.stringify({ kind: 'ping' } satisfies ClientMessage));
+    if (this.answersPing) this.pongTimer = setTimeout(() => this.giveUpOn(socket), PONG_TIMEOUT_MS);
+  }
+
+  private stopBeat(): void {
+    clearInterval(this.beatTimer);
+    clearTimeout(this.pongTimer);
+    this.pongTimer = undefined;
+  }
+
+  private giveUpOn(socket: WebSocket): void {
+    socket.close();
+    this.lost(socket);
+  }
+
+  private lost(socket: WebSocket): void {
+    if (this.socket !== socket) return;
+    this.socket = null;
+    this.stopBeat();
+    this.setStatus('closed');
+    if (this.closed) return;
+    this.retryTimer = setTimeout(() => this.connect(), this.retryMs);
+    this.retryMs = Math.min(this.retryMs * 2, 10_000);
+  }
+
+  /** The tab came back or the network changed: a good moment to find out now rather than at the next beat. */
+  private readonly onWake = (): void => {
+    if (document.visibilityState === 'hidden') return;
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.ping(this.socket);
+    } else if (!this.socket) {
+      clearTimeout(this.retryTimer);
+      this.connect();
+    }
+  };
 
   private setStatus(status: HubStatus): void {
     this.status = status;
@@ -189,21 +286,26 @@ export class HubClient {
           JSON.stringify({ kind: 'subscribe', session, fromSeq: this.seenSeq(session) + 1 } satisfies ClientMessage),
         );
       }
-      const queued = this.outbox;
-      this.outbox = [];
-      for (const message of queued) socket.send(JSON.stringify(message));
+      this.flushOutbox(socket);
+      // Only a hub that answers this gets more of them: an older one logs each as a frame it doesn't know.
+      this.answersPing = false;
+      this.ping(socket);
+      this.beatTimer = setInterval(() => {
+        if (this.answersPing) this.ping(socket);
+      }, HEARTBEAT_MS);
     });
 
-    socket.addEventListener('message', (event) => this.receive(event.data));
-
-    socket.addEventListener('close', () => {
-      if (this.socket !== socket) return;
-      this.socket = null;
-      this.setStatus('closed');
-      if (this.closed) return;
-      this.retryTimer = setTimeout(() => this.connect(), this.retryMs);
-      this.retryMs = Math.min(this.retryMs * 2, 10_000);
+    socket.addEventListener('message', (event) => {
+      if (this.socket === socket) {
+        // Anything at all shows the link works.
+        clearTimeout(this.pongTimer);
+        this.pongTimer = undefined;
+      }
+      if (event.data === PONG_FRAME) this.answersPing = true;
+      else this.receive(event.data);
     });
+
+    socket.addEventListener('close', () => this.lost(socket));
   }
 
   private receive(data: unknown): void {

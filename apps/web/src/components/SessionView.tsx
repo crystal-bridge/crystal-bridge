@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import Markdown from 'react-markdown';
 import type { Attachment, Envelope, UsageWindow } from '@crystal-bridge/protocol';
 import {
   IncrementalView,
@@ -20,6 +19,7 @@ import {
   sessionMode,
   sessionWorktree,
   slashCommands,
+  turnRunning,
   type ViewItem,
 } from '../model.js';
 import { sessionInfo } from '../info.js';
@@ -41,17 +41,33 @@ import { PromptBox } from './PromptBox.js';
 import { HelperBackLine, isAgentCall, isSummonStart, SetOutLine, SkillLine, SummonLine, ToolCard } from './ToolCard.js';
 import { ThemedSelect } from './ThemedSelect.js';
 import { HeroSprite } from './HeroSprite.js';
-import { FileOpenContext, MARKDOWN_COMPONENTS, REMARK_PLUGINS } from './markdown.js';
+import { FileOpenContext, QuestMarkdown } from './markdown.js';
 import { BattleCard } from './BattleCard.js';
 import { loadDraft, saveDraft } from '../drafts.js';
 import { attachedPaths, toAttachments } from '../attachments.js';
 import { currentActivity } from '../activity.js';
 import { type BattleResult, battleResults } from '../battle.js';
 import type { HeroManifest } from '../heroes.js';
-import type { ReplayProgress } from '../hub.js';
+import { type HeldSend, loadHeld, saveHeld, unechoed } from '../held.js';
+import type { ErrorListener, ReplayProgress } from '../hub.js';
 
 /** Within this many pixels of the bottom counts as reading the latest: new messages keep the view there. */
 const PINNED_PX = 80;
+
+function isAtBottom(pane: HTMLElement): boolean {
+  return pane.scrollHeight - pane.scrollTop - pane.clientHeight <= PINNED_PX;
+}
+
+/** The room above a waiting card when a Quest opens on it. */
+const CARD_MARGIN_PX = 16;
+
+/** Whether an item needs the user's answer now. */
+function isWaiting(item: ViewItem): boolean {
+  return (item.kind === 'permission' && item.pending) || item.kind === 'terminal';
+}
+
+/** How long a follow-up can go with no echo and no error, on a working link, before it goes back to the box. */
+const HOLD_TIMEOUT_MS = 30_000;
 
 /** Where each Quest was scrolled, so switching Quests and back returns there (for this page's lifetime). */
 const scrollMemory = new Map<string, { top: number; pinned: boolean }>();
@@ -85,8 +101,13 @@ export interface SessionViewProps {
   party?: SessionPanelProps['party'];
   /** For the Stats: bytes the hub has relayed about this Quest. */
   relayedBytes?: number;
-  /** Hub `error` frames; any one of them re-enables cards whose answer is still being sent. */
-  subscribeErrors: (listener: (message: string) => void) => () => void;
+  /**
+   * Hub `error` frames; any one of them re-enables cards whose answer is still being sent, and puts a follow-up that
+   * hasn't arrived back in the box. Errors name no Quest, so an echo after one still counts.
+   */
+  subscribeErrors: (listener: ErrorListener) => () => void;
+  /** The link to the hub is down, so what's sent now is only queued. */
+  linkDown?: boolean | undefined;
   /** One pane of a split: the Inventory and side panel are drawn once, shared, outside the panes. */
   compact?: boolean;
   /** Offers Split View (wide screens only): a second Quest beside this one. */
@@ -210,9 +231,7 @@ function Item({
             title={sentAt(ts)}
             className="cb-prose min-w-0 max-w-none [overflow-wrap:anywhere] [&_code]:font-mono [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-neutral-100 [&_pre]:p-2 [&_pre]:[overflow-wrap:normal] [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto dark:[&_pre]:bg-neutral-900"
           >
-            <Markdown components={MARKDOWN_COMPONENTS} remarkPlugins={REMARK_PLUGINS}>
-              {item.text}
-            </Markdown>
+            <QuestMarkdown>{item.text}</QuestMarkdown>
             {item.streaming && <span className="animate-pulse">▍</span>}
           </div>
           {!item.streaming && (
@@ -237,6 +256,7 @@ function Item({
             input={item.input}
             pending={item.pending && !sending}
             behavior={item.behavior}
+            expired={item.expired}
             onAnswer={(behavior, answers) => onAnswer(item.requestId, behavior, answers)}
           />
         );
@@ -247,6 +267,7 @@ function Item({
           input={item.input}
           pending={item.pending && !sending}
           behavior={item.behavior}
+          expired={item.expired}
           onAnswer={(behavior) => onAnswer(item.requestId, behavior)}
         />
       );
@@ -346,6 +367,7 @@ export function SessionView({
   party,
   relayedBytes,
   subscribeErrors,
+  linkDown = false,
   compact = false,
   onSplit,
   onExitSplit,
@@ -369,6 +391,11 @@ export function SessionView({
   useEffect(() => {
     if (session) saveDraft(`quest:${session}`, draft);
   }, [session, draft]);
+  // Nothing proves a follow-up arrived until it comes back as a `user.message`, so what left the box is held till then.
+  const [held, setHeld] = useState<HeldSend[]>(() => (session ? loadHeld(session) : []));
+  useEffect(() => {
+    if (session) saveHeld(session, held);
+  }, [session, held]);
   // A pick from a split's shared Inventory, aimed at this pane. App keeps the last pick after it lands, so one
   // already there when the pane opens is old and must not replace the kept draft.
   const pickSeen = useRef(insertion?.seq);
@@ -388,10 +415,8 @@ export function SessionView({
   const closed = items.some((item) => item.kind === 'closed');
   const stopped =
     closed || [...items].reverse().find((item) => item.kind === 'ended' || item.kind === 'resumed')?.kind === 'ended';
-  // A turn runs from a prompt or follow-up until its result, an end or a close; Stop has nothing to stop otherwise.
-  const turnRunning =
-    !stopped &&
-    [...items].reverse().find((item) => ['user', 'result', 'ended', 'closed'].includes(item.kind))?.kind === 'user';
+  // Stop has nothing to stop between turns.
+  const running = !stopped && turnRunning(envelopes);
   // Item ids start with their event's seq (`e12`, `e12.1`): look up when that event was stored.
   const tsBySeq = useMemo(() => new Map(envelopes.map((e) => [e.seq, e.ts])), [envelopes]);
   const tsOf = (id: string) => {
@@ -425,6 +450,14 @@ export function SessionView({
     itemCount.current = items.length;
     if (!placed.current) {
       placed.current = true;
+      // A card waiting is why the Quest was opened, wherever it was last read.
+      const card = pane.querySelector<HTMLElement>('[data-waiting="true"]');
+      if (card) {
+        pane.scrollTop += card.getBoundingClientRect().top - pane.getBoundingClientRect().top - CARD_MARGIN_PX;
+        pinned.current = isAtBottom(pane);
+        remember(pane);
+        return;
+      }
       const saved = session ? scrollMemory.get(session) : undefined;
       pinned.current = saved?.pinned ?? true;
       pane.scrollTop = saved && !saved.pinned ? saved.top : pane.scrollHeight;
@@ -436,12 +469,12 @@ export function SessionView({
     } else if (grew) {
       setUnseen(true);
     }
-  }, [items, loading]);
+  }, [items, loading, held.length]);
 
   function onScroll() {
     const pane = scroller.current;
     if (!pane) return;
-    pinned.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight <= PINNED_PX;
+    pinned.current = isAtBottom(pane);
     if (pinned.current) setUnseen(false);
     remember(pane);
   }
@@ -457,10 +490,11 @@ export function SessionView({
 
   useEffect(() => {
     const timers = sendingTimers.current;
-    const unsubscribe = subscribeErrors(() => {
+    const unsubscribe = subscribeErrors((_message, notSent) => {
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
       setSending(new Set());
+      if (!notSent) latestHeld.current.giveBack(latestHeld.current.held);
     });
     return () => {
       unsubscribe();
@@ -500,16 +534,68 @@ export function SessionView({
 
   // Files picked for the next follow-up; kept only while the Quest is open.
   const [files, setFiles] = useState<File[]>([]);
+
+  const [undelivered, setUndelivered] = useState(false);
+  // What went back to the box. The error that sent it back may have been about something else, so an echo can follow.
+  const returned = useRef<HeldSend[]>([]);
+
+  function giveBack(sends: readonly HeldSend[]) {
+    if (sends.length === 0) return;
+    setHeld((prev) => prev.filter((send) => !sends.includes(send)));
+    setDraft((box) => [...sends.map((send) => send.draft), box].filter((text) => text !== '').join('\n\n'));
+    setFiles((list) => [...sends.flatMap((send) => send.files), ...list]);
+    returned.current = [...returned.current, ...sends];
+    setUndelivered(true);
+  }
+  const latestHeld = useRef({ held, giveBack });
+  latestHeld.current = { held, giveBack };
+
   function send(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim() || (files.length > 0 ? 'See the attached files.' : '');
     if (!text) return;
-    const picked = files;
+    const sending: HeldSend = { text, draft, files, afterSeq: envelopes.at(-1)?.seq ?? -1 };
+    returned.current = [];
+    setUndelivered(false);
+    setHeld((prev) => [...prev, sending]);
     setDraft('');
     setFiles([]);
-    if (picked.length === 0) onSend(text);
-    else void toAttachments(picked).then((attachments) => onSend(text, attachments));
+    if (sending.files.length === 0) {
+      onSend(text);
+      return;
+    }
+    toAttachments(sending.files).then(
+      (attachments) => {
+        // An error while the files were being read has already put them back in the box.
+        if (latestHeld.current.held.includes(sending)) onSend(text, attachments);
+      },
+      () => giveBack([sending]),
+    );
   }
+
+  useEffect(() => {
+    if (held.length > 0) {
+      const left = unechoed(held, envelopes);
+      if (left.length < held.length) setHeld(left);
+    }
+    if (returned.current.length > 0) {
+      const left = unechoed(returned.current, envelopes);
+      const landed = returned.current.filter((send) => !left.includes(send));
+      returned.current = left;
+      for (const send of landed) {
+        setDraft((box) => (box === send.draft ? '' : box));
+        setFiles((list) => list.filter((file) => !send.files.includes(file)));
+      }
+      if (landed.length > 0 && left.length === 0) setUndelivered(false);
+    }
+  }, [envelopes, held]);
+
+  // A frame the hub dropped gets neither an echo nor an error. While the link is down, the send is just queued.
+  useEffect(() => {
+    if (held.length === 0 || linkDown) return;
+    const timer = setTimeout(() => latestHeld.current.giveBack(held), HOLD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [held, linkDown]);
 
   const mode = sessionMode(envelopes);
   const effort = sessionEffort(envelopes);
@@ -729,23 +815,35 @@ export function SessionView({
               ) : (
                 <div className="mx-auto min-w-0 max-w-3xl space-y-3">
                   {items.map((item) => (
-                    <MemoItem
-                      key={item.id}
-                      item={item}
-                      sending={item.kind === 'permission' && sending.has(item.requestId)}
-                      onAnswer={stableAnswer}
-                      onKeys={stableKeys}
-                      battle={
-                        item.kind === 'result'
-                          ? stableBattle(item.id, battles.turns.get(item.id))
-                          : item.kind === 'closed'
-                            ? stableBattle('quest', battles.quest)
-                            : undefined
-                      }
-                      latest={item.id === latestResult}
-                      manifest={party?.manifest}
-                      ts={tsOf(item.id)}
-                    />
+                    <div key={item.id} data-waiting={isWaiting(item)}>
+                      <MemoItem
+                        item={item}
+                        sending={item.kind === 'permission' && sending.has(item.requestId)}
+                        onAnswer={stableAnswer}
+                        onKeys={stableKeys}
+                        battle={
+                          item.kind === 'result'
+                            ? stableBattle(item.id, battles.turns.get(item.id))
+                            : item.kind === 'closed'
+                              ? stableBattle('quest', battles.quest)
+                              : undefined
+                        }
+                        latest={item.id === latestResult}
+                        manifest={party?.manifest}
+                        ts={tsOf(item.id)}
+                      />
+                    </div>
+                  ))}
+                  {held.map((send, i) => (
+                    <div
+                      key={i}
+                      className="cb-sent-prompt ml-auto max-w-[80%] whitespace-pre-wrap rounded px-3 py-2 opacity-70 [overflow-wrap:anywhere]"
+                    >
+                      {send.text}
+                      <span role="status" className="mt-1 block text-xs">
+                        {w(linkDown ? 'queuedSend' : 'sending')}
+                      </span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -791,6 +889,15 @@ export function SessionView({
                 ✦ {w('shellMode')}
               </div>
             )}
+            {undelivered && (
+              <p
+                role="alert"
+                title={hint('notDelivered')}
+                className="mx-auto mb-1 max-w-3xl text-xs text-red-600 dark:text-red-400"
+              >
+                {w('notDelivered')}
+              </p>
+            )}
             <div className="mx-auto max-w-3xl">
               <PromptBox
                 label="Follow-up"
@@ -798,7 +905,7 @@ export function SessionView({
                 disabled={closed}
                 value={draft}
                 shell={shell}
-                running={turnRunning}
+                running={running}
                 onStop={onInterrupt}
                 files={closed ? undefined : { list: files, onChange: setFiles }}
                 onChange={(text) => {
@@ -806,6 +913,8 @@ export function SessionView({
                   setHighlight(0);
                 }}
                 onKeyDown={(e) => {
+                  // Enter here confirms an input method's text. Safari has already ended it, and only says so by 229.
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                   if (suggestions.length > 0) {
                     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                       e.preventDefault();

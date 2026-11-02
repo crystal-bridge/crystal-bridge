@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { createJoinCode, refusal, saveHubName } from '../api.js';
+import { createJoinCode, refusal, saveHubName, UNREACHABLE } from '../api.js';
 import { FirstRunSteps } from './FirstRunSteps.js';
 
 const FORM = 'w-full max-w-sm space-y-3';
@@ -31,13 +31,17 @@ function FirstLogin({ onMade }: { onMade: (token: string) => void }) {
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault();
     setError(null);
-    const response = await fetch('/api/setup', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code, name }),
-    });
-    if (response.ok) onMade(((await response.json()) as { token: string }).token);
-    else setError((await refusal(response)).message);
+    try {
+      const response = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, name }),
+      });
+      if (response.ok) onMade(((await response.json()) as { token: string }).token);
+      else setError((await refusal(response)).message);
+    } catch {
+      setError(UNREACHABLE);
+    }
   }
 
   return (
@@ -111,13 +115,17 @@ export function LoginGate({ children }: { children: ReactNode }) {
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault();
     setError(null);
-    const response = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token }),
-    });
-    if (response.ok) setState('in');
-    else setError((await refusal(response)).message);
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      if (response.ok) setState('in');
+      else setError((await refusal(response)).message);
+    } catch {
+      setError(UNREACHABLE);
+    }
   }
 
   if (newToken) {

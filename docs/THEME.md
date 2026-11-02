@@ -23,7 +23,9 @@ flavour and never hides what something is.
   image) shown as chips above the text, and
   one round button at the end: **Stop** while a turn runs and the box is empty, **Send** otherwise (mid-turn it
   queues), **Run** for a Command Sigil. Selects there wear the theme (icon, display-font value, chevron) over the
-  browser's own select, so the phone's native picker still opens.
+  browser's own select, so the phone's native picker still opens. A follow-up shows in the chat as sending, or queued
+  while the hub is away, until the Kingdom's echo proves it arrived; if it doesn't arrive it goes back to the box, files
+  and all. New Quest keeps its brief the same way, until the Quest has started.
 - **Opt-in complexity.** Show what you can act on now (active Quests, things waiting on you). History and detail are
   one or two clicks away and collapsed by default.
 - **Sprites are small and tasteful.** They never cost screen space or readability.

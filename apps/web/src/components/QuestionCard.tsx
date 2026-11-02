@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { hint, w } from '../theme/words.js';
 
 interface Option {
   label: string;
@@ -17,6 +18,8 @@ export interface QuestionCardProps {
   input: unknown;
   pending: boolean;
   behavior?: 'allow' | 'deny' | undefined;
+  /** The Quest ended before anyone answered. */
+  expired?: boolean | undefined;
   /** Allow carries the answers keyed by question text; deny skips the questions. */
   onAnswer: (behavior: 'allow' | 'deny', answers?: Record<string, string>) => void;
 }
@@ -28,7 +31,7 @@ function questionsOf(input: unknown): Question[] {
 }
 
 /** A question Claude asked (AskUserQuestion), answered with its options or a typed answer. */
-export function QuestionCard({ input, pending, behavior, onAnswer }: QuestionCardProps) {
+export function QuestionCard({ input, pending, behavior, expired, onAnswer }: QuestionCardProps) {
   const questions = questionsOf(input);
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [typed, setTyped] = useState<Record<string, string>>({});
@@ -111,6 +114,11 @@ export function QuestionCard({ input, pending, behavior, onAnswer }: QuestionCar
           Skip
         </button>
         {behavior && <span className="text-sm text-white/75">{behavior === 'allow' ? 'Answered' : 'Skipped'}</span>}
+        {expired && (
+          <span title={hint('expired')} className="text-sm text-white/75">
+            {w('expired')}
+          </span>
+        )}
       </div>
     </div>
   );

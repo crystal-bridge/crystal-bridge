@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HeroManifest } from '../heroes.js';
@@ -27,6 +27,20 @@ const helper = { id: 'a1', description: 'Build the docs', agentType: 'general-pu
 
 describe('the party in the chat', () => {
   afterEach(() => cleanup());
+
+  it('renders a card-s output only while it is open', () => {
+    const { container } = render(<ToolCard tool={tool('Bash', { command: 'ls' }, 'a very long output')} />);
+    const card = container.querySelector('details')!;
+    expect(screen.queryByText('a very long output')).toBeNull();
+
+    card.open = true;
+    fireEvent(card, new Event('toggle'));
+    expect(screen.getByText('a very long output')).toBeTruthy();
+
+    card.open = false;
+    fireEvent(card, new Event('toggle'));
+    expect(screen.queryByText('a very long output')).toBeNull();
+  });
 
   it('marks a helper-s tool with its sprite, and leaves the leader-s alone', () => {
     const { rerender } = render(<ToolCard tool={{ ...tool('Read', {}, 'x'), helper }} manifest={manifest} />);
@@ -83,6 +97,13 @@ describe('the party in the chat', () => {
 describe('ToolCard', () => {
   afterEach(() => cleanup());
 
+  /** Opens a card, as a click on its summary would. */
+  function unfold(container: HTMLElement) {
+    const card = container.querySelector('details')!;
+    card.open = true;
+    fireEvent(card, new Event('toggle'));
+  }
+
   it('shows an Edit as a diff of the file, with counts in the summary', () => {
     const { container } = render(
       <ToolCard
@@ -93,6 +114,7 @@ describe('ToolCard', () => {
         })}
       />,
     );
+    unfold(container);
     // In the summary line (truncated when long) and in full above the diff.
     expect(screen.getAllByText('/r/src/app.ts')).toHaveLength(2);
     expect(screen.getByText('+2 −1')).toBeTruthy();
@@ -117,6 +139,7 @@ describe('ToolCard', () => {
         })}
       />,
     );
+    unfold(container);
     expect([...container.querySelectorAll('[data-diff="added"]')].map((n) => n.textContent)).toEqual(['y', 'q']);
   });
 
@@ -124,6 +147,7 @@ describe('ToolCard', () => {
     const { container } = render(
       <ToolCard tool={tool('Write', { file_path: '/r/new.md', content: '# Title\nbody' })} />,
     );
+    unfold(container);
     expect(screen.getByText('+2')).toBeTruthy();
     expect([...container.querySelectorAll('[data-diff="added"]')].map((n) => n.textContent)).toEqual([
       '# Title',
@@ -132,14 +156,20 @@ describe('ToolCard', () => {
   });
 
   it('shows a Bash command, its description and its output', () => {
-    render(<ToolCard tool={tool('Bash', { command: 'ls -la', description: 'List files' }, 'a\nb')} />);
+    const { container } = render(
+      <ToolCard tool={tool('Bash', { command: 'ls -la', description: 'List files' }, 'a\nb')} />,
+    );
+    unfold(container);
     expect(screen.getByText('$ ls -la')).toBeTruthy();
     expect(screen.getByText('List files')).toBeTruthy();
     expect(screen.getByText(/^a\s+b$/)).toBeTruthy();
   });
 
   it('falls back to the raw input for other tools', () => {
-    render(<ToolCard tool={tool('WebFetch', { url: 'https://example.com', prompt: 'summarize' })} />);
+    const { container } = render(
+      <ToolCard tool={tool('WebFetch', { url: 'https://example.com', prompt: 'summarize' })} />,
+    );
+    unfold(container);
     expect(screen.getByText(/"prompt": "summarize"/)).toBeTruthy();
   });
 });

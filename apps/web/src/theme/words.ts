@@ -34,6 +34,12 @@ export type Concept =
   | 'party'
   | 'loadingHistory'
   | 'jumpToLatest'
+  | 'remoteImage'
+  | 'expired'
+  | 'sending'
+  | 'queuedSend'
+  | 'notDelivered'
+  | 'starting'
   | 'stats'
   | 'hp'
   | 'stamina'
@@ -98,6 +104,12 @@ export const CRYSTAL: Words = {
   party: { themed: 'Party', plain: 'the agents working in this session' },
   loadingHistory: { themed: 'Unrolling the Chronicle…', plain: 'Loading history…' },
   jumpToLatest: { themed: 'Jump to latest', plain: 'Jump to latest' },
+  remoteImage: { themed: 'Remote image', plain: 'Remote image' },
+  expired: { themed: 'Expired: the Quest ended before an answer', plain: 'Expired: the session ended first' },
+  sending: { themed: 'Sending…', plain: 'Sending…' },
+  queuedSend: { themed: 'Queued: goes out when the hub is back', plain: 'Queued until the hub is back' },
+  notDelivered: { themed: 'Not delivered: back in the box to send again', plain: 'Not delivered' },
+  starting: { themed: 'Setting out…', plain: 'Starting the session…' },
   stats: { themed: 'Stats', plain: "this session's numbers" },
   hp: { themed: 'HP', plain: "plan usage left in this Kingdom's shortest limit, shared by its Quests" },
   stamina: { themed: 'Stamina', plain: "plan usage left in this Kingdom's longer limit, shared by its Quests" },
@@ -161,6 +173,12 @@ export const CLASSIC: Words = {
   party: { themed: 'Agents', plain: 'Agents' },
   loadingHistory: { themed: 'Loading history…', plain: 'Loading history…' },
   jumpToLatest: { themed: 'Jump to latest', plain: 'Jump to latest' },
+  remoteImage: { themed: 'Remote image', plain: 'Remote image' },
+  expired: { themed: 'Expired: the session ended first', plain: 'Expired: the session ended first' },
+  sending: { themed: 'Sending…', plain: 'Sending…' },
+  queuedSend: { themed: 'Queued until the hub is back', plain: 'Queued until the hub is back' },
+  notDelivered: { themed: 'Not delivered: back in the box to send again', plain: 'Not delivered' },
+  starting: { themed: 'Starting…', plain: 'Starting the session…' },
   stats: { themed: 'Usage', plain: 'Usage' },
   hp: { themed: 'Plan left', plain: "Plan usage left in this node's shortest limit" },
   stamina: { themed: 'Longer limit left', plain: "Plan usage left in this node's longer limit" },
@@ -281,6 +299,16 @@ export function w(concept: Concept, theme: Words = words): string {
 export function hint(concept: Concept, theme: Words = words): string {
   const { themed, plain } = theme[concept];
   return themed.toLowerCase() === plain.toLowerCase() ? themed : `${themed} (${plain})`;
+}
+
+/** Commands dropped when the hub came back, because they only made sense at the time. Plain words in every theme. */
+export function notSentLine(commands: readonly string[]): string {
+  return `Not sent while the hub was away: ${commands.join(', ')}. Do it again if you still mean it.`;
+}
+
+/** How many sends are waiting for the hub, in the connection banner. */
+export function queuedLine(count: number): string {
+  return `${count} ${count === 1 ? 'send' : 'sends'} queued.`;
 }
 
 /** The Inventory categories a Hero can use something from, as the chat announces it. */

@@ -82,7 +82,43 @@ describe('NewSession', () => {
     expect(screen.getByText('Prompt', { selector: 'span' }).className).toContain('cb-label');
   });
 
-  it('keeps the unsent prompt and folder when the view is left and reopened, per Kingdom, until Start', () => {
+  it('keeps the prompt, folder and files after Start: the Quest may yet not start', async () => {
+    const onStart = fill();
+    const log = new File(['boom'], 'error.log', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText('Attach files'), { target: { files: [log] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(onStart).toHaveBeenCalled());
+    expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('Fix the login test');
+    expect((screen.getByLabelText('Project') as HTMLInputElement).value).toBe('/home/me/code/app');
+    expect(screen.getByText('error.log')).toBeTruthy();
+    cleanup();
+    render(<NewSession node="node-b" name="node-b" connected projects={[]} onStart={onStart} />);
+    expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('Fix the login test');
+    expect((screen.getByLabelText('Project') as HTMLInputElement).value).toBe('/home/me/code/app');
+  });
+
+  it('says it is starting, and takes no second start meanwhile', () => {
+    const onStart = vi.fn();
+    render(<NewSession node="mac" name="mac" connected projects={[]} initialCwd="/w" starting onStart={onStart} />);
+    expect(screen.getByRole('status').textContent).toMatch(/Setting out|Starting/);
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement;
+    expect(box.disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it('starts only once while files are being read', async () => {
+    const onStart = fill();
+    const log = new File(['boom'], 'error.log', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText('Attach files'), { target: { files: [log] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.keyDown(screen.getByLabelText('Prompt'), { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(onStart).toHaveBeenCalled());
+    expect(onStart).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the unsent prompt and folder when the view is left and reopened, per Kingdom', () => {
     const onStart = fill();
     cleanup(); // e.g. switching to another tab in the app unmounts the form
     render(<NewSession node="node-b" name="node-b" connected projects={[]} onStart={onStart} />);
@@ -91,13 +127,6 @@ describe('NewSession', () => {
     cleanup();
 
     render(<NewSession node="node-c" name="node-c" connected projects={[]} onStart={onStart} />);
-    expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('');
-    cleanup();
-
-    render(<NewSession node="node-b" name="node-b" connected projects={[]} onStart={onStart} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    cleanup();
-    render(<NewSession node="node-b" name="node-b" connected projects={[]} onStart={onStart} />);
     expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('');
   });
 

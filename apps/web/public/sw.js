@@ -1,7 +1,7 @@
 // Crystal Bridge service worker: Web Push only. It caches nothing, so Discreet Kingdoms leave nothing behind.
 // The hub renders each push for this device ({ title, body, tag, node, session }); an open tab already notifies
 // through the page, so a push is shown only when no window of the app is visible and focused (macOS Chrome calls a
-// window behind another app visible). The same tag collapses repeats.
+// window behind another app visible). The same tag collapses repeats, and a repeat alerts again.
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
@@ -21,6 +21,8 @@ self.addEventListener('push', (event) => {
       await self.registration.showNotification(data.title, {
         body: data.body,
         tag: data.tag,
+        // Without it a new "needs you" silently replaces an unread notice for the same Quest. A browser refuses it with no tag.
+        renotify: Boolean(data.tag),
         icon: '/icon-192.png',
         data: { node: data.node, session: data.session },
       });

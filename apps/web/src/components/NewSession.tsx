@@ -21,6 +21,8 @@ export interface NewSessionProps {
   engines?: Engine[];
   /** A folder to start with, e.g. from the Castle's most-used folders. */
   initialCwd?: string;
+  /** A start from here is waiting for the Kingdom to report it running. */
+  starting?: boolean;
   onStart: (start: {
     node: string;
     cwd: string;
@@ -33,7 +35,16 @@ export interface NewSessionProps {
   }) => void;
 }
 
-export function NewSession({ node, name, connected, projects, engines, initialCwd, onStart }: NewSessionProps) {
+export function NewSession({
+  node,
+  name,
+  connected,
+  projects,
+  engines,
+  initialCwd,
+  starting = false,
+  onStart,
+}: NewSessionProps) {
   // Unsent drafts are kept per Kingdom, so leaving this view (another tab, a Quest) doesn't lose them.
   const [cwd, setCwdState] = useState(() => initialCwd ?? loadDraft(`new-cwd:${node}`));
   const [prompt, setPromptState] = useState(() => loadDraft(`new:${node}`));
@@ -53,8 +64,12 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
   const [files, setFiles] = useState<File[]>([]);
   const choices = engineChoices(engines);
 
-  const ready = connected && cwd.trim() !== '' && prompt.trim() !== '';
+  // Files being read for a start that hasn't gone out yet.
+  const [reading, setReading] = useState(false);
+  const busy = starting || reading;
+  const ready = connected && cwd.trim() !== '' && prompt.trim() !== '' && !busy;
 
+  // Everything stays until the Kingdom reports the Quest started: App clears the drafts then. On a failure it's all here.
   function submit(event: SyntheticEvent) {
     event.preventDefault();
     if (!ready) return;
@@ -67,12 +82,14 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
       ...(engine !== 'stream' ? { engine } : {}),
       ...(effort ? { effort } : {}),
     };
-    const picked = files;
-    setPrompt('');
-    setFiles([]);
-    saveDraft(`new-cwd:${node}`, '');
-    if (picked.length === 0) onStart(start);
-    else void toAttachments(picked).then((attachments) => onStart({ ...start, attachments }));
+    if (files.length === 0) {
+      onStart(start);
+      return;
+    }
+    setReading(true);
+    void toAttachments(files)
+      .then((attachments) => onStart({ ...start, attachments }))
+      .finally(() => setReading(false));
   }
 
   // Plain Enter stays a new line: an opening prompt is often a long brief, unlike a follow-up.
@@ -86,6 +103,11 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
         {w('newQuest')} on {name}
       </h2>
       {!connected && <p className="text-sm text-amber-600">{name} is offline. Sessions start once it reconnects.</p>}
+      {starting && (
+        <p role="status" title={hint('starting')} className="cb-display text-xl text-neutral-500">
+          {w('starting')}
+        </p>
+      )}
       <div className="block space-y-1">
         <span className="cb-label">Project</span>
         <ProjectPicker projects={projects} value={cwd} onChange={setCwd} />
@@ -94,6 +116,7 @@ export function NewSession({ node, name, connected, projects, engines, initialCw
         <span className="cb-label">Prompt</span>
         <PromptBox
           label="Prompt"
+          disabled={busy}
           value={prompt}
           onChange={setPrompt}
           onKeyDown={startOnKey}

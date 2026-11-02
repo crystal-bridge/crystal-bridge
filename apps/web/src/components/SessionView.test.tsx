@@ -160,6 +160,51 @@ describe('SessionView follow-ups', () => {
     rerenderWith([...ended, envelope(2, 'user.message', { text: 'back' }), envelope(3, 'session.resumed', {})]);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
   });
+
+  it('leaves Enter to an input method that is still composing', () => {
+    const onSend = vi.fn();
+    renderView([stopped[0]!], undefined, undefined, onSend);
+    const box = screen.getByLabelText('Follow-up');
+    fireEvent.change(box, { target: { value: 'にほんご' } });
+    fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
+    expect(onSend).not.toHaveBeenCalled();
+    // Safari ends the composition first and marks only the keyCode.
+    fireEvent.keyDown(box, { key: 'Enter', keyCode: 229 });
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('にほんご');
+  });
+
+  it('offers Stop for a queued follow-up-s turn, which starts after the result', () => {
+    const init = envelope(1, 'claude.event', { engine: 'claude', raw: { type: 'system', subtype: 'init' } });
+    const queued = [
+      stopped[0]!,
+      init,
+      envelope(2, 'user.message', { text: 'and then' }),
+      envelope(3, 'claude.event', { engine: 'claude', raw: { type: 'result', subtype: 'success' } }),
+    ];
+    const { rerenderWith } = renderView(queued);
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    rerenderWith([...queued, { ...init, seq: 4 }]);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
+  });
+
+  it('shows an unanswered card as expired once the Quest is cut off', () => {
+    renderView([...requested, envelope(2, 'session.ended', { exitCode: null, signal: null, reason: 'restart' })]);
+    expect(screen.getByText(/^Expired/)).toBeTruthy();
+    expect(approve().disabled).toBe(true);
+  });
+
+  it('shows an unanswered question as expired too', () => {
+    const asked = envelope(1, 'permission.request', {
+      requestId: REQUEST_ID,
+      toolName: 'AskUserQuestion',
+      input: { questions: [{ question: 'Which?', options: [{ label: 'A' }] }] },
+    });
+    renderView([stopped[0]!, asked, envelope(2, 'session.closed', {})]);
+    expect(screen.getByText(/^Expired/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Skip' }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe('SessionView permission mode', () => {
@@ -563,6 +608,244 @@ describe('SessionView loading and scroll', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Jump to latest' }));
     expect(pane.scrollTop).toBe(1400);
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull();
+  });
+
+  describe('opening a Quest with a card waiting', () => {
+    const asked = (seq: number): Envelope => ({
+      node: 'n',
+      session: S,
+      seq,
+      ts: 0,
+      type: 'permission.request',
+      payload: { requestId: 'r', toolName: 'Bash', input: { command: 'touch x' } },
+    });
+    beforeEach(() => {
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        return { top: this.dataset.waiting ? 500 : 0 } as DOMRect;
+      });
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    /** Leaves the Quest scrolled up at 300, as a reader would. */
+    function leftScrolledUp(history: Envelope[]) {
+      render(view(history));
+      const pane = screen.getByTestId('quest-scroll');
+      pane.scrollTop = 300;
+      fireEvent.scroll(pane);
+      cleanup();
+    }
+
+    it('goes to the card, not back to where the Quest was left', () => {
+      const history = [at(0, 'first'), at(1, 'second')];
+      leftScrolledUp(history);
+      render(view([...history, asked(2)]));
+      expect(screen.getByTestId('quest-scroll').scrollTop).toBe(484);
+    });
+
+    it('stays where it was left once nothing is waiting', () => {
+      const history = [at(0, 'first'), at(1, 'second'), asked(2)];
+      const answered: Envelope = {
+        ...asked(3),
+        type: 'permission.resolved',
+        payload: { requestId: 'r', behavior: 'allow' },
+      };
+      leftScrolledUp([...history, answered]);
+      render(view([...history, answered]));
+      expect(screen.getByTestId('quest-scroll').scrollTop).toBe(300);
+    });
+  });
+});
+
+describe('SessionView sending a follow-up', () => {
+  // A fresh Quest per test: what's on its way is kept per Quest on the device.
+  let S = '';
+  let n = 0;
+  beforeEach(() => {
+    S = `44444444-4444-4444-8444-${String(++n).padStart(12, '0')}`;
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  const started = (): Envelope => ({ ...envelope(0, 'session.started', { prompt: 'p' }), session: S });
+  const echo = (seq: number, text: string): Envelope => ({ ...envelope(seq, 'user.message', { text }), session: S });
+  const box = () => screen.getByPlaceholderText('Send a follow-up') as HTMLTextAreaElement;
+
+  function quest(options: { linkDown?: boolean } = {}) {
+    const errors = errorSource();
+    const onSend = vi.fn();
+    const view = (envelopes: Envelope[], linkDown = options.linkDown) => (
+      <SessionView
+        session={S}
+        envelopes={envelopes}
+        onAnswer={vi.fn()}
+        onSend={onSend}
+        onInterrupt={vi.fn()}
+        onMode={vi.fn()}
+        subscribeErrors={errors.subscribe}
+        linkDown={linkDown}
+      />
+    );
+    return { errors, onSend, view };
+  }
+  function type(text: string) {
+    fireEvent.change(box(), { target: { value: text } });
+  }
+  function send(text: string) {
+    type(text);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  }
+
+  it('shows it as on its way, with the box free, until the hub echoes it', () => {
+    const { view, onSend } = quest();
+    const { rerender } = render(view([started()]));
+    send('and then');
+    expect(onSend).toHaveBeenCalledWith('and then');
+    expect(box().value).toBe('');
+    expect(screen.getByText('and then')).toBeTruthy();
+    expect(screen.getByText('Sending…')).toBeTruthy();
+
+    rerender(view([started(), echo(1, 'and then')]));
+    expect(screen.queryByText('Sending…')).toBeNull();
+    expect(screen.getAllByText('and then')).toHaveLength(1);
+  });
+
+  it('puts the text and files back when the send fails', async () => {
+    const { view, errors, onSend } = quest();
+    render(view([started()]));
+    const shot = new File(['png'], 'shot.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('Attach files'), { target: { files: [shot] } });
+    send('look at this');
+    await waitFor(() => expect(onSend).toHaveBeenCalled());
+    expect(screen.queryByText('shot.png')).toBeNull();
+
+    act(() => errors.fire('node offline'));
+    expect(box().value).toBe('look at this');
+    expect(screen.getByText('shot.png')).toBeTruthy();
+    expect(screen.queryByText('Sending…')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toMatch(/Not delivered/);
+  });
+
+  it('keeps what was typed since, after the text it puts back', () => {
+    const { view, errors } = quest();
+    render(view([started()]));
+    send('first');
+    type('second');
+    act(() => errors.fire('node offline'));
+    expect(box().value).toBe('first\n\nsecond');
+  });
+
+  it('forgets a send once it is echoed: a later error leaves the box alone', () => {
+    const { view, errors } = quest();
+    const { rerender } = render(view([started()]));
+    send('and then');
+    rerender(view([started(), echo(1, 'and then')]));
+    act(() => errors.fire('node offline'));
+    expect(box().value).toBe('');
+  });
+
+  it('matches the echo of a send with files, whose text the Kingdom extends', () => {
+    const { view } = quest();
+    const { rerender } = render(view([started()]));
+    send('look');
+    rerender(view([started(), echo(1, 'look\n\n[Attached file: /tmp/a/shot.png]')]));
+    expect(screen.queryByText('Sending…')).toBeNull();
+  });
+
+  it('does not take an older message with the same words for the echo', () => {
+    const { view } = quest();
+    const history = [started(), echo(1, 'again')];
+    const { rerender } = render(view(history));
+    send('again');
+    rerender(view([...history]));
+    expect(screen.getByText('Sending…')).toBeTruthy();
+    rerender(view([...history, echo(2, 'again')]));
+    expect(screen.queryByText('Sending…')).toBeNull();
+  });
+
+  it('clears the box if the echo comes after all, when an error was about something else', () => {
+    const { view, errors } = quest();
+    const { rerender } = render(view([started()]));
+    send('and then');
+    act(() => errors.fire('some other Quest failed'));
+    expect(box().value).toBe('and then');
+    rerender(view([started(), echo(1, 'and then')]));
+    expect(box().value).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('leaves a send alone when the client only dropped stale commands', () => {
+    const { view } = quest();
+    const listeners = new Set<(message: string, notSent?: boolean) => void>();
+    const props = view([started()]).props as Parameters<typeof SessionView>[0];
+    render(
+      <SessionView
+        {...props}
+        subscribeErrors={(listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        }}
+      />,
+    );
+    send('and then');
+    act(() => {
+      for (const listener of listeners) listener('Not sent: Stop', true);
+    });
+    expect(screen.getByText('Sending…')).toBeTruthy();
+    expect(box().value).toBe('');
+  });
+
+  it('gives it back when nothing comes of it, so a dropped frame loses nothing', () => {
+    vi.useFakeTimers();
+    const { view } = quest();
+    render(view([started()]));
+    send('and then');
+    act(() => vi.advanceTimersByTime(29_000));
+    expect(box().value).toBe('');
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(box().value).toBe('and then');
+  });
+
+  it('says a send is queued while the link is down, and waits for as long as that takes', () => {
+    vi.useFakeTimers();
+    const { view } = quest({ linkDown: true });
+    const { rerender } = render(view([started()]));
+    send('and then');
+    expect(screen.getByText(/^Queued/)).toBeTruthy();
+    act(() => vi.advanceTimersByTime(600_000));
+    expect(box().value).toBe('');
+
+    rerender(view([started()], false));
+    expect(screen.queryByText(/^Queued/)).toBeNull();
+    expect(screen.getByText('Sending…')).toBeTruthy();
+  });
+
+  it('survives leaving the Quest: still on its way, settled by the echo that came meanwhile', () => {
+    const { view } = quest();
+    const first = render(view([started()]));
+    send('and then');
+    first.unmount();
+
+    const again = render(view([started()]));
+    expect(screen.getByText('Sending…')).toBeTruthy();
+    expect(box().value).toBe('');
+    again.rerender(view([started(), echo(1, 'and then')]));
+    expect(screen.queryByText('Sending…')).toBeNull();
+    expect(box().value).toBe('');
+  });
+
+  it('gives it back after a reload if it never landed', () => {
+    vi.useFakeTimers();
+    const { view } = quest();
+    const first = render(view([started()]));
+    send('and then');
+    first.unmount();
+
+    render(view([started()]));
+    act(() => vi.advanceTimersByTime(31_000));
+    expect(box().value).toBe('and then');
   });
 });
 

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
 import type { FileReply } from '@crystal-bridge/protocol';
 import { fileSize, isMarkdown, languageOf } from '../files.js';
 import { hint, w } from '../theme/words.js';
 import { CodeBlock } from './CodeBlock.js';
-import { FileOpenContext, MARKDOWN_COMPONENTS, REMARK_PLUGINS } from './markdown.js';
+import { FileOpenContext, QuestMarkdown } from './markdown.js';
 
 /** A file the viewer shows: which Quest, the path asked for, and the Kingdom's answer once it arrives. */
 export interface FileViewState {
@@ -125,9 +124,7 @@ export function FileViewer({ file, onClose, onOpen }: FileViewerProps) {
         ) : isMarkdown(path) ? (
           <FileOpenContext.Provider value={openBeside}>
             <div className="cb-prose min-w-0 [overflow-wrap:anywhere] [&_code]:font-mono [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
-              <Markdown components={MARKDOWN_COMPONENTS} remarkPlugins={REMARK_PLUGINS}>
-                {reply.content ?? ''}
-              </Markdown>
+              <QuestMarkdown>{reply.content ?? ''}</QuestMarkdown>
             </div>
           </FileOpenContext.Provider>
         ) : (

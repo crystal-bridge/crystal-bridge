@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import type { HubClient, ReplayProgress } from './hub.js';
+import type { ErrorListener, HubClient, ReplayProgress } from './hub.js';
 import {
   type Attachment,
   Effort,
@@ -70,7 +70,8 @@ import { useCircle } from './summons.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { SplitPicker } from './components/SplitPicker.js';
-import { createJoinCode, refusal, saveHubName } from './api.js';
+import { checkLogin, createJoinCode, refusal, saveHubName } from './api.js';
+import { loadDraft, saveDraft } from './drafts.js';
 import { type KingdomPrefs, listKingdoms, loadPrefs, notifyLevel, pickActive, savePrefs } from './kingdoms.js';
 import { sessionMode } from './model.js';
 import { MODES } from './modes.js';
@@ -81,7 +82,7 @@ import { loadPutAway, projectName, putAway as withPutAway, questTabs, savePutAwa
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
 import { RemovedKingdom } from './components/RemovedKingdom.js';
-import { hint, showHeroes, w } from './theme/words.js';
+import { hint, queuedLine, showHeroes, w } from './theme/words.js';
 
 const REFRESH_MS = 5000;
 const HOME_REFRESH_MS = 30_000;
@@ -116,6 +117,7 @@ async function forgetKingdom(node: string): Promise<void> {
 async function tryJson<T>(url: string): Promise<T | undefined> {
   try {
     const response = await fetch(url);
+    if (response.status === 401 || response.status === 403) checkLogin();
     return response.ok ? ((await response.json()) as T) : undefined;
   } catch {
     return undefined;
@@ -125,6 +127,16 @@ async function tryJson<T>(url: string): Promise<T | undefined> {
 /** Sets state only from a real answer. */
 function keep<T>(set: (value: T) => void, value: T | undefined): void {
   if (value !== undefined) set(value);
+}
+
+/** How long a Kingdom gets to report a Quest started; making a worktree of a large repository takes a while. */
+const START_TIMEOUT_MS = 60_000;
+
+/** A New Quest sent and not yet reported running. */
+interface AwaitedStart {
+  node: string;
+  prompt: string;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 /** A Kingdom's row in `/api/engines`. */
@@ -359,7 +371,12 @@ export function App({ hub }: { hub: HubClient }) {
           notifyLevel(p, attention.node),
         );
         if (!shownText) return;
-        const notification = new Notification(shownText.title, { body: shownText.body, tag: attention.session });
+        // Alerts again when it replaces an unread notice for the same Quest, instead of swapping it silently.
+        const notification = new Notification(shownText.title, {
+          body: shownText.body,
+          tag: attention.session,
+          renotify: true,
+        } as NotificationOptions);
         notification.onclick = () => {
           window.focus();
           openSession(attention.node, attention.session);
@@ -468,6 +485,7 @@ export function App({ hub }: { hub: HubClient }) {
   }
 
   const status = useSyncExternalStore(hub.onChange, () => hub.status);
+  const queuedSends = useSyncExternalStore(hub.onChange, () => hub.queued);
   // The link starts out connecting on every load; only a link that dropped is worth a banner.
   const everOpen = useRef(false);
   if (status === 'open') everOpen.current = true;
@@ -573,7 +591,10 @@ export function App({ hub }: { hub: HubClient }) {
         Object.fromEntries(
           a
             .filter(
-              ({ session, node }) => !hidden.includes(node) && !isLooking(open, session) && !isLooking(beside, session),
+              ({ session, node }) =>
+                !hidden.includes(node) &&
+                !isLooking(open, session) &&
+                !(splitPaneVisible() && isLooking(beside, session)),
             )
             .map(({ session, node }) => [session, node]),
         ),
@@ -615,8 +636,43 @@ export function App({ hub }: { hub: HubClient }) {
     return () => clearInterval(timer);
   }, [refreshHome]);
 
+  // Starts waiting for `session.started`, by session. Kept after a failure: errors name no Quest, so one may be about
+  // something else, and the start can still land.
+  const awaited = useRef(new Map<string, AwaitedStart>());
+  // The Kingdoms whose New Quest form is waiting on a start.
+  const [startingOn, setStartingOn] = useState<string[]>([]);
+
   useEffect(
-    () => hub.onError((message) => setErrors((prev) => [...prev, { id: Date.now() + Math.random(), message }])),
+    () =>
+      hub.onError((message, notSent) => {
+        setErrors((prev) => [...prev, { id: Date.now() + Math.random(), message }]);
+        if (notSent) return;
+        for (const start of awaited.current.values()) clearTimeout(start.timer);
+        setStartingOn([]);
+      }),
+    [hub],
+  );
+
+  const started = useRef<(session: string, start: AwaitedStart) => void>(() => {});
+  started.current = (session, { node, prompt, timer }) => {
+    clearTimeout(timer);
+    awaited.current.delete(session);
+    setStartingOn((nodes) => nodes.filter((id) => id !== node));
+    // A brief edited since a failure is a new one, and stays.
+    if (loadDraft(`new:${node}`).trim() === prompt) {
+      saveDraft(`new:${node}`, '');
+      saveDraft(`new-cwd:${node}`, '');
+      if (page === 'new' && shown === null && active === node) openQuest(session);
+    }
+    void refresh();
+  };
+  useEffect(
+    () =>
+      hub.onChange(() => {
+        for (const [session, start] of [...awaited.current]) {
+          if (hub.events(session).some((event) => event.type === 'session.started')) started.current(session, start);
+        }
+      }),
     [hub],
   );
 
@@ -654,7 +710,7 @@ export function App({ hub }: { hub: HubClient }) {
     );
   }
 
-  const subscribeErrors = useCallback((listener: (message: string) => void) => hub.onError(listener), [hub]);
+  const subscribeErrors = useCallback((listener: ErrorListener) => hub.onError(listener), [hub]);
 
   useEffect(() => {
     if (shown) hub.subscribe(shown);
@@ -696,9 +752,31 @@ export function App({ hub }: { hub: HubClient }) {
       ...(effort ? { effort } : {}),
       ...(attachments?.length ? { attachments } : {}),
     });
-    openQuest(session);
-    // The hub records the session once the node reports `session.started`.
-    setTimeout(() => void refresh(), 500);
+    // Nothing is sure until the Kingdom reports `session.started`: a worktree can fail, or the Kingdom be gone.
+    awaitStart(session, node, prompt);
+  }
+
+  function awaitStart(session: string, node: string, prompt: string) {
+    for (const [id, earlier] of awaited.current) if (earlier.node === node) awaited.current.delete(id);
+    const start: AwaitedStart = { node, prompt, timer: undefined };
+    const watch = () => {
+      start.timer = setTimeout(() => {
+        // Still in the outbox: the Kingdom hasn't been asked yet.
+        if (hub.queued > 0) return watch();
+        setStartingOn((nodes) => nodes.filter((id) => id !== node));
+        const name = loadPrefs().names[node] || node;
+        setErrors((prev) => [
+          ...prev,
+          {
+            id: Date.now() + Math.random(),
+            message: `${name} didn't answer, so the ${w('quest')} may not have started.`,
+          },
+        ]);
+      }, START_TIMEOUT_MS);
+    };
+    watch();
+    awaited.current.set(session, start);
+    setStartingOn((nodes) => [...nodes, node]);
   }
 
   /** Forks the shown session; the hub runs the fork on the source's node and in its folder. */
@@ -762,6 +840,7 @@ export function App({ hub }: { hub: HubClient }) {
         onOpen={openQuest}
         labelOf={(other) => sessions.find((s) => s.id === other)?.label}
         subscribeErrors={subscribeErrors}
+        linkDown={status !== 'open'}
         compact={splitShown !== null}
         onSplit={primary && splitShown === null ? () => setPicking(true) : undefined}
         onExitSplit={primary && splitShown !== null ? () => setSplit(null) : undefined}
@@ -967,6 +1046,7 @@ export function App({ hub }: { hub: HubClient }) {
               className="flex items-center gap-2 bg-amber-100 px-4 py-1.5 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200"
             >
               Lost the connection to the hub. Reconnecting… What you see may be out of date until it's back.
+              {queuedSends > 0 && ` ${queuedLine(queuedSends)}`}
             </div>
           )}
           {isOutdated(BUILD_RELEASE, servedRelease) && (
@@ -1139,6 +1219,7 @@ export function App({ hub }: { hub: HubClient }) {
                   projects={kingdomProjects}
                   engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
                   initialCwd={newCwd}
+                  starting={startingOn.includes(kingdom.id)}
                   onStart={start}
                 />
               </div>

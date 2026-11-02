@@ -1,4 +1,4 @@
-import { type ReactNode, useContext } from 'react';
+import { type ReactNode, useContext, useState } from 'react';
 import { type DiffLine, diffLines } from '../diff.js';
 import { type Helper, helperClass, type HeroManifest, type HeroState } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
@@ -165,9 +165,14 @@ export function ToolCard({ tool, manifest }: { tool: ToolItem; manifest?: HeroMa
   const change = fileChange(tool);
   const caller = callerClass(tool, manifest);
   const chip = toolChip(state, caller ? manifest?.classes[caller]?.work : undefined);
+  // A long Quest holds thousands of these, nearly all folded: what's inside is only worth drawing once it's read.
+  const [unfolded, setUnfolded] = useState(false);
 
   return (
-    <details className="rounded border border-neutral-300 bg-neutral-50 text-sm dark:border-neutral-700 dark:bg-neutral-900">
+    <details
+      onToggle={(e) => setUnfolded(e.currentTarget.open)}
+      className="rounded border border-neutral-300 bg-neutral-50 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+    >
       <summary className="flex cursor-pointer items-center gap-2 px-3 py-2">
         <HelperMark helper={tool.helper} manifest={manifest} />
         <span className="font-mono font-semibold">{tool.name}</span>
@@ -192,9 +197,11 @@ export function ToolCard({ tool, manifest }: { tool: ToolItem; manifest?: HeroMa
           {chip.themed}
         </span>
       </summary>
-      <div className="space-y-2 border-t border-neutral-300 px-3 py-2 dark:border-neutral-700">
-        <Detail tool={tool} change={change} />
-      </div>
+      {unfolded && (
+        <div className="space-y-2 border-t border-neutral-300 px-3 py-2 dark:border-neutral-700">
+          <Detail tool={tool} change={change} />
+        </div>
+      )}
     </details>
   );
 }
