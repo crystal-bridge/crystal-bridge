@@ -2006,6 +2006,67 @@ describe('airship server on first run', () => {
   });
 });
 
+describe('airship server and other sites', () => {
+  let store: Store;
+  let app: import('fastify').FastifyInstance;
+  let base: string;
+  const sockets: WebSocket[] = [];
+
+  beforeEach(async () => {
+    store = openStore(':memory:');
+    app = await buildServer({ store, auth: tailscaleServe(['me@example.com']) });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) socket.terminate();
+    await app.close();
+    store.close();
+  });
+
+  const me = { 'tailscale-user-login': 'me@example.com' };
+  const dial = (headers: Record<string, string>) =>
+    new Promise((resolve) => {
+      const socket = new WebSocket(`${base.replace('http', 'ws')}/client`, { headers: { ...me, ...headers } });
+      sockets.push(socket);
+      socket.once('open', () => resolve('open'));
+      socket.once('unexpected-response', (_request, response) => resolve(response.statusCode));
+      socket.once('error', () => resolve('error'));
+    });
+  const post = (headers: Record<string, string>) =>
+    app.inject({ method: 'POST', url: '/api/nodes/a/cli-update', headers: { ...me, ...headers } });
+
+  it('refuses the client socket to a page from another site, whose browser brings the login along', async () => {
+    expect(await dial({ origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' })).toBe(403);
+    expect(await dial({ origin: 'https://sibling.hub.example', 'sec-fetch-site': 'same-site' })).toBe(403);
+    expect(await dial({ origin: 'https://evil.example' })).toBe(403);
+    expect(await dial({ origin: 'null' })).toBe(403);
+  });
+
+  it('refuses a change from another site', async () => {
+    expect((await post({ 'sec-fetch-site': 'cross-site' })).statusCode).toBe(403);
+    expect((await post({ origin: 'https://evil.example' })).statusCode).toBe(403);
+  });
+
+  it('lets a page from the hub itself in, whatever a proxy did to Host', async () => {
+    expect(await dial({ origin: 'https://hub.example', 'sec-fetch-site': 'same-origin' })).toBe('open');
+    const host = new URL(base).host;
+    expect(await dial({ origin: `http://${host}` })).toBe('open');
+    expect(await dial({ origin: 'https://hub.example', 'x-forwarded-host': 'hub.example' })).toBe('open');
+  });
+
+  it('leaves alone what no browser sent, and a link followed from elsewhere', async () => {
+    expect(await dial({})).toBe('open');
+    expect((await post({})).statusCode).not.toBe(403);
+    const opened = await app.inject({
+      method: 'GET',
+      url: '/api/sessions',
+      headers: { ...me, 'sec-fetch-site': 'cross-site' },
+    });
+    expect(opened.statusCode).toBe(200);
+  });
+});
+
 describe('airship server with token login', () => {
   let store: Store;
   let app: import('fastify').FastifyInstance;
@@ -2031,6 +2092,33 @@ describe('airship server with token login', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token }),
     });
+
+  it('refuses a logged-out request however its path is spelled', async () => {
+    for (const url of [
+      '/%61pi/sessions',
+      '/api%2Fsessions',
+      '/%61pi/nodes',
+      '/api/%73essions',
+      '/%61pi/sessions?x=1',
+    ]) {
+      const response = await app.inject({ method: 'GET', url });
+      expect([url, response.statusCode === 200]).toEqual([url, false]);
+    }
+    const created = await app.inject({ method: 'POST', url: '/%61pi/join-codes', payload: { node: 'evil' } });
+    expect(created.statusCode).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/%61pi/sessions' })).statusCode).toBe(403);
+  });
+
+  it('keeps the client socket closed however its path is spelled', async () => {
+    const socket = new WebSocket(`${base.replace('http', 'ws')}/%63lient`);
+    sockets.push(socket);
+    const outcome = await new Promise((resolve) => {
+      socket.once('open', () => resolve('open'));
+      socket.once('unexpected-response', (_request, response) => resolve(response.statusCode));
+      socket.once('error', () => resolve('error'));
+    });
+    expect(outcome).toBe(403);
+  });
 
   it('has no setup to offer: the route is gone and /api/me says so', async () => {
     const me = (await (await fetch(`${base}/api/me`)).json()) as { setup: boolean };

@@ -3,6 +3,15 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
+## Unreleased
+
+### Security
+
+- A hub on token login no longer lets a request through unchecked because of how its path is written. Update any hub
+  reachable by people you don't trust.
+- The hub refuses `/client` and changes that come from a page on another site, which a logged-in browser would otherwise
+  carry out for it.
+
 ## 0.5.1
 
 ### Fixed
