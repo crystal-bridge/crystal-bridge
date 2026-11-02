@@ -81,7 +81,7 @@ import { loadPutAway, projectName, putAway as withPutAway, questTabs, savePutAwa
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
 import { RemovedKingdom } from './components/RemovedKingdom.js';
-import { hint, showHeroes, w } from './theme/words.js';
+import { hint, queuedLine, showHeroes, w } from './theme/words.js';
 
 const REFRESH_MS = 5000;
 const HOME_REFRESH_MS = 30_000;
@@ -468,6 +468,7 @@ export function App({ hub }: { hub: HubClient }) {
   }
 
   const status = useSyncExternalStore(hub.onChange, () => hub.status);
+  const queuedSends = useSyncExternalStore(hub.onChange, () => hub.queued);
   // The link starts out connecting on every load; only a link that dropped is worth a banner.
   const everOpen = useRef(false);
   if (status === 'open') everOpen.current = true;
@@ -967,6 +968,7 @@ export function App({ hub }: { hub: HubClient }) {
               className="flex items-center gap-2 bg-amber-100 px-4 py-1.5 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200"
             >
               Lost the connection to the hub. Reconnecting… What you see may be out of date until it's back.
+              {queuedSends > 0 && ` ${queuedLine(queuedSends)}`}
             </div>
           )}
           {isOutdated(BUILD_RELEASE, servedRelease) && (

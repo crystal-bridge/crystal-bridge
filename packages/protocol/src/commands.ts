@@ -389,8 +389,13 @@ export type HubAck = z.infer<typeof HubAck>;
 export const ClientMessage = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('subscribe'), session: z.uuid(), fromSeq: z.number().int().nonnegative() }),
   z.object({ kind: z.literal('command'), command: NodeCommand }),
+  /** Is this link still alive? The hub answers `PONG_FRAME`; a hub older than this drops the frame and says nothing. */
+  z.object({ kind: z.literal('ping') }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
+
+/** The hub's answer to a client's `ping`, as sent. Not a `HubToClient`: only a client that pinged ever gets one. */
+export const PONG_FRAME = '{"kind":"pong"}';
 
 // hub -> client
 /**

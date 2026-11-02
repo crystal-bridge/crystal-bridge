@@ -160,6 +160,14 @@ describe('App Kingdom tabs', () => {
     }
   });
 
+  it('says how many sends are waiting while the link is down', async () => {
+    render(<App hub={{ ...fakeHub(), status: 'closed', queued: 2 } as unknown as HubClient} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole('status').textContent).toMatch(/2 sends queued/);
+  });
+
   it('shows a plain banner while the link to the hub is down', async () => {
     const hub = fakeHub();
     (hub as unknown as { status: string }).status = 'closed';

@@ -30,6 +30,7 @@ import {
   type Cast,
   type Resume,
   type Summon,
+  PONG_FRAME,
   PROTOCOL_VERSION,
   isOlderVersion,
   keepBeating,
@@ -1234,7 +1235,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           return;
         }
 
-        if (message.data.kind === 'subscribe') {
+        if (message.data.kind === 'ping') {
+          if (socket.readyState === socket.OPEN) socket.send(PONG_FRAME);
+        } else if (message.data.kind === 'subscribe') {
           handleSubscribe(socket, message.data.session, message.data.fromSeq);
         } else {
           handleCommand(socket, message.data.command);

@@ -235,6 +235,12 @@ describe('airship server', () => {
     });
   });
 
+  it('answers a client-s ping, so a client can tell a live link from a half-open one', async () => {
+    const client = await connectClient();
+    send(client.socket, { kind: 'ping' });
+    await client.frames.waitFor((frame) => frame.kind === 'pong');
+  });
+
   it('closes a node that speaks another protocol version, and accepts one that names none', async () => {
     const socket = await openSocket(`${wsUrl}/node`);
     sockets.push(socket);

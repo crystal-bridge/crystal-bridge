@@ -301,6 +301,16 @@ export function hint(concept: Concept, theme: Words = words): string {
   return themed.toLowerCase() === plain.toLowerCase() ? themed : `${themed} (${plain})`;
 }
 
+/** Commands dropped when the hub came back, because they only made sense at the time. Plain words in every theme. */
+export function notSentLine(commands: readonly string[]): string {
+  return `Not sent while the hub was away: ${commands.join(', ')}. Do it again if you still mean it.`;
+}
+
+/** How many sends are waiting for the hub, in the connection banner. */
+export function queuedLine(count: number): string {
+  return `${count} ${count === 1 ? 'send' : 'sends'} queued.`;
+}
+
 /** The Inventory categories a Hero can use something from, as the chat announces it. */
 export type UseKind = 'spells' | 'items' | 'runes';
 

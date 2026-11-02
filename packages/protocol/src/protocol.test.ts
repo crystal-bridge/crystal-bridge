@@ -242,6 +242,10 @@ describe('NodeCommand', () => {
 });
 
 describe('ClientMessage', () => {
+  it('accepts a ping', () => {
+    expect(ClientMessage.safeParse({ kind: 'ping' }).success).toBe(true);
+  });
+
   it('accepts a subscribe message', () => {
     const result = ClientMessage.safeParse({
       kind: 'subscribe',
