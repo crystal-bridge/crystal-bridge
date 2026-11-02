@@ -109,6 +109,26 @@ describe('claudeInventory', () => {
   });
 });
 
+describe('claudeInventory descriptions', () => {
+  const described = claude({
+    type: 'system',
+    subtype: 'descriptions',
+    descriptions: { 'demo-skill': 'Does the demo', 'review-pr': 'Reviews a PR', odd: 7 },
+  });
+
+  it('fills in descriptions from the Kingdom-s line, and only where one exists', () => {
+    const inv = buildInventory([init, described]);
+    expect(inv.spells[0]).toMatchObject({ name: 'demo-skill', description: 'Does the demo' });
+    expect(inv.items.find((e) => e.name === 'review-pr')!.description).toBe('Reviews a PR');
+    expect(inv.items.find((e) => e.name === 'compact')).not.toHaveProperty('description');
+  });
+
+  it('keeps them through a later turn-s init, and takes the latest line', () => {
+    const newer = claude({ type: 'system', subtype: 'descriptions', descriptions: { 'demo-skill': 'New words' } });
+    expect(buildInventory([init, described, init, newer]).spells[0]!.description).toBe('New words');
+  });
+});
+
 describe('filterInventory', () => {
   it('keeps entries whose name contains the query, ignoring case', () => {
     const inv = filterInventory(buildInventory([init]), 'DEMO');

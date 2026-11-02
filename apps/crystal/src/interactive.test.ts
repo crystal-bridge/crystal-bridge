@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HookBus, InteractiveSession, type PtyLike, type PtySpawn } from './interactive.js';
 import type { ClaudeSessionEvent } from './session.js';
 import { liveTranscriptEvent } from './transcripts.js';
@@ -209,6 +209,17 @@ describe('InteractiveSession', () => {
     expect(options.env).not.toHaveProperty('CLAUDE_CODE_SESSION_ID');
     expect(options.env).not.toHaveProperty('CRYSTAL_TOKEN');
     expect(options.env).toHaveProperty('CLAUDE_CODE_MAX_OUTPUT_TOKENS', '64000');
+  });
+
+  it('hands its listing to the description reporter, after the init line', () => {
+    const descriptions = vi.fn();
+    const { session, hook } = harness({ descriptions });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    expect(descriptions).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: [], slash_commands: [] }),
+      expect.any(Function),
+    );
   });
 
   it('types the first prompt once the session has started, as a bracketed paste then Enter', async () => {

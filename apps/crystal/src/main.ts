@@ -1,4 +1,5 @@
 import { gitChanges } from './changes.js';
+import { descriptionReporter } from './descriptions.js';
 import { compactWindow } from './compact.js';
 import { Engine, PermissionMode } from '@crystal-bridge/protocol';
 import { HookBus, InteractiveSession } from './interactive.js';
@@ -175,6 +176,7 @@ async function main(): Promise<void> {
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
       const changes = gitChanges(opts.cwd, { env: sessionEnv });
+      const descriptions = descriptionReporter({ configDir: CONFIG_DIR, cwd: opts.cwd });
       const compactWindowFor = (model: string | undefined) =>
         compactWindow({ env: sessionEnv, cwd: opts.cwd, configDir: CONFIG_DIR, model });
       return engine === 'interactive'
@@ -184,6 +186,7 @@ async function main(): Promise<void> {
             env: sessionEnv,
             chrome: CHROME,
             changes,
+            descriptions,
             compactWindow: compactWindowFor,
             hooks,
             hookUrl: permissionServer.hookUrl(opts.session),
@@ -194,6 +197,7 @@ async function main(): Promise<void> {
             env: sessionEnv,
             chrome: CHROME,
             changes,
+            descriptions,
             compactWindow: compactWindowFor,
           });
     },

@@ -257,6 +257,23 @@ describe('the Belt', () => {
     expect(onUse).toHaveBeenCalledWith('/compact ');
   });
 
+  it('shows an entry-s description as a tooltip, and no tooltip without one', () => {
+    const described: InventoryData = {
+      ...inventory,
+      spells: [
+        { category: 'spells', name: 'code-review', use: '/code-review ', description: 'Reviews the diff' },
+        { category: 'spells', name: 'plain', use: '/plain ' },
+      ],
+    };
+    view({ inventory: described });
+    fireEvent.click(screen.getByRole('button', { name: /Spells/ }));
+    const row = (name: string) => document.querySelector(`[data-row="${name}"]`)!;
+    expect(within(row('code-review') as HTMLElement).getByRole('tooltip', { hidden: true }).textContent).toBe(
+      'Reviews the diff',
+    );
+    expect(row('plain').querySelector('[role="tooltip"]')).toBeNull();
+  });
+
   it('fires slots with Alt and a number, by the key-s position', () => {
     const { onUse, onSend } = view();
     fireEvent.keyDown(window, { altKey: true, code: 'Digit1', key: '¡' });

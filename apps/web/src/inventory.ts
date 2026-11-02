@@ -14,6 +14,8 @@ export interface InventoryEntry {
   use?: string;
   /** A short note: a version, where it comes from, the event a hook runs on. */
   detail?: string;
+  /** What it does, from the file that defines it, for a tooltip. */
+  description?: string;
   status?: 'ok' | 'failed' | 'pending' | 'needs-auth' | 'unknown';
 }
 
@@ -69,10 +71,12 @@ const MAIN_AGENT = 'claude';
 export const claudeInventory: InventorySource = (envelopes) => {
   let init: Record<string, unknown> | undefined;
   const hooks = new Map<string, InventoryEntry>();
+  let descriptions: Record<string, unknown> = {};
   for (const envelope of envelopes) {
     const raw = claudeRaw(envelope);
     if (!raw) continue;
     if (raw.subtype === 'init') init = raw;
+    if (raw.subtype === 'descriptions' && isObj(raw.descriptions)) descriptions = raw.descriptions;
     if (raw.subtype === 'hook_response' && typeof raw.hook_name === 'string') {
       hooks.set(raw.hook_name, {
         category: 'abilities',
@@ -119,7 +123,11 @@ export const claudeInventory: InventorySource = (envelopes) => {
       entries.push({ category: 'guild', name, use: `Use the ${name} agent to ` });
     }
   }
-  return [...entries, ...hooks.values()];
+  const described = (entry: InventoryEntry): InventoryEntry => {
+    const description = descriptions[entry.name];
+    return typeof description === 'string' && description ? { ...entry, description } : entry;
+  };
+  return [...entries.map(described), ...hooks.values()];
 };
 
 /** Every source's entries, grouped by category; unknown categories go to Items. */

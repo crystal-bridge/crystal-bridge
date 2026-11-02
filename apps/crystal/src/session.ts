@@ -1,4 +1,5 @@
 import { reportChanges, type TurnChanges } from './changes.js';
+import type { DescriptionReporter } from './descriptions.js';
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcessByStdio } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -136,6 +137,8 @@ export interface ClaudeSessionOptions {
   addDirs?: readonly string[];
   /** Works out what each turn changed; unset, no `system/turn_changes` lines are sent. */
   changes?: TurnChanges;
+  /** Sends what the Inventory's entries say about themselves; unset, no `system/descriptions` lines are sent. */
+  descriptions?: DescriptionReporter;
   /** The size the model's context is held to, when one is configured. */
   compactWindow?: (model: string | undefined) => number | undefined;
 }
@@ -281,6 +284,7 @@ export class ClaudeSession extends EventEmitter {
   private readonly claudeBin: string;
   private readonly platform: NodeJS.Platform;
   private readonly changes: TurnChanges | undefined;
+  private readonly descriptions: DescriptionReporter | undefined;
   private readonly compactWindow: ClaudeSessionOptions['compactWindow'];
   /** The size last announced, so the init line each turn repeats sends it once. */
   private announcedCompact: number | undefined;
@@ -334,6 +338,7 @@ export class ClaudeSession extends EventEmitter {
     this.effort = opts.effort;
     this.addDirs = opts.addDirs ?? [];
     this.changes = opts.changes;
+    this.descriptions = opts.descriptions;
     this.compactWindow = opts.compactWindow;
   }
 
@@ -583,6 +588,7 @@ export class ClaudeSession extends EventEmitter {
       // Every turn opens with this, including those the CLI starts itself when background work reports in.
       this.clearIdleTimer(rec);
       this.openTurn();
+      this.descriptions?.(raw, (payload) => this.emitEvent({ type: 'claude.event', payload }));
       const compactWindow = typeof init.model === 'string' ? this.compactWindow?.(init.model) : undefined;
       if (compactWindow !== undefined && compactWindow !== this.announcedCompact) {
         this.announcedCompact = compactWindow;

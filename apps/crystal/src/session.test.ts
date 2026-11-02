@@ -1,4 +1,5 @@
 import type { TurnChanges } from './changes.js';
+import type { DescriptionReporter } from './descriptions.js';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -131,6 +132,7 @@ function createSession(
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     addDirs: string[];
     changes: TurnChanges;
+    descriptions: DescriptionReporter;
     compactWindow: (model: string | undefined) => number | undefined;
   }> = {},
 ) {
@@ -142,6 +144,25 @@ function createSession(
     ...overrides,
   });
 }
+
+describe('ClaudeSession descriptions', () => {
+  it('hands each init to the reporter, and relays what it sends after the init', () => {
+    const { spawnFn, children } = createSpawnMock();
+    const line = { engine: 'claude', raw: { type: 'system', subtype: 'descriptions', descriptions: { a: 'b' } } };
+    const descriptions = vi.fn((_init: unknown, emit: (payload: never) => void) => emit(line as never));
+    const session = createSession(spawnFn, { descriptions });
+    const events = collect(session);
+    session.start('hi');
+    const init = { type: 'system', subtype: 'init', skills: ['a'] };
+    children[0]!.stdout.write(`${JSON.stringify(init)}\n`);
+
+    return vi.waitFor(() => {
+      expect(descriptions).toHaveBeenCalledWith(init, expect.any(Function));
+      const raws = events.flatMap((e) => (e.type === 'claude.event' ? [e.payload.raw] : []));
+      expect(raws).toEqual([init, line.raw]);
+    });
+  });
+});
 
 function collect(session: ClaudeSession): ClaudeSessionEvent[] {
   const events: ClaudeSessionEvent[] = [];
