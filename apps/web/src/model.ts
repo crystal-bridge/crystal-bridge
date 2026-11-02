@@ -37,6 +37,8 @@ export type ViewItem =
       input: unknown;
       pending: boolean;
       behavior: 'allow' | 'deny' | undefined;
+      /** The Quest ended with this unanswered, so the process that asked can't take an answer any more. */
+      expired?: true;
     }
   | {
       kind: 'result';
@@ -170,6 +172,7 @@ export class ViewBuilder {
         if (!item) return;
         item.pending = false;
         item.behavior = payload.behavior === 'allow' ? 'allow' : 'deny';
+        delete item.expired;
         return;
       }
       case 'terminal.screen': {
@@ -189,6 +192,7 @@ export class ViewBuilder {
         const p = isObj(payload) ? payload : {};
         const asking = this.items.findIndex((item) => item.kind === 'terminal');
         if (asking >= 0) this.items.splice(asking, 1);
+        this.expireCards();
         this.items.push({
           kind: 'ended',
           id,
@@ -207,12 +211,22 @@ export class ViewBuilder {
         const worktree = w
           ? { removed: w.removed === true, ...(typeof w.reason === 'string' ? { reason: w.reason } : {}) }
           : undefined;
+        this.expireCards();
         this.items.push({ kind: 'closed', id, worktree });
         return;
       }
       case 'error':
         this.items.push({ kind: 'error', id, message: (isObj(payload) && str(payload.message)) || 'unknown error' });
         return;
+    }
+  }
+
+  /** The node denies what's pending when a process ends, but a node that restarted can't: it lost the requests. */
+  private expireCards(): void {
+    for (const item of this.permissions.values()) {
+      if (!item.pending) continue;
+      item.pending = false;
+      item.expired = true;
     }
   }
 
@@ -501,18 +515,42 @@ function sameFields(a: object, b: object): boolean {
 }
 
 /**
- * The permission mode the CLI last reported (system/init or system/status), if any yet. The CLI calls the mode
- * `--permission-mode manual` starts `default` (checked against 2.1.312), so that's reported as manual.
+ * The permission mode a session is in: the latest of a change made here (`session.mode`, which an idle Quest only
+ * takes up on its next process) and what the CLI last reported (system/init or system/status), if any yet. The CLI
+ * calls the mode `--permission-mode manual` starts `default` (checked against 2.1.312), so that's reported as manual.
  */
 export function sessionMode(envelopes: readonly Envelope[]): string | undefined {
   for (let i = envelopes.length - 1; i >= 0; i--) {
-    const envelope = envelopes[i]!;
-    if (envelope.type !== 'claude.event' || !isObj(envelope.payload)) continue;
-    const raw = envelope.payload.raw;
-    if (isObj(raw) && raw.type === 'system' && typeof raw.permissionMode === 'string')
-      return raw.permissionMode === 'default' ? 'manual' : raw.permissionMode;
+    const { type, payload } = envelopes[i]!;
+    if (!isObj(payload)) continue;
+    const raw = isObj(payload.raw) && payload.raw.type === 'system' ? payload.raw : {};
+    const mode = type === 'session.mode' ? payload.mode : type === 'claude.event' ? raw.permissionMode : undefined;
+    if (typeof mode === 'string') return mode === 'default' ? 'manual' : mode;
   }
   return undefined;
+}
+
+/** Whether a line from the engine opens a turn: every turn starts with its own system/init, whoever began it. */
+function opensTurn(raw: unknown): boolean {
+  return isObj(raw) && raw.type === 'system' && raw.subtype === 'init';
+}
+
+/**
+ * Whether a turn is running, going by the latest event that starts or ends one. A follow-up queued mid-turn starts its
+ * turn after the result, and a finished task or a Monitor starts one with nobody sending, so the last thing sent can't
+ * tell; each of those opens with a system/init.
+ */
+export function turnRunning(envelopes: readonly Envelope[]): boolean {
+  for (let i = envelopes.length - 1; i >= 0; i--) {
+    const { type, payload } = envelopes[i]!;
+    if (type === 'user.message') return true;
+    if (type === 'session.started') return !(isObj(payload) && payload.adopted === true);
+    if (type === 'turn.finished' || type === 'session.ended' || type === 'session.closed') return false;
+    if (type !== 'claude.event' || !isObj(payload)) continue;
+    if (isObj(payload.raw) && payload.raw.type === 'result') return false;
+    if (opensTurn(payload.raw)) return true;
+  }
+  return false;
 }
 
 /** The effort a session uses: its latest change, else what it started with; undefined for the CLI's default. */

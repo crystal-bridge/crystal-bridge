@@ -7,6 +7,20 @@ afterEach(cleanup);
 const input = { command: 'touch crystal.txt' };
 
 describe('PermissionCard', () => {
+  it('says when it expired, with its buttons off', () => {
+    render(<PermissionCard toolName="Bash" input={input} pending={false} expired onAnswer={() => {}} />);
+    expect(screen.getByText(/^Expired/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('wraps a long command, so a phone shows all of what is being approved', () => {
+    render(<PermissionCard toolName="Bash" input={input} pending onAnswer={() => {}} />);
+    const shown = screen.getByText(/touch crystal\.txt/);
+    expect(shown.className).toContain('whitespace-pre-wrap');
+    expect(shown.className).toContain('[overflow-wrap:anywhere]');
+    expect(shown.className).not.toContain('overflow-x-auto');
+  });
+
   it('shows the tool name and input', () => {
     render(<PermissionCard toolName="Bash" input={input} pending onAnswer={() => {}} />);
     expect(screen.getByText('Bash')).toBeTruthy();

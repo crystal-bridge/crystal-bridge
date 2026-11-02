@@ -11,6 +11,7 @@ import {
   sessionEffort,
   sessionMode,
   slashCommands,
+  turnRunning,
   ViewBuilder,
   type ViewItem,
 } from './model.js';
@@ -474,7 +475,93 @@ describe('sessionEffort', () => {
   });
 });
 
+describe('a card outliving its Quest', () => {
+  const at = (seq: number, type: Envelope['type'], payload: unknown): Envelope => ({
+    node: 'n',
+    session: SESSION,
+    seq,
+    ts: seq,
+    type,
+    payload,
+  });
+  const asked = at(0, 'permission.request', { requestId: 'r', toolName: 'Bash', input: {} });
+  const card = (items: ViewItem[]) => items.find((item) => item.kind === 'permission');
+  const cut = { exitCode: null, signal: null, reason: 'restart' };
+
+  it('expires an unanswered card when the Quest ends or closes', () => {
+    expect(card(buildView([asked]))).toMatchObject({ pending: true });
+    expect(card(buildView([asked, at(1, 'session.ended', cut)]))).toMatchObject({ pending: false, expired: true });
+    expect(card(buildView([asked, at(1, 'session.closed', {})]))).toMatchObject({ pending: false, expired: true });
+  });
+
+  it('leaves an answered card as it was, and a late answer wins', () => {
+    const answered = at(1, 'permission.resolved', { requestId: 'r', behavior: 'allow' });
+    expect(card(buildView([asked, answered, at(2, 'session.ended', cut)]))).not.toHaveProperty('expired');
+    expect(card(buildView([asked, at(1, 'session.ended', cut), { ...answered, seq: 2 }]))).toMatchObject({
+      behavior: 'allow',
+    });
+    expect(card(buildView([asked, at(1, 'session.ended', cut), { ...answered, seq: 2 }]))).not.toHaveProperty(
+      'expired',
+    );
+  });
+
+  it('stays expired when the Quest resumes: the process that asked has gone', () => {
+    const view = buildView([asked, at(1, 'session.ended', cut), at(2, 'session.resumed', {})]);
+    expect(card(view)).toMatchObject({ pending: false, expired: true });
+  });
+});
+
+describe('turnRunning', () => {
+  const at = (seq: number, type: Envelope['type'], payload: unknown = {}): Envelope => ({
+    node: 'n',
+    session: SESSION,
+    seq,
+    ts: seq,
+    type,
+    payload,
+  });
+  const claude = (seq: number, raw: unknown) => at(seq, 'claude.event', { engine: 'claude', raw });
+  const init = (seq: number) => claude(seq, { type: 'system', subtype: 'init' });
+  const result = (seq: number) => claude(seq, { type: 'result', subtype: 'success' });
+  const started = at(0, 'session.started', { prompt: 'go' });
+
+  it('runs from a prompt or a follow-up until the result', () => {
+    expect(turnRunning([started])).toBe(true);
+    expect(turnRunning([started, init(1), result(2)])).toBe(false);
+    expect(turnRunning([started, init(1), result(2), at(3, 'user.message', { text: 'more' })])).toBe(true);
+  });
+
+  it('runs again when a queued follow-up starts its own turn after the result', () => {
+    const queued = [started, init(1), at(2, 'user.message', { text: 'more' }), result(3)];
+    expect(turnRunning(queued)).toBe(false);
+    expect(turnRunning([...queued, init(4)])).toBe(true);
+  });
+
+  it('runs for a turn nobody sent, such as a task finishing', () => {
+    expect(turnRunning([started, init(1), result(2), init(3)])).toBe(true);
+  });
+
+  it('is over at an end, a close, or the engine-neutral turn.finished', () => {
+    expect(turnRunning([started, at(1, 'session.ended', { reason: 'exit' })])).toBe(false);
+    expect(turnRunning([started, at(1, 'session.closed')])).toBe(false);
+    expect(turnRunning([started, at(1, 'turn.finished', { outcome: 'success' })])).toBe(false);
+  });
+
+  it('counts an adopted Quest as idle until someone sends', () => {
+    expect(turnRunning([at(0, 'session.started', { prompt: 'old', adopted: true })])).toBe(false);
+  });
+});
+
 describe('sessionMode', () => {
+  it('reads the latest of a change sent from here and what the CLI reported', () => {
+    const stream = new Stream().started().claude([{ type: 'system', subtype: 'init', permissionMode: 'default' }]);
+    expect(sessionMode(stream.envelopes)).toBe('manual');
+    stream.push('session.mode', { mode: 'auto' });
+    expect(sessionMode(stream.envelopes)).toBe('auto');
+    stream.claude([{ type: 'system', subtype: 'status', permissionMode: 'plan' }]);
+    expect(sessionMode(stream.envelopes)).toBe('plan');
+  });
+
   it('is the permission mode the CLI last reported, from init or a status update', () => {
     const stream = new Stream().started().claude([{ type: 'system', subtype: 'init', permissionMode: 'auto' }]);
     expect(sessionMode(stream.envelopes)).toBe('auto');

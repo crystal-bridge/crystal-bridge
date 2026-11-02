@@ -19,6 +19,7 @@ import {
   sessionMode,
   sessionWorktree,
   slashCommands,
+  turnRunning,
   type ViewItem,
 } from '../model.js';
 import { sessionInfo } from '../info.js';
@@ -234,6 +235,7 @@ function Item({
             input={item.input}
             pending={item.pending && !sending}
             behavior={item.behavior}
+            expired={item.expired}
             onAnswer={(behavior, answers) => onAnswer(item.requestId, behavior, answers)}
           />
         );
@@ -244,6 +246,7 @@ function Item({
           input={item.input}
           pending={item.pending && !sending}
           behavior={item.behavior}
+          expired={item.expired}
           onAnswer={(behavior) => onAnswer(item.requestId, behavior)}
         />
       );
@@ -385,10 +388,8 @@ export function SessionView({
   const closed = items.some((item) => item.kind === 'closed');
   const stopped =
     closed || [...items].reverse().find((item) => item.kind === 'ended' || item.kind === 'resumed')?.kind === 'ended';
-  // A turn runs from a prompt or follow-up until its result, an end or a close; Stop has nothing to stop otherwise.
-  const turnRunning =
-    !stopped &&
-    [...items].reverse().find((item) => ['user', 'result', 'ended', 'closed'].includes(item.kind))?.kind === 'user';
+  // Stop has nothing to stop between turns.
+  const running = !stopped && turnRunning(envelopes);
   // Item ids start with their event's seq (`e12`, `e12.1`): look up when that event was stored.
   const tsBySeq = useMemo(() => new Map(envelopes.map((e) => [e.seq, e.ts])), [envelopes]);
   const tsOf = (id: string) => {
@@ -795,7 +796,7 @@ export function SessionView({
                 disabled={closed}
                 value={draft}
                 shell={shell}
-                running={turnRunning}
+                running={running}
                 onStop={onInterrupt}
                 files={closed ? undefined : { list: files, onChange: setFiles }}
                 onChange={(text) => {

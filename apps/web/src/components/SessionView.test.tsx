@@ -160,6 +160,37 @@ describe('SessionView follow-ups', () => {
     rerenderWith([...ended, envelope(2, 'user.message', { text: 'back' }), envelope(3, 'session.resumed', {})]);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
   });
+
+  it('offers Stop for a queued follow-up-s turn, which starts after the result', () => {
+    const init = envelope(1, 'claude.event', { engine: 'claude', raw: { type: 'system', subtype: 'init' } });
+    const queued = [
+      stopped[0]!,
+      init,
+      envelope(2, 'user.message', { text: 'and then' }),
+      envelope(3, 'claude.event', { engine: 'claude', raw: { type: 'result', subtype: 'success' } }),
+    ];
+    const { rerenderWith } = renderView(queued);
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    rerenderWith([...queued, { ...init, seq: 4 }]);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
+  });
+
+  it('shows an unanswered card as expired once the Quest is cut off', () => {
+    renderView([...requested, envelope(2, 'session.ended', { exitCode: null, signal: null, reason: 'restart' })]);
+    expect(screen.getByText(/^Expired/)).toBeTruthy();
+    expect(approve().disabled).toBe(true);
+  });
+
+  it('shows an unanswered question as expired too', () => {
+    const asked = envelope(1, 'permission.request', {
+      requestId: REQUEST_ID,
+      toolName: 'AskUserQuestion',
+      input: { questions: [{ question: 'Which?', options: [{ label: 'A' }] }] },
+    });
+    renderView([stopped[0]!, asked, envelope(2, 'session.closed', {})]);
+    expect(screen.getByText(/^Expired/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Skip' }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe('SessionView permission mode', () => {
