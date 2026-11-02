@@ -143,6 +143,14 @@ function Row({
       {note && <span className="block truncate text-xs text-neutral-500">{note}</span>}
     </>
   );
+  const fill = entry.description ? 'block w-full min-w-0 text-left' : 'min-w-0 flex-1 text-left';
+  const main = entry.use ? (
+    <button type="button" onClick={() => onUse(entry.use!)} className={fill}>
+      {body}
+    </button>
+  ) : (
+    <div className={fill}>{body}</div>
+  );
   return (
     <li
       data-row={entry.name}
@@ -155,12 +163,12 @@ function Row({
       className="group flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-800"
     >
       <RowGlyph entry={entry} short={short} category={category} manifest={manifest} />
-      {entry.use ? (
-        <button type="button" onClick={() => onUse(entry.use!)} className="min-w-0 flex-1 text-left">
-          {body}
-        </button>
+      {entry.description ? (
+        <Tip text={entry.description} beside className="block min-w-0 flex-1">
+          {main}
+        </Tip>
       ) : (
-        <div className="min-w-0 flex-1">{body}</div>
+        main
       )}
       {entry.use && (
         <button

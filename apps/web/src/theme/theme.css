@@ -582,6 +582,12 @@ li:hover > .cb-belt-toggle,
   right: 0;
   transform: none;
 }
+.cb-tip[data-beside] {
+  position: fixed;
+  top: auto;
+  left: auto;
+  transform: none;
+}
 .cb-tip-anchor:hover > .cb-tip,
 .cb-tip-anchor:has(:focus-visible) > .cb-tip {
   opacity: 1;

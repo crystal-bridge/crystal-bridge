@@ -141,6 +141,8 @@ a project agent and a `--plugin-dir` plugin) showed the shapes the web Inventory
 - `plugins`: `{"name","path","source","version"?}`; built-in plugins have `"path":"builtin"`.
 - `mcp_servers`: `{"name","status","source"}`; `status` is `connected`, `failed` or `pending`. Crystal's own
   permission tool shows up as `crystal` with `"source":"dynamic"`.
+- Names only, in all of these: a description lives in the frontmatter of the file that defines each one, so Crystal reads
+  those (`src/descriptions.ts`) and sends a `system/descriptions` line of its own.
 - `agents`: names, e.g. `["claude", "demo-agent", "Explore", "general-purpose", "Plan"]`.
 
 Hooks aren't listed in `init`; each run shows up as `system/hook_started` and `system/hook_response` (`hook_name`,

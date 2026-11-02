@@ -7,6 +7,8 @@ one entry.
 
 ### Added
 
+- Hovering a Spell, Item or Guild member in the Inventory shows its description, read by the Kingdom from the file that
+  defines it. A Kingdom on an older release just shows no tooltip.
 - A team of helpers now looks like a Party: helpers out together take different Classes, by job where the job says
   something. Levels aren't affected, since XP goes to a Quest's leader.
 - Keyboard shortcuts for moving between Quests and Kingdoms, and to the next Quest needing you, without the mouse. `Alt+/`

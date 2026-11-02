@@ -1,4 +1,5 @@
 import { reportChanges, type TurnChanges } from './changes.js';
+import type { DescriptionReporter } from './descriptions.js';
 import { EventEmitter } from 'node:events';
 import { DROP } from './login-env.js';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
@@ -105,6 +106,8 @@ export interface InteractiveSessionOptions {
   costSettleMs?: number;
   /** Works out what each turn changed; unset, no `system/turn_changes` lines are sent. */
   changes?: TurnChanges;
+  /** Sends what the Inventory's entries say about themselves; unset, no `system/descriptions` lines are sent. */
+  descriptions?: DescriptionReporter;
   /** The size the model's context is held to, when one is configured. */
   compactWindow?: (model: string | undefined) => number | undefined;
   /** How long a prompt typed into an idle terminal may go unsubmitted before something is done about it. */
@@ -741,6 +744,7 @@ export class InteractiveSession extends EventEmitter {
     const fields = listingFields(this.listing);
     this.lastListing = JSON.stringify(fields);
     this.emitEvent({ type: 'claude.event', payload: { engine: 'claude', raw: { ...this.initBase, ...fields } } });
+    this.opts.descriptions?.(fields, (payload) => this.emitEvent({ type: 'claude.event', payload }));
   }
 
   private countTokens(raw: unknown): void {

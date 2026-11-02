@@ -765,3 +765,17 @@ describe('helpers in the chat', () => {
     expect(back[0]).toHaveProperty('helper.description', 'Say done');
   });
 });
+
+describe('Inventory descriptions', () => {
+  it('adds nothing to the chat', () => {
+    const line = {
+      node: 'n',
+      session: '11111111-1111-4111-8111-111111111111',
+      seq: 0,
+      ts: 0,
+      type: 'claude.event',
+      payload: { engine: 'claude', raw: { type: 'system', subtype: 'descriptions', descriptions: { a: 'b' } } },
+    } as Envelope;
+    expect(buildView([line])).toEqual([]);
+  });
+});

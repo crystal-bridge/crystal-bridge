@@ -335,10 +335,12 @@ export function openStore(path: string): Store {
   );
   // `+type` keeps this on the primary key: a step reads its rows in order, and the type index would look each one up.
   // A fragment's words are in the full message too, so they'd only use up the limit; checked last, on matches alone.
+  // Inventory descriptions are the same in every Quest, and nothing anyone said.
   const searchStepStmt = db.prepare(
     `SELECT session, seq, node, ts, type, payload FROM events
      WHERE session = ? AND seq BETWEEN ? AND ? AND +type IN ('session.started', 'user.message', 'claude.event')
        AND payload LIKE ? ESCAPE '\\' AND json_extract(payload, '$.raw.type') IS NOT 'stream_event'
+       AND json_extract(payload, '$.raw.subtype') IS NOT 'descriptions'
      ORDER BY seq DESC LIMIT ?`,
   );
   const putPushStmt = db.prepare(

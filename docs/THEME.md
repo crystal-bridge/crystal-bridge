@@ -100,6 +100,11 @@ Grouped by how a thing behaves, not where it came from, so new kinds slot in. An
 | **Guild** | Agents you can send out, each drawn as its Hero Class | Agents |
 | **Abilities** | Passive triggers that fire by themselves; read-only | Hooks |
 
+Hovering an entry shows its description, when it has one (#212). The CLI's init line carries names alone, so the Kingdom
+reads the `description` line from the frontmatter of the file that defines each skill, command and agent (personal,
+synced, project and plugin folders) and sends them in a `system/descriptions` line. Only entries this Quest lists are sent. Built-ins
+have no file, so no tooltip, and neither do plugin entries on the interactive engine, whose listing has no plugin paths.
+
 The panel ("Inventory Audition", #78) stacks the Belt, a 3×2 grid of large icon-only tiles, and the picked tile's list,
 which takes the remaining height. Tiles always show, in this order, so the grid doesn't shift between engines: an
 empty one stays in place, dimmed, and a tile with something failed in it wears a red mark. Interactive Quests report

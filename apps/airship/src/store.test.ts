@@ -434,6 +434,24 @@ describe('store', () => {
     expect(hits[0]!.event.payload).toEqual({ text: 'also mention the flaky one' });
   });
 
+  it('leaves Inventory descriptions out of search, since they-d match every Quest', async () => {
+    const session = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        session,
+        node: 'node-a',
+        seq: 0,
+        ts: 1,
+        type: 'claude.event',
+        payload: {
+          engine: 'claude',
+          raw: { type: 'system', subtype: 'descriptions', descriptions: { deploy: 'Ships the needle' } },
+        },
+      }),
+    );
+    expect(await store.search('node-a', 'needle', 10)).toEqual([]);
+  });
+
   describe('searching a long history', () => {
     const started = (session: string, ts: number) =>
       store.appendEvent(
