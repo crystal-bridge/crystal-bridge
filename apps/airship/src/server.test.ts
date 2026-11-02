@@ -1002,6 +1002,28 @@ describe('airship server', () => {
       expect(otherFrames.frames.filter((f) => f.kind === 'kingdom-version')).toEqual([]);
     });
 
+    it('names the version before refusing a Kingdom on another protocol, or it could never update across a bump', async () => {
+      await restartWith('1.2.3');
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+      send(socket, { kind: 'hello', node: 'node-a', protocol: 99, selfUpdate: true });
+      expect(await closed).toBe(4006);
+      expect(frames.frames).toEqual([{ kind: 'kingdom-version', version: '1.2.3' }]);
+    });
+
+    it('names nothing to a refused Kingdom that does not update itself', async () => {
+      await restartWith('1.2.3');
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+      send(socket, { kind: 'hello', node: 'node-a', protocol: 99 });
+      expect(await closed).toBe(4006);
+      expect(frames.frames).toEqual([]);
+    });
+
     it('says so when it names nothing, so a Kingdom partway through an update stops', async () => {
       await restartWith();
       const socket = await openSocket(`${wsUrl}/node`);

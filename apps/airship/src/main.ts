@@ -142,9 +142,13 @@ if (command === '--version') {
     console.error('[airship] backup failed', error);
     process.exit(1);
   });
-} else {
+} else if (command === undefined || command === '--dev') {
   main().catch((error: unknown) => {
     console.error('[airship] fatal error during startup', error);
     process.exit(1);
   });
+} else {
+  console.error(`[airship] unknown command "${command}"`);
+  console.error('usage: crystal-bridge-airship [--dev | --version | backup | token add <name> | token list | ...]');
+  process.exit(1);
 }

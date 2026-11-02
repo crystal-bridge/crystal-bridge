@@ -41,6 +41,26 @@ app as above. For a scripted setup, `crystal-bridge-airship token add <name>` st
 without Docker from the release's tarball, with `AIRSHIP_AUTH=token` and `AIRSHIP_DATA` set; see
 [Running a packaged hub](./OPERATIONS.md#running-a-packaged-hub).
 
+## Behind a proxy or TLS inspection
+
+A work network can stand between a Kingdom and its hub. A Kingdom makes two kinds of connection, and they differ:
+
+- **The hub link can't use a proxy.** It's a WebSocket through the `ws` library, which ignores `HTTP_PROXY` and
+  `HTTPS_PROXY` whatever else is set. A Kingdom needs a direct route to its hub, such as a tailnet.
+- **`join` and self-update use `fetch`**, which ignores those variables too unless Node's own proxy support is on:
+  `NODE_USE_ENV_PROXY=1`, or `--use-env-proxy`, from Node 22.21, which Node marks as still in development.
+
+Node trusts its own list of root certificates and, by default, not the Windows certificate store, so a proxy that
+inspects TLS fails with an error such as "self-signed certificate in certificate chain". Node offers two ways out:
+`NODE_EXTRA_CA_CERTS`, naming a PEM file of extra roots, or `--use-system-ca`, from Node 22.15, which adds the system's
+store. A failed connection prints Node's reason, and `npx` itself has npm's own `proxy` and `cafile` settings.
+
+Set these for the `join` command in its shell, and for the service as well. `crystal.env` isn't the place for
+`NODE_USE_ENV_PROXY` or `NODE_EXTRA_CA_CERTS`: tried on Node 26, neither took effect from a file given to `--env-file`,
+because Node reads them too early. `NODE_OPTIONS=--use-env-proxy` in `crystal.env`, with `HTTPS_PROXY` beside it, did.
+On Windows, a user environment variable reaches the task from the next sign-in.
+Nobody has tried this on a real inspected network yet, so the first such Kingdom is a test.
+
 ## Pushing Crystal over SSH
 
 If you'd rather push Crystal out from a checkout over SSH, the deploy scripts do that too:

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { RELEASE_REPO, kingdomTarballName } from '@crystal-bridge/protocol';
+import { whyFailed } from './release.js';
 
 /**
  * Proves a downloaded Kingdom release came from this project's own release workflow, at that version's tag. The hub
@@ -56,10 +57,14 @@ async function fetchAttestations(version: string, digest: string, deps: Provenan
   const asset = `https://github.com/${RELEASE_REPO}/releases/download/v${version}/${attestationsName(version)}`;
   const carried = await deps.fetch(asset, { signal: signal() }).catch(() => undefined);
   if (carried?.ok) return carried;
-  return deps.fetch(`https://api.github.com/repos/${RELEASE_REPO}/attestations/sha256:${digest}`, {
-    headers: { accept: 'application/vnd.github+json', 'user-agent': 'crystal-bridge-kingdom' },
-    signal: signal(),
-  });
+  return deps
+    .fetch(`https://api.github.com/repos/${RELEASE_REPO}/attestations/sha256:${digest}`, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': 'crystal-bridge-kingdom' },
+      signal: signal(),
+    })
+    .catch((error: unknown) => {
+      throw refused(version, `GitHub could not be reached: ${whyFailed(error)}`);
+    });
 }
 
 /** Throws unless a signed attestation names this exact file, built by the release workflow at this version's tag. */

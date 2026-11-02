@@ -32,17 +32,27 @@ tar -C "$work" -cf - . | ssh "$host" tar -xf - -C "$stage"
 ssh "$host" bash -s -- "$version" "$stage" "$name" <<'REMOTE'
 set -euo pipefail
 version=$1 stage=$2 name=$3
-trap 'rm -rf "$stage"' EXIT
 release=/opt/crystal-bridge/releases/$version
+# Dotted, so keeping the newest releases never counts it. Installed beside them, because a failed install must not cost
+# a release that's there.
+fresh=/opt/crystal-bridge/releases/.installing-$version
+trap 'sudo rm -rf "$fresh"; rm -rf "$stage"' EXIT
 units=/etc/systemd/system
 
-sudo rm -rf "$release"
-sudo install -d "$release"
-echo '{"private":true}' | sudo tee "$release/package.json" >/dev/null
-(cd "$release" && sudo npm install --silent --omit=dev --no-audit --no-fund "$stage/$name")
-said=$(sudo -u airship "$release/node_modules/.bin/crystal-bridge-airship" --version)
+if [[ $(readlink -f /opt/crystal-bridge/current) == "$(readlink -f "$release")" ]]; then
+  echo "deploy: $version is already live; nothing to do" >&2
+  exit 1
+fi
+
+sudo rm -rf "$fresh"
+sudo install -d "$fresh"
+echo '{"private":true}' | sudo tee "$fresh/package.json" >/dev/null
+(cd "$fresh" && sudo npm install --silent --omit=dev --no-audit --no-fund "$stage/$name")
+said=$(sudo -u airship "$fresh/node_modules/.bin/crystal-bridge-airship" --version)
 [[ $said == "$version" ]] || { echo "deploy: the release says it is $said" >&2; exit 1; }
-sudo install -m 0755 "$stage/push-backups.sh" "$release/push-backups.sh"
+sudo install -m 0755 "$stage/push-backups.sh" "$fresh/push-backups.sh"
+sudo rm -rf "$release"
+sudo mv "$fresh" "$release"
 
 saved=$stage/saved
 mkdir "$saved"

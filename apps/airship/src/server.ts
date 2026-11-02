@@ -883,6 +883,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           if (protocol !== PROTOCOL_VERSION) {
             const reason = `protocol v${protocol} not supported; this hub speaks v${PROTOCOL_VERSION}`;
             app.log.warn({ node: hello.data.node }, reason);
+            // Told first: updating is how a Kingdom that updates itself gets past this refusal.
+            if (hello.data.selfUpdate) nameVersion(socket);
             socket.close(CLOSE_WRONG_PROTOCOL, reason);
             return;
           }

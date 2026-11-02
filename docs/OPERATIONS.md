@@ -19,8 +19,9 @@ A hub and a Kingdom work together when they speak the same `PROTOCOL_VERSION`, w
 a protocol version are additive, so either side can be updated first; updating the hub first is the habit.
 
 A change an older peer can't handle bumps the version. The hub then refuses a Kingdom on another version instead of half
-working: both sides log the reason, and the Kingdom shows as offline and keeps retrying, so updating the older side
-ends the refusal without touching the other. A release's notes say when it bumps the protocol.
+working: both sides log the reason, and the Kingdom shows as offline and keeps retrying, backing off to one try every 30
+seconds, so updating the older side ends the refusal without touching the other. A Kingdom that updates itself hears
+which version to run before it's refused, so it crosses the bump alone. A release's notes say when it bumps the protocol.
 
 The Castle shows each Kingdom's release. A packaged Kingdom reports its version, and one deployed from git its commit.
 The Castle warns when a Kingdom's version is older than the hub's. Commits can't be ordered, so it never warns about a
@@ -207,18 +208,25 @@ Log out in Config ends that browser's login. It doesn't revoke the token: use `t
 
 A machine can join without SSH or a checkout. Add Kingdom in Config makes a one-time code and shows the command to run
 there (`joinCommand` in `packages/protocol`). The hub needs `AIRSHIP_NODES` for this. That command is
-`crystal-bridge-kingdom join <hub-url> <code>`, which checks that Claude Code is
-installed and signed in (it reads only the `loggedIn` field of `claude auth status`), then copies itself to
-`~/.local/share/crystal-bridge/releases/<version>`, because npx's own copy is temporary. Only then does it spend the
-code, write the token to `~/.config/crystal-bridge/crystal.env` (mode 0600) and start a systemd user unit or launchd
-agent. It refuses a machine that's already a Kingdom. On Linux it runs `sudo loginctl enable-linger` once, and says so,
-so the service survives logging out.
+`crystal-bridge-kingdom join <hub-url> <code>`, which checks that Node is 22 or newer, that Claude Code is
+installed and signed in (it reads only the `loggedIn` field of `claude auth status`), that the service manager can be
+reached (`systemctl --user`, launchd's session for this user, or Task Scheduler, which it has take a throwaway task) and
+that port 7711 is free. It then copies itself to `~/.local/share/crystal-bridge/releases/<version>`, because npx's own
+copy is temporary. Only then does it spend the code, write the token to `~/.config/crystal-bridge/crystal.env` (mode
+0600) and start a systemd user unit or launchd agent. It refuses a machine that's already a Kingdom. On Linux it runs
+`sudo loginctl enable-linger` once, and says so, so the service survives logging out.
+
+`join` then waits about 20 seconds for the Kingdom to answer on that port under its own name. If it doesn't, `join` fails
+and says where the log is: `journalctl --user -u crystal.service` on Linux, and the log file elsewhere. The code is spent
+by then, so a slow start can still come good, and otherwise the way to start over is `leave`. The port is fixed, so one
+machine holds one Kingdom: a second account on it is refused.
 
 On Windows the same steps use `%LOCALAPPDATA%\crystal-bridge`: the copy goes in `current`, the token in `crystal.env`
 and the log in `crystal.log`. A Task Scheduler task runs `crystal.cmd` at the user's sign-in, in a headless console, and
 that script restarts Crystal after a crash. This needs no administrator, and it means the Kingdom runs only while that
-user is signed in. The folder is private to the user by default. To start it again by hand, run
-`schtasks /Run /TN CrystalBridgeKingdom`. `schtasks /End` won't stop Crystal, because it ends only the console.
+user is signed in. The folder is private to the user by default. The task names the user by the first form Task Scheduler
+takes: the SID, then the account name `whoami` gives, then the plain user name, because a plain name can match nothing on
+an Entra-joined or domain PC. To start it again by hand, run `schtasks /Run /TN CrystalBridgeKingdom`. `schtasks /End` won't stop Crystal, because it ends only the console.
 
 `leave` (`LEAVE_COMMAND`, or `LEAVE_COMMAND_WINDOWS`, in `packages/protocol`) gives up the token and removes the service, the env file and the
 install. It works even if the hub can't be reached, and then says to remove the Kingdom from the app as well. Remove on
@@ -268,6 +276,24 @@ To stop a Kingdom updating itself, add `CRYSTAL_SELF_UPDATE=off` to its `crystal
 any other way (the deploy scripts, npm, a checkout) never update themselves: the Castle only warns when one falls behind.
 [Moving onto packages](#moving-onto-packages) brings one over.
 
+### When the service can't find Node
+
+The service names the Node it runs on. `join` writes a link on PATH that leads to the Node running it, such as Homebrew's
+`bin/node`, which survives upgrades, and writes that Node's own path when there's no such link. Homebrew's own path is
+in a folder named after the version (`Cellar`), so with an older `join`, `brew upgrade node` and the next restart left
+launchd unable to start the Kingdom.
+
+An update doesn't rewrite the service, so a Kingdom keeps the path it has until you repair it. On Linux and macOS, run
+`adopt` from a release newer than 0.5.1, because older ones write the versioned path again:
+
+```sh
+npx --yes --package=<kingdom-tarball-url> crystal-bridge-kingdom adopt
+```
+
+That moves the Kingdom to that release and rewrites its service, keeping the env file, as in
+[Moving onto packages](#moving-onto-packages). It works with the Kingdom stopped too. On Windows `adopt` refuses, so
+repairing means `leave` and `join` again, which gives the machine a new token.
+
 ### Choosing when Kingdoms update
 
 A packaged hub tells its Kingdoms to run its own version, so they follow it on their own. To decide when instead, set
@@ -298,6 +324,7 @@ scripts/deploy-airship-package.sh hub-host <version>
 It keeps the env file, `/var/lib/airship`, the nightly backups and `tailscale serve`, so the address and every browser's
 settings stay as they are. Only the program changes. If the new hub doesn't come up, it restores the old one. Run it with
 a newer version to update the hub, or an older one to go back, as long as the database is no newer than that version.
+It refuses the version already live, and a failed install leaves every release as it was.
 
 Then move each Kingdom, on that machine:
 

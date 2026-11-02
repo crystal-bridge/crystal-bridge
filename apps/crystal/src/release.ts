@@ -12,6 +12,20 @@ import {
 import { basename, dirname, join, posix } from 'node:path';
 import { kingdomTarballUrl } from '@crystal-bridge/protocol';
 
+/**
+ * What went wrong, in a form worth printing. `fetch` says only "fetch failed" and keeps the reason in `cause`, and a
+ * dial that failed on every address keeps it deeper still.
+ */
+export function whyFailed(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const { cause } = error;
+  if (cause === undefined) return error.message;
+  if (!(cause instanceof Error)) return `${error.message}: ${String(cause)}`;
+  const { code, errors } = cause as NodeJS.ErrnoException & { errors?: Error[] };
+  const reason = cause.message || errors?.[0]?.message || code || cause.name;
+  return `${error.message}: ${reason}${code && !reason.includes(code) ? ` (${code})` : ''}`;
+}
+
 /** The package's start file, inside a release folder. */
 export const ENTRY = 'node_modules/@crystal-bridge/kingdom/dist/main.js';
 const MANIFEST = 'node_modules/@crystal-bridge/kingdom/package.json';
@@ -65,10 +79,28 @@ export interface ReleaseDeps {
   exec: (file: string, args: string[], cwd?: string) => Promise<string>;
 }
 
+/**
+ * The Node to try a new release with. An upgrade can delete the file this process runs from while it carries on, which
+ * would otherwise fail every self-update until the next restart.
+ */
+export function runningNode(execPath: string): string {
+  return existsSync(execPath) ? execPath : 'node';
+}
+
 /** npm's own script through node: on Windows `npm` is a `.cmd`, which can't be started without a shell. */
 function npmCommand({ platform, nodeBin }: ReleaseDeps): [string, string[]] {
   if (platform !== 'win32') return ['npm', []];
   return [nodeBin, [join(dirname(nodeBin), 'node_modules', 'npm', 'bin', 'npm-cli.js')]];
+}
+
+async function download(version: string, deps: ReleaseDeps): Promise<Uint8Array> {
+  try {
+    const response = await deps.fetch(kingdomTarballUrl(version), { signal: AbortSignal.timeout(120_000) });
+    if (!response.ok) throw new Error(`status ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  } catch (error) {
+    throw new Error(`release ${version} could not be downloaded: ${whyFailed(error)}`, { cause: error });
+  }
 }
 
 /**
@@ -78,22 +110,20 @@ function npmCommand({ platform, nodeBin }: ReleaseDeps): [string, string[]] {
 export async function stageRelease(version: string, deps: ReleaseDeps): Promise<void> {
   const { base } = deps;
   const staged = stagedDir(base);
-  const download = `${staged}.tgz`;
+  const packed = `${staged}.tgz`;
   for (const name of readdirSync(base)) {
     if (name.startsWith('staged-')) rmSync(join(base, name), { recursive: true, force: true });
   }
-  const response = await deps.fetch(kingdomTarballUrl(version), { signal: AbortSignal.timeout(120_000) });
-  if (!response.ok) throw new Error(`release ${version} could not be downloaded: status ${response.status}`);
-  const tarball = new Uint8Array(await response.arrayBuffer());
+  const tarball = await download(version, deps);
   if (tarball.length > MAX_TARBALL) throw new Error(`release ${version} is larger than a Kingdom package can be`);
   await deps.verify(tarball, version);
 
   try {
     mkdirSync(staged, { recursive: true });
     writeFileSync(join(staged, 'package.json'), '{"private":true}\n');
-    writeFileSync(download, tarball);
+    writeFileSync(packed, tarball);
     const [npm, npmArgs] = npmCommand(deps);
-    const install = ['install', '--no-audit', '--no-fund', '--omit=dev', '--ignore-scripts', download];
+    const install = ['install', '--no-audit', '--no-fund', '--omit=dev', '--ignore-scripts', packed];
     await deps.exec(npm, [...npmArgs, ...install], staged);
     const said = (await deps.exec(deps.nodeBin, [join(staged, ENTRY), '--version'], base)).trim();
     if (said !== version) throw new Error(`release ${version} says it is ${said}`);
@@ -101,7 +131,7 @@ export async function stageRelease(version: string, deps: ReleaseDeps): Promise<
     rmSync(staged, { recursive: true, force: true });
     throw error;
   } finally {
-    rmSync(download, { force: true });
+    rmSync(packed, { force: true });
   }
 }
 

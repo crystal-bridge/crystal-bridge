@@ -21,8 +21,10 @@ import {
   heldVersions,
   releaseId,
   rollbackRelease,
+  runningNode,
   selfUpdateBase,
   stageRelease,
+  whyFailed,
   type ReleaseDeps,
 } from './release.js';
 
@@ -63,6 +65,43 @@ function deps(base: string, over: Partial<ReleaseDeps> = {}): ReleaseDeps {
     ...over,
   };
 }
+
+describe('whyFailed', () => {
+  const failedFetch = (cause: unknown) => new TypeError('fetch failed', { cause });
+
+  it('prints the reason fetch keeps in its cause', () => {
+    const cause = Object.assign(new Error('unable to verify the first certificate'), {
+      code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+    });
+    expect(whyFailed(failedFetch(cause))).toBe(
+      'fetch failed: unable to verify the first certificate (UNABLE_TO_VERIFY_LEAF_SIGNATURE)',
+    );
+  });
+
+  it('does not say the code twice', () => {
+    const cause = Object.assign(new Error('getaddrinfo ENOTFOUND hub.example.com'), { code: 'ENOTFOUND' });
+    expect(whyFailed(failedFetch(cause))).toBe('fetch failed: getaddrinfo ENOTFOUND hub.example.com');
+  });
+
+  it('reads a dial that failed on every address, which has no message of its own', () => {
+    const cause = Object.assign(new AggregateError([new Error('connect ECONNREFUSED 127.0.0.1:7700')]), {
+      code: 'ECONNREFUSED',
+    });
+    expect(whyFailed(failedFetch(cause))).toBe('fetch failed: connect ECONNREFUSED 127.0.0.1:7700');
+  });
+
+  it('leaves an error with no cause, and anything that is not an error, as they are', () => {
+    expect(whyFailed(new Error('plain'))).toBe('plain');
+    expect(whyFailed('text')).toBe('text');
+  });
+});
+
+describe('runningNode', () => {
+  it('is the file this process runs from, or the one on PATH once an upgrade has removed that', () => {
+    expect(runningNode(process.execPath)).toBe(process.execPath);
+    expect(runningNode('/gone/node')).toBe('node');
+  });
+});
 
 describe('releaseId', () => {
   it('is the version a packaged build carries', () => {
@@ -136,6 +175,17 @@ describe('stageRelease', () => {
     });
     await expect(stageRelease('1.1.0', deps(base, { exec: wrong }))).rejects.toThrow('1.0.5');
     expect(existsSync(stagedDir(base))).toBe(false);
+  });
+
+  it('says why a download failed, not just that a fetch did', async () => {
+    const base = tempBase();
+    installed(base, '1.0.0');
+    const failing = vi.fn(async () => {
+      throw new TypeError('fetch failed', { cause: new Error('unable to get local issuer certificate') });
+    }) as unknown as typeof fetch;
+    await expect(stageRelease('1.1.0', deps(base, { fetch: failing }))).rejects.toThrow(
+      'release 1.1.0 could not be downloaded: fetch failed: unable to get local issuer certificate',
+    );
   });
 
   it('runs npm through node on Windows, where a .cmd can’t be started directly', async () => {

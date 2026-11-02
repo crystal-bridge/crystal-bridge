@@ -1582,6 +1582,32 @@ describe('startNode', () => {
       expect(resent).toEqual(started);
     });
 
+    it('keeps backing off while the hub refuses its hello, instead of redialling every second', async () => {
+      createNode();
+      for (const [i, wait] of [1000, 2000, 4000].entries()) {
+        const conn = await nextConnection(harness, i);
+        await waitForFrame(conn, (f) => f.kind === 'hello');
+        conn.socket.close(4006, 'protocol v2 not supported; this hub speaks v1');
+        await delay(100);
+        vi.advanceTimersByTime(wait - 1);
+        await delay(20);
+        expect(harness.connections).toHaveLength(i + 1); // not yet
+        vi.advanceTimersByTime(1);
+      }
+      await nextConnection(harness, 3);
+    });
+
+    it('takes the version a refusing hub names, so it can update its way past the refusal', async () => {
+      const onKingdomVersion = vi.fn();
+      createNode({ onKingdomVersion });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (f) => f.kind === 'hello');
+      conn.socket.send(JSON.stringify({ kind: 'kingdom-version', version: '1.2.3' }));
+      conn.socket.close(4006, 'protocol v2 not supported; this hub speaks v1');
+      await delay(100);
+      expect(onKingdomVersion).toHaveBeenCalledWith('1.2.3');
+    });
+
     it('backs off 1s, 2s, 4s, 8s, 16s then caps at 30s on repeated failed connections, and resets after a success', async () => {
       harness.rejectNextConnections = 6; // attempts 0-5 fail outright; attempt 6 succeeds
       createNode();
@@ -1611,7 +1637,8 @@ describe('startNode', () => {
       await waitForFrame(conn, (f) => f.kind === 'hello');
       expect(harness.connections).toHaveLength(1);
 
-      // Backoff resets to 1s after that successful connect.
+      // Backoff resets to 1s once that link has lasted: a refused hello ends far sooner.
+      vi.advanceTimersByTime(5000);
       conn.socket.terminate();
       await delay(100);
 
