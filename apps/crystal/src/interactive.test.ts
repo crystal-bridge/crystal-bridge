@@ -61,6 +61,8 @@ function harness(overrides: Partial<ConstructorParameters<typeof InteractiveSess
     hookUrl: `http://127.0.0.1:9/hook/${SESSION}`,
     hooks,
     settingsDir: dir,
+    // Tests name the system they mean, so these read the same on a Windows runner.
+    platform: 'linux',
     spawnPty: (file, args, options) => spawnWith(file, args, options),
     pollMs: 10,
     readyDelayMs: 0,

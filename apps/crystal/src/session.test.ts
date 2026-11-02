@@ -409,7 +409,8 @@ describe('ClaudeSession', () => {
       return { ...mock, spawnFn };
     };
 
-    it('ends the Quest with an error on the first start, with Node’s real sync throw', () => {
+    // Windows reports this one through the 'error' event instead, which `handleSpawnError` covers.
+    it.skipIf(process.platform === 'win32')('ends the Quest with an error on a real sync throw from Node', () => {
       const session = createSession(realSpawn, { cwd: notAFolder(), claudeBin: process.execPath });
       const events = collect(session);
       expect(() => session.start('hello')).not.toThrow();
