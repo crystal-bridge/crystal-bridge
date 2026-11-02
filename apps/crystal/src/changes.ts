@@ -13,17 +13,20 @@ const GIT_TIMEOUT_MS = 3000;
 const GIT_MAX_BUFFER = 8 * 1024 * 1024;
 const MAX_FILES = 500;
 
-function git(cwd: string, ...args: string[]): Promise<string> {
+type GitEnv = Record<string, string | undefined>;
+
+function git(cwd: string, base: GitEnv, ...args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
-      args,
+      // The folder is the Quest's and so is its config: a repo's fsmonitor is a command git would run for us.
+      ['-c', 'core.fsmonitor=false', ...args],
       {
         cwd,
         timeout: GIT_TIMEOUT_MS,
         maxBuffer: GIT_MAX_BUFFER,
         // Reads only: never take the index lock from the agent's own git commands.
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+        env: { ...base, GIT_OPTIONAL_LOCKS: '0' },
       },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
@@ -34,20 +37,20 @@ function git(cwd: string, ...args: string[]): Promise<string> {
 const names = (output: string) => output.split('\0').filter(Boolean);
 
 /** Paths that differ from `base` in the working tree, plus untracked ones; relative to `cwd`. */
-async function changedSince(cwd: string, base: string): Promise<Set<string>> {
+async function changedSince(cwd: string, env: GitEnv, base: string): Promise<Set<string>> {
   const [diff, untracked] = await Promise.all([
-    git(cwd, 'diff', '--name-only', '--relative', '-z', base),
-    git(cwd, 'ls-files', '--others', '--exclude-standard', '-z'),
+    git(cwd, env, 'diff', '--name-only', '--relative', '-z', base),
+    git(cwd, env, 'ls-files', '--others', '--exclude-standard', '-z'),
   ]);
   return new Set([...names(diff), ...names(untracked)]);
 }
 
 /** The commit to compare with, or the empty tree in a repository with none yet; rejects outside a repository. */
-async function startingPoint(cwd: string): Promise<string> {
+async function startingPoint(cwd: string, env: GitEnv): Promise<string> {
   try {
-    return await git(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD');
+    return await git(cwd, env, 'rev-parse', '--verify', '--quiet', 'HEAD');
   } catch {
-    return git(cwd, 'hash-object', '-t', 'tree', '--stdin');
+    return git(cwd, env, 'hash-object', '-t', 'tree', '--stdin');
   }
 }
 
@@ -55,15 +58,18 @@ async function startingPoint(cwd: string): Promise<string> {
  * Compares the working tree with the commit the turn began on, which covers work the turn committed as well as work
  * it left uncommitted. Files already changed when the turn began are left out: they aren't this turn's. Moving HEAD
  * onto other people's commits (a pull) counts as change. Outside a repository `finish` gives undefined, and the
- * client falls back on the file tools it saw.
+ * client falls back on the file tools it saw. `env` is what git and anything it runs get: pass the sessions' own.
  */
-export function gitChanges(cwd: string, { maxFiles = MAX_FILES }: { maxFiles?: number } = {}): TurnChanges {
+export function gitChanges(
+  cwd: string,
+  { maxFiles = MAX_FILES, env = process.env }: { maxFiles?: number; env?: GitEnv } = {},
+): TurnChanges {
   let began: Promise<{ head: string; dirty: Set<string> } | undefined> | undefined;
   return {
     async begin() {
       began = (async () => {
-        const head = (await startingPoint(cwd)).trim();
-        return { head, dirty: await changedSince(cwd, head) };
+        const head = (await startingPoint(cwd, env)).trim();
+        return { head, dirty: await changedSince(cwd, env, head) };
       })().catch(() => undefined);
       await began;
     },
@@ -72,7 +78,7 @@ export function gitChanges(cwd: string, { maxFiles = MAX_FILES }: { maxFiles?: n
       began = undefined;
       if (!start) return undefined;
       try {
-        const changed = await changedSince(cwd, start.head);
+        const changed = await changedSince(cwd, env, start.head);
         return [...changed]
           .filter((path) => !start.dirty.has(path))
           .sort()

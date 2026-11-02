@@ -9,17 +9,20 @@ export interface Worktree {
   branch: string;
 }
 
-function git(cwd: string, ...args: string[]): Promise<string> {
+type GitEnv = Record<string, string | undefined>;
+
+function git(env: GitEnv, cwd: string, ...args: string[]): Promise<string> {
   return new Promise((done, reject) => {
-    execFile('git', args, { cwd }, (error, stdout, stderr) =>
+    // A repo's own config and hooks are the Quest's to write: fsmonitor off, and pass `env` so they see no secret.
+    execFile('git', ['-c', 'core.fsmonitor=false', ...args], { cwd, env }, (error, stdout, stderr) =>
       error ? reject(new Error(stderr.trim() || error.message)) : done(stdout.trim()),
     );
   });
 }
 
 /** A path git printed, in this system's own form: on Windows git prints forward slashes. */
-async function gitPath(cwd: string, ...args: string[]): Promise<string> {
-  return resolve(await git(cwd, ...args));
+async function gitPath(env: GitEnv, cwd: string, ...args: string[]): Promise<string> {
+  return resolve(await git(env, cwd, ...args));
 }
 
 const EXCLUDE = '/.worktrees/';
@@ -30,10 +33,10 @@ const EXCLUDE = '/.worktrees/';
  * `.worktrees/` goes in the repository's local exclude file (not .gitignore), so nothing in the repo changes.
  * The CLI keys its memory by the repository root, so the worktree shares the repo's memory.
  */
-export async function createWorktree(cwd: string, session: string): Promise<Worktree> {
+export async function createWorktree(cwd: string, session: string, env: GitEnv = process.env): Promise<Worktree> {
   let root: string;
   try {
-    root = await gitPath(cwd, 'rev-parse', '--show-toplevel');
+    root = await gitPath(env, cwd, 'rev-parse', '--show-toplevel');
   } catch {
     throw new Error(`${cwd} is not a git repository`);
   }
@@ -41,14 +44,14 @@ export async function createWorktree(cwd: string, session: string): Promise<Work
   const path = join(root, '.worktrees', id);
   const branch = `cb/${id}`;
 
-  const exclude = join(await gitPath(root, 'rev-parse', '--absolute-git-dir'), 'info', 'exclude');
+  const exclude = join(await gitPath(env, root, 'rev-parse', '--absolute-git-dir'), 'info', 'exclude');
   const current = await readFile(exclude, 'utf8').catch(() => '');
   if (!current.split('\n').includes(EXCLUDE)) {
     await mkdir(join(exclude, '..'), { recursive: true });
     await appendFile(exclude, `${current && !current.endsWith('\n') ? '\n' : ''}${EXCLUDE}\n`);
   }
 
-  await git(root, 'worktree', 'add', '-q', '-b', branch, path, 'HEAD');
+  await git(env, root, 'worktree', 'add', '-q', '-b', branch, path, 'HEAD');
   return { path, root, branch };
 }
 
@@ -57,14 +60,17 @@ export async function createWorktree(cwd: string, session: string): Promise<Work
  * `<root>/.worktrees/<id>`) is touched, and never with --force: uncommitted changes keep it. The `cb/<id>` branch
  * always stays, since its commits may matter.
  */
-export async function removeWorktree(path: string): Promise<{ removed: true } | { removed: false; reason: string }> {
+export async function removeWorktree(
+  path: string,
+  env: GitEnv = process.env,
+): Promise<{ removed: true } | { removed: false; reason: string }> {
   let top: string;
   let gitDir: string;
   let commonDir: string;
   try {
-    top = await gitPath(path, 'rev-parse', '--show-toplevel');
-    gitDir = await gitPath(path, 'rev-parse', '--absolute-git-dir');
-    commonDir = await gitPath(path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+    top = await gitPath(env, path, 'rev-parse', '--show-toplevel');
+    gitDir = await gitPath(env, path, 'rev-parse', '--absolute-git-dir');
+    commonDir = await gitPath(env, path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
   } catch {
     return { removed: false, reason: 'not a session worktree' };
   }
@@ -73,9 +79,9 @@ export async function removeWorktree(path: string): Promise<{ removed: true } | 
   if (!linked || top !== resolve(path) || !ours) {
     return { removed: false, reason: 'not a session worktree' };
   }
-  if ((await git(path, 'status', '--porcelain')) !== '')
+  if ((await git(env, path, 'status', '--porcelain')) !== '')
     return { removed: false, reason: 'it has uncommitted changes' };
   // From outside it: Windows won't delete the folder a process is running in.
-  await git(commonDir, 'worktree', 'remove', path);
+  await git(env, commonDir, 'worktree', 'remove', path);
   return { removed: true };
 }

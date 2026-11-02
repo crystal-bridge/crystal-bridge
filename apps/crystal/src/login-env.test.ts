@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { mergeEnv, parseEnv0, readLoginEnv } from './login-env.js';
+import { mergeEnv, parseEnv0, readLoginEnv, takeToken } from './login-env.js';
 
 describe('login environment', () => {
+  it('takes the node token out of the environment it reads, so nothing Crystal starts inherits it', () => {
+    const env: Record<string, string | undefined> = { CRYSTAL_TOKEN: 'secret', CRYSTAL_NODE: 'local', PATH: '/bin' };
+    expect(takeToken(env)).toBe('secret');
+    expect(env).toEqual({ CRYSTAL_NODE: 'local', PATH: '/bin' });
+  });
+
+  it('counts an empty token as none', () => {
+    expect(takeToken({ CRYSTAL_TOKEN: '' })).toBeUndefined();
+    expect(takeToken({})).toBeUndefined();
+  });
+
   it('has nothing to read on Windows, and never runs a shell there', async () => {
     const exec = () => Promise.reject(new Error('should not run'));
     expect(await readLoginEnv('cmd.exe', exec, 'win32')).toEqual({});
