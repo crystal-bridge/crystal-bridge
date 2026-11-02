@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createSummons,
   envFileOf,
@@ -20,15 +20,28 @@ import {
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
 
+/** Counts its own waits, not the clock: that jumps while a laptop sleeps, and a job asleep with it isn't late. */
 async function until<T>(read: () => T | undefined | false, timeoutMs = 8000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
+  for (let waited = 0; ; waited += 20) {
     const value = read();
     if (value) return value;
-    if (Date.now() - start > timeoutMs) throw new Error('timed out');
+    if (waited > timeoutMs) throw new Error('timed out');
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
+
+it('keeps waiting when the clock jumps, as it does while a laptop sleeps', async () => {
+  const now = Date.now.bind(Date);
+  let reads = 0;
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now() + (reads++ ? 3_600_000 : 0));
+  let ready = false;
+  setTimeout(() => (ready = true), 100);
+  try {
+    await expect(until(() => ready)).resolves.toBe(true);
+  } finally {
+    clock.mockRestore();
+  }
+});
 
 describe('parseSummons', () => {
   it('reads host names, with an optional name of the user’s, and always has the Kingdom itself', () => {

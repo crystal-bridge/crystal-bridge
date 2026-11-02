@@ -140,9 +140,8 @@ function waitForFrame(
 }
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error('timed out waiting for condition');
+  for (let waited = 0; !predicate(); waited += 10) {
+    if (waited > timeoutMs) throw new Error('timed out waiting for condition');
     await delay(10);
   }
 }
