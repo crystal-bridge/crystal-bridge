@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { DROP } from './login-env.js';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawn as nodePtySpawn } from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
@@ -28,6 +28,8 @@ import { usageFromStatusLine } from './usage.js';
  * - PermissionRequest: approvals and questions, answered from the client like the stream engine's (permissions.ts);
  * - SessionStart: the input box is ready, and where the transcript is;
  * - Stop: the turn ended, with the reply's text and any background tasks still running;
+ * - StopFailure: the turn ended on an API error, in place of Stop;
+ * - UserPromptSubmit: the CLI took a prompt, which is how a turn it started by itself shows;
  * - Notification: a dialog only the terminal shows.
  * A statusline command (code.claude.com/docs/en/statusline) posts the same way and carries cost, the
  * context window and plan limits, which become the turn result's fields and `usage` events, as on the stream engine.
@@ -115,6 +117,8 @@ export interface InteractiveSessionOptions {
   screenUpdateMs?: number;
   /** Pause after Esc dismisses a dialog, before typing the message again. */
   dialogSettleMs?: number;
+  /** The system this runs on (default: this one). */
+  platform?: NodeJS.Platform;
 }
 
 /** Hook events Crystal listens to; PermissionRequest waits on a human, so its timeout is a day. */
@@ -122,6 +126,7 @@ const HOOK_EVENTS: Record<string, number> = {
   PermissionRequest: 86_400,
   SessionStart: 30,
   Stop: 30,
+  StopFailure: 30,
   Notification: 30,
   UserPromptSubmit: 30,
 };
@@ -173,8 +178,10 @@ function replyText(raw: unknown): string | undefined {
   return texts.length > 0 ? texts.join('') : undefined;
 }
 
+/** Text as a bracketed paste. An ESC in it could end the paste and press keys, so only newlines and tabs stay. */
 function paste(text: string): string {
-  return `\x1b[200~${text}\x1b[201~`;
+  const plain = text.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
+  return `\x1b[200~${plain}\x1b[201~`;
 }
 
 /** Reads lines appended to a file since an offset; a torn last line waits for the next read. */
@@ -238,10 +245,12 @@ function isFinished(task: unknown): boolean {
 export class InteractiveSession extends EventEmitter {
   private readonly opts: InteractiveSessionOptions;
   private readonly spawnPty: PtySpawn;
+  private readonly platform: NodeJS.Platform;
   private readonly settingsFile: string;
   private mode: PermissionMode;
   private effort: Effort | undefined;
-  /** The effort the live process started with, to tell when a new one is needed. */
+  /** The mode and effort the live process started with, to tell when a new one is needed. */
+  private processMode: PermissionMode | undefined;
   private processEffort: Effort | undefined;
   private pty: PtyLike | null = null;
   private stopWaiters: Array<() => void> = [];
@@ -275,6 +284,8 @@ export class InteractiveSession extends EventEmitter {
   private retried = false;
   /** Set while the terminal is being restarted to type this message again. */
   private restartWith: string | null = null;
+  /** Stop cancelled a restart: the process it killed exits as asked, which is no failure. */
+  private quietExit = false;
   private cost: number | undefined;
   /** The running cost when the turn began, so its turn.finished carries the turn's own share. */
   private costAtTurnStart: number | undefined;
@@ -311,10 +322,10 @@ export class InteractiveSession extends EventEmitter {
     super();
     this.opts = opts;
     this.spawnPty = opts.spawnPty ?? defaultSpawn;
+    this.platform = opts.platform ?? process.platform;
     this.mode = opts.permissionMode ?? 'manual';
     this.effort = opts.effort;
     const dir = opts.settingsDir ?? join(tmpdir(), 'crystal-bridge');
-    mkdirSync(dir, { recursive: true });
     this.settingsFile = join(dir, `${opts.session}.settings.json`);
     opts.hooks.register(opts.session, (event, body) => this.onHook(event, body));
   }
@@ -335,30 +346,30 @@ export class InteractiveSession extends EventEmitter {
   }
 
   start(prompt: string): void {
-    this.spawn(false);
-    this.turnOpen = true;
-    this.turnSince = Date.now();
-    void this.opts.changes?.begin();
+    if (!this.launch(false)) return;
+    this.openTurn();
     this.pending.push(prompt);
   }
 
   send(text: string): void {
     const idle = !this.turnOpen;
-    if (idle) {
-      this.turnSince = Date.now();
-      void this.opts.changes?.begin();
-    }
-    this.turnOpen = true;
+    this.openTurn();
     if (!this.pty) {
-      this.spawn(true);
+      if (!this.launch(true)) return;
       this.emitEvent({ type: 'session.resumed', payload: {} });
       this.pending.push(text);
       return;
     }
-    // A new effort needs a new process, which is only safe between turns with nothing running in the background.
-    if (idle && this.ready && this.effort !== this.processEffort && !this.background && this.hasConversation) {
+    // Keys now would land in the dialog with an Enter, or in a process on its way out.
+    if (this.asking || this.restartWith !== null) {
+      this.pending.push(text);
+      return;
+    }
+    // A new mode or effort needs a new process, which is only safe between turns with nothing running in the background.
+    const changed = this.mode !== this.processMode || this.effort !== this.processEffort;
+    if (idle && this.ready && changed && !this.background && this.hasConversation) {
       this.restartWith = text;
-      this.pty.kill('SIGTERM');
+      this.stopProcess(this.pty);
       return;
     }
     if (this.ready) {
@@ -371,6 +382,26 @@ export class InteractiveSession extends EventEmitter {
         this.watchSubmit();
       }
     } else this.pending.push(text);
+  }
+
+  /** Marks a turn as begun, unless one already is. */
+  private openTurn(): void {
+    if (this.turnOpen) return;
+    this.turnOpen = true;
+    this.turnSince = Date.now();
+    void this.opts.changes?.begin();
+  }
+
+  /** Types what was held while a terminal was asking, now that it can be. */
+  private releaseHeld(): void {
+    if (this.asking || !this.ready || this.restartWith !== null || this.pending.length === 0) return;
+    this.send(this.pending.splice(0).join('\n\n'));
+  }
+
+  /** Windows has no signals: node-pty throws if given one, and `kill` alone ends the process there. */
+  private stopProcess(pty: PtyLike): void {
+    if (this.platform === 'win32') pty.kill();
+    else pty.kill('SIGTERM');
   }
 
   /** Keys for a shown terminal, or the held message typed again. Only while it's shown: otherwise that's `send`. */
@@ -387,6 +418,13 @@ export class InteractiveSession extends EventEmitter {
 
   interrupt(): void {
     if (!this.pty) return;
+    // Stop means nothing else goes in, including what's waiting for the process to be ready.
+    this.pending = [];
+    this.awaiting = null;
+    if (this.restartWith !== null) {
+      this.restartWith = null;
+      this.quietExit = true;
+    }
     this.clearSubmitWatch();
     this.closeTerminal();
     this.pty.write('\x1b');
@@ -409,11 +447,16 @@ export class InteractiveSession extends EventEmitter {
     }
   }
 
+  /** Changes the mode for later processes; `send` moves to one when it can. A running process can't change. */
   setMode(mode: PermissionMode): void {
     this.mode = mode;
+    if (!this.busy || mode === this.processMode) return;
     this.emitEvent({
       type: 'error',
-      payload: { message: 'The interactive engine changes mode when this Quest next starts, not mid-session (yet).' },
+      payload: {
+        message:
+          'This Quest keeps its current permission mode until the next message after this turn and any background work end.',
+      },
     });
   }
 
@@ -432,8 +475,32 @@ export class InteractiveSession extends EventEmitter {
     if (this.turnOpen) pty.write('\x1b');
     pty.write(`${paste('/exit')}\r`);
     setTimeout(() => {
-      if (this.pty === pty) pty.kill('SIGTERM');
+      if (this.pty === pty) this.stopProcess(pty);
     }, this.opts.closeGraceMs ?? 5000).unref?.();
+  }
+
+  /** Starts a process, or ends this Quest's run if it can't: a throw here would reach a timer or callback and end Crystal. */
+  private launch(resume: boolean): boolean {
+    try {
+      this.spawn(resume);
+      return true;
+    } catch (error) {
+      this.failStart(error);
+      return false;
+    }
+  }
+
+  private failStart(error: unknown): void {
+    this.pending = [];
+    this.awaiting = null;
+    const reason = error instanceof Error ? error.message : String(error);
+    this.emitEvent({ type: 'error', payload: { message: `failed to start claude: ${reason}` } });
+    if (this.turnOpen) {
+      this.turnOpen = false;
+      this.emitEvent({ type: 'turn.finished', payload: { outcome: 'error' } });
+    }
+    this.emitEvent({ type: 'session.ended', payload: { exitCode: null, signal: null, reason: 'error' } });
+    for (const resolve of this.stopWaiters.splice(0)) resolve();
   }
 
   private spawn(resume: boolean): void {
@@ -455,6 +522,8 @@ export class InteractiveSession extends EventEmitter {
       this.settingsFile,
     ];
     this.ready = false;
+    this.quietExit = false;
+    this.processMode = this.mode;
     this.processEffort = this.effort;
     this.resumed = resume;
     if (resume) this.hasConversation = true;
@@ -499,12 +568,17 @@ export class InteractiveSession extends EventEmitter {
       command: `curl -sS -X POST -H 'Content-Type: application/json' --data-binary @- '${this.opts.hookUrl}/StatusLine'`,
       padding: 0,
     };
+    // Here, not once at the start: a temp cleaner can take the folder while a Quest sits idle.
+    mkdirSync(dirname(this.settingsFile), { recursive: true });
     writeFileSync(this.settingsFile, JSON.stringify({ hooks, statusLine }), { mode: 0o600 });
   }
 
-  /** Only the workspace-trust dialog is read off the screen: the user chose this folder, so it's accepted. */
+  /**
+   * Only the workspace-trust dialog is read off the screen: the user chose this folder, so it's accepted. Only before
+   * the input box, because after it those words could be anything a Quest printed.
+   */
   private onScreen(data: string): void {
-    if (this.trustAnswered) return;
+    if (this.trustAnswered || this.ready) return;
     this.screen = (this.screen + screenWords(data)).slice(-4000);
     if (!this.screen.includes('Yes,Itrustthisfolder')) return;
     this.trustAnswered = true;
@@ -518,7 +592,7 @@ export class InteractiveSession extends EventEmitter {
 
   private onHook(event: string, body: Record<string, unknown>): void {
     // The turn's milestones, so a turn that ends or restarts unexpectedly can be traced in the log.
-    if (event === 'SessionStart' || event === 'UserPromptSubmit' || event === 'Stop') {
+    if (event === 'SessionStart' || event === 'UserPromptSubmit' || event === 'Stop' || event === 'StopFailure') {
       const state = `turn ${this.turnOpen ? 'open' : 'closed'}${this.restartWith !== null ? ', restarting' : ''}`;
       console.error(`[crystal:interactive] ${this.opts.session} ${event} hook (${state})`);
     }
@@ -554,7 +628,25 @@ export class InteractiveSession extends EventEmitter {
       return;
     }
     if (event === 'UserPromptSubmit') {
+      // A prompt going in means the last turn is over, even if its Stop is still waiting on the reply's last text.
+      this.finishTurn();
+      // A queued follow-up or background work reporting in starts a turn nobody sent. The stream engine's init line
+      // marks every turn; this is the same line, for the same reason.
+      if (!this.turnOpen) {
+        this.openTurn();
+        this.emitInit();
+      }
       this.taken();
+      return;
+    }
+    if (event === 'StopFailure') {
+      this.clearSubmitWatch();
+      this.closeTerminal();
+      if (!this.turnOpen) return;
+      this.readTranscript();
+      // Runs in place of Stop. `last_assistant_message` here is the error's own text, so there's no reply to wait for.
+      const said = [body.last_assistant_message, body.error_details, body.error];
+      this.closeTurn(said.find((text): text is string => typeof text === 'string' && text !== '') ?? 'API error', true);
       return;
     }
     if (event === 'Stop') {
@@ -708,6 +800,10 @@ export class InteractiveSession extends EventEmitter {
     if (!stopping) return;
     clearTimeout(stopping.timer);
     this.stopping = null;
+    this.closeTurn(stopping.reply);
+  }
+
+  private closeTurn(reply: string, failed = false): void {
     this.turnOpen = false;
     this.lastText = '';
     // The stream engine's result shape: running cost, and this turn's own tokens and whole length.
@@ -720,9 +816,9 @@ export class InteractiveSession extends EventEmitter {
         engine: 'claude',
         raw: {
           type: 'result',
-          subtype: 'success',
-          is_error: false,
-          result: stopping.reply,
+          subtype: failed ? 'error' : 'success',
+          is_error: failed,
+          result: reply,
           session_id: this.opts.session,
           ...(this.cost !== undefined ? { total_cost_usd: this.cost } : {}),
           duration_ms: durationMs,
@@ -743,11 +839,11 @@ export class InteractiveSession extends EventEmitter {
     const neutral = neutralTokens(counted ? tokens : undefined);
     this.turnTokens = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
     this.costAtTurnStart = this.cost;
-    const summary = stopping.reply.trim().slice(0, SUMMARY_CHARS);
+    const summary = reply.trim().slice(0, SUMMARY_CHARS);
     this.emitEvent({
       type: 'turn.finished',
       payload: {
-        outcome: 'success',
+        outcome: failed ? 'error' : 'success',
         ...(summary ? { summary } : {}),
         ...(turnCost !== undefined ? { costUsd: turnCost } : {}),
         durationMs,
@@ -755,6 +851,7 @@ export class InteractiveSession extends EventEmitter {
       },
     });
     reportChanges(this.opts.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
+    this.releaseHeld();
   }
 
   /**
@@ -787,7 +884,7 @@ export class InteractiveSession extends EventEmitter {
       if (text !== null && !this.retried && !this.background && this.hasConversation && this.pty) {
         this.retried = true;
         this.restartWith = text;
-        this.pty.kill('SIGTERM');
+        this.stopProcess(this.pty);
         return;
       }
       this.raiseTerminal();
@@ -821,6 +918,7 @@ export class InteractiveSession extends EventEmitter {
   private giveUpAsking(): void {
     const shown = this.shownLines();
     const started = this.ready;
+    this.pending = [];
     this.closeTerminal();
     if (!this.turnOpen) return;
     this.turnOpen = false;
@@ -834,7 +932,7 @@ export class InteractiveSession extends EventEmitter {
     });
     this.emitEvent({ type: 'turn.finished', payload: { outcome: 'error' } });
     // It never reached the input box, so only a new process can take the next message.
-    if (!started) this.pty?.kill('SIGTERM');
+    if (!started && this.pty) this.stopProcess(this.pty);
   }
 
   /** Sends the screen once it has settled for a moment, if it changed. */
@@ -891,6 +989,7 @@ export class InteractiveSession extends EventEmitter {
     this.closeTerminal();
     this.hasConversation = true;
     this.awaiting = null;
+    this.releaseHeld();
   }
 
   private clearSubmitWatch(): void {
@@ -910,6 +1009,8 @@ export class InteractiveSession extends EventEmitter {
 
   private onExit(pty: PtyLike, exitCode: number): void {
     if (this.pty !== pty) return;
+    // What waited on this process went with it, or the next send would type it too. A restart carries it over.
+    if (this.restartWith === null) this.pending = [];
     this.clearSubmitWatch();
     this.clearStartWatch();
     this.closeTerminal();
@@ -926,12 +1027,12 @@ export class InteractiveSession extends EventEmitter {
     this.restartWith = null;
     if (retry !== null && !this.closing) {
       // Killed on purpose: the turn stays open and the message goes to the --resume process.
-      this.spawn(true);
+      if (!this.launch(true)) return;
       this.emitEvent({ type: 'session.resumed', payload: {} });
-      this.pending.push(retry);
+      this.pending.unshift(retry);
       return;
     }
-    const failed = exitCode !== 0 && !this.closing;
+    const failed = exitCode !== 0 && !this.closing && !this.quietExit;
     if (failed) this.emitEvent({ type: 'error', payload: { message: `claude exited with code ${exitCode}` } });
     if (this.turnOpen) {
       this.turnOpen = false;

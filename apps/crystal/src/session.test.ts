@@ -1,11 +1,11 @@
 import type { TurnChanges } from './changes.js';
 import { EventEmitter } from 'node:events';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import type { spawn as nodeSpawn } from 'node:child_process';
+import { spawn as realSpawn, type spawn as nodeSpawn } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeSession, type ClaudeSessionEvent } from './session.js';
 
@@ -343,6 +343,114 @@ describe('ClaudeSession', () => {
     session.interrupt();
 
     expect(child.killSignals).toEqual(['SIGINT']);
+  });
+
+  describe('a send right after Stop', () => {
+    /** A real CLI takes about 0.6 s to go after SIGINT (test/fixtures/README.md): stdin stays open meanwhile. */
+    function dyingSlowly() {
+      const { spawnFn, calls, children } = createSpawnMock();
+      const session = createSession(spawnFn, { platform: 'linux' });
+      session.start('first');
+      const first = children[0]!;
+      first.kill = (signal) => {
+        first.killSignals.push(signal ?? 'SIGTERM');
+        return true;
+      };
+      return { session, calls, children, first };
+    }
+    const message = (text: string) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: text } })}\n`;
+
+    it('waits for the process to go, then reaches the --resume process', async () => {
+      const { session, calls, children, first } = dyingSlowly();
+      session.interrupt();
+      session.send('after stop');
+      expect(first.stdin.writes).toEqual([message('first')]);
+      expect(session.busy).toBe(true);
+
+      finishExit(first, 0);
+      await flush();
+      expect(calls[1]!.args).toContain('--resume');
+      expect(children[1]!.stdin.writes).toEqual([message('after stop')]);
+    });
+
+    it('sees that a process which outlives the signal still goes', () => {
+      const { session, first } = dyingSlowly();
+      session.interrupt();
+      session.send('after stop');
+      expect(first.stdin.writableEnded).toBe(true);
+    });
+
+    it('stays on the live process on Windows, where Stop is a request and the process carries on', () => {
+      const { spawnFn, children } = createSpawnMock();
+      const session = createSession(spawnFn, { platform: 'win32' });
+      session.start('first');
+      session.interrupt();
+      session.send('after stop');
+      expect(children).toHaveLength(1);
+      expect(children[0]!.stdin.writes.at(-1)).toBe(message('after stop'));
+    });
+  });
+
+  describe('when a process cannot start', () => {
+    /** A file as the folder: Node throws ENOTDIR from `spawn` itself, where a missing folder is an 'error' event. */
+    const notAFolder = () => {
+      const file = join(mkdtempSync(join(tmpdir(), 'cb-session-')), 'file');
+      writeFileSync(file, '');
+      return file;
+    };
+    const ended = { type: 'session.ended', payload: { exitCode: null, signal: null, reason: 'error' } };
+    const failingAfter = (works: number) => {
+      const mock = createSpawnMock();
+      let spawns = 0;
+      const spawnFn = ((...args: Parameters<typeof nodeSpawn>) => {
+        if (++spawns > works) throw new Error('spawn ENOTDIR');
+        return mock.spawnFn(...args);
+      }) as unknown as typeof nodeSpawn;
+      return { ...mock, spawnFn };
+    };
+
+    it('ends the Quest with an error on the first start, with Node’s real sync throw', () => {
+      const session = createSession(realSpawn, { cwd: notAFolder(), claudeBin: process.execPath });
+      const events = collect(session);
+      expect(() => session.start('hello')).not.toThrow();
+      expect(events).toEqual([{ type: 'error', payload: { message: expect.stringContaining('ENOTDIR') } }, ended]);
+      expect(session.busy).toBe(false);
+    });
+
+    it('ends the Quest with an error on a follow-up', async () => {
+      const { spawnFn, children } = failingAfter(1);
+      const session = createSession(spawnFn);
+      const events = collect(session);
+      session.start('hello');
+      finishExit(children[0]!, 0);
+      await flush();
+      expect(() => session.send('next')).not.toThrow();
+      expect(events.at(-2)).toMatchObject({ type: 'error' });
+      expect(events.at(-1)).toEqual(ended);
+    });
+
+    it('survives a respawn for a queued message, which runs in the close callback', async () => {
+      const { spawnFn, children } = failingAfter(1);
+      const session = createSession(spawnFn, { platform: 'linux' });
+      const events = collect(session);
+      session.start('hello');
+      children[0]!.exitCode = 0;
+      session.send('queued');
+      expect(() => children[0]!.emit('close', 0, null)).not.toThrow();
+      expect(events.at(-2)).toMatchObject({ type: 'error' });
+      expect(events.at(-1)).toEqual(ended);
+      expect(session.busy).toBe(false);
+    });
+
+    it('resolves whoever waits on it to stop', async () => {
+      const { spawnFn, children } = failingAfter(1);
+      const session = createSession(spawnFn);
+      session.start('hello');
+      finishExit(children[0]!, 0);
+      await flush();
+      session.send('next');
+      await session.stopped();
+    });
   });
 
   it('respawns with --resume after the child exits, then writes the new message to the new child', async () => {

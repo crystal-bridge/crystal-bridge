@@ -113,19 +113,25 @@ a PermissionRequest hook in a generated `--settings` file that calls Crystal's l
 session's transcript, a format the CLI calls internal, so check an interactive Quest after each CLI update. The node
 needs `curl`. Recruits offers the same engine choice, and a Quest keeps its engine: the hub names it in the resume it
 sends, so after a Crystal restart a follow-up resumes on the same engine (and a node that no longer runs that engine
-refuses rather than switching quietly). Not yet: cost and token Stats, the Inventory's Items, Equipment, Guild and Abilities (it lists Spells and Runes), and switching mode mid-session.
+refuses rather than switching quietly). Not yet: cost and token Stats, and the Inventory's Items, Equipment, Guild and Abilities (it lists Spells and Runes).
 
 A Quest's Effort can change from its prompt bar, on either engine. The CLI takes it only when a process starts, so nothing
 running changes: the next message moves to a new process with it and the conversation carries on, which shows as the
 usual idle stop and resume. A turn in progress finishes first, and a Quest holding background work stays on its process
 until that's gone, because a restart would kill the work.
 
+An interactive Quest's permission mode moves the same way, because a running interactive `claude` can't change it from
+outside. Until that next message the process stays in its old mode, so tightening a mode doesn't reach a turn already
+running, background work still going, or a turn the CLI starts by itself on an idle Quest. The Quest says so if it's busy
+when you change it. The stream engine switches a live process at once.
+
 An interactive terminal can show screens the bridge can't read, such as a setup dialog or an offer, and new ones come
 with CLI updates. Crystal first tries Esc when a screen offers it, then one restart. If the terminal still won't take a
 message, or a new process doesn't reach its input box within 45 seconds, or the CLI says a prompt is terminal-only, the
 Quest shows a card with the live screen. Its buttons and text field send keystrokes, and it counts as needing you in
 notifications and waiting counts. Keys are refused unless a card is open, so they stay an answer to a dialog and not a
-way to drive a Quest. The screen's text is stored with the Quest's events. A card nobody touches ends the turn after 10 minutes
+way to drive a Quest. A follow-up sent while a card is open waits and goes in once the card closes, and Stop drops it.
+The screen's text is stored with the Quest's events. A card nobody touches ends the turn after 10 minutes
 with an error quoting the screen, so a stuck Quest doesn't hold deploys forever. A terminal-only prompt from the CLI
 waits instead, as an approval does.
 Deploys keep the line.

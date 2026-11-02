@@ -212,6 +212,14 @@ function labelFromPrompt(prompt: string): string {
   return firstLine.slice(0, 60);
 }
 
+/**
+ * The last line of defence for a rejection nothing caught: by default Node ends the process, and every Quest on this
+ * Kingdom with it, which costs far more than whatever was being tried.
+ */
+export function surviveRejections(target: Pick<NodeJS.EventEmitter, 'on'>): void {
+  target.on('unhandledRejection', (reason) => console.error('[crystal] unhandled rejection', reason));
+}
+
 export function startNode(options: StartNodeOptions): CrystalNode {
   const {
     hubUrl,
@@ -283,6 +291,28 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     if (typeof frame.type !== 'string' || frame.kind !== undefined) return;
     const session = NodeError.shape.session.safeParse(frame.session).data;
     if (session) sendNodeError(session, `this Kingdom can't read that command (${name}): it may need an update`);
+  }
+
+  /**
+   * Says on a Quest's record that something failed, or as a node error if it has none yet (see `sendNodeError`).
+   * True when it was recorded.
+   */
+  function reportFailure(sessionId: string, error: unknown): boolean {
+    log(`a command for ${sessionId} failed`, error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (sessions.has(sessionId)) {
+      sendEnvelope(sessionId, 'error', { message });
+      return true;
+    }
+    sendNodeError(sessionId, message);
+    return false;
+  }
+
+  /** Ends one Quest's run after a failure, so it shows as over and the other Quests carry on. */
+  function failSession(sessionId: string, error: unknown): void {
+    denyPending(sessionId);
+    if (!reportFailure(sessionId, error)) return;
+    sendEnvelope(sessionId, 'session.ended', { exitCode: null, signal: null, reason: 'error' });
   }
 
   function resendUnacked(): void {
@@ -573,8 +603,17 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     }
     state.closed = true;
     denyPending(cmd.session);
-    state.runtime.close();
-    removeAttachments(cmd.session, attachmentsDir);
+    // Each step runs whatever the last one did, and the close is recorded: nothing more can be sent to this Quest.
+    try {
+      state.runtime.close();
+    } catch (error) {
+      reportFailure(cmd.session, error);
+    }
+    try {
+      removeAttachments(cmd.session, attachmentsDir);
+    } catch (error) {
+      reportFailure(cmd.session, error);
+    }
     let worktree: { removed: boolean; reason?: string } | undefined;
     if (cmd.removeWorktree && removeWorktree) {
       worktree = await removeWorktree(state.cwd).catch((error: unknown) => ({
@@ -630,11 +669,16 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     }
   }
 
+  /**
+   * A throw here must stay with its Quest: from an async handler it would be an unhandled rejection, which ends Crystal
+   * and every Quest on it. Starting or sending failed means nothing is running the Quest, so it ends. Anything else
+   * failed beside a process that's still going, so that's only reported.
+   */
   function handleCommand(cmd: NodeCommand): void {
     try {
       switch (cmd.type) {
         case 'session.start':
-          void handleSessionStart(cmd);
+          handleSessionStart(cmd).catch((error: unknown) => failSession(cmd.session, error));
           break;
         case 'session.send':
           handleSessionSend(cmd);
@@ -664,20 +708,22 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           break;
         }
         case 'session.adopt':
-          void handleSessionAdopt(cmd);
+          handleSessionAdopt(cmd).catch((error: unknown) => failSession(cmd.session, error));
           break;
         case 'session.close':
-          void handleSessionClose(cmd);
+          handleSessionClose(cmd).catch((error: unknown) => reportFailure(cmd.session, error));
           break;
         case 'permission.answer':
           handlePermissionAnswer(cmd);
           break;
         case 'file.read':
-          void handleFileRead(cmd);
+          handleFileRead(cmd).catch((error: unknown) => log('file read failed', error));
           break;
       }
     } catch (error) {
-      log('command handler threw', error);
+      if (cmd.type === 'session.send') failSession(cmd.session, error);
+      else if ('session' in cmd) reportFailure(cmd.session, error);
+      else log('command handler threw', error);
     }
   }
 
@@ -851,9 +897,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     }
     denyPending();
     const stopping: Promise<void>[] = [];
-    for (const state of sessions.values()) {
-      state.runtime.close();
-      if (state.runtime.stopped) stopping.push(state.runtime.stopped());
+    for (const [id, state] of sessions) {
+      // One that won't stop mustn't leave the rest running after Crystal has gone.
+      try {
+        state.runtime.close();
+        if (state.runtime.stopped) stopping.push(state.runtime.stopped());
+      } catch (error) {
+        log(`could not stop ${id}`, error);
+      }
     }
     if (socket) {
       const ws = socket;

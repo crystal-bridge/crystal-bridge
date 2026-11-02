@@ -312,7 +312,10 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` approves. It also
   fires for `AskUserQuestion`: allowing with `updatedInput: { ...input, answers }` answers it. `Stop`
   (`last_assistant_message`, `background_tasks`, `session_crons`) runs before the reply's last text block reaches the
-  transcript.
+  transcript. `UserPromptSubmit` also runs for prompts nobody typed, such as a background agent reporting back, so it's
+  what marks a turn the CLI started by itself. `StopFailure` (documented, not yet observed live; the name is in the
+  2.1.316 binary) runs instead of `Stop` when a turn ends on an API error, with `error`, optional `error_details` and
+  `last_assistant_message`, which there holds the error's own text.
 - **Transcript** lines (`<projects>/<cwd>/<id>.jsonl`): `assistant` and tool-result `user` lines have the stream-json
   shape (`{type, message:{id, role, content, usage, model}}` plus bookkeeping keys); typed prompts are `user` lines
   with string content. Other types (`attachment`, `api-request*`, `mode`, `permission-mode`, `last-prompt`,

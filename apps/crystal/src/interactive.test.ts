@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -41,16 +41,18 @@ interface Spawned {
   pty: FakePty;
 }
 
-function harness(overrides: Partial<ConstructorParameters<typeof InteractiveSession>[0]> = {}) {
+function harness(overrides: Partial<ConstructorParameters<typeof InteractiveSession>[0]> = {}, Pty = FakePty) {
   const dir = mkdtempSync(join(tmpdir(), 'cb-interactive-'));
   const transcript = join(dir, `${SESSION}.jsonl`);
   writeFileSync(transcript, '');
   const spawned: Spawned[] = [];
   const spawnPty: PtySpawn = (file, args, options) => {
-    const pty = new FakePty();
+    const pty = new Pty();
     spawned.push({ file, args, options: options as Spawned['options'], pty });
     return pty;
   };
+  let spawnWith = spawnPty;
+  const useSpawn = (replacement: PtySpawn) => void (spawnWith = replacement);
   const hooks = new HookBus();
   const session = new InteractiveSession({
     session: SESSION,
@@ -59,7 +61,7 @@ function harness(overrides: Partial<ConstructorParameters<typeof InteractiveSess
     hookUrl: `http://127.0.0.1:9/hook/${SESSION}`,
     hooks,
     settingsDir: dir,
-    spawnPty,
+    spawnPty: (file, args, options) => spawnWith(file, args, options),
     pollMs: 10,
     readyDelayMs: 0,
     costSettleMs: 0,
@@ -80,7 +82,7 @@ function harness(overrides: Partial<ConstructorParameters<typeof InteractiveSess
   const hook = (event: string, body: Record<string, unknown> = {}) =>
     hooks.dispatch(SESSION, event, { hook_event_name: event, transcript_path: transcript, ...body });
   const line = (record: unknown) => appendFileSync(transcript, `${JSON.stringify(record)}\n`);
-  return { session, spawned, events, hook, line, transcript, dir };
+  return { session, spawned, spawnPty, useSpawn, events, hook, line, transcript, dir };
 }
 
 const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -964,5 +966,426 @@ describe('InteractiveSession stats and inventory', () => {
     const { args } = spawned[0]!;
     expect(args[args.indexOf('--add-dir') + 1]).toBe('/tmp/files/s1');
     expect(args[args.indexOf('--add-dir') + 2]).toMatch(/^--/);
+  });
+});
+
+/** node-pty on Windows: `kill` with a signal throws, in a timer or a data callback alike (lib/windowsTerminal.js). */
+class WindowsPty extends FakePty {
+  override kill(signal?: string) {
+    if (signal) throw new Error('Signals not supported on windows.');
+    super.kill();
+  }
+}
+
+describe('InteractiveSession on Windows (a faked platform and pty)', () => {
+  const onWindows = (overrides: Parameters<typeof harness>[0] = {}) =>
+    harness({ platform: 'win32', stopWaitMs: 1, ...overrides }, WindowsPty);
+  async function afterATurn(test: ReturnType<typeof harness>) {
+    test.session.start('hello');
+    test.hook('SessionStart', {});
+    await tick(10);
+    test.hook('UserPromptSubmit', { prompt: 'hello' });
+    test.hook('Stop', { last_assistant_message: '' });
+    await tick(5);
+  }
+
+  it('restarts for a new effort without a signal', async () => {
+    const test = onWindows({ effort: 'high' });
+    await afterATurn(test);
+    test.session.setEffort('low');
+    test.session.send('next');
+    expect(test.spawned[0]!.pty.killed).toHaveLength(1);
+    test.spawned[0]!.pty.emitExit(1);
+    expect(test.spawned[1]!.args).toEqual(expect.arrayContaining(['--resume', '--effort', 'low']));
+  });
+
+  it('restarts a terminal that never took a message without a signal', async () => {
+    const test = onWindows({ submitWaitMs: 10 });
+    await afterATurn(test);
+    test.session.send('are you there?');
+    await until(() => test.spawned[0]!.pty.killed.length > 0);
+    expect(test.spawned[0]!.pty.killed).toHaveLength(1);
+    test.spawned[0]!.pty.emitExit(1);
+    expect(test.spawned[1]!.args.slice(0, 2)).toEqual(['--resume', SESSION]);
+  });
+
+  it('stops a process that lingers after close without a signal', async () => {
+    const test = onWindows({ closeGraceMs: 5 });
+    await afterATurn(test);
+    test.session.close();
+    await until(() => test.spawned[0]!.pty.killed.length > 0);
+    expect(test.spawned[0]!.pty.killed).toHaveLength(1);
+  });
+
+  it('stops a start nobody answered without a signal', async () => {
+    const test = onWindows({ startWaitMs: 5, terminalWaitMs: 5 });
+    test.session.start('hello');
+    await until(() => test.spawned[0]!.pty.killed.length > 0);
+    expect(test.spawned[0]!.pty.killed).toHaveLength(1);
+  });
+});
+
+describe('InteractiveSession when a process cannot start', () => {
+  const failing = () => {
+    const fail = { now: false };
+    const test = harness();
+    const real = test.spawnPty;
+    test.useSpawn((file, args, options) => {
+      if (fail.now) throw new Error('spawn ENOTDIR');
+      return real(file, args, options);
+    });
+    return { ...test, fail };
+  };
+  const ended = { type: 'session.ended', payload: { exitCode: null, signal: null, reason: 'error' } };
+
+  it('ends the Quest with an error when the first process cannot start', () => {
+    const { session, events, fail } = failing();
+    fail.now = true;
+    expect(() => session.start('hello')).not.toThrow();
+    expect(events).toEqual([{ type: 'error', payload: { message: expect.stringContaining('spawn ENOTDIR') } }, ended]);
+    expect(session.busy).toBe(false);
+  });
+
+  it('ends the turn too when a follow-up cannot start one, and the next message can try again', async () => {
+    const { session, events, spawned, hook, fail } = failing();
+    session.start('hello');
+    hook('SessionStart', {});
+    await tick();
+    spawned[0]!.pty.emitExit(0);
+    await tick();
+    fail.now = true;
+    expect(() => session.send('next')).not.toThrow();
+    expect(events.at(-3)).toMatchObject({ type: 'error' });
+    expect(events.at(-2)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+    expect(events.at(-1)).toEqual(ended);
+
+    fail.now = false;
+    session.send('again');
+    expect(spawned).toHaveLength(2);
+    hook('SessionStart', { source: 'resume' });
+    await tick();
+    expect(spawned[1]!.pty.written.join('')).toBe('\x1b[200~again\x1b[201~\r');
+  });
+
+  it('survives a restart that cannot start, which runs in the exit callback', async () => {
+    const { session, events, spawned, hook, fail } = failing();
+    session.start('hello');
+    hook('SessionStart', {});
+    await tick(10);
+    hook('UserPromptSubmit', { prompt: 'hello' });
+    hook('Stop', { last_assistant_message: '' });
+    await tick();
+    session.setEffort('low');
+    session.send('next');
+    fail.now = true;
+    expect(() => spawned[0]!.pty.emitExit(143)).not.toThrow();
+    expect(events.at(-1)).toEqual(ended);
+    expect(session.busy).toBe(false);
+  });
+
+  it('writes its settings again after the temp folder was cleaned', async () => {
+    const { session, spawned, events, hook, dir } = harness();
+    session.start('hello');
+    hook('SessionStart', {});
+    await tick();
+    spawned[0]!.pty.emitExit(0);
+    await tick();
+    rmSync(dir, { recursive: true, force: true });
+    session.send('next');
+    expect(events.find((e) => e.type === 'error')).toBeUndefined();
+    expect(readFileSync(spawned[1]!.args.at(-1)!, 'utf8')).toContain('hooks');
+  });
+});
+
+describe('InteractiveSession turn boundaries', () => {
+  const finished = (events: ClaudeSessionEvent[]) => events.filter((e) => e.type === 'turn.finished');
+  const raws = (events: ClaudeSessionEvent[]) =>
+    events.flatMap((e) => (e.type === 'claude.event' ? [e.payload.raw as Record<string, unknown>] : []));
+
+  async function opened(overrides: Parameters<typeof harness>[0] = {}) {
+    const test = harness(overrides);
+    test.session.start('hello');
+    test.hook('SessionStart', {});
+    await tick(10);
+    test.hook('UserPromptSubmit', { prompt: 'hello' });
+    return test;
+  }
+  async function idle(overrides: Parameters<typeof harness>[0] = {}) {
+    const test = await opened(overrides);
+    test.hook('Stop', { last_assistant_message: '' });
+    await tick();
+    return test;
+  }
+
+  describe('an API error', () => {
+    it('listens for StopFailure, which runs instead of Stop', () => {
+      const { session, spawned } = harness();
+      session.start('hello');
+      const settings = JSON.parse(readFileSync(spawned[0]!.args.at(-1)!, 'utf8'));
+      expect(settings.hooks.StopFailure[0].hooks[0].command).toContain(`/hook/${SESSION}/StopFailure`);
+    });
+
+    it('ends the turn as an error, showing the error text', async () => {
+      const { session, events, hook } = await opened();
+      expect(session.busy).toBe(true);
+      hook('StopFailure', { error: 'rate_limit', last_assistant_message: 'API Error: Rate limit reached' });
+      await tick();
+      expect(session.busy).toBe(false);
+      expect(raws(events).at(-1)).toMatchObject({
+        type: 'result',
+        is_error: true,
+        result: 'API Error: Rate limit reached',
+      });
+      expect(finished(events)).toEqual([
+        {
+          type: 'turn.finished',
+          payload: { outcome: 'error', summary: 'API Error: Rate limit reached', durationMs: expect.any(Number) },
+        },
+      ]);
+    });
+
+    it('falls back on the error type when the CLI gives no text', async () => {
+      const { events, hook } = await opened();
+      hook('StopFailure', { error: 'server_error' });
+      await tick();
+      expect(raws(events).at(-1)).toMatchObject({ result: 'server_error' });
+    });
+
+    it('closes a shown terminal and stops waiting on a typed message', async () => {
+      const { session, spawned, events, hook } = await opened({ submitWaitMs: 20 });
+      hook('Notification', { notification_type: 'elicitation_dialog' });
+      hook('StopFailure', { error: 'overloaded' });
+      await tick(50);
+      expect(events.filter((e) => e.type === 'terminal.screen').at(-1)?.payload).toEqual({ open: false });
+      expect(spawned[0]!.pty.killed).toEqual([]);
+      expect(session.busy).toBe(false);
+    });
+
+    it('ignores one for a turn already stopped', async () => {
+      const { session, events, hook } = await opened();
+      session.interrupt();
+      hook('StopFailure', { error: 'unknown' });
+      await tick();
+      expect(finished(events)).toHaveLength(1);
+    });
+  });
+
+  describe('a turn the terminal starts by itself', () => {
+    it('counts as busy from its UserPromptSubmit, and ends on its own Stop', async () => {
+      const begun: string[] = [];
+      const { session, events, hook } = await idle({
+        changes: { begin: async () => void begun.push('begin'), finish: async () => [] },
+      });
+      expect(session.busy).toBe(false);
+      const inits = raws(events).filter((raw) => raw.subtype === 'init').length;
+
+      hook('UserPromptSubmit', { prompt: 'a queued follow-up' });
+      expect(session.busy).toBe(true);
+      expect(session.busyReason).toMatch(/^turn open/);
+      expect(begun).toHaveLength(2);
+      expect(raws(events).filter((raw) => raw.subtype === 'init')).toHaveLength(inits + 1);
+
+      hook('Stop', { last_assistant_message: '' });
+      await tick();
+      expect(session.busy).toBe(false);
+      expect(finished(events)).toHaveLength(2);
+    });
+
+    it('ends the turn before it when one starts while that one waits on its reply', async () => {
+      const { session, events, hook } = await opened({ stopWaitMs: 30 });
+      hook('Stop', { last_assistant_message: 'never written' });
+      hook('UserPromptSubmit', { prompt: 'queued' });
+      expect(finished(events)).toHaveLength(1);
+      expect(session.busy).toBe(true);
+      await tick(60);
+      expect(finished(events)).toHaveLength(1);
+      expect(session.busy).toBe(true);
+    });
+
+    it('leaves a turn that is already open as it is', async () => {
+      const begun: string[] = [];
+      const { events, hook } = await opened({
+        changes: { begin: async () => void begun.push('begin'), finish: async () => [] },
+      });
+      const before = events.length;
+      hook('UserPromptSubmit', { prompt: 'absorbed' });
+      expect(begun).toHaveLength(1);
+      expect(events.length).toBe(before);
+    });
+  });
+
+  describe('Stop during startup', () => {
+    it('does not type the prompt once the process is up', async () => {
+      const { session, spawned, hook } = harness();
+      session.start('hello');
+      session.interrupt();
+      hook('SessionStart', {});
+      await tick();
+      expect(spawned[0]!.pty.written).toEqual(['\x1b']);
+      expect(session.busy).toBe(false);
+    });
+
+    it('does not type a message waiting on a restart, and that exit is no error', async () => {
+      const { session, spawned, events } = await idle({ effort: 'high' });
+      session.setEffort('low');
+      session.send('next');
+      session.interrupt();
+      spawned[0]!.pty.emitExit(143);
+      await tick();
+      expect(spawned).toHaveLength(1);
+      expect(events.find((e) => e.type === 'error')).toBeUndefined();
+      expect(events.at(-1)).toMatchObject({ type: 'session.ended', payload: { reason: 'exit' } });
+    });
+  });
+
+  describe('a message left over from a process that went', () => {
+    it('is not typed with the next message after the process exits during startup', async () => {
+      const { session, spawned, hook } = harness();
+      session.start('old');
+      spawned[0]!.pty.emitExit(1);
+      session.send('new');
+      hook('SessionStart', { source: 'resume' });
+      await tick();
+      expect(spawned[1]!.pty.written.join('')).toBe('\x1b[200~new\x1b[201~\r');
+    });
+
+    it('is not typed with the next message after a start nobody answered', async () => {
+      const { session, spawned, events, hook } = harness({ startWaitMs: 5, terminalWaitMs: 5 });
+      session.start('old');
+      await until(() => events.at(-1)?.type === 'turn.finished');
+      spawned[0]!.pty.emitExit(143);
+      session.send('new');
+      hook('SessionStart', { source: 'resume' });
+      await tick();
+      expect(spawned[1]!.pty.written.join('')).toBe('\x1b[200~new\x1b[201~\r');
+    });
+
+    it('keeps a message sent during a restart, after the one that caused it', async () => {
+      const { session, spawned, hook } = await idle({ effort: 'high' });
+      session.setEffort('low');
+      session.send('first');
+      session.send('second');
+      expect(spawned[0]!.pty.written.join('')).not.toContain('second');
+      spawned[0]!.pty.emitExit(143);
+      hook('SessionStart', { source: 'resume' });
+      await tick();
+      expect(spawned[1]!.pty.written.join('')).toBe('\x1b[200~first\x1b[201~\r\x1b[200~second\x1b[201~\r');
+    });
+  });
+
+  describe('a follow-up while the terminal is asking', () => {
+    const paste = (text: string) => `\x1b[200~${text}\x1b[201~`;
+
+    it('is held, not typed into the dialog with an Enter, and typed once the prompt is taken', async () => {
+      const { session, spawned, hook } = await opened();
+      hook('Notification', { notification_type: 'elicitation_dialog' });
+      const written = spawned[0]!.pty.written.length;
+      session.send('more');
+      expect(spawned[0]!.pty.written.slice(written)).toEqual([]);
+      hook('UserPromptSubmit', { prompt: 'answered' });
+      expect(spawned[0]!.pty.written.slice(written)).toEqual([paste('more'), '\r']);
+    });
+
+    it('goes out as the next turn when the card closes with the turn', async () => {
+      const { session, spawned, hook } = await opened();
+      hook('Notification', { notification_type: 'elicitation_dialog' });
+      session.send('more');
+      hook('Stop', { last_assistant_message: '' });
+      await tick();
+      expect(spawned[0]!.pty.written.join('')).toContain(paste('more'));
+      expect(session.busy).toBe(true);
+    });
+
+    it('is dropped with Stop, like anything else waiting', async () => {
+      const { session, spawned, hook } = await opened();
+      hook('Notification', { notification_type: 'elicitation_dialog' });
+      session.send('more');
+      session.interrupt();
+      hook('UserPromptSubmit', { prompt: 'later' });
+      expect(spawned[0]!.pty.written.join('')).not.toContain('more');
+    });
+  });
+
+  describe('changing mode', () => {
+    const modeOf = ({ args }: { args: string[] }) => args[args.indexOf('--permission-mode') + 1];
+
+    it('moves the next message to a process in the new mode, so a tightened mode really applies', async () => {
+      const { session, spawned, events, hook } = await idle({ permissionMode: 'auto' });
+      session.setMode('manual');
+      expect(spawned[0]!.pty.killed).toEqual([]);
+      expect(events.find((e) => e.type === 'error')).toBeUndefined();
+
+      session.send('next');
+      expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
+      spawned[0]!.pty.emitExit(143);
+      expect(modeOf(spawned[1]!)).toBe('default');
+      expect(spawned[1]!.args).toContain('--resume');
+      hook('SessionStart', { source: 'resume' });
+      await until(() => spawned[1]!.pty.written.length > 0);
+      expect(spawned[1]!.pty.written.join('')).toBe('\x1b[200~next\x1b[201~\r');
+      expect(events.filter((e) => e.type === 'session.ended')).toEqual([]);
+    });
+
+    it('waits for a running turn, and says the old mode still holds until then', async () => {
+      const { session, spawned, events, hook } = await opened({ permissionMode: 'auto', stopWaitMs: 1 });
+      session.setMode('manual');
+      expect(events.at(-1)).toMatchObject({
+        type: 'error',
+        payload: { message: expect.stringContaining('next message') },
+      });
+      session.send('while it works');
+      expect(spawned[0]!.pty.killed).toEqual([]);
+      hook('Stop', { last_assistant_message: '' });
+      await tick(5);
+      session.send('after');
+      expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
+    });
+
+    it('leaves a process holding background work alone, and says so', async () => {
+      const { session, spawned, events, hook } = await opened({ permissionMode: 'auto', stopWaitMs: 1 });
+      hook('Stop', { last_assistant_message: '', background_tasks: [{ type: 'subagent', status: 'running' }] });
+      await tick(5);
+      session.setMode('manual');
+      expect(events.at(-1)?.type).toBe('error');
+      session.send('next');
+      expect(spawned[0]!.pty.killed).toEqual([]);
+    });
+
+    it('keeps a process for an unchanged mode', async () => {
+      const { session, spawned } = await idle({ permissionMode: 'auto' });
+      session.setMode('manual');
+      session.setMode('auto');
+      session.send('next');
+      expect(spawned[0]!.pty.killed).toEqual([]);
+    });
+  });
+
+  describe('what the screen can do', () => {
+    it('ignores the trust dialog’s words once the process is ready, so a Quest printing them presses nothing', async () => {
+      const { session, spawned, hook } = harness();
+      session.start('hello');
+      hook('SessionStart', {});
+      await tick();
+      const written = spawned[0]!.pty.written.length;
+      spawned[0]!.pty.emitData('Yes, I trust this folder\r\n');
+      await tick(700);
+      expect(spawned[0]!.pty.written.slice(written)).toEqual([]);
+    });
+
+    it('takes the end of a paste out of what it types, so text cannot press keys', async () => {
+      const { session, spawned, hook } = harness();
+      session.start('one\x1b[201~\r/exit\r\x1b[200~two');
+      hook('SessionStart', {});
+      await tick();
+      expect(spawned[0]!.pty.written).toEqual(['\x1b[200~one[201~\n/exit\n[200~two\x1b[201~', '\r']);
+    });
+
+    it('keeps newlines and tabs, and drops other control characters', async () => {
+      const { session, spawned, hook } = harness();
+      session.start('a\tb\nc\r\nd\x00\x07\x7f\u009be');
+      hook('SessionStart', {});
+      await tick();
+      expect(spawned[0]!.pty.written[0]).toBe('\x1b[200~a\tb\nc\nde\x1b[201~');
+    });
   });
 });
