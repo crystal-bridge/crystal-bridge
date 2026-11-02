@@ -10,9 +10,12 @@ into a chat, every reply, and every tool's input and output. Plan for it like yo
 | Hub database (`AIRSHIP_DB`, SQLite) | `events`: every event of every Quest (prompts, replies, tool calls and results, approvals); `sessions`: each Quest's id, Kingdom, folder, title and status; `push_subscriptions`: each browser's push endpoint and notification levels; `appearance`: each user's Kingdom icons and colours, and each Kingdom's Belt, including any prompt text typed into a slot; `relay`: bytes sent to browsers per Quest; `casts`: each job on a Summon, with its command and the end of its log | Until deleted by hand. Nothing expires. |
 | Hub backups (`AIRSHIP_BACKUP_DIR`) | A full copy of the database, taken nightly and before each schema migration | The newest `AIRSHIP_BACKUP_KEEP` (default 14). |
 | Off-box backup mirror (optional, `AIRSHIP_BACKUP_SSH`) | The same backup folder, mirrored | The same count as the hub's folder. |
-| Hub keys | `nodes.json` (only SHA-256 hashes of node tokens), `vapid.json` (Web Push keys) | Until replaced. |
-| Hub settings | `hub.json` (the hub's name) | Until changed. |
-| Each Kingdom | Crystal keeps nothing on disk beyond its config; unsent events wait in memory. Claude Code keeps its own session files under `~/.claude` | Claude Code's own retention setting. |
+| Hub keys | `nodes.json` (only SHA-256 hashes of node tokens), `access-tokens.json` (only SHA-256 hashes of login tokens, on token login), `vapid.json` (Web Push keys) | Until replaced. |
+| Hub settings | `hub.json`: the hub's name, and `kingdomUpdates`, which holds whether Kingdoms update on their own or wait for approval, and the version approved | Until changed. |
+| Each Kingdom: settings | `crystal.env`: its settings and node token, mode 0600. Unsent events wait in memory | Until `leave`. |
+| Each Kingdom: Casts | `~/.crystal-bridge/casts.json`: the record of its Casts, each with its command | Until the Cast's folder is removed, a week after it ends ([Summons](./SUMMONS.md#who-holds-what)). |
+| Each Kingdom: attached files | `<tmp>/crystal-bridge/attachments/<session>/`: files sent with a prompt, mode 0700 | Until the Quest is closed, or the OS cleans its temp folder. |
+| Each Kingdom: Claude Code | Its own session files under `~/.claude` | Claude Code's own retention setting. |
 | Each browser | Unsent drafts, the current view, notification levels, in local storage | Until cleared in the browser. |
 
 Web Push messages pass through each browser vendor's push service, encrypted end to end; at the Discreet and Off
@@ -20,8 +23,8 @@ levels they carry no Quest titles or text.
 
 ## Deleting data
 
-- **One Quest:** there's no delete button yet. With the hub stopped, delete that Quest's rows from `events` and
-  `sessions` (by its session id) with any SQLite tool, then start the hub. Its copies in the backups expire as the
+- **One Quest:** there's no delete button yet. With the hub stopped, delete that Quest's rows from `events`, `relay`
+  and `casts` (by the `session` column) and `sessions` (by `id`) with any SQLite tool, then start the hub. Its copies in the backups expire as the
   backups rotate.
 - **Everything:** stop the hub, then delete the database file (and its `-wal` and `-shm` files), the backup folder
   and the off-box mirror.

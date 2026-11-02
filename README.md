@@ -22,7 +22,7 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
   with today's totals, active sessions and recent folders.
 - **Side panels:** status, context and cost meters, files changed, background tasks, and an inventory of the skills,
   commands, MCP servers, plugins and agents a session can use, with eight quick actions pinned per machine.
-- **Split View:** two sessions side by side, even from different machines.
+- **Split the Party:** two sessions side by side, even from different machines (Split view in the Classic theme).
 - **Notifications:** desktop and Web Push, with a per-machine "Discreet" level that never shows session titles.
 - **Summons:** hand a long job to a machine you can reach by SSH, with nothing installed there, and stop spending tokens
   watching it. It survives dropped connections and restarts, and tells you when it ends.
@@ -121,7 +121,7 @@ pnpm dev
 
 `pnpm dev` checks your tools (`scripts/preflight.sh`), then starts all three processes on `127.0.0.1`. Open
 **http://localhost:5173**. With nothing else configured there's no login and no node tokens, so keep it on
-localhost.
+localhost. Leave `AIRSHIP_PORT` unset here too: the web dev server's proxy always points at the hub on 7700.
 <!-- #endregion one-machine -->
 
 ### Several machines
@@ -147,6 +147,7 @@ The guides are in [`docs/`](docs), and the same pages build into a site (`pnpm d
 - [Install the app](docs/INSTALL-APP.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Operations](docs/OPERATIONS.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md), and how to file a useful Issue
 - [Security model](docs/SECURITY-MODEL.md) and [what the hub stores](docs/HUB-DATA.md)
 - [Summons](docs/SUMMONS.md), long jobs on other machines
 - [Themes and art packs](docs/THEME.md)
