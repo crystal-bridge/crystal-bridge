@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -10,7 +10,7 @@ import { MAX_CLI_UPDATE_REASON, NodeError, type Effort } from '@crystal-bridge/p
 import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
-import { startNode, type CrystalNode, type SessionFactory, type SessionLike } from './node.js';
+import { startNode, surviveRejections, type CrystalNode, type SessionFactory, type SessionLike } from './node.js';
 
 // Captured before any test fakes the global timers, so test-side waits for real socket I/O
 // keep working even while a test is driving reconnection with `vi.useFakeTimers()`.
@@ -618,6 +618,177 @@ describe('startNode', () => {
     conn.socket.send(JSON.stringify({ type: 'session.close', session }));
     await waitForFrame(conn, (f) => f.type === 'session.closed');
     expect(existsSync(join(attachmentsDir, session))).toBe(false);
+  });
+
+  describe('a command that throws', () => {
+    const ended = { exitCode: null, signal: null, reason: 'error' };
+    const hello = async () => {
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (f) => f.kind === 'hello');
+      return conn;
+    };
+    const start = (conn: ConnRecorder, session: string) =>
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'p' }));
+    const failing = (session: string, method: 'start' | 'send') => {
+      sessionFactory = vi.fn((opts) => {
+        const fake = new FakeSession();
+        if (opts.session === session) {
+          fake[method].mockImplementation(() => {
+            throw new Error('spawn ENOTDIR');
+          });
+        }
+        created.push({ opts, fake });
+        return fake;
+      });
+      createNode({ sessionFactory });
+    };
+    /** Rejections the node leaves unhandled: Node's default for one is to end the process, with every Quest. */
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => void rejections.push(reason);
+    beforeEach(() => {
+      rejections.length = 0;
+      process.on('unhandledRejection', onRejection);
+    });
+    afterEach(() => void process.off('unhandledRejection', onRejection));
+
+    it('ends only that Quest when its start throws', async () => {
+      const bad = randomUUID();
+      const good = randomUUID();
+      failing(bad, 'start');
+      const conn = await hello();
+      start(conn, bad);
+      expect(await waitForFrame(conn, (f) => f.type === 'error' && f.session === bad)).toMatchObject({
+        payload: { message: expect.stringContaining('spawn ENOTDIR') },
+      });
+      expect(await waitForFrame(conn, (f) => f.type === 'session.ended' && f.session === bad)).toMatchObject({
+        payload: ended,
+      });
+      start(conn, good);
+      await waitForFrame(conn, (f) => f.type === 'session.started' && f.session === good);
+      expect(rejections).toEqual([]);
+      expect(harness.connections).toHaveLength(1);
+    });
+
+    it('says why when the session could not even be made, and no seq was used', async () => {
+      const session = randomUUID();
+      createNode({
+        sessionFactory: () => {
+          throw new Error('mkdir EACCES');
+        },
+      });
+      const conn = await hello();
+      start(conn, session);
+      expect(await waitForFrame(conn, (f) => f.kind === 'node-error')).toMatchObject({
+        session,
+        message: expect.stringContaining('mkdir EACCES'),
+      });
+      expect(rejections).toEqual([]);
+    });
+
+    it('ends the Quest when a follow-up throws, rather than only logging it', async () => {
+      const session = randomUUID();
+      failing(session, 'send');
+      const conn = await hello();
+      start(conn, session);
+      await waitForFrame(conn, (f) => f.type === 'session.started');
+      conn.socket.send(JSON.stringify({ type: 'session.send', session, text: 'next' }));
+      expect(await waitForFrame(conn, (f) => f.type === 'error')).toMatchObject({
+        payload: { message: expect.stringContaining('spawn ENOTDIR') },
+      });
+      expect(await waitForFrame(conn, (f) => f.type === 'session.ended')).toMatchObject({ payload: ended });
+    });
+
+    it('denies the Quest’s waiting approvals when it ends this way', async () => {
+      const session = randomUUID();
+      failing(session, 'send');
+      const conn = await hello();
+      start(conn, session);
+      await waitForFrame(conn, (f) => f.type === 'session.started');
+      const decision = node!.handlePermissionRequest({
+        session,
+        requestId: 'r1',
+        toolName: 'Bash',
+        input: {},
+      });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      conn.socket.send(JSON.stringify({ type: 'session.send', session, text: 'next' }));
+      expect(await decision).toMatchObject({ behavior: 'deny' });
+    });
+
+    it('only reports a failed Stop or mode change: the process is still running', async () => {
+      const session = randomUUID();
+      createNode();
+      const conn = await hello();
+      start(conn, session);
+      await waitForFrame(conn, (f) => f.type === 'session.started');
+      created[0]!.fake.interrupt.mockImplementation(() => {
+        throw new Error('write EPIPE');
+      });
+      conn.socket.send(JSON.stringify({ type: 'session.interrupt', session }));
+      expect(await waitForFrame(conn, (f) => f.type === 'error')).toMatchObject({
+        payload: { message: expect.stringContaining('write EPIPE') },
+      });
+      expect(conn.frames.some((f) => f.type === 'session.ended')).toBe(false);
+    });
+
+    it('still records the close when stopping the process throws', async () => {
+      const session = randomUUID();
+      createNode();
+      const conn = await hello();
+      start(conn, session);
+      await waitForFrame(conn, (f) => f.type === 'session.started');
+      created[0]!.fake.close.mockImplementation(() => {
+        throw new Error('kill failed');
+      });
+      conn.socket.send(JSON.stringify({ type: 'session.close', session }));
+      await waitForFrame(conn, (f) => f.type === 'error' && f.session === session);
+      await waitForFrame(conn, (f) => f.type === 'session.closed');
+      expect(rejections).toEqual([]);
+    });
+
+    it('still stops every other Quest on shutdown when one of them throws', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      createNode();
+      const conn = await hello();
+      start(conn, randomUUID());
+      start(conn, randomUUID());
+      await waitUntil(() => created.length === 2);
+      created[0]!.fake.close.mockImplementation(() => {
+        throw new Error('kill failed');
+      });
+      await node!.close();
+      expect(created[1]!.fake.close).toHaveBeenCalled();
+      errors.mockRestore();
+    });
+
+    // A read-only parent stops the removal; Windows folders don't take that mode.
+    it.skipIf(process.platform === 'win32')('still records the close when its files cannot be removed', async () => {
+      const attachmentsDir = mkdtempSync(join(tmpdir(), 'cb-node-attach-'));
+      const session = randomUUID();
+      createNode({ attachmentsDir });
+      const conn = await hello();
+      start(conn, session);
+      await waitForFrame(conn, (f) => f.type === 'session.started');
+      writeFileSync(join(attachmentsDir, session, 'kept'), '');
+      chmodSync(join(attachmentsDir, session), 0o500);
+      try {
+        conn.socket.send(JSON.stringify({ type: 'session.close', session }));
+        await waitForFrame(conn, (f) => f.type === 'error' && f.session === session);
+        await waitForFrame(conn, (f) => f.type === 'session.closed');
+        expect(rejections).toEqual([]);
+      } finally {
+        chmodSync(join(attachmentsDir, session), 0o700);
+      }
+    });
+  });
+
+  it('logs a stray rejection and carries on, instead of ending every Quest', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const target = new EventEmitter();
+    surviveRejections(target);
+    target.emit('unhandledRejection', new Error('stray'));
+    expect(errors).toHaveBeenCalledWith('[crystal] unhandled rejection', expect.any(Error));
+    errors.mockRestore();
   });
 
   it("reports files it couldn't save instead of sending the follow-up without them", async () => {

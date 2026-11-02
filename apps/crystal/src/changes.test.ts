@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { basename, join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gitChanges } from './changes.js';
 
 function repo() {
@@ -70,6 +70,41 @@ describe('gitChanges', () => {
     expect(await changes.finish()).toBeUndefined();
     await changes.begin();
     expect(await changes.finish()).toBeUndefined();
+  });
+
+  describe('a repository’s own config', () => {
+    /** Config that runs a command of the Quest's choosing, which writes down the token it can see. */
+    function fsmonitor(dir: string) {
+      const seen = join(dir, '..', `${basename(dir)}-seen`);
+      const script = join(dir, '.git', 'monitor.sh');
+      writeFileSync(script, `#!/bin/sh\nprintf '%s' "$CRYSTAL_TOKEN" >> '${seen}'\n`);
+      chmodSync(script, 0o755);
+      execFileSync('git', ['config', 'core.fsmonitor', script], { cwd: dir });
+      return seen;
+    }
+    afterEach(() => void vi.unstubAllEnvs());
+
+    it('shows git no token, and runs no fsmonitor', async () => {
+      vi.stubEnv('CRYSTAL_TOKEN', 'secret');
+      const { dir } = repo();
+      const seen = fsmonitor(dir);
+      const { CRYSTAL_TOKEN: _token, ...env } = process.env;
+      const changes = gitChanges(dir, { env });
+      await changes.begin();
+      writeFileSync(join(dir, 'new.ts'), '1');
+      expect(await changes.finish()).toEqual(['new.ts']);
+      expect(existsSync(seen)).toBe(false);
+    });
+
+    it('runs none however it was called', async () => {
+      vi.stubEnv('CRYSTAL_TOKEN', 'secret');
+      const { dir } = repo();
+      const seen = fsmonitor(dir);
+      const changes = gitChanges(dir);
+      await changes.begin();
+      await changes.finish();
+      expect(existsSync(seen)).toBe(false);
+    });
   });
 
   it('caps a very long list', async () => {

@@ -7,9 +7,9 @@ import { execFile } from 'node:child_process';
  */
 
 /**
- * Set per shell (not meaningful to pass on), Crystal's own secret, which no session may see, and the variables a
- * parent `claude` sets for its session (as when Crystal itself was started from one), which would make every
- * session think it's nested. A user's own CLAUDE_CODE_* settings pass through.
+ * Set per shell (not meaningful to pass on), Crystal's own secret, which stays out of the environment of everything
+ * Crystal starts (`takeToken`), and the variables a parent `claude` sets for its session (as when Crystal itself was
+ * started from one), which would make every session think it's nested. A user's own CLAUDE_CODE_* settings pass through.
  */
 export const DROP = new Set([
   'PWD',
@@ -29,6 +29,13 @@ export const DROP = new Set([
   'CLAUDE_CODE_MESSAGING_TOKEN',
   'CLAUDE_CODE_EXECPATH',
 ]);
+
+/** Reads the node token and removes it, so no child can inherit it however it was started. Empty counts as none. */
+export function takeToken(env: Record<string, string | undefined>): string | undefined {
+  const token = env.CRYSTAL_TOKEN || undefined;
+  delete env.CRYSTAL_TOKEN;
+  return token;
+}
 
 /** `env -0` output to a map. A noisy interactive shell may print before it; the first `=`-less chunk is skipped. */
 export function parseEnv0(output: string): Record<string, string> {

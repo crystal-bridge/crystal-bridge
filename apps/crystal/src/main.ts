@@ -3,8 +3,8 @@ import { compactWindow } from './compact.js';
 import { Engine, PermissionMode } from '@crystal-bridge/protocol';
 import { HookBus, InteractiveSession } from './interactive.js';
 import { createPermissionServer } from './permissions.js';
-import { startNode, type CrystalNode } from './node.js';
-import { mergeEnv, readLoginEnv } from './login-env.js';
+import { startNode, surviveRejections, type CrystalNode } from './node.js';
+import { mergeEnv, readLoginEnv, takeToken } from './login-env.js';
 import { listProjects } from './projects.js';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { ClaudeSession } from './session.js';
@@ -54,7 +54,7 @@ const ENGINES = (process.env.CRYSTAL_ENGINES ?? '')
   .split(',')
   .map((name) => Engine.safeParse(name.trim()))
   .flatMap((parsed) => (parsed.success ? [parsed.data] : []));
-const TOKEN = process.env.CRYSTAL_TOKEN || undefined;
+const TOKEN = takeToken(process.env);
 // Unset or unknown: manual. Deploys set auto, the preferred mode.
 const DEFAULT_MODE = PermissionMode.catch('manual').parse(process.env.CRYSTAL_DEFAULT_MODE ?? 'manual');
 // The CLI's own session transcripts (never its credential files): CLAUDE_CONFIG_DIR, else ~/.claude.
@@ -90,6 +90,7 @@ function releaseDeps(base: string, env: Record<string, string | undefined>): Rel
 }
 
 async function main(): Promise<void> {
+  surviveRejections(process);
   // What a terminal session would see, so tools from shell startup files (cargo, pyenv, ...) are on PATH.
   const shell = process.env.CRYSTAL_LOGIN_SHELL ?? process.env.SHELL ?? '/bin/bash';
   const sessionEnv = mergeEnv(process.env, await readLoginEnv(shell));
@@ -150,8 +151,8 @@ async function main(): Promise<void> {
     hubUrl: HUB_URL,
     node: NODE_ID,
     token: TOKEN,
-    worktrees: createWorktree,
-    removeWorktree,
+    worktrees: (cwd, session) => createWorktree(cwd, session, sessionEnv),
+    removeWorktree: (cwd) => removeWorktree(cwd, sessionEnv),
     projects: async () =>
       listProjects(
         PROJECT_ROOTS,
@@ -173,7 +174,7 @@ async function main(): Promise<void> {
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
-      const changes = gitChanges(opts.cwd);
+      const changes = gitChanges(opts.cwd, { env: sessionEnv });
       const compactWindowFor = (model: string | undefined) =>
         compactWindow({ env: sessionEnv, cwd: opts.cwd, configDir: CONFIG_DIR, model });
       return engine === 'interactive'

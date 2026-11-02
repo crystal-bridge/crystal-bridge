@@ -1,8 +1,17 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWorktree, removeWorktree } from './worktree.js';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -56,6 +65,34 @@ describe('createWorktree', () => {
     writeFileSync(join(made.path, 'wip.txt'), 'unsaved');
     expect(await removeWorktree(made.path)).toEqual({ removed: false, reason: 'it has uncommitted changes' });
     expect(existsSync(join(made.path, 'wip.txt'))).toBe(true);
+  });
+
+  describe('a repository’s own hooks and config', () => {
+    afterEach(() => void vi.unstubAllEnvs());
+    const script = (path: string, seen: string) => {
+      writeFileSync(path, `#!/bin/sh\nprintf '%s' "$CRYSTAL_TOKEN" >> '${seen}'\n`);
+      chmodSync(path, 0o755);
+    };
+
+    it('shows a hook that runs while making a worktree no token', async () => {
+      vi.stubEnv('CRYSTAL_TOKEN', 'secret');
+      const seen = join(dir, 'seen');
+      script(join(repo, '.git', 'hooks', 'post-checkout'), seen);
+      const { CRYSTAL_TOKEN: _token, ...env } = process.env;
+      await createWorktree(repo, '0123abcd-0000-4000-8000-000000000000', env);
+      expect(readFileSync(seen, 'utf8')).toBe('');
+    });
+
+    it('runs no fsmonitor while removing one, and shows it no token', async () => {
+      vi.stubEnv('CRYSTAL_TOKEN', 'secret');
+      const seen = join(dir, 'seen');
+      const made = await createWorktree(repo, '0123abcd-0000-4000-8000-000000000000');
+      script(join(repo, '.git', 'monitor.sh'), seen);
+      git(repo, 'config', 'core.fsmonitor', join(repo, '.git', 'monitor.sh'));
+      const { CRYSTAL_TOKEN: _token, ...env } = process.env;
+      await removeWorktree(made.path, env);
+      expect(existsSync(seen)).toBe(false);
+    });
   });
 
   it('never touches a folder that is not one of its own .worktrees checkouts', async () => {

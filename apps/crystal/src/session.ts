@@ -253,6 +253,8 @@ interface ChildRecord {
   idleTimer: NodeJS.Timeout | null;
   /** The idle timer fired and stdin was ended; the child is on its way out. */
   idleStopped: boolean;
+  /** Stop signalled it: about 0.6 s from exiting, and it reads no more of stdin. */
+  interrupted: boolean;
   /**
    * Work this process started that outlives a turn and hasn't ended: a Monitor, or a background command or agent. While
    * there's any, the process is never idle-stopped, because stopping it would kill the work.
@@ -337,8 +339,8 @@ export class ClaudeSession extends EventEmitter {
 
   /** Spawns the first `claude` process (with `--session-id`) and sends the opening prompt. */
   start(prompt: string): void {
-    const rec = this.spawnChild(false);
-    this.writeTo(rec, prompt);
+    const rec = this.launch(false);
+    if (rec) this.writeTo(rec, prompt);
   }
 
   /**
@@ -355,6 +357,11 @@ export class ClaudeSession extends EventEmitter {
         rec.idleStopped = true;
         this.endChild(rec);
       }
+      // What's written to a child going down after Stop is lost. Ending it too means a new process comes regardless.
+      if (rec.interrupted && !rec.idleStopped) {
+        rec.idleStopped = true;
+        this.endChild(rec);
+      }
       // An idle-stopped child has had its stdin ended; the text waits for the --resume process.
       if (rec.idleStopped || this.hasExited(rec)) {
         this.queued.push(text);
@@ -364,8 +371,8 @@ export class ClaudeSession extends EventEmitter {
       }
       return;
     }
-    const fresh = this.spawnChild(true);
-    this.writeTo(fresh, text);
+    const fresh = this.launch(true);
+    if (fresh) this.writeTo(fresh, text);
   }
 
   /**
@@ -396,7 +403,10 @@ export class ClaudeSession extends EventEmitter {
     if (!rec || rec.ended) return;
     // Windows has no signals: `kill` would end the process on the spot, without the result that closes the turn.
     if (this.platform === 'win32') this.control(rec, 'stop', { subtype: 'interrupt' });
-    else rec.proc.kill('SIGINT');
+    else {
+      rec.interrupted = true;
+      rec.proc.kill('SIGINT');
+    }
   }
 
   private stopWaiters: Array<() => void> = [];
@@ -465,6 +475,24 @@ export class ClaudeSession extends EventEmitter {
     rec.proc.stdin.write(userMessage(text));
   }
 
+  /**
+   * Starts a process, or ends this Quest's run if it can't: some failures throw from `spawn` itself (a file as the
+   * folder is ENOTDIR), and from the close callback that throw would end Crystal.
+   */
+  private launch(resume: boolean): ChildRecord | null {
+    try {
+      return this.spawnChild(resume);
+    } catch (error) {
+      this.queued = [];
+      this.turnOpen = false;
+      const reason = error instanceof Error ? error.message : String(error);
+      this.emitEvent({ type: 'error', payload: { message: `failed to start claude: ${reason}` } });
+      this.emitEvent({ type: 'session.ended', payload: { exitCode: null, signal: null, reason: 'error' } });
+      for (const resolve of this.stopWaiters.splice(0)) resolve();
+      return null;
+    }
+  }
+
   private spawnChild(resume: boolean): ChildRecord {
     let sessionArgs = resume ? ['--resume', this.session] : ['--session-id', this.session];
     if (!resume && this.forkFrom) sessionArgs = ['--resume', this.forkFrom, '--fork-session', ...sessionArgs];
@@ -486,6 +514,7 @@ export class ClaudeSession extends EventEmitter {
       closeTimer: null,
       idleTimer: null,
       idleStopped: false,
+      interrupted: false,
       background: new Map(),
     };
     this.current = rec;
@@ -633,8 +662,8 @@ export class ClaudeSession extends EventEmitter {
     const queued = this.queued;
     this.queued = [];
     if (queued.length === 0 || this.closed) return;
-    const fresh = this.spawnChild(true);
-    for (const text of queued) this.writeTo(fresh, text);
+    const fresh = this.launch(true);
+    if (fresh) for (const text of queued) this.writeTo(fresh, text);
   }
 
   private emitEvent(event: ClaudeSessionEvent): void {
