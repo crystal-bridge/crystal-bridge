@@ -31,6 +31,7 @@ import {
   type Summon,
   PROTOCOL_VERSION,
   isOlderVersion,
+  keepBeating,
   PushSubscriptionPut,
   Appearance,
   type Attention,
@@ -49,6 +50,8 @@ import type { SessionRow, Store } from './store.js';
 
 export interface BuildServerOptions {
   store: Store;
+  /** How often to check each Kingdom is still there. Default `HEARTBEAT_MS`. */
+  nodeHeartbeatMs?: number;
   /** Fastify's own request logging; off by default so tests stay quiet. */
   logger?: boolean;
   /**
@@ -836,6 +839,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       // Set when tokens are on: the only node id this connection may claim.
       const tokenNode = registry?.verify(bearer(request.headers.authorization));
       let helloNode: string | null = null;
+
+      keepBeating(socket, options.nodeHeartbeatMs, () =>
+        app.log.warn({ node: helloNode }, 'a Kingdom stopped answering, dropping it'),
+      );
 
       socket.on('message', (data) => {
         const parsed = parseFrame(data);

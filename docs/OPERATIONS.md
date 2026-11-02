@@ -397,6 +397,13 @@ Uptime Kuma on the hub host, with `network_mode: host` so it can reach `127.0.0.
 - the hub: status 200 with `"ok":true`
 - each Kingdom: the keyword `"<node-id>"` (for example `"node-a"`), which disappears when that node disconnects
 
+A link can die with no close reaching either end: a proxy in between restarts (Tailscale updating itself on the hub's
+host does this to `tailscale serve`), or a machine loses power. So each end pings the other every 30 seconds and drops a
+link that was silent for a whole interval. A Kingdom then reconnects by itself within about a minute, resending anything
+the hub never acknowledged, and a vanished Kingdom leaves the list as quickly. Each logs it: the Kingdom says "the hub
+stopped answering", the hub "a Kingdom stopped answering". Pings are WebSocket control frames, so either side can be
+updated first. A Quest keeps running through all of this.
+
 ## Publishing
 
 A public repository starts from a snapshot, not this history: `scripts/publish-snapshot.sh <out-dir> [ref]` writes the

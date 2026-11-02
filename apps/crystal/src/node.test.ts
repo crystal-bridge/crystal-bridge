@@ -1515,6 +1515,29 @@ describe('startNode', () => {
     expect(nodeError).toBeDefined();
   });
 
+  describe('a hub that goes quiet', () => {
+    it('drops a socket that stopped answering and dials again, though nothing ever closed it', async () => {
+      node = startNode({ hubUrl: harness.url, node: 'test', sessionFactory, permissionServer, heartbeatMs: 20 });
+      const conn0 = await nextConnection(harness, 0);
+      await waitForFrame(conn0, (f) => f.kind === 'hello');
+
+      // The far side stays connected and stops reading, which is what a restarted proxy leaves behind.
+      conn0.socket.pause();
+
+      const conn1 = await nextConnection(harness, 1);
+      expect(await waitForFrame(conn1, (f) => f.kind === 'hello')).toMatchObject({ node: 'test' });
+    });
+
+    it('keeps a socket that answers', async () => {
+      node = startNode({ hubUrl: harness.url, node: 'test', sessionFactory, permissionServer, heartbeatMs: 10 });
+      const conn0 = await nextConnection(harness, 0);
+      await waitForFrame(conn0, (f) => f.kind === 'hello');
+
+      await delay(150);
+      expect(harness.connections).toHaveLength(1);
+    });
+  });
+
   describe('reconnection', () => {
     beforeEach(() => {
       vi.useFakeTimers();

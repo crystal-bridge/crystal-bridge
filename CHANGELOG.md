@@ -3,6 +3,14 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
+## Unreleased
+
+### Fixed
+
+- A Kingdom notices a dead link to its hub within a minute and reconnects, and a hub stops listing a Kingdom that went
+  away without a word. A restart of a proxy in between, such as Tailscale updating itself on the hub's machine, used to
+  leave a quiet Kingdom offline until it next had something to send, which could be hours.
+
 ## 0.5.0
 
 ### Added

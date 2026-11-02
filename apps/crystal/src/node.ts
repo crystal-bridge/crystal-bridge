@@ -8,6 +8,7 @@ import {
   NodeHello,
   NodeSelfUpdate,
   PROTOCOL_VERSION,
+  keepBeating,
   type Attachment,
   type Effort,
   type Envelope,
@@ -118,6 +119,8 @@ export interface StartNodeOptions {
   summons?: { list(): Summon[]; casts(): Cast[] };
   /** How often to rescan `transcripts`; the hub only hears about a change. Default 60 s. */
   scanMs?: number;
+  /** How often to check the hub is still there. Default `HEARTBEAT_MS`. */
+  heartbeatMs?: number;
 }
 
 /** Where `startNode` finds sessions run outside the bridge (`transcripts.ts` in production). */
@@ -727,6 +730,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     ws.on('open', () => {
       log('connected to the hub');
       backoffMs = INITIAL_BACKOFF_MS;
+      keepBeating(ws, options.heartbeatMs, () => log('the hub stopped answering, reconnecting'));
       wsSend(
         NodeHello.parse({
           kind: 'hello',
