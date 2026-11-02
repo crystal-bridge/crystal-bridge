@@ -779,3 +779,20 @@ describe('Inventory descriptions', () => {
     expect(buildView([line])).toEqual([]);
   });
 });
+
+describe('turnRunning and the interactive engine-s listing', () => {
+  const event = (seq: number, type: Envelope['type'], payload: unknown) =>
+    ({ node: 'n', session: '11111111-1111-4111-8111-111111111111', seq, ts: 0, type, payload }) as Envelope;
+  const init = (seq: number, extra = {}) =>
+    event(seq, 'claude.event', { engine: 'claude', raw: { type: 'system', subtype: 'init', ...extra } });
+
+  it('does not take an init that only refreshes the listing for a new turn', () => {
+    expect(turnRunning([event(0, 'turn.finished', { outcome: 'success' }), init(1, { listingOnly: true })])).toBe(
+      false,
+    );
+  });
+
+  it('still takes a plain init for a new turn', () => {
+    expect(turnRunning([event(0, 'turn.finished', { outcome: 'success' }), init(1)])).toBe(true);
+  });
+});

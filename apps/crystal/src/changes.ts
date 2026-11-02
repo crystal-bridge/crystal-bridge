@@ -74,8 +74,10 @@ export function gitChanges(
       await began;
     },
     async finish() {
-      const start = await began;
+      // Taken at once: the next turn's `begin` can run while this one waits.
+      const beginning = began;
       began = undefined;
+      const start = await beginning;
       if (!start) return undefined;
       try {
         const changed = await changedSince(cwd, env, start.head);

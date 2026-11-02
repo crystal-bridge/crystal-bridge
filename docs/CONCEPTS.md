@@ -35,7 +35,8 @@ gain pointless levels as you use them.
 
 ## Keyboard shortcuts
 
-On a desktop, these work anywhere in the app, including while you type in a prompt box. Press `Alt+/` (`⌥/` on a Mac) to
+On a desktop, these work anywhere in the app, including with a prompt box focused. On a Mac, Option types letters, so the
+keys wait until a box with text in it loses focus or is empty. Press `Alt+/` (`⌥/` on a Mac) to
 see them in the app. On a Mac, Option stands in for Alt.
 
 | Keys                          | What they do                                         |

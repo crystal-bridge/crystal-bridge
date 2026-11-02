@@ -79,7 +79,7 @@ import { MODES } from './modes.js';
 import { isLooking, notificationFor } from './notify.js';
 import { disablePush, enablePush, openTarget, prefsForPush, pushSupported, syncPush } from './push.js';
 import { applyOrder, moveTo } from './tabOrder.js';
-import { type Hotkey, hotkeyFor, keyHint, needsYouNext, pickerOpen, step } from './hotkeys.js';
+import { type Hotkey, hotkeyFor, keyHint, needsYouNext, pickerOpen, step, typingOption } from './hotkeys.js';
 import { loadPutAway, projectName, putAway as withPutAway, questTabs, savePutAway } from './quests.js';
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
@@ -1000,7 +1000,7 @@ export function App({ hub }: { hub: HubClient }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const key = hotkeyFor(event);
-      if (!key || pickerOpen()) return;
+      if (!key || pickerOpen() || typingOption(event.target)) return;
       event.preventDefault();
       runHotkey.current(key);
     };

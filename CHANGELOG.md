@@ -42,6 +42,8 @@ one entry.
 
 ### Fixed
 
+- A turn starting just as the last one finished kept its list of changed files, a process coming up between interactive
+  turns no longer leaves a Quest showing as running, and New Quest says so when an attached file can't be read.
 - Split View ends when one of its Quests is closed, from any tab or device: the other Quest takes the full view, moving to
   its Kingdom if that's a different one. A closed Quest in a saved pair no longer comes back after a reload.
 - One Quest failing to start, or a command failing, no longer takes its Kingdom down with every other Quest.

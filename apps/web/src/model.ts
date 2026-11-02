@@ -530,9 +530,12 @@ export function sessionMode(envelopes: readonly Envelope[]): string | undefined 
   return undefined;
 }
 
-/** Whether a line from the engine opens a turn: every turn starts with its own system/init, whoever began it. */
+/**
+ * Whether a line from the engine opens a turn: every turn starts with its own system/init, whoever began it. The
+ * interactive engine also sends one when its listing changes, marked `listingOnly`, which can come between turns.
+ */
 function opensTurn(raw: unknown): boolean {
-  return isObj(raw) && raw.type === 'system' && raw.subtype === 'init';
+  return isObj(raw) && raw.type === 'system' && raw.subtype === 'init' && raw.listingOnly !== true;
 }
 
 /**

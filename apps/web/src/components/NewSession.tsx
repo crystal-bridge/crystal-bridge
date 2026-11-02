@@ -66,6 +66,7 @@ export function NewSession({
 
   // Files being read for a start that hasn't gone out yet.
   const [reading, setReading] = useState(false);
+  const [unreadable, setUnreadable] = useState(false);
   const busy = starting || reading;
   const ready = connected && cwd.trim() !== '' && prompt.trim() !== '' && !busy;
 
@@ -87,8 +88,10 @@ export function NewSession({
       return;
     }
     setReading(true);
+    setUnreadable(false);
     void toAttachments(files)
       .then((attachments) => onStart({ ...start, attachments }))
+      .catch(() => setUnreadable(true))
       .finally(() => setReading(false));
   }
 
@@ -181,6 +184,11 @@ export function NewSession({
           </span>
         </span>
       </label>
+      {unreadable && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {`A file couldn't be read, so nothing started. Take it off and try again; your ${w('quest')} is still here.`}
+        </p>
+      )}
     </form>
   );
 }

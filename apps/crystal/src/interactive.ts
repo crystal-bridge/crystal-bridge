@@ -637,7 +637,7 @@ export class InteractiveSession extends EventEmitter {
       // marks every turn; this is the same line, for the same reason.
       if (!this.turnOpen) {
         this.openTurn();
-        this.emitInit();
+        this.emitInit(true);
       }
       this.taken();
       return;
@@ -738,12 +738,17 @@ export class InteractiveSession extends EventEmitter {
     }
   }
 
-  /** The init line the client reads the Inventory from, sent again only when the listing changed. */
-  private emitInit(): void {
+  /**
+   * The init line the client reads the Inventory from, sent again only when the listing changed or a turn opens. The
+   * client takes an init for a new turn, so one that isn't says so: a process can come up, or a listing arrive, between
+   * turns, and a Quest would then show as running with nothing to stop.
+   */
+  private emitInit(opensTurn = false): void {
     if (!this.initBase) return;
     const fields = listingFields(this.listing);
     this.lastListing = JSON.stringify(fields);
-    this.emitEvent({ type: 'claude.event', payload: { engine: 'claude', raw: { ...this.initBase, ...fields } } });
+    const raw = { ...this.initBase, ...fields, ...(opensTurn ? {} : { listingOnly: true }) };
+    this.emitEvent({ type: 'claude.event', payload: { engine: 'claude', raw } });
     this.opts.descriptions?.(fields, (payload) => this.emitEvent({ type: 'claude.event', payload }));
   }
 

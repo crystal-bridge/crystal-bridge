@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOTKEYS, hotkeyFor, hotkeyText, needsYouNext, step } from './hotkeys.js';
+import { HOTKEYS, hotkeyFor, hotkeyText, needsYouNext, step, typingOption } from './hotkeys.js';
 
 const press = (code: string, extra: Partial<KeyboardEvent> = {}) =>
   new KeyboardEvent('keydown', { code, altKey: true, ...extra });
@@ -46,6 +46,26 @@ describe('hotkeyFor', () => {
     const altGr = press('KeyJ');
     altGr.getModifierState = (key) => key === 'AltGraph';
     expect(hotkeyFor(altGr)).toBeUndefined();
+  });
+});
+
+describe('typingOption', () => {
+  const box = (value: string) => {
+    const element = document.createElement('textarea');
+    element.value = value;
+    return element;
+  };
+
+  it('leaves Option to a Mac user with text in a box, where it types letters', () => {
+    expect(typingOption(box('Zaczę'), true)).toBe(true);
+    expect(typingOption(Object.assign(document.createElement('input'), { value: 'x' }), true)).toBe(true);
+  });
+
+  it('keeps the keys in an empty box, away from a box, and off a Mac', () => {
+    expect(typingOption(box(''), true)).toBe(false);
+    expect(typingOption(document.body, true)).toBe(false);
+    expect(typingOption(null, true)).toBe(false);
+    expect(typingOption(box('Some text'), false)).toBe(false);
   });
 });
 
