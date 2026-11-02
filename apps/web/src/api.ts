@@ -28,6 +28,20 @@ export function checkLogin(): void {
     });
 }
 
+/** What a Quest could use in a folder (a blank one is the Kingdom's home), asked of the Kingdom itself. */
+export async function fetchInventory(
+  node: string,
+  cwd: string,
+  signal: AbortSignal,
+): Promise<{ engine: string; raw: unknown }[]> {
+  const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+  const response = await fetch(`/api/nodes/${encodeURIComponent(node)}/inventory${query}`, { signal });
+  if (!response.ok) throw await refusal(response);
+  const { events } = (await response.json()) as { events?: { engine: string; raw: unknown }[] };
+  if (!Array.isArray(events)) throw new Error('The hub sent no list');
+  return events;
+}
+
 export async function createJoinCode(node: string): Promise<{ code: string; expiresAt: number }> {
   const response = await fetch('/api/join-codes', {
     method: 'POST',

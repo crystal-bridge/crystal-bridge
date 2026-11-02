@@ -30,6 +30,8 @@ import { Icon } from '../theme/icons.js';
 import { Tip } from './Tip.js';
 import { hint, w } from '../theme/words.js';
 import { Inventory } from './Inventory.js';
+import { ICON_BUTTON, PanelToggles } from './PanelToggles.js';
+import { SlashMenu, useSlashMenu } from './SlashMenu.js';
 import { MODES } from '../modes.js';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel.js';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
@@ -169,9 +171,6 @@ const NO_HELPERS: ReadonlyMap<string, string> = new Map();
 
 /** How long a sent answer keeps its card's buttons disabled with no `permission.resolved`. */
 const SENDING_TIMEOUT_MS = 10_000;
-/** A toolbar button that shows only its icon; its name is the aria-label and the tooltip. */
-const ICON_BUTTON =
-  'inline-flex items-center rounded p-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200';
 
 function Item({
   item,
@@ -428,14 +427,7 @@ export function SessionView({
   const [confirmClose, setConfirmClose] = useState(false);
   // While the draft is just "/name", suggest the session's slash commands and skills.
   const commands = useMemo(() => slashCommands(envelopes), [envelopes]);
-  const [highlight, setHighlight] = useState(0);
-  const slashQuery = /^\/(\S*)$/.exec(draft)?.[1]?.toLowerCase();
-  const suggestions =
-    slashQuery === undefined ? [] : commands.filter((c) => c.toLowerCase().includes(slashQuery)).slice(0, 8);
-  function complete(command: string) {
-    setDraft(`/${command} `);
-    setHighlight(0);
-  }
+  const slash = useSlashMenu(draft, commands, setDraft);
   const [removeTree, setRemoveTree] = useState(true);
   const [forkDraft, setForkDraft] = useState<string | null>(null);
 
@@ -644,9 +636,9 @@ export function SessionView({
     return value;
   }
   // Shared with Split View's panels, so the toggles act on whichever is drawn.
-  const [details, toggleDetails] = usePanel('details');
+  const [details] = usePanel('details');
   const inventory = useMemo(() => buildInventory(deferred), [deferred]);
-  const [inventoryOpen, toggleInventory] = usePanel('inventory');
+  const [inventoryOpen] = usePanel('inventory');
   // In a split only the main pane carries the panel toggles (and the way out); alone, every Quest does.
   const panelToggles = !compact || onExitSplit !== undefined;
 
@@ -715,32 +707,7 @@ export function SessionView({
                   </button>
                 </Tip>
               )}
-              {panelToggles && (
-                <>
-                  <Tip text={hint('inventory')} align="end" className="hidden lg:inline-flex">
-                    <button
-                      type="button"
-                      aria-label={w('inventory')}
-                      onClick={toggleInventory}
-                      aria-pressed={inventoryOpen}
-                      className={ICON_BUTTON}
-                    >
-                      <Icon name="inventory" />
-                    </button>
-                  </Tip>
-                  <Tip text="Details: the side panel" align="end" className="hidden lg:inline-flex">
-                    <button
-                      type="button"
-                      aria-label="Details"
-                      onClick={toggleDetails}
-                      aria-pressed={details}
-                      className={ICON_BUTTON}
-                    >
-                      <Icon name="details" />
-                    </button>
-                  </Tip>
-                </>
-              )}
+              {panelToggles && <PanelToggles />}
               {!closed && (
                 <Tip text="Close this Quest: its history stays, it takes no more follow-ups" align="end">
                   <button
@@ -867,26 +834,7 @@ export function SessionView({
                 </button>
               )}
             </div>
-            {suggestions.length > 0 && (
-              <ul
-                role="listbox"
-                aria-label="Slash commands"
-                className="mx-3 mb-1 max-h-60 overflow-y-auto rounded border md:mx-auto md:w-full md:max-w-3xl border-neutral-300 bg-white text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
-              >
-                {suggestions.map((command, i) => (
-                  <li
-                    key={command}
-                    role="option"
-                    aria-selected={i === highlight}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => complete(command)}
-                    className={`cursor-pointer px-2 py-1 font-mono ${i === highlight ? 'bg-blue-600 text-white' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
-                  >
-                    /{command}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <SlashMenu menu={slash} />
             <form onSubmit={send} className="border-t border-neutral-300 p-3 dark:border-neutral-700">
               {shell && (
                 <div
@@ -919,24 +867,12 @@ export function SessionView({
                   files={closed ? undefined : { list: files, onChange: setFiles }}
                   onChange={(text) => {
                     setDraft(text);
-                    setHighlight(0);
+                    slash.reset();
                   }}
                   onKeyDown={(e) => {
                     // Enter here confirms an input method's text. Safari has already ended it, and only says so by 229.
                     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                    if (suggestions.length > 0) {
-                      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        const step = e.key === 'ArrowDown' ? 1 : -1;
-                        setHighlight((h) => (h + step + suggestions.length) % suggestions.length);
-                        return;
-                      }
-                      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-                        e.preventDefault();
-                        complete(suggestions[Math.min(highlight, suggestions.length - 1)]!);
-                        return;
-                      }
-                    }
+                    if (slash.onKey(e)) return;
                     if (e.key === 'Enter' && !e.shiftKey) send(e);
                   }}
                   controls={

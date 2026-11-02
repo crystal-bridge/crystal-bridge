@@ -44,6 +44,7 @@ import {
   type HeroState,
   LeaderContext,
   leaderFor,
+  VARIED,
   type QuestOutcome,
   questState,
   useHeroManifest,
@@ -71,7 +72,7 @@ import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { HotkeyList } from './components/HotkeyList.js';
 import { SplitPicker } from './components/SplitPicker.js';
-import { checkLogin, createJoinCode, refusal, saveHubName } from './api.js';
+import { checkLogin, createJoinCode, fetchInventory, refusal, saveHubName } from './api.js';
 import { loadDraft, saveDraft } from './drafts.js';
 import { type KingdomPrefs, listKingdoms, loadPrefs, notifyLevel, pickActive, savePrefs } from './kingdoms.js';
 import { sessionMode } from './model.js';
@@ -1315,19 +1316,28 @@ export function App({ hub }: { hub: HubClient }) {
                 questView(shown, envelopes, progress, true)
               )
             ) : view === 'new' ? (
-              <div className="h-full overflow-y-auto">
-                <NewSession
-                  key={`${kingdom.id}:${newCwd ?? ''}`}
-                  node={kingdom.id}
-                  name={kingdom.name}
-                  connected={kingdom.connected}
-                  projects={kingdomProjects}
-                  engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
-                  initialCwd={newCwd}
-                  starting={startingOn.includes(kingdom.id)}
-                  onStart={start}
-                />
-              </div>
+              <NewSession
+                key={`${kingdom.id}:${newCwd ?? ''}`}
+                node={kingdom.id}
+                name={kingdom.name}
+                connected={kingdom.connected}
+                projects={kingdomProjects}
+                engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
+                initialCwd={newCwd}
+                starting={startingOn.includes(kingdom.id)}
+                belt={beltFor(appearance, kingdom.id)}
+                onBeltChange={(belt) => changeAppearance((prev) => withBelt(prev, kingdom.id, belt))}
+                listInventory={(cwd, signal) => fetchInventory(kingdom.id, cwd, signal)}
+                manifest={
+                  heroManifest
+                    ? withLeader(heroManifest, leaderFor(heroManifest, kingdom.id, looks[kingdom.id]?.leader))
+                    : undefined
+                }
+                variedLeader={looks[kingdom.id]?.leader === VARIED}
+                plan={kingdomUsage[0]?.windows}
+                planAt={kingdomUsage[0]?.ts}
+                onStart={start}
+              />
             ) : (
               <Castle
                 kingdom={kingdom}

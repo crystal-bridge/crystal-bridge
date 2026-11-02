@@ -238,6 +238,8 @@ export const NodeHello = z.object({
   cliUpdate: z.boolean().optional(),
   /** This node installs releases itself and wants the version to run (`HubKingdomVersion`); older nodes leave it out. */
   selfUpdate: z.boolean().optional(),
+  /** This node lists what a Quest could use before one starts (`HubListInventory`); older nodes leave it out. */
+  inventory: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
@@ -282,6 +284,25 @@ export type NodeCli = z.infer<typeof NodeCli>;
  */
 export const HubCliUpdate = z.object({ kind: z.literal('cli-update'), requestId: z.uuid() });
 export type HubCliUpdate = z.infer<typeof HubCliUpdate>;
+
+/** The longest folder a `list-inventory` frame names, in characters. */
+export const MAX_LIST_CWD = 4096;
+
+/** Hub -> node: what could a Quest use in this folder? No folder means the node's home. Nothing is started for it. */
+export const HubListInventory = z.object({
+  kind: z.literal('list-inventory'),
+  requestId: z.uuid(),
+  cwd: z.string().min(1).max(MAX_LIST_CWD).optional(),
+});
+export type HubListInventory = z.infer<typeof HubListInventory>;
+
+/** Node -> hub: a `list-inventory` answered, with engine events for the client to read; no `events` means it couldn't. */
+export const NodeInventoryListed = z.object({
+  kind: z.literal('inventory-listed'),
+  requestId: z.uuid(),
+  events: z.array(z.object({ engine: z.string(), raw: z.unknown() })).optional(),
+});
+export type NodeInventoryListed = z.infer<typeof NodeInventoryListed>;
 
 /** The longest `reason` a `cli-updated` frame carries, in characters. */
 export const MAX_CLI_UPDATE_REASON = 1000;

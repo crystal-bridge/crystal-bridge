@@ -270,10 +270,25 @@ export interface SessionPanelProps {
   planAt?: number;
   /** The current time (tests); otherwise each timer keeps its own clock. */
   now?: number;
+  /** On New Quest: nothing has run, so what a turn would report says so rather than showing zeros. */
+  preStart?: boolean;
+  /** In place of the Party, when there's no leader to draw yet. */
+  partyNote?: string;
 }
 
 /** The session's side panel: where it runs, how full its context is, what it cost, what it changed and started. */
-export function SessionPanel({ info, kingdom, party, relayedBytes, activity, plan, planAt, now }: SessionPanelProps) {
+export function SessionPanel({
+  info,
+  kingdom,
+  party,
+  relayedBytes,
+  activity,
+  plan,
+  planAt,
+  now,
+  preStart = false,
+  partyNote,
+}: SessionPanelProps) {
   const open = useContext(FileOpenContext);
   const room = contextRoom(info.context);
   const pct = info.context && room ? Math.round((info.context.used / room) * 100) : undefined;
@@ -283,6 +298,7 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
   const clock = now ?? Date.now();
   const { hp, stamina } = planBars(plan, clock);
   const { stats } = info;
+  const later = `Fills in once the ${w('quest')} starts`;
 
   return (
     <div className="space-y-3 text-sm">
@@ -298,43 +314,58 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
         )
       )}
 
+      {partyNote && (
+        <Section title={w('party')} tooltip={hint('party')} plate="party">
+          <p className="text-xs text-neutral-500">{partyNote}</p>
+        </Section>
+      )}
+
       <Section title={w('stats')} tooltip={hint('stats')} plate="stats">
         {hp && <PlanMeter concept="hp" bar={hp} label="Plan left" now={clock} asOf={planAt} />}
         {stamina && <PlanMeter concept="stamina" bar={stamina} label="Longer plan limit left" now={clock} />}
-        <Stat concept="mp">
-          {info.context ? (
-            <>
-              {left !== undefined && <span className="font-medium">{left}% left · </span>}
-              {room ? `${tokens(info.context.used)} of ${tokens(room)}` : `${tokens(info.context.used)} used`}
-              {info.context.limit !== undefined &&
-                info.context.window !== undefined &&
-                ` · window ${tokens(info.context.window)}`}
-            </>
-          ) : (
-            <span className="text-neutral-500">not measured yet</span>
-          )}
-        </Stat>
-        {left !== undefined && <Meter label="Context left" left={left} />}
-        <Stat concept="gold">
-          <Gold usd={info.costUsd} />
-        </Stat>
-        <Stat concept="tokens">
-          {tokens(stats.tokens.input)} in · {tokens(stats.tokens.output)} out
-          <span className="block text-neutral-500">
-            {tokens(stats.tokens.cacheRead)} cache read · {tokens(stats.tokens.cacheWrite)} written
-          </span>
-        </Stat>
-        <Stat concept="turns">{stats.turns}</Stat>
-        <Stat concept="workingTime">{duration(stats.workingMs)}</Stat>
-        {relayedBytes !== undefined && <Stat concept="relayed">{bytes(relayedBytes)}</Stat>}
+        {preStart && (
+          <p className="py-0.5 text-xs text-neutral-500">{`The rest fills in once the ${w('quest')} starts`}</p>
+        )}
+        {!preStart && (
+          <>
+            <Stat concept="mp">
+              {info.context ? (
+                <>
+                  {left !== undefined && <span className="font-medium">{left}% left · </span>}
+                  {room ? `${tokens(info.context.used)} of ${tokens(room)}` : `${tokens(info.context.used)} used`}
+                  {info.context.limit !== undefined &&
+                    info.context.window !== undefined &&
+                    ` · window ${tokens(info.context.window)}`}
+                </>
+              ) : (
+                <span className="text-neutral-500">not measured yet</span>
+              )}
+            </Stat>
+            {left !== undefined && <Meter label="Context left" left={left} />}
+            <Stat concept="gold">
+              <Gold usd={info.costUsd} />
+            </Stat>
+            <Stat concept="tokens">
+              {tokens(stats.tokens.input)} in · {tokens(stats.tokens.output)} out
+              <span className="block text-neutral-500">
+                {tokens(stats.tokens.cacheRead)} cache read · {tokens(stats.tokens.cacheWrite)} written
+              </span>
+            </Stat>
+            <Stat concept="turns">{stats.turns}</Stat>
+            <Stat concept="workingTime">{duration(stats.workingMs)}</Stat>
+            {relayedBytes !== undefined && <Stat concept="relayed">{bytes(relayedBytes)}</Stat>}
+          </>
+        )}
       </Section>
 
       <Section title={w('expedition')} tooltip={hint('expedition')} plate="expedition">
         <Row label={w('kingdom')}>{kingdom}</Row>
-        {info.cwd && (
+        {info.cwd ? (
           <Row label="Project">
             <span className="font-mono">{info.cwd}</span>
           </Row>
+        ) : (
+          preStart && <Row label="Project">Not picked yet</Row>
         )}
         {info.branch && (
           <Row label="Branch">
@@ -348,7 +379,7 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
 
       <Section title="Outputs">
         {info.outputs.length === 0 ? (
-          <p className="text-xs text-neutral-500">No files changed yet</p>
+          <p className="text-xs text-neutral-500">{preStart ? later : 'No files changed yet'}</p>
         ) : (
           <ul className="space-y-1">
             {info.outputs.map((file) => (
@@ -376,7 +407,7 @@ export function SessionPanel({ info, kingdom, party, relayedBytes, activity, pla
 
       <Section title="Background tasks">
         {info.tasks.length === 0 ? (
-          <p className="text-xs text-neutral-500">None</p>
+          <p className="text-xs text-neutral-500">{preStart ? later : 'None'}</p>
         ) : (
           <ul className="space-y-1">
             {info.tasks.map((task) => (

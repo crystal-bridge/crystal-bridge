@@ -1,5 +1,6 @@
 import { gitChanges } from './changes.js';
 import { descriptionReporter } from './descriptions.js';
+import { cliInventory } from './listing.js';
 import { compactWindow } from './compact.js';
 import { Engine, PermissionMode } from '@crystal-bridge/protocol';
 import { HookBus, InteractiveSession } from './interactive.js';
@@ -95,6 +96,7 @@ async function main(): Promise<void> {
   // What a terminal session would see, so tools from shell startup files (cargo, pyenv, ...) are on PATH.
   const shell = process.env.CRYSTAL_LOGIN_SHELL ?? process.env.SHELL ?? '/bin/bash';
   const sessionEnv = mergeEnv(process.env, await readLoginEnv(shell));
+  const listInventory = cliInventory({ bin: CLAUDE_BIN, env: sessionEnv });
   console.log(`[crystal] sessions get the ${shell} login environment (${Object.keys(sessionEnv).length} variables)`);
 
   // `node` is read inside `onRequest` only once a tool call asks for a decision, which is
@@ -170,6 +172,7 @@ async function main(): Promise<void> {
     },
     cliVersion: cachedCliVersion({ exec: execCliVersion(CLAUDE_BIN, sessionEnv) }),
     updateCli: execCliUpdate(CLAUDE_BIN, sessionEnv),
+    listInventory: (cwd) => listInventory(cwd ?? homedir()),
     ...(updater ? { onKingdomVersion: updater.target } : {}),
     summons,
     defaultMode: DEFAULT_MODE,

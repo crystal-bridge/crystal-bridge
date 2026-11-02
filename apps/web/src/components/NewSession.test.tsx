@@ -1,5 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { HeroManifest } from '../heroes.js';
 import { NewSession } from './NewSession.js';
 
 describe('NewSession', () => {
@@ -78,8 +80,7 @@ describe('NewSession', () => {
 
   it('labels its fields in the theme style', () => {
     render(<NewSession node="mac" name="mac" connected projects={[]} onStart={vi.fn()} />);
-    expect(screen.getByText('Project', { selector: 'span' }).className).toContain('cb-label');
-    expect(screen.getByText('Prompt', { selector: 'span' }).className).toContain('cb-label');
+    expect(screen.getByText('Project', { selector: 'span.cb-label' })).toBeTruthy();
   });
 
   it('keeps the prompt, folder and files after Start: the Quest may yet not start', async () => {
@@ -100,7 +101,7 @@ describe('NewSession', () => {
   it('says it is starting, and takes no second start meanwhile', () => {
     const onStart = vi.fn();
     render(<NewSession node="mac" name="mac" connected projects={[]} initialCwd="/w" starting onStart={onStart} />);
-    expect(screen.getByRole('status').textContent).toMatch(/Setting out|Starting/);
+    expect(screen.getByText(/Setting out|Starting/).getAttribute('role')).toBe('status');
     const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement;
     expect(box.disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(true);
@@ -215,5 +216,115 @@ describe('NewSession', () => {
     fireEvent.click(screen.getByLabelText(/Separate worktree/));
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ worktree: true }));
+  });
+
+  describe('laid out like a running Quest', () => {
+    const LISTED = [
+      {
+        engine: 'claude',
+        raw: {
+          type: 'system',
+          subtype: 'init',
+          skills: ['deploy'],
+          slash_commands: ['deploy', 'compact'],
+          agents: ['claude', 'reviewer'],
+        },
+      },
+      { engine: 'claude', raw: { type: 'system', subtype: 'descriptions', descriptions: { deploy: 'Ship it' } } },
+    ];
+    const open = (props: Partial<ComponentProps<typeof NewSession>> = {}) => {
+      const listInventory = vi.fn(async () => LISTED);
+      render(
+        <NewSession
+          node="mac"
+          name="mac"
+          connected
+          projects={[]}
+          onStart={vi.fn()}
+          belt={[{ text: '/deploy ', label: 'deploy', now: true }, ...Array.from({ length: 7 }, () => null)]}
+          onBeltChange={vi.fn()}
+          listInventory={listInventory}
+          listDelayMs={0}
+          {...props}
+        />,
+      );
+      return { listInventory };
+    };
+    const prompt = () => screen.getByLabelText('Prompt') as HTMLTextAreaElement;
+
+    it('draws the Inventory and Details panels, each with its toolbar toggle', () => {
+      open();
+      expect(screen.getByRole('complementary', { name: 'Inventory' })).toBeTruthy();
+      expect(screen.getByRole('complementary', { name: 'Session details' })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+      expect(screen.queryByRole('complementary', { name: 'Session details' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Inventory' }));
+      expect(screen.queryByRole('complementary', { name: 'Inventory' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Inventory' }));
+    });
+
+    it('lists the Kingdom live, for the project picked, and says where the list came from', async () => {
+      const { listInventory } = open();
+      expect(await screen.findByRole('button', { name: 'deploy' })).toBeTruthy();
+      expect(listInventory).toHaveBeenCalledWith('', expect.any(AbortSignal));
+      expect(screen.getByText(/Live from mac/)).toBeTruthy();
+      fireEvent.change(screen.getByLabelText('Project'), { target: { value: '/w' } });
+      await waitFor(() => expect(listInventory).toHaveBeenCalledWith('/w', expect.any(AbortSignal)));
+    });
+
+    it('says so when the Kingdom can-t list, and asks nothing of one that is offline', async () => {
+      open({ listInventory: vi.fn(async () => Promise.reject(new Error('no'))) });
+      expect(await screen.findByText(/appears once the/)).toBeTruthy();
+      cleanup();
+      const { listInventory } = open({ connected: false });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(listInventory).not.toHaveBeenCalled();
+    });
+
+    it('puts a pick in front of the brief rather than over it', async () => {
+      open();
+      fireEvent.change(prompt(), { target: { value: 'a long brief' } });
+      fireEvent.click(await screen.findByRole('button', { name: 'deploy' }));
+      expect(prompt().value).toBe('/deploy a long brief');
+      fireEvent.click(screen.getByRole('button', { name: 'deploy' }));
+      expect(prompt().value).toBe('/deploy a long brief');
+    });
+
+    it('fills the prompt from a Belt slot set to send at once: it starts nothing', () => {
+      const onStart = vi.fn();
+      open({ onStart, initialCwd: '/w' });
+      fireEvent.keyDown(window, { code: 'Digit1', altKey: true });
+      expect(prompt().value).toBe('/deploy ');
+      expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it('suggests slash commands, and Enter takes one rather than making a new line', async () => {
+      open();
+      await screen.findByRole('button', { name: 'deploy' });
+      fireEvent.change(prompt(), { target: { value: '/dep' } });
+      expect(screen.getByRole('option', { name: '/deploy' })).toBeTruthy();
+      expect(fireEvent.keyDown(prompt(), { key: 'Enter' })).toBe(false);
+      expect(prompt().value).toBe('/deploy ');
+      expect(fireEvent.keyDown(prompt(), { key: 'Enter' })).toBe(true);
+    });
+
+    it('names no leader on a Kingdom that picks one per Quest', () => {
+      const manifest = { leader: 'paladin', classes: { paladin: { name: 'Paladin', verb: 'guarding' } } };
+      open({ manifest: manifest as unknown as HeroManifest, variedLeader: true });
+      const party = within(screen.getByRole('region', { name: 'Party' }));
+      expect(party.getByText(/chosen when the .* starts/i)).toBeTruthy();
+      expect(party.queryByText(/Paladin/)).toBeNull();
+    });
+
+    it('fills the side panel from the choices so far, and claims nothing yet', () => {
+      open({ initialCwd: '/w' });
+      const details = within(screen.getByRole('complementary', { name: 'Session details' }));
+      expect(details.getByText('/w')).toBeTruthy();
+      expect(details.getAllByText(/once the .* starts/).length).toBeGreaterThan(0);
+      expect(details.queryByText('$0.00')).toBeNull();
+      fireEvent.change(screen.getByLabelText('Effort'), { target: { value: 'high' } });
+      expect(details.getByText('High')).toBeTruthy();
+    });
   });
 });

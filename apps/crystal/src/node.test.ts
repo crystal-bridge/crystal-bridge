@@ -391,6 +391,53 @@ describe('startNode', () => {
     });
   });
 
+  describe('listing the Inventory before a Quest', () => {
+    const REQUEST = '22222222-2222-4222-8222-222222222222';
+    const ask = (conn: ConnRecorder, cwd?: string) =>
+      conn.socket.send(JSON.stringify({ kind: 'list-inventory', requestId: REQUEST, ...(cwd ? { cwd } : {}) }));
+    const EVENTS = [{ engine: 'claude', raw: { type: 'system', subtype: 'init' } }];
+
+    it('says in hello that it can, only when it can', async () => {
+      createNode({ listInventory: async () => [] });
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'hello')).toMatchObject({ inventory: true });
+    });
+
+    it('stays quiet about it when it cannot', async () => {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'hello')).not.toHaveProperty('inventory');
+    });
+
+    it('lists the folder it is asked about, and answers with the events', async () => {
+      const listInventory = vi.fn(async () => EVENTS);
+      createNode({ listInventory });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      ask(conn, '/w');
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'inventory-listed')).toEqual({
+        kind: 'inventory-listed',
+        requestId: REQUEST,
+        events: EVENTS,
+      });
+      expect(listInventory).toHaveBeenCalledWith('/w');
+    });
+
+    it('says it could not, without passing on why', async () => {
+      createNode({
+        listInventory: async () => {
+          throw new Error('spawn /home/me/.local/bin/claude ENOENT');
+        },
+      });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      ask(conn);
+      const frame = await waitForFrame(conn, (candidate) => candidate.kind === 'inventory-listed');
+      expect(frame).not.toHaveProperty('events');
+      expect(JSON.stringify(frame)).not.toContain('/home/me');
+    });
+  });
+
   describe('updating the agent CLI', () => {
     const REQUEST = '11111111-1111-4111-8111-111111111111';
     const ask = (conn: ConnRecorder) => conn.socket.send(JSON.stringify({ kind: 'cli-update', requestId: REQUEST }));

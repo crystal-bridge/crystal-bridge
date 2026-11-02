@@ -31,6 +31,41 @@ const info: SessionInfo = {
 describe('SessionPanel', () => {
   afterEach(() => cleanup());
 
+  describe('before the Quest starts', () => {
+    const before: SessionInfo = {
+      party: [],
+      mode: 'auto',
+      costUsd: 0,
+      stats: { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, turns: 0, workingMs: 0 },
+      outputs: [],
+      tasks: [],
+    };
+
+    it('shows no made-up numbers, and says what fills in later', () => {
+      render(<SessionPanel info={before} kingdom="node-b" preStart />);
+      const stats = within(screen.getByRole('region', { name: 'Stats' }));
+      expect(stats.queryByText(/\b0\b/)).toBeNull();
+      expect(within(screen.getByRole('region', { name: 'Outputs' })).getByText(/once the .* starts/)).toBeTruthy();
+      expect(
+        within(screen.getByRole('region', { name: 'Background tasks' })).getByText(/once the .* starts/),
+      ).toBeTruthy();
+    });
+
+    it('says no project is picked yet, then names it', () => {
+      render(<SessionPanel info={before} kingdom="node-b" preStart />);
+      expect(screen.getByText('Not picked yet')).toBeTruthy();
+      cleanup();
+      render(<SessionPanel info={{ ...before, cwd: '/w' }} kingdom="node-b" preStart />);
+      expect(screen.queryByText('Not picked yet')).toBeNull();
+    });
+
+    it('still shows the plan bars: they are real before a start', () => {
+      const plan = [{ id: 'five_hour', label: '5h', spanHours: 5, usedPct: 25, resetsAt: null, status: 'allowed' }];
+      render(<SessionPanel info={before} kingdom="node-b" plan={plan} now={1000} preStart />);
+      expect(screen.getByRole('meter', { name: 'Plan left' })).toBeTruthy();
+    });
+  });
+
   it('shows the Expedition: Kingdom, project, branch, model and mode', () => {
     render(<SessionPanel info={info} kingdom="node-b" />);
     expect(screen.getByRole('region', { name: 'Expedition' })).toBeTruthy();
