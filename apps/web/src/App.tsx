@@ -71,6 +71,7 @@ import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { SplitPicker } from './components/SplitPicker.js';
 import { createJoinCode, refusal, saveHubName } from './api.js';
+import { loadDraft, saveDraft } from './drafts.js';
 import { type KingdomPrefs, listKingdoms, loadPrefs, notifyLevel, pickActive, savePrefs } from './kingdoms.js';
 import { sessionMode } from './model.js';
 import { MODES } from './modes.js';
@@ -125,6 +126,16 @@ async function tryJson<T>(url: string): Promise<T | undefined> {
 /** Sets state only from a real answer. */
 function keep<T>(set: (value: T) => void, value: T | undefined): void {
   if (value !== undefined) set(value);
+}
+
+/** How long a Kingdom gets to report a Quest started; making a worktree of a large repository takes a while. */
+const START_TIMEOUT_MS = 60_000;
+
+/** A New Quest sent and not yet reported running. */
+interface AwaitedStart {
+  node: string;
+  prompt: string;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 /** A Kingdom's row in `/api/engines`. */
@@ -616,8 +627,43 @@ export function App({ hub }: { hub: HubClient }) {
     return () => clearInterval(timer);
   }, [refreshHome]);
 
+  // Starts waiting for `session.started`, by session. Kept after a failure: errors name no Quest, so one may be about
+  // something else, and the start can still land.
+  const awaited = useRef(new Map<string, AwaitedStart>());
+  // The Kingdoms whose New Quest form is waiting on a start.
+  const [startingOn, setStartingOn] = useState<string[]>([]);
+
   useEffect(
-    () => hub.onError((message) => setErrors((prev) => [...prev, { id: Date.now() + Math.random(), message }])),
+    () =>
+      hub.onError((message, notSent) => {
+        setErrors((prev) => [...prev, { id: Date.now() + Math.random(), message }]);
+        if (notSent) return;
+        for (const start of awaited.current.values()) clearTimeout(start.timer);
+        setStartingOn([]);
+      }),
+    [hub],
+  );
+
+  const started = useRef<(session: string, start: AwaitedStart) => void>(() => {});
+  started.current = (session, { node, prompt, timer }) => {
+    clearTimeout(timer);
+    awaited.current.delete(session);
+    setStartingOn((nodes) => nodes.filter((id) => id !== node));
+    // A brief edited since a failure is a new one, and stays.
+    if (loadDraft(`new:${node}`).trim() === prompt) {
+      saveDraft(`new:${node}`, '');
+      saveDraft(`new-cwd:${node}`, '');
+      if (page === 'new' && shown === null && active === node) openQuest(session);
+    }
+    void refresh();
+  };
+  useEffect(
+    () =>
+      hub.onChange(() => {
+        for (const [session, start] of [...awaited.current]) {
+          if (hub.events(session).some((event) => event.type === 'session.started')) started.current(session, start);
+        }
+      }),
     [hub],
   );
 
@@ -697,9 +743,31 @@ export function App({ hub }: { hub: HubClient }) {
       ...(effort ? { effort } : {}),
       ...(attachments?.length ? { attachments } : {}),
     });
-    openQuest(session);
-    // The hub records the session once the node reports `session.started`.
-    setTimeout(() => void refresh(), 500);
+    // Nothing is sure until the Kingdom reports `session.started`: a worktree can fail, or the Kingdom be gone.
+    awaitStart(session, node, prompt);
+  }
+
+  function awaitStart(session: string, node: string, prompt: string) {
+    for (const [id, earlier] of awaited.current) if (earlier.node === node) awaited.current.delete(id);
+    const start: AwaitedStart = { node, prompt, timer: undefined };
+    const watch = () => {
+      start.timer = setTimeout(() => {
+        // Still in the outbox: the Kingdom hasn't been asked yet.
+        if (hub.queued > 0) return watch();
+        setStartingOn((nodes) => nodes.filter((id) => id !== node));
+        const name = loadPrefs().names[node] || node;
+        setErrors((prev) => [
+          ...prev,
+          {
+            id: Date.now() + Math.random(),
+            message: `${name} didn't answer, so the ${w('quest')} may not have started.`,
+          },
+        ]);
+      }, START_TIMEOUT_MS);
+    };
+    watch();
+    awaited.current.set(session, start);
+    setStartingOn((nodes) => [...nodes, node]);
   }
 
   /** Forks the shown session; the hub runs the fork on the source's node and in its folder. */
@@ -1142,6 +1210,7 @@ export function App({ hub }: { hub: HubClient }) {
                   projects={kingdomProjects}
                   engines={engineLists.find((row) => row.node === kingdom.id)?.engines}
                   initialCwd={newCwd}
+                  starting={startingOn.includes(kingdom.id)}
                   onStart={start}
                 />
               </div>
