@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   KINGDOM_PACKAGE,
   ReleaseVersion,
@@ -6,6 +7,7 @@ import {
   joinCommand,
   ClientMessage,
   Envelope,
+  EventType,
   FileReply,
   HubToClient,
   NodeCommand,
@@ -17,6 +19,8 @@ import {
   UsagePayload,
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_BASE64,
+  MAX_EVENT_TYPE,
+  UnreadEventsFrame,
 } from './index.js';
 
 const session = '123e4567-e89b-12d3-a456-426614174000';
@@ -84,16 +88,36 @@ describe('Envelope', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects an unknown type', () => {
-    const result = Envelope.safeParse({
-      node: 'local',
-      session,
-      seq: 0,
-      ts: Date.now(),
-      type: 'bogus.type',
-      payload: {},
-    });
-    expect(result.success).toBe(false);
+  it('carries a type it doesn’t know, so a newer peer’s events are stored and acked, not refused', () => {
+    const newer = { node: 'local', session, seq: 0, ts: Date.now(), type: 'quest.sparkled', payload: { any: 'thing' } };
+    expect(EventType.safeParse(newer.type).success).toBe(false);
+    expect(Envelope.parse(newer)).toEqual(newer);
+    expect(HubToClient.safeParse({ kind: 'event', event: newer }).success).toBe(true);
+  });
+
+  it('lets a peer with a stricter idea of an event lose that event alone, not the batch around it', () => {
+    const older = Envelope.extend({ type: EventType });
+    const known = { node: 'local', session, seq: 0, ts: 0, type: 'user.message', payload: { text: 'hello' } };
+    const frame = { kind: 'events', session, events: [known, { ...known, seq: 1, type: 'quest.sparkled' }], total: 2 };
+
+    expect(z.object({ events: z.array(older) }).safeParse(frame).success).toBe(false);
+    const read = UnreadEventsFrame.parse(frame).events.filter((event) => older.safeParse(event).success);
+    expect(read).toEqual([known]);
+  });
+
+  it('keeps every known type, and the known set for code that needs it', () => {
+    expect(EventType.options).toContain('session.mode');
+    for (const type of EventType.options) {
+      expect(Envelope.safeParse({ node: 'local', session, seq: 0, ts: 0, type, payload: {} }).success).toBe(true);
+    }
+  });
+
+  it('still refuses a type that isn’t a short name, since the store keeps and indexes it', () => {
+    for (const type of ['', 7, null, undefined, 'x'.repeat(MAX_EVENT_TYPE + 1)]) {
+      expect(Envelope.safeParse({ node: 'local', session, seq: 0, ts: 0, type, payload: {} }).success).toBe(false);
+    }
+    const longest = { node: 'local', session, seq: 0, ts: 0, type: 'x'.repeat(MAX_EVENT_TYPE), payload: {} };
+    expect(Envelope.safeParse(longest).success).toBe(true);
   });
 
   it('rejects a missing node', () => {

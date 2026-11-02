@@ -4,8 +4,11 @@ import { z } from 'zod';
  * How a user's Kingdoms look, shared across all their devices (unlike names, hidden Kingdoms and notification
  * levels, which stay per device): each Kingdom's icon, banner colour, party leader and Belt, how tabs show the colour, and the colour of their own prompts. Ids are the
  * client's own lists (theme data), so the hub stores them without knowing what they mean.
+ *
+ * Every object here is loose. The whole appearance is saved back on each change, so a field stripped on load would be
+ * deleted by an older tab or a rolled-back hub.
  */
-export const KingdomLookChoice = z.object({
+export const KingdomLookChoice = z.looseObject({
   icon: z.string().max(64).optional(),
   colour: z
     .string()
@@ -20,17 +23,17 @@ export type KingdomLookChoice = z.infer<typeof KingdomLookChoice>;
  * One quick action on a Kingdom's Belt: the prompt text it stands for and how it shows. `source` names the Inventory
  * entry it came from; a slot without one is text the user typed.
  */
-export const BeltSlot = z.object({
+export const BeltSlot = z.looseObject({
   label: z.string().max(200),
   text: z.string().max(4000),
   icon: z.string().max(64).optional(),
   /** Sends at once instead of filling the prompt. */
   now: z.boolean().optional(),
-  source: z.object({ category: z.string().max(64), name: z.string().max(200) }).optional(),
+  source: z.looseObject({ category: z.string().max(64), name: z.string().max(200) }).optional(),
 });
 export type BeltSlot = z.infer<typeof BeltSlot>;
 
-export const Appearance = z.object({
+export const Appearance = z.looseObject({
   looks: z.record(z.string().max(200), KingdomLookChoice).optional(),
   /** Each Kingdom's Belt; a null is an empty slot. */
   belts: z.record(z.string().max(200), z.array(BeltSlot.nullable()).max(8)).optional(),

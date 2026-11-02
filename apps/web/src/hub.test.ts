@@ -68,6 +68,36 @@ describe('HubClient replay', () => {
     expect(hub.seenSeq(SESSION)).toBe(6);
   });
 
+  it('skips what it can’t read in a replay batch, and keeps the rest', () => {
+    const { hub, socket } = connected();
+    hub.subscribe(SESSION);
+    const unreadable = { ...envelope(1), seq: 'one' };
+    socket.deliver({ kind: 'events', session: SESSION, events: [envelope(0), unreadable, envelope(2)], total: 3 });
+    socket.deliver({ kind: 'synced', session: SESSION, seq: 2 });
+    expect(hub.events(SESSION).map((e) => e.seq)).toEqual([0, 2]);
+    expect(hub.progress(SESSION).synced).toBe(true);
+    expect(hub.seenSeq(SESSION)).toBe(2);
+  });
+
+  it('keeps events of a type it doesn’t know, in a replay and live', () => {
+    const { hub, socket } = connected();
+    hub.subscribe(SESSION);
+    const newer = { ...envelope(1), type: 'quest.sparkled' };
+    socket.deliver({ kind: 'events', session: SESSION, events: [envelope(0), newer], total: 2 });
+    socket.deliver({ kind: 'event', event: { ...newer, seq: 2 } });
+    expect(hub.events(SESSION).map((e) => e.seq)).toEqual([0, 1, 2]);
+  });
+
+  it('still drops a replay frame whose outside it can’t read, and a live event it can’t read', () => {
+    const { hub, socket } = connected();
+    hub.subscribe(SESSION);
+    socket.deliver({ kind: 'events', session: SESSION, events: 'none', total: 1 });
+    socket.deliver({ kind: 'events', session: 'not-a-session', events: [envelope(0)], total: 1 });
+    socket.deliver({ kind: 'event', event: { ...envelope(0), seq: 'one' } });
+    expect(hub.events(SESSION)).toEqual([]);
+    expect(hub.seenSeq(SESSION)).toBe(-1);
+  });
+
   it('coalesces a burst of live events into one change', () => {
     const { hub, socket, changes } = connected();
     hub.subscribe(SESSION);

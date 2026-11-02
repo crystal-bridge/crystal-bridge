@@ -18,6 +18,16 @@ host, `node-a-host`/`node-b-host` the Kingdoms'.
 A hub and a Kingdom work together when they speak the same `PROTOCOL_VERSION`, whatever their releases. Changes inside
 a protocol version are additive, so either side can be updated first; updating the hub first is the habit.
 
+Additive means an older peer carries on past what it doesn't know:
+
+- **New event types.** A hub stores and acks a type it doesn't know, and relays it. A tab skips any event it can't read,
+  on its own, and shows the rest of the Quest.
+- **New commands and values.** A Kingdom that can't read a command drops it, logging only the command's name, and
+  answers with an error for that Quest, so the tab doesn't wait.
+- **New Appearance fields.** A tab or hub keeps the fields it doesn't know when it saves the rest.
+
+These hold from the release after 0.5.1. Older releases refuse what they don't know.
+
 A change an older peer can't handle bumps the version. The hub then refuses a Kingdom on another version instead of half
 working: both sides log the reason, and the Kingdom shows as offline and keeps retrying, so updating the older side
 ends the refusal without touching the other. A release's notes say when it bumps the protocol.
@@ -298,6 +308,11 @@ scripts/deploy-airship-package.sh hub-host <version>
 It keeps the env file, `/var/lib/airship`, the nightly backups and `tailscale serve`, so the address and every browser's
 settings stay as they are. Only the program changes. If the new hub doesn't come up, it restores the old one. Run it with
 a newer version to update the hub, or an older one to go back, as long as the database is no newer than that version.
+
+Going back across 0.5.0 costs some history in the view. A 0.4.x hub relays the `session.mode` rows a later hub stored,
+but its own web bundle can't parse them, so it drops each replay batch holding one, and a Quest with a mode change loses
+history in the view while the hub is rolled back. Nothing is lost from the database. Hubs after 0.5.1 store types they
+don't know and their tabs skip what they can't read, so rolling back to one of those doesn't do this for later types.
 
 Then move each Kingdom, on that machine:
 

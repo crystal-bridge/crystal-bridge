@@ -405,18 +405,25 @@ export const Attention = z.object({
 });
 export type Attention = z.infer<typeof Attention>;
 
+/**
+ * A subscription's replay of stored events, in batches; `total` is how many the whole replay holds, for progress.
+ * Streaming fragments of finished turns are left out (the full messages carry the same text).
+ */
+export const EventsFrame = z.object({
+  kind: z.literal('events'),
+  session: z.uuid(),
+  events: z.array(Envelope),
+  total: z.number().int().nonnegative(),
+});
+export type EventsFrame = z.infer<typeof EventsFrame>;
+
+/** An `EventsFrame` with its events still unread, so one a client can't read costs that event and not the batch. */
+export const UnreadEventsFrame = EventsFrame.extend({ events: z.array(z.unknown()) });
+export type UnreadEventsFrame = z.infer<typeof UnreadEventsFrame>;
+
 export const HubToClient = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('event'), event: Envelope }),
-  /**
-   * A subscription's replay of stored events, in batches; `total` is how many the whole replay holds, for progress.
-   * Streaming fragments of finished turns are left out (the full messages carry the same text).
-   */
-  z.object({
-    kind: z.literal('events'),
-    session: z.uuid(),
-    events: z.array(Envelope),
-    total: z.number().int().nonnegative(),
-  }),
+  EventsFrame,
   /** The replay is complete; `seq` is the session's last stored seq (-1 for none), even if that event was left out. */
   z.object({ kind: z.literal('synced'), session: z.uuid(), seq: z.number().int().min(-1) }),
   z.object({ kind: z.literal('error'), message: z.string() }),

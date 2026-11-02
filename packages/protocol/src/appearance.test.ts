@@ -34,6 +34,31 @@ describe('Appearance', () => {
     expect(Appearance.safeParse({ belts: { n: [{ label: 'x', text: 'x'.repeat(5000) }] } }).success).toBe(false);
   });
 
+  it('keeps fields from a newer release at every level, so saving this object back deletes none of them', () => {
+    const newer = {
+      tabStyle: 'tinted',
+      compass: { north: 'up' },
+      looks: { n: { icon: 'castle', crest: 'lion' } },
+      belts: { n: [{ label: 'Go', text: 'Go.', hotkey: 'g', source: { category: 'spells', name: 'go', pack: 'x' } }] },
+    };
+    expect(Appearance.parse(newer)).toEqual(newer);
+    expect(HubToClient.parse({ kind: 'appearance', appearance: newer })).toEqual({
+      kind: 'appearance',
+      appearance: newer,
+    });
+  });
+
+  it('still checks the fields it knows when unknown ones come along', () => {
+    expect(Appearance.safeParse({ compass: 1, tabStyle: 'x'.repeat(100) }).success).toBe(false);
+    expect(Appearance.safeParse({ looks: { n: { crest: 'lion', colour: 'red' } } }).success).toBe(false);
+  });
+
+  it('can’t be used to reach an object’s prototype', () => {
+    const parsed = Appearance.parse(JSON.parse('{"__proto__":{"polluted":true},"tabStyle":"tinted"}'));
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+    expect((parsed as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+
   it('travels to clients as an appearance frame', () => {
     expect(HubToClient.safeParse({ kind: 'appearance', appearance: { tabStyle: 'pennant' } }).success).toBe(true);
   });
