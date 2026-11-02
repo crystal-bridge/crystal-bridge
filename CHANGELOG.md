@@ -33,6 +33,8 @@ one entry.
 
 ### Fixed
 
+- Split View ends when one of its Quests is closed, from any tab or device: the other Quest takes the full view, moving to
+  its Kingdom if that's a different one. A closed Quest in a saved pair no longer comes back after a reload.
 - One Quest failing to start, or a command failing, no longer takes its Kingdom down with every other Quest.
 - On Windows, stopping or restarting an interactive Quest no longer crashes Crystal, Casts end on a negative exit code or
   a crash, and a profile path with a space no longer stops every Cast.

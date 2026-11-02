@@ -285,9 +285,16 @@ export function App({ hub }: { hub: HubClient }) {
     if (splitRestored.current || sessions.length === 0) return;
     splitRestored.current = true;
     const saved = loadSplit();
-    if (!saved || selected !== null) return;
+    if (!saved) return;
     const primary = sessions.find((s) => s.id === saved.primary);
     const second = sessions.find((s) => s.id === saved.second);
+    // A Quest closed for good while nothing was watching ends the pair, even when a link opened the other one.
+    if (primary?.status === 'closed' || second?.status === 'closed') {
+      setSplitState(null);
+      saveSplit(null);
+      return;
+    }
+    if (selected !== null) return;
     if (!primary || !second || !visibleIds.has(primary.node) || !visibleIds.has(second.node)) return;
     setPrefs((prev) => ({ ...prev, active: primary.node }));
     setPage('castle');
@@ -494,6 +501,27 @@ export function App({ hub }: { hub: HubClient }) {
   const progress = useSyncExternalStore(hub.onChange, () => (shown ? hub.progress(shown) : undefined));
   const splitEnvelopes = useSyncExternalStore(hub.onChange, () => (splitShown ? hub.events(splitShown) : EMPTY));
   const splitProgress = useSyncExternalStore(hub.onChange, () => (splitShown ? hub.progress(splitShown) : undefined));
+
+  // Split View ends when one of its Quests closes for good, wherever that was done; the other takes the full view. The
+  // event is the fast path, the poll covers a Quest whose events haven't arrived. A finished turn or an idle stop can
+  // carry on, so those stay. Only a main Quest seen open in the split counts: a closed one opened there to read stays.
+  const closedFor = (id: string, events: Envelope[]) =>
+    sessions.some((s) => s.id === id && s.status === 'closed') || events.some((e) => e.type === 'session.closed');
+  const mainClosed = shown !== null && closedFor(shown, envelopes);
+  const secondClosed = splitShown !== null && closedFor(splitShown, splitEnvelopes);
+  const openMain = useRef<string | null>(null);
+  useEffect(() => {
+    if (!splitShown) return;
+    if (secondClosed) {
+      setSplit(null);
+    } else if (mainClosed && openMain.current === shown) {
+      // The survivor can be on another Kingdom, so this moves there too, and the pair goes first: it stays gone.
+      const node = sessions.find((s) => s.id === splitShown)?.node;
+      setSplit(null);
+      if (node) openSession(node, splitShown);
+    }
+    openMain.current = mainClosed ? null : shown;
+  }, [shown, splitShown, mainClosed, secondClosed]);
 
   // In a split, one Inventory and one side panel serve both panes: they follow the pane last clicked or typed in.
   const [focusedPane, setFocusedPane] = useState<string | null>(null);
@@ -842,7 +870,11 @@ export function App({ hub }: { hub: HubClient }) {
         subscribeErrors={subscribeErrors}
         linkDown={status !== 'open'}
         compact={splitShown !== null}
-        onSplit={primary && splitShown === null ? () => setPicking(true) : undefined}
+        onSplit={
+          primary && splitShown === null && !sessions.some((s) => s.id === id && s.status === 'closed')
+            ? () => setPicking(true)
+            : undefined
+        }
         onExitSplit={primary && splitShown !== null ? () => setSplit(null) : undefined}
         insertion={insertion?.session === id ? insertion : undefined}
         belt={node ? beltFor(appearance, node) : undefined}

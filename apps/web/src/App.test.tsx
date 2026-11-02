@@ -720,6 +720,155 @@ describe('App Kingdom tabs', () => {
   });
 });
 
+describe('App Split View when a Quest closes', () => {
+  const [main, second] = sessions as [(typeof sessions)[0], (typeof sessions)[0]];
+  const closedEvent = (session: string) => ({ node: 'node-b', session, seq: 2, ts: 0, type: 'session.closed' });
+  let held: typeof sessions;
+
+  function openSplit() {
+    localStorage.setItem('crystal-bridge.split', JSON.stringify({ primary: main.id, second: second.id }));
+    window.history.replaceState(null, '', `/#/k/node-b/q/${main.id}`);
+  }
+  function setStatus(id: string, status: string) {
+    held = held.map((session) => (session.id === id ? { ...session, status } : session));
+  }
+  async function nextPoll() {
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+  const savedPair = () => localStorage.getItem('crystal-bridge.split');
+  const pane = (name: RegExp) => screen.queryByRole('region', { name });
+
+  beforeEach(() => {
+    localStorage.clear();
+    held = sessions;
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body = url === '/api/sessions' ? held : url === '/api/nodes' ? ['node-b', 'node-a'] : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the main Quest when the second pane-s Quest closes', async () => {
+    openSplit();
+    await renderApp();
+    expect(pane(/private work/)).toBeTruthy();
+
+    setStatus(second.id, 'closed');
+    await nextPoll();
+
+    expect(pane(/private work/)).toBeNull();
+    expect(screen.getByRole('tab', { name: /fix the build/, selected: true })).toBeTruthy();
+    expect(savedPair()).toBeNull();
+  });
+
+  it('gives the survivor the full view when the main Quest closes, even on another Kingdom', async () => {
+    openSplit();
+    await renderApp();
+    expect(screen.getByRole('tab', { name: /node-b/, selected: true })).toBeTruthy();
+
+    setStatus(main.id, 'closed');
+    await nextPoll();
+
+    expect(screen.queryByRole('region', { name: /private work/ })).toBeNull();
+    expect(screen.getByRole('tab', { name: /node-a/, selected: true })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /private work/, selected: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Split/ })).toBeTruthy();
+    expect(savedPair()).toBeNull();
+  });
+
+  it('ends the split at once on a session.closed event, before the next poll', async () => {
+    openSplit();
+    const listeners = new Set<() => void>();
+    let events: unknown[] = NO_EVENTS;
+    const hub = {
+      ...fakeHub(),
+      onChange: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      events: (id: string) => (id === second.id ? events : NO_EVENTS),
+    } as unknown as HubClient;
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(pane(/private work/)).toBeTruthy();
+
+    events = [closedEvent(second.id)];
+    act(() => listeners.forEach((listener) => listener()));
+
+    expect(pane(/private work/)).toBeNull();
+    expect(savedPair()).toBeNull();
+  });
+
+  it.each(['idle', 'ended'])('leaves the split alone when a Quest goes %s', async (status) => {
+    openSplit();
+    await renderApp();
+
+    setStatus(main.id, status);
+    setStatus(second.id, status);
+    await nextPoll();
+
+    expect(pane(/private work/)).toBeTruthy();
+    expect(savedPair()).not.toBeNull();
+  });
+
+  it.each(['main', 'second'])('does not reopen a saved pair whose %s Quest is closed', async (which) => {
+    openSplit();
+    window.history.replaceState(null, '', '/');
+    setStatus(which === 'main' ? main.id : second.id, 'closed');
+    await renderApp();
+
+    expect(pane(/private work/)).toBeNull();
+    expect(pane(/fix the build/)).toBeNull();
+    expect(savedPair()).toBeNull();
+  });
+
+  it('clears a saved pair with a closed Quest when a link opens the other one', async () => {
+    openSplit();
+    setStatus(main.id, 'closed');
+    await renderApp();
+
+    expect(pane(/private work/)).toBeNull();
+    expect(savedPair()).toBeNull();
+  });
+
+  it('does not bounce away from a closed Quest opened in the main pane', async () => {
+    const old = { ...sessions[0]!, id: '33333333-3333-4333-8333-333333333333', label: 'old quest', status: 'closed' };
+    held = [...sessions, old];
+    openSplit();
+    await renderApp();
+    expect(pane(/private work/)).toBeTruthy();
+
+    window.location.hash = `#/k/node-b/q/${old.id}`;
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    await nextPoll();
+    await nextPoll();
+
+    expect(screen.getByRole('tab', { name: /old quest/, selected: true })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /fix the build/, selected: true })).toBeNull();
+  });
+
+  it('offers no Split on a closed Quest', async () => {
+    setStatus(main.id, 'closed');
+    window.history.replaceState(null, '', `/#/k/node-b/q/${main.id}`);
+    await renderApp();
+
+    expect(screen.queryByRole('button', { name: /Split/ })).toBeNull();
+  });
+});
+
 describe('App starting a Quest', () => {
   const BRIEF = 'Fix the login test';
 
