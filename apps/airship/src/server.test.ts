@@ -1503,6 +1503,87 @@ describe('airship server', () => {
     });
   });
 
+  describe('listing a Kingdom-s Inventory before a Quest', () => {
+    const list = (node: string, cwd?: string) =>
+      fetch(`${baseUrl}/api/nodes/${node}/inventory${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''}`);
+    const EVENTS = [{ engine: 'claude', raw: { type: 'system', subtype: 'init', skills: ['deploy'] } }];
+
+    async function listingNode(nodeId: string, inventory = true) {
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: nodeId, ...(inventory ? { inventory: true } : {}) });
+      const start = Date.now();
+      const online = async () => ((await (await fetch(`${baseUrl}/api/nodes`)).json()) as string[]).includes(nodeId);
+      while (!(await online()) && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 10));
+      return { socket, frames };
+    }
+
+    it('asks the node about the folder, and passes its events on', async () => {
+      const { socket, frames } = await listingNode('node-a');
+      const answer = list('node-a', '/home/me/my app');
+      const asked = (await frames.waitFor((f) => f.kind === 'list-inventory')) as { requestId: string; cwd?: string };
+      expect(asked.cwd).toBe('/home/me/my app');
+      send(socket, { kind: 'inventory-listed', requestId: asked.requestId, events: EVENTS });
+      const response = await answer;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ events: EVENTS });
+    });
+
+    it('leaves the folder to the node when none is picked', async () => {
+      const { socket, frames } = await listingNode('node-a');
+      const answer = list('node-a');
+      const asked = (await frames.waitFor((f) => f.kind === 'list-inventory')) as { requestId: string };
+      expect(asked).not.toHaveProperty('cwd');
+      send(socket, { kind: 'inventory-listed', requestId: asked.requestId, events: [] });
+      expect((await answer).status).toBe(200);
+    });
+
+    it('takes two lists at once, each from its own answer', async () => {
+      const { socket, frames } = await listingNode('node-a');
+      const first = list('node-a', '/a');
+      const second = list('node-a', '/b');
+      const askedA = (await frames.waitFor((f) => f.kind === 'list-inventory' && f.cwd === '/a')) as {
+        requestId: string;
+      };
+      const askedB = (await frames.waitFor((f) => f.kind === 'list-inventory' && f.cwd === '/b')) as {
+        requestId: string;
+      };
+      send(socket, { kind: 'inventory-listed', requestId: askedB.requestId, events: EVENTS });
+      send(socket, { kind: 'inventory-listed', requestId: askedA.requestId, events: [] });
+      expect(await (await first).json()).toEqual({ events: [] });
+      expect(await (await second).json()).toEqual({ events: EVENTS });
+    });
+
+    it('says when it can-t: offline, too old, refused, or gone part way', async () => {
+      expect((await list('nobody')).status).toBe(404);
+      await listingNode('old-node', false);
+      expect((await list('old-node')).status).toBe(409);
+
+      const { socket, frames } = await listingNode('node-a');
+      const refused = list('node-a');
+      const asked = (await frames.waitFor((f) => f.kind === 'list-inventory')) as { requestId: string };
+      send(socket, { kind: 'inventory-listed', requestId: asked.requestId, reason: 'no list' });
+      expect((await refused).status).toBe(409);
+
+      const dropped = list('node-a');
+      await frames.waitFor((f) => f.kind === 'list-inventory' && f.requestId !== asked.requestId);
+      socket.close();
+      expect((await dropped).status).toBe(409);
+    });
+
+    it('ignores an answer from another node', async () => {
+      const a = await listingNode('node-a');
+      const b = await listingNode('node-b');
+      const answer = list('node-a');
+      const asked = (await a.frames.waitFor((f) => f.kind === 'list-inventory')) as { requestId: string };
+      send(b.socket, { kind: 'inventory-listed', requestId: asked.requestId, events: EVENTS });
+      await new Promise((r) => setTimeout(r, 30));
+      send(a.socket, { kind: 'inventory-listed', requestId: asked.requestId, events: [] });
+      expect(await (await answer).json()).toEqual({ events: [] });
+    });
+  });
+
   describe('updating a Kingdom-s agent CLI', () => {
     const update = (node: string) => fetch(`${baseUrl}/api/nodes/${node}/cli-update`, { method: 'POST' });
     const engineRow = async () =>

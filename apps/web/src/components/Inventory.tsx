@@ -34,6 +34,8 @@ export interface InventoryProps {
   onBeltChange: (belt: Belt) => void;
   /** The art pack, which draws agents as their Heroes; absent in the Classic theme. */
   manifest?: HeroManifest;
+  /** Before a Quest exists: where this list came from, or why there's none yet. */
+  preview?: string;
 }
 
 const STATUS_DOT: Record<NonNullable<InventoryEntry['status']>, string> = {
@@ -189,7 +191,7 @@ function Row({
  * The Quest's Inventory (docs/THEME.md): the Belt of quick actions, a tile for each category, and the picked
  * category's list below them. Entries come from pluggable sources in `inventory.ts`.
  */
-export function Inventory({ inventory, onUse, onSend, belt, onBeltChange, manifest }: InventoryProps) {
+export function Inventory({ inventory, onUse, onSend, belt, onBeltChange, manifest, preview }: InventoryProps) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<InventoryCategory>('spells');
   const [editing, setEditing] = useState(false);
@@ -343,6 +345,11 @@ export function Inventory({ inventory, onUse, onSend, belt, onBeltChange, manife
               {note}
             </p>
           )}
+          {preview && (
+            <p role="status" className="px-1 text-xs text-neutral-500">
+              {preview}
+            </p>
+          )}
           {shown[category].length > 0 ? (
             <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
               {shown[category].map((entry) => (
@@ -360,13 +367,17 @@ export function Inventory({ inventory, onUse, onSend, belt, onBeltChange, manife
               ))}
             </ul>
           ) : (
-            <p className="px-1 text-xs text-neutral-500">
-              {empty
-                ? `The ${w('inventory')} appears once the ${w('quest')} starts.`
-                : query.trim()
-                  ? `No ${w(category)} match.`
-                  : `This ${w('quest')} reports no ${w(category)}.`}
-            </p>
+            (!preview || !empty) && (
+              <p className="px-1 text-xs text-neutral-500">
+                {empty
+                  ? `The ${w('inventory')} appears once the ${w('quest')} starts.`
+                  : query.trim()
+                    ? `No ${w(category)} match.`
+                    : preview
+                      ? `None listed before the ${w('quest')} starts.`
+                      : `This ${w('quest')} reports no ${w(category)}.`}
+              </p>
+            )
           )}
           {connectorNote && (
             // The CLI fetches account connectors in the background; a headless session lists them from its second turn.

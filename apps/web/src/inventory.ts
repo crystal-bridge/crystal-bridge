@@ -147,6 +147,18 @@ export function buildInventory(
   return inventory;
 }
 
+/** A Kingdom's listing, from before any Quest exists, as envelopes for `buildInventory` and `slashCommands` to read. */
+export function listedEnvelopes(node: string, events: readonly { engine: string; raw: unknown }[]): Envelope[] {
+  return events.map((payload, seq) => ({
+    node,
+    session: '00000000-0000-4000-8000-000000000000',
+    seq,
+    ts: 0,
+    type: 'claude.event',
+    payload,
+  }));
+}
+
 /** Only the entries whose name contains `query`, ignoring case. */
 export function filterInventory(inventory: Inventory, query: string): Inventory {
   const q = query.trim().toLowerCase();

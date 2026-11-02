@@ -145,6 +145,15 @@ a project agent and a `--plugin-dir` plugin) showed the shapes the web Inventory
   those (`src/descriptions.ts`) and sends a `system/descriptions` line of its own.
 - `agents`: names, e.g. `["claude", "demo-agent", "Explore", "general-purpose", "Plan"]`.
 
+Before a first turn there is no `init`, but the CLI answers two stdin control requests with no prompt (a live check,
+CLI 2.1.316, with `--no-session-persistence`; `src/listing.ts`):
+
+- `initialize` returns `commands` (`{"name","description","argumentHint","builtin"}`) and `agents`
+  (`{"name","description"}`), so descriptions come with no file reads, and built-ins have them too. It also returns the
+  account's email and organization, model names and more: copy out only what's needed.
+- `mcp_status` returns `mcpServers` (`name`, `status`, `source`, `scope`, `tools` and more). `config` can hold secrets.
+- Plugins and hooks aren't listed, and nothing says whether a command is a skill: anything not `builtin` counts as one.
+
 Hooks aren't listed in `init`; each run shows up as `system/hook_started` and `system/hook_response` (`hook_name`,
 `hook_event`, `outcome`).
 

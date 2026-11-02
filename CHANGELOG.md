@@ -3,6 +3,14 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
+## Unreleased
+
+### Changed
+
+- New Quest now has the same layout as a running Quest: the Inventory, Belt and side panel are there before you start,
+  and the prompt box sits at the bottom. The Inventory and slash suggestions are live from the Kingdom for the picked
+  project, with no prompt sent. A Kingdom on an older release lists nothing here until it's updated.
+
 ## 0.6.0
 
 ### Added

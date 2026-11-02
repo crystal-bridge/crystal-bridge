@@ -118,6 +118,15 @@ anything typed; Abilities can't go on it. A Kingdom starts with plain prompts th
 Alt+1 to Alt+8 fire a slot while the panel is open. A slot whose source isn't in this Quest is dimmed and still works.
 Classic: "Pinned". The panel is desktop-only; the phone needs its own design.
 
+**On New Quest** (#221) the Inventory, Belt and side panel are all there before anything starts, in the same layout as a
+running Quest. No Quest means no init line, so the Kingdom briefly runs the plain CLI in the picked folder (its home until
+one is picked), asks what it can use with no prompt, and sends back names, descriptions and statuses only. That costs no
+turn and no plan usage, and leaves no transcript. Spells, Items, Runes and Guild fill in, and slash commands suggest as
+they do in a follow-up; Equipment and Abilities wait for the Quest. A pick goes in front of the brief, since this box
+can hold a long one, and a slot set to send at once fills the prompt too, as there's nothing to send to yet. The side
+panel shows what's already true (the leader, HP, the choices so far) and says what's still to come rather than showing
+zeros. A Kingdom on an older release lists nothing here until it's updated.
+
 **The Armory** is the only set of icons a slot picks from: 42 Game-icons in eight families, each with one colour, so
 nobody has to find an icon per item. Keyword rules give any name a default, so `deploy` gets a rocket, and rows use
 the same rules with the category's icon as the fallback. Both are data in `apps/web/src/theme/armory.ts`, like Hero

@@ -14,6 +14,7 @@ import {
   FileReply,
   HubAck,
   type HubCliUpdate,
+  HubListInventory,
   type HubKingdomVersion,
   type SelfUpdate,
   type HubToClient,
@@ -21,6 +22,7 @@ import {
   NodeCommand,
   NodeCli,
   NodeCliUpdated,
+  NodeInventoryListed,
   NodeSelfUpdate,
   NodeError,
   NodeExternal,
@@ -140,6 +142,8 @@ const MAX_CLIENT_BACKLOG = 32 * 1024 * 1024;
 const FILE_TIMEOUT_MS = 15_000;
 /** A little past the node's own limit on the update, so the node's answer normally comes first. */
 const CLI_UPDATE_WAIT_MS = 6 * 60 * 1000;
+/** A Kingdom lists within 15 seconds or says it can't, so this only meets one that stopped answering. */
+const INVENTORY_WAIT_MS = 20_000;
 
 /**
  * Sends an error and, for a refused WebSocket upgrade, closes the connection afterwards: an upgrade
@@ -388,6 +392,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const cliUpdates = new Map<
     string,
     { requestId: string; timer: NodeJS.Timeout; finish: (answer: { version?: string; error?: string }) => void }
+  >();
+  // Nodes that can list an Inventory before a Quest, and the lists in flight: only the asked node's answer ends one.
+  const inventoryListers = new Set<string>();
+  const inventoryLists = new Map<
+    string,
+    { node: string; finish: (events: NodeInventoryListed['events'], error?: string) => void }
   >();
   // Every connected client, for errors that aren't about one session.
   const clients = new Set<WebSocket>();
@@ -813,6 +823,31 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (answer.error !== undefined) return reply.code(409).send({ error: answer.error });
     return answer.version ? { version: answer.version } : {};
   });
+  // What a Quest could use in a folder, before one exists. The hub only carries it: nothing is stored.
+  app.get('/api/nodes/:node/inventory', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const { cwd } = request.query as { cwd?: string };
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!inventoryListers.has(node)) {
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    }
+    const requestId = randomUUID();
+    const frame = HubListInventory.safeParse({ kind: 'list-inventory', requestId, ...(cwd ? { cwd } : {}) });
+    if (!frame.success) return reply.code(400).send({ error: 'that folder is too long' });
+    const answer = await new Promise<{ events?: NodeInventoryListed['events']; error?: string }>((resolve) => {
+      const finish = (events: NodeInventoryListed['events'], error?: string) => {
+        clearTimeout(timer);
+        inventoryLists.delete(requestId);
+        resolve({ events, error });
+      };
+      const timer = setTimeout(() => finish(undefined, 'the Kingdom did not answer in time'), INVENTORY_WAIT_MS);
+      inventoryLists.set(requestId, { node, finish });
+      sendJson(socket, frame.data);
+    });
+    if (!answer.events) return reply.code(409).send({ error: answer.error ?? 'the Kingdom could not list this' });
+    return { events: answer.events };
+  });
   // Forgetting a Kingdom: deletes the hub's copy of its Quests for good, so only one that was removed first.
   app.delete('/api/nodes/:node/quests', async (request, reply) => {
     const { node } = request.params as { node: string };
@@ -1046,6 +1081,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else releases.delete(helloNode);
           if (hello.data.cliUpdate) cliUpdaters.add(helloNode);
           else cliUpdaters.delete(helloNode);
+          if (hello.data.inventory) inventoryListers.add(helloNode);
+          else inventoryListers.delete(helloNode);
           selfUpdates.delete(helloNode);
           selfUpdaters.delete(helloNode);
           if (hello.data.selfUpdate) {
@@ -1094,6 +1131,17 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           const { ok, version, reason } = cliUpdated.data;
           if (version) cliVersions.set(helloNode, version);
           running.finish(ok ? (version ? { version } : {}) : { error: reason ?? 'the update failed' });
+          return;
+        }
+
+        const inventoryListed = NodeInventoryListed.safeParse(parsed);
+        if (inventoryListed.success) {
+          const waiting = inventoryLists.get(inventoryListed.data.requestId);
+          if (waiting?.node !== helloNode) {
+            app.log.warn({ node: helloNode }, 'dropped an Inventory list nobody is waiting for from this node');
+            return;
+          }
+          waiting.finish(inventoryListed.data.events);
           return;
         }
 
@@ -1216,6 +1264,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           selfUpdates.delete(helloNode);
           selfUpdaters.delete(helloNode);
           cliUpdates.get(helloNode)?.finish({ error: 'the Kingdom went offline during the update' });
+          inventoryListers.delete(helloNode);
+          for (const waiting of [...inventoryLists.values()]) {
+            if (waiting.node === helloNode) waiting.finish(undefined, 'the Kingdom went offline');
+          }
         }
       });
     },

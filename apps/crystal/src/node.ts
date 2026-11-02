@@ -1,9 +1,11 @@
 import {
   HubAck,
   HubCliUpdate,
+  HubListInventory,
   HubKingdomVersion,
   MAX_CLI_UPDATE_REASON,
   NodeCliUpdated,
+  NodeInventoryListed,
   NodeCommand,
   NodeError,
   NodeHello,
@@ -99,6 +101,8 @@ export interface StartNodeOptions {
   cliVersion?: (fresh?: boolean) => Promise<string | undefined>;
   /** Runs the agent CLI's own update (`cli-version.ts` in production); without it, the hub isn't offered one. */
   updateCli?: () => Promise<void>;
+  /** Lists what a Quest could use in a folder, or the home folder, as engine events; unset on a node that can't. */
+  listInventory?: (cwd?: string) => Promise<NodeInventoryListed['events']>;
   /** Follows the release the hub names (`self-update.ts` in production); without it, hello doesn't offer to. */
   onKingdomVersion?: (version: string | undefined) => void;
   /** Mode for sessions started without one, and for ones rebuilt after a restart. Default: manual. */
@@ -501,6 +505,17 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     wsSend(NodeCli.parse({ kind: 'cli', version }));
   }
 
+  /** Answers what a Quest could use here. A failure says only that it failed: its text can name paths on this machine. */
+  async function handleListInventory({ requestId, cwd }: HubListInventory): Promise<void> {
+    let events: NodeInventoryListed['events'];
+    try {
+      events = await options.listInventory?.(cwd);
+    } catch {
+      events = undefined;
+    }
+    wsSend(NodeInventoryListed.parse({ kind: 'inventory-listed', requestId, ...(events ? { events } : {}) }));
+  }
+
   /** Runs the CLI's own update when no Quest here is busy, one at a time, and tells the hub how it went. */
   async function handleCliUpdate({ requestId }: HubCliUpdate): Promise<void> {
     const answer = (reply: { ok: boolean; version?: string; reason?: string }) =>
@@ -774,6 +789,12 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const listing = HubListInventory.safeParse(parsed);
+    if (listing.success) {
+      void handleListInventory(listing.data);
+      return;
+    }
+
     const kingdomVersion = HubKingdomVersion.safeParse(parsed);
     if (kingdomVersion.success) {
       options.onKingdomVersion?.(kingdomVersion.data.version);
@@ -815,6 +836,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(engines ? { engines } : {}),
           ...(options.release ? { release: options.release } : {}),
           ...(options.updateCli ? { cliUpdate: true } : {}),
+          ...(options.listInventory ? { inventory: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
         }),
       );
