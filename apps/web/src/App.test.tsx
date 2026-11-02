@@ -378,6 +378,105 @@ describe('App Kingdom tabs', () => {
     expect(screen.queryByRole('tab', { name: /node-a/ })).toBeNull();
   });
 
+  it('alerts again when a new notice replaces an unread one for the same Quest', async () => {
+    const options: NotificationOptions[] = [];
+    class FakeNotification {
+      static permission = 'granted';
+      onclick: (() => void) | null = null;
+      constructor(_title: string, given: NotificationOptions) {
+        options.push(given);
+      }
+      close() {}
+    }
+    vi.stubGlobal('Notification', FakeNotification);
+    await renderApp();
+    act(() => {
+      attentionListener!({
+        kind: 'attention',
+        node: 'node-a',
+        session: '33333333-3333-4333-8333-333333333333',
+        label: 'private work',
+        reason: 'needs-you',
+        detail: 'Bash',
+      });
+    });
+    expect(options[0]).toMatchObject({ tag: '33333333-3333-4333-8333-333333333333', renotify: true });
+  });
+
+  it('keeps the waiting mark of a split pane a narrow screen hides', async () => {
+    const [primary, second] = sessions;
+    localStorage.setItem('crystal-bridge.split', JSON.stringify({ primary: primary!.id, second: second!.id }));
+    window.history.replaceState(null, '', `/#/k/node-b/q/${primary!.id}`);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/waiting'
+                ? [{ session: second!.id, node: second!.node }]
+                : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    await renderApp();
+    // The first poll has no Quests to go on yet; the next one, with the split open, is where the mark used to drop.
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    expect(screen.getByRole('region', { name: /private work/, hidden: true })).toBeTruthy();
+    expect(document.title).toBe('(1) Crystal Bridge');
+  });
+
+  describe('a login that stops working', () => {
+    const reload = vi.fn();
+    const refusing = (me: unknown) =>
+      vi.fn(async (url: string) =>
+        url === '/api/me'
+          ? new Response(JSON.stringify(me), { status: 200 })
+          : new Response(JSON.stringify({ error: 'not allowed' }), { status: 403 }),
+      );
+    beforeEach(() => {
+      reload.mockClear();
+      vi.stubGlobal('location', { hash: '', search: '', pathname: '/', reload });
+    });
+
+    it('goes back to the login page once the hub stops knowing this browser', async () => {
+      vi.stubGlobal('fetch', refusing({ login: null, canLogIn: true }));
+      await renderApp();
+      await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    });
+
+    it('stays put when the hub still knows this browser, or has no login page', async () => {
+      vi.stubGlobal('fetch', refusing({ login: 'me', canLogIn: true }));
+      await renderApp();
+      cleanup();
+      vi.stubGlobal('fetch', refusing({ login: null, canLogIn: false }));
+      await renderApp();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it('stays put when the hub is simply down', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));
+      await renderApp();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      expect(reload).not.toHaveBeenCalled();
+    });
+  });
+
   it('uses the current Discreet setting when a notification fires, even if this tab never heard of the change', async () => {
     const shown: { title: string; body: string }[] = [];
     class FakeNotification {
@@ -764,7 +863,7 @@ describe('App starting a Quest', () => {
   it('does not pull the user off another page when the start lands', async () => {
     const { hub, reportStarted, started } = liveHub();
     await atTheForm(hub);
-    fireEvent.click(screen.getByRole('tab', { name: /node-b/ }));
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Kingdoms' })).getByRole('tab', { name: /node-b/ }));
     expect(window.location.hash).not.toContain('new');
     reportStarted();
     expect(window.location.hash).not.toContain(started().session);

@@ -17,6 +17,27 @@ describe('LoginGate', () => {
     vi.unstubAllGlobals();
   });
 
+  it('says so when the hub cannot be reached at login, and lets the user try again', async () => {
+    const calls = hub({ '/api/me': () => json({ login: null, canLogIn: true }) });
+    render(<LoginGate>{app}</LoginGate>);
+    fireEvent.change(await screen.findByLabelText('Access token'), { target: { value: 'token' } });
+    calls.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/reach the hub/);
+    calls.mockResolvedValueOnce(json({ login: 'me' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+    expect(await screen.findByText('the app')).toBeTruthy();
+  });
+
+  it('says so when the hub cannot be reached at first setup', async () => {
+    const calls = hub({ '/api/me': () => json({ login: null, canLogIn: true, setup: true }) });
+    render(<LoginGate>{app}</LoginGate>);
+    fireEvent.change(await screen.findByLabelText('Setup code'), { target: { value: 'code' } });
+    calls.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create login' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/reach the hub/);
+  });
+
   it('asks a new hub for its setup code, then shows the login once before going in', async () => {
     const calls = hub({
       '/api/me': () => json({ login: null, canLogIn: true, setup: true }),

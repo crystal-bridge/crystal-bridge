@@ -70,7 +70,7 @@ import { useCircle } from './summons.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { SplitPicker } from './components/SplitPicker.js';
-import { createJoinCode, refusal, saveHubName } from './api.js';
+import { checkLogin, createJoinCode, refusal, saveHubName } from './api.js';
 import { loadDraft, saveDraft } from './drafts.js';
 import { type KingdomPrefs, listKingdoms, loadPrefs, notifyLevel, pickActive, savePrefs } from './kingdoms.js';
 import { sessionMode } from './model.js';
@@ -117,6 +117,7 @@ async function forgetKingdom(node: string): Promise<void> {
 async function tryJson<T>(url: string): Promise<T | undefined> {
   try {
     const response = await fetch(url);
+    if (response.status === 401 || response.status === 403) checkLogin();
     return response.ok ? ((await response.json()) as T) : undefined;
   } catch {
     return undefined;
@@ -370,7 +371,12 @@ export function App({ hub }: { hub: HubClient }) {
           notifyLevel(p, attention.node),
         );
         if (!shownText) return;
-        const notification = new Notification(shownText.title, { body: shownText.body, tag: attention.session });
+        // Alerts again when it replaces an unread notice for the same Quest, instead of swapping it silently.
+        const notification = new Notification(shownText.title, {
+          body: shownText.body,
+          tag: attention.session,
+          renotify: true,
+        } as NotificationOptions);
         notification.onclick = () => {
           window.focus();
           openSession(attention.node, attention.session);
@@ -585,7 +591,10 @@ export function App({ hub }: { hub: HubClient }) {
         Object.fromEntries(
           a
             .filter(
-              ({ session, node }) => !hidden.includes(node) && !isLooking(open, session) && !isLooking(beside, session),
+              ({ session, node }) =>
+                !hidden.includes(node) &&
+                !isLooking(open, session) &&
+                !(splitPaneVisible() && isLooking(beside, session)),
             )
             .map(({ session, node }) => [session, node]),
         ),

@@ -214,7 +214,7 @@ crystal-bridge-airship token add laptop
 docker exec crystal-bridge crystal-bridge-airship token add laptop
 ```
 
-It's shown once, and the login page takes it. In place of `add laptop`, `list` shows the names, and `remove <name>` revokes one. Requests with it are refused at once, and a tab already open is closed at its next heartbeat, within 30 seconds. In a checkout, the `pnpm` scripts `token:add`, `token:list` and `token:remove` do the same. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
+It's shown once, and the login page takes it. In place of `add laptop`, `list` shows the names, and `remove <name>` revokes one. Requests with it are refused at once, and a tab already open is closed at its next heartbeat, within 30 seconds, and goes back to the login page. In a checkout, the `pnpm` scripts `token:add`, `token:list` and `token:remove` do the same. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
 
 On `tailscale-serve` the allow list is `AIRSHIP_ALLOWED_USERS`, read when the hub starts, so removing a login means editing it and restarting the hub, and that closes every tab anyway.
 
