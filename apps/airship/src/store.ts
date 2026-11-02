@@ -366,7 +366,7 @@ export function openStore(path: string): Store {
       session: row.session,
       seq: row.seq,
       ts: row.ts,
-      type: row.type as Envelope['type'],
+      type: row.type,
       payload: JSON.parse(row.payload),
     };
   }

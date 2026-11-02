@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { MAX_CLI_UPDATE_REASON, type Effort } from '@crystal-bridge/protocol';
+import { MAX_CLI_UPDATE_REASON, NodeError, type Effort } from '@crystal-bridge/protocol';
 import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
@@ -457,6 +457,98 @@ describe('startNode', () => {
       expect(await waitForFrame(conn, (frame) => frame.kind === 'cli-updated')).toMatchObject({ ok: false });
       finish();
       expect(updateCli).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('a frame from a newer hub or tab', () => {
+    const SESSION = '33333333-3333-4333-8333-333333333333';
+    const PROMPT = 'the words of a private prompt';
+    let errors: { mock: { calls: unknown[][] }; mockRestore(): void };
+
+    beforeEach(() => {
+      errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      errors.mockRestore();
+    });
+
+    async function hello(): Promise<ConnRecorder> {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      return conn;
+    }
+
+    function logged(): string {
+      return JSON.stringify(errors.mock.calls);
+    }
+
+    /** A command that always gets an answer: once it's back, every frame sent before it has been handled. */
+    async function settle(conn: ConnRecorder): Promise<void> {
+      conn.socket.send(JSON.stringify({ type: 'session.effort', session: SESSION, effort: 'low' }));
+      await waitForFrame(conn, (frame) => String(frame.message).includes('unknown session'));
+    }
+
+    it('answers a command type it doesn’t know with a node-error for that session', async () => {
+      const conn = await hello();
+      conn.socket.send(JSON.stringify({ type: 'session.rewind', session: SESSION, prompt: PROMPT }));
+
+      const answer = await waitForFrame(conn, (frame) => frame.kind === 'node-error');
+      expect(NodeError.strict().parse(answer)).toEqual({
+        kind: 'node-error',
+        session: SESSION,
+        message: expect.stringContaining('session.rewind'),
+      });
+      expect(answer.message).not.toContain(PROMPT);
+      expect(created).toHaveLength(0);
+    });
+
+    it('answers a known command with a value it doesn’t know, and starts nothing', async () => {
+      const conn = await hello();
+      conn.socket.send(
+        JSON.stringify({
+          type: 'session.start',
+          node: 'test',
+          session: SESSION,
+          cwd: tmpdir(),
+          prompt: PROMPT,
+          effort: 'eleven',
+        }),
+      );
+
+      const answer = await waitForFrame(conn, (frame) => frame.kind === 'node-error');
+      expect(answer).toMatchObject({ session: SESSION, message: expect.stringContaining('session.start') });
+      expect(answer.message).not.toContain(PROMPT);
+      expect(created).toHaveLength(0);
+    });
+
+    it('logs the frame’s kind only: the rest may hold prompt text', async () => {
+      const conn = await hello();
+      conn.socket.send(JSON.stringify({ type: 'session.rewind', session: SESSION, prompt: PROMPT }));
+      conn.socket.send(JSON.stringify({ kind: 'hub-news', session: SESSION, text: PROMPT }));
+      conn.socket.send(JSON.stringify({ type: PROMPT, session: SESSION }));
+      await settle(conn);
+
+      expect(logged()).toContain('session.rewind');
+      expect(logged()).toContain('hub-news');
+      expect(logged()).not.toContain(PROMPT);
+    });
+
+    it('keeps a type that isn’t a short name out of the answer too', async () => {
+      const conn = await hello();
+      conn.socket.send(JSON.stringify({ type: PROMPT, session: SESSION }));
+      const answer = await waitForFrame(conn, (frame) => frame.kind === 'node-error');
+      expect(answer.message).not.toContain(PROMPT);
+    });
+
+    it('answers nobody when the frame names no session it can report to, or isn’t a command', async () => {
+      const conn = await hello();
+      conn.socket.send(JSON.stringify({ type: 'kingdom.rewind' }));
+      conn.socket.send(JSON.stringify({ type: 'session.rewind', session: 'not-a-session' }));
+      conn.socket.send(JSON.stringify({ kind: 'hub-news', session: SESSION }));
+      await settle(conn);
+
+      expect(conn.frames.filter((frame) => frame.kind === 'node-error')).toHaveLength(1);
     });
   });
 

@@ -101,6 +101,30 @@ describe('Kingdom looks', () => {
   });
 });
 
+describe('an appearance saved by a newer release', () => {
+  const newer = { tabStyle: 'tinted', compass: 'north', looks: { n: { icon: 'castle', crest: 'lion' } } };
+
+  it('survives this release loading it, changing one thing and saving it', async () => {
+    const storage = memoryStorage();
+    const put = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(newer))),
+    );
+    const loaded = await fetchAppearance();
+    vi.stubGlobal('fetch', put);
+    await saveAppearance(withLook(withTabStyle(loaded!, 'pennant'), 'n', { colour: '#3550c8' }), storage);
+
+    const saved = JSON.parse(put.mock.calls[0]![1].body as string) as unknown;
+    expect(saved).toEqual({
+      tabStyle: 'pennant',
+      compass: 'north',
+      looks: { n: { icon: 'castle', crest: 'lion', colour: '#3550c8' } },
+    });
+    expect(loadCachedAppearance(storage)).toEqual(saved);
+  });
+});
+
 describe('prompt colour', () => {
   it('is the default until one is chosen, and ignores one this client does not know', () => {
     expect(promptColourFor({}).id).toBe(DEFAULT_PROMPT_COLOUR);

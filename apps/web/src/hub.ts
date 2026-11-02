@@ -2,11 +2,12 @@ import {
   type Appearance,
   type Attention,
   type ClientMessage,
-  type Envelope,
+  Envelope,
   type FileReply,
   HubToClient,
   type Cast,
   type NodeCommand,
+  UnreadEventsFrame,
 } from '@crystal-bridge/protocol';
 import { insertBySeq } from './model.js';
 
@@ -212,6 +213,11 @@ export class HubClient {
     } catch {
       return;
     }
+    const replay = UnreadEventsFrame.safeParse(json);
+    if (replay.success) {
+      this.receiveReplay(replay.data);
+      return;
+    }
     const frame = HubToClient.safeParse(json);
     if (!frame.success) return;
 
@@ -239,18 +245,6 @@ export class HubClient {
       return;
     }
 
-    if (frame.data.kind === 'events') {
-      const { session, events: batch, total } = frame.data;
-      const events = this.sessions.get(session);
-      if (!events) return;
-      let added = 0;
-      for (const envelope of batch) if (this.insert(events, envelope)) added++;
-      const replay = this.progress(session);
-      this.replays.set(session, { ...replay, received: replay.received + added, total });
-      this.snapshots.delete(session);
-      this.emitSoon();
-      return;
-    }
     if (frame.data.kind === 'synced') {
       const { session, seq } = frame.data;
       if (!this.sessions.has(session)) return;
@@ -261,10 +255,26 @@ export class HubClient {
       return;
     }
 
+    if (frame.data.kind !== 'event') return;
     const envelope = frame.data.event;
     const events = this.sessions.get(envelope.session);
     if (!events || !this.insert(events, envelope)) return;
     this.snapshots.delete(envelope.session);
+    this.emitSoon();
+  }
+
+  /** Reads a replay batch one event at a time, skipping any this client can't read. */
+  private receiveReplay({ session, events: batch, total }: UnreadEventsFrame): void {
+    const events = this.sessions.get(session);
+    if (!events) return;
+    let added = 0;
+    for (const unread of batch) {
+      const envelope = Envelope.safeParse(unread);
+      if (envelope.success && this.insert(events, envelope.data)) added++;
+    }
+    const replay = this.progress(session);
+    this.replays.set(session, { ...replay, received: replay.received + added, total });
+    this.snapshots.delete(session);
     this.emitSoon();
   }
 

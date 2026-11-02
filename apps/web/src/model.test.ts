@@ -288,6 +288,15 @@ describe('robustness', () => {
     expect(buildView(stream.envelopes).map((item) => item.kind)).toEqual(['user']);
   });
 
+  it('quietly ignores an event type from a newer release, whatever it carries', () => {
+    const stream = new Stream()
+      .started()
+      .push('quest.sparkled', { text: 'anything' })
+      .push('quest.sparkled', null)
+      .push('quest.sparkled', undefined);
+    expect(buildView(stream.envelopes)).toEqual(buildView(new Stream().started().envelopes));
+  });
+
   it('orders by seq and ignores duplicate seqs', () => {
     const stream = new Stream().started().claude([assistantText('one', 'm1'), assistantText('two', 'm2')]);
     const shuffled = [stream.envelopes[2]!, stream.envelopes[0]!, stream.envelopes[1]!, stream.envelopes[1]!];

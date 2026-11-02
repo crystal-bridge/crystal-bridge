@@ -130,7 +130,7 @@ The Castle's **Summoning Circle** lists a Kingdom's Summons and their Casts, run
 It appears once a Kingdom has a Summon or a Cast, and stays off phones for now.
 
 Protocol changes stay additive: new frames beside the existing ones, a `casts` table holding a neutral state, and no
-change to a Quest's event stream.
+change to a Quest's event stream. A 0.4+ Kingdom on a hub older than 0.4 gets no `cast` or `summons` delivery.
 
 ## For agents
 

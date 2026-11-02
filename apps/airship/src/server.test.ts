@@ -1352,6 +1352,52 @@ describe('airship server', () => {
     expect(goodAck).toEqual({ kind: 'ack', session: good.session, seq: good.seq });
   });
 
+  it('stores, acks and relays an event type from a newer Kingdom, and nothing else changes', async () => {
+    const session = randomUUID();
+    const started = sessionStartedEnvelope(session, 'node-a');
+    store.appendEvent(started);
+    const before = store.getSession(session);
+    const { socket, frames } = await connectNode('node-a');
+    const { socket: tab, frames: tabFrames } = await connectClient();
+    send(tab, { kind: 'subscribe', session, fromSeq: 0 });
+    await tabFrames.waitFor((f) => f.kind === 'synced');
+
+    const newer = makeEnvelope({ session, seq: 1, type: 'quest.sparkled', payload: { engine: 'other', raw: [1] } });
+    send(socket, newer);
+
+    expect(await frames.waitFor((f) => f.kind === 'ack')).toEqual({ kind: 'ack', session, seq: 1 });
+    await tabFrames.waitFor((f) => f.kind === 'event');
+    expect(store.eventsSince(session, 0)).toEqual([started, newer]);
+    expect(store.getSession(session)).toEqual(before);
+    expect(tabFrames.frames.some((f) => f.kind === 'attention' || f.kind === 'error')).toBe(false);
+
+    // A tab that arrives later gets it in the replay.
+    const { socket: late, frames: lateFrames } = await connectClient();
+    send(late, { kind: 'subscribe', session, fromSeq: 0 });
+    const replay = await lateFrames.waitFor((f) => f.kind === 'events');
+    expect(replay.events).toEqual([started, newer]);
+
+    // The node's resend after a reconnect is a duplicate, not a second event.
+    send(socket, newer);
+    await frames.waitFor(() => frames.frames.filter((f) => f.kind === 'ack').length === 2);
+    expect(store.eventsSince(session, 0)).toHaveLength(2);
+  });
+
+  it('reaches a tab waiting on a Quest the hub hasn-t stored yet, when its Kingdom refuses the start', async () => {
+    const session = randomUUID();
+    const { socket: nodeSocket } = await connectNode('node-a');
+    const { socket: tab, frames: tabFrames } = await connectClient();
+    send(tab, { kind: 'subscribe', session, fromSeq: 0 });
+    await tabFrames.waitFor((f) => f.kind === 'synced');
+
+    send(nodeSocket, { kind: 'node-error', session, message: 'this Kingdom can’t read that' });
+
+    expect(await tabFrames.waitFor((f) => f.kind === 'error')).toEqual({
+      kind: 'error',
+      message: 'this Kingdom can’t read that',
+    });
+  });
+
   it('relays a node-error about a session to that session-s subscribers only, without storing it', async () => {
     const sessionId = randomUUID();
     store.appendEvent(sessionStartedEnvelope(sessionId, 'node-a'));
@@ -2392,6 +2438,14 @@ describe('airship server appearance', () => {
     expect(await (await fetch(`${baseUrl}/api/appearance`, as('you@example.com'))).json()).toEqual({});
     const bad = await fetch(`${baseUrl}/api/appearance`, as('me@example.com', { looks: { n: { colour: 'red' } } }));
     expect(bad.status).toBe(400);
+  });
+
+  it('keeps fields a newer release saved, through a save and to the user-s other tabs', async () => {
+    const mineOpen = await client('me@example.com');
+    const newer = { tabStyle: 'tinted', compass: 'north', looks: { n: { icon: 'castle', crest: 'lion' } } };
+    expect((await fetch(`${baseUrl}/api/appearance`, as('me@example.com', newer))).status).toBe(204);
+    expect(await (await fetch(`${baseUrl}/api/appearance`, as('me@example.com'))).json()).toEqual(newer);
+    expect(await mineOpen.waitFor((f) => f.kind === 'appearance')).toEqual({ kind: 'appearance', appearance: newer });
   });
 
   it('tells that user-s other open tabs at once, and nobody else', async () => {

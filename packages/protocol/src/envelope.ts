@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-// node -> hub -> client
+/**
+ * The event types this release knows, for code that means one of them. An envelope's own `type` is open: see
+ * `Envelope`.
+ */
 export const EventType = z.enum([
   'session.started', // payload: { cwd, prompt, label, mode?, worktree?, adopted?, forkedFrom?, engine?, effort? }
   'claude.event', // payload: { engine: 'claude', raw: unknown }  one stream-json line, untouched
@@ -20,12 +23,20 @@ export const EventType = z.enum([
 ]);
 export type EventType = z.infer<typeof EventType>;
 
+/** The longest `type` on the wire. The store keeps and indexes it, so it's a short name and never data. */
+export const MAX_EVENT_TYPE = 64;
+
+/**
+ * node -> hub -> client. `type` is open so a new event type is additive: a hub stores and acks one it doesn't know
+ * instead of leaving the node to resend it forever, and a client ignores it. The hub reads only the types it knows, so
+ * an unknown one is an opaque row, and whatever it carries stays in `payload`.
+ */
 export const Envelope = z.object({
   node: z.string().min(1),
   session: z.uuid(),
   seq: z.number().int().nonnegative(),
   ts: z.number().int(),
-  type: EventType,
+  type: z.string().min(1).max(MAX_EVENT_TYPE),
   payload: z.unknown(),
 });
 export type Envelope = z.infer<typeof Envelope>;

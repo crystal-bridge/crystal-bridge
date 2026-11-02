@@ -5,6 +5,7 @@ import {
   MAX_CLI_UPDATE_REASON,
   NodeCliUpdated,
   NodeCommand,
+  NodeError,
   NodeHello,
   NodeSelfUpdate,
   PROTOCOL_VERSION,
@@ -13,7 +14,6 @@ import {
   type Effort,
   type Envelope,
   type EventType,
-  type NodeError,
   type Resume,
   type SelfUpdate,
   type NodeExternal,
@@ -199,6 +199,11 @@ interface PendingPermission {
 /** The deny message for a prompt whose `claude` process (or the whole node) went away first. */
 const SESSION_ENDED_MESSAGE = 'Session ended before an answer';
 
+/** A frame's `kind` or `type`, as far as one is safe to repeat: a short name, so never a prompt that landed there. */
+function isFrameName(part: unknown): part is string {
+  return typeof part === 'string' && /^[\w.-]{1,64}$/.test(part);
+}
+
 /** First 60 chars of the prompt's first line, for the session list in the client. */
 function labelFromPrompt(prompt: string): string {
   const firstLine = prompt.split('\n', 1)[0] ?? '';
@@ -263,6 +268,19 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     const frame: NodeError = { kind: 'node-error', message };
     if (sessionId !== undefined) frame.session = sessionId;
     wsSend(frame);
+  }
+
+  /**
+   * A frame this release can't read, from a newer hub or tab. A command gets an answer when it names a session, or its
+   * tab would wait forever. Only the frame's name is logged or sent back: the rest may hold prompt text.
+   */
+  function refuseUnreadable(parsed: unknown): void {
+    const frame = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<string, unknown>;
+    const name = [frame.kind, frame.type].find(isFrameName) ?? 'unnamed';
+    log(`dropped unrecognized frame from hub: ${name}`);
+    if (typeof frame.type !== 'string' || frame.kind !== undefined) return;
+    const session = NodeError.shape.session.safeParse(frame.session).data;
+    if (session) sendNodeError(session, `this Kingdom can't read that command (${name}): it may need an update`);
   }
 
   function resendUnacked(): void {
@@ -714,7 +732,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
-    log('dropped unrecognized frame from hub', parsed);
+    refuseUnreadable(parsed);
   }
 
   function scheduleReconnect(): void {
