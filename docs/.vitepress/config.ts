@@ -56,6 +56,7 @@ export default defineConfig({
           { text: 'Getting started on one machine', link: '/getting-started' },
           { text: 'Several machines', link: '/several-machines' },
           { text: 'Install the app', link: '/install-app' },
+          { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },
       {
