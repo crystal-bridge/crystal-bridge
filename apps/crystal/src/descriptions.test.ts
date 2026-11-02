@@ -84,7 +84,7 @@ describe('readDescriptions', () => {
   it('reads skills synced from the account', async () => {
     write(join(config, 'skills/synced/account-id/from-account/SKILL.md'), doc('Synced skill'));
     write(join(config, 'skills/synced/account-id/manifest.json'), '{}');
-    expect(await read()).toEqual({ 'from-account': 'Synced skill' });
+    expect(await read()).toEqual({ '*:from-account': 'Synced skill' });
   });
 
   it('prefers the project-s when both have the name', async () => {
@@ -186,6 +186,18 @@ describe('descriptionReporter', () => {
     reporter()(init([], plugins, ['demo:helper']), emit);
     await vi.waitFor(() => expect(emit).toHaveBeenCalled());
     expect(emit.mock.calls[0]![0].raw.descriptions).toEqual({ 'demo:helper': 'Plugin agent' });
+  });
+
+  it('matches a synced skill by the part after the colon, and never a bare name', async () => {
+    write(join(config, 'skills/synced/account-id/from-account/SKILL.md'), doc('Synced skill'));
+    write(join(project, '.claude/skills/own/SKILL.md'), doc('Own skill'));
+    const emit = vi.fn();
+    reporter()(init(['some-source:from-account', 'from-account', 'own']), emit);
+    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
+    expect(emit.mock.calls[0]![0].raw.descriptions).toEqual({
+      'some-source:from-account': 'Synced skill',
+      own: 'Own skill',
+    });
   });
 
   it('stays quiet when nothing has a description', async () => {

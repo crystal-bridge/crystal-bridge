@@ -8,6 +8,8 @@ import type { ClaudeEventPayload } from './session.js';
  * a missing folder or an unreadable file just means no tooltip. Nothing else under the config folder is read.
  */
 const MAX_DESCRIPTION = 300;
+/** Marks a synced skill's key in a scan's results. */
+const SYNCED = '*:';
 /** Files read per scan, so a huge plugin folder can't stall a start. */
 const MAX_FILES = 300;
 /** Frontmatter lives at the top of a file; nothing past this is ever read. */
@@ -110,11 +112,18 @@ export async function readDescriptions(
   };
   await scan(join(cwd, '.claude'), '');
   await scan(configDir, '');
-  // Skills synced from the account sit one folder deeper, per account.
+  // Skills synced from the account sit one folder deeper, per account. The CLI lists them under a prefix that nothing on
+  // disk names, so they're kept as `*:name`, for `listedDescription` to match by the part after the colon.
   const synced = join(configDir, 'skills', 'synced');
-  for (const account of await names(synced)) await scanSkills(join(synced, account), '');
+  for (const account of await names(synced)) await scanSkills(join(synced, account), SYNCED);
   for (const plugin of plugins) await scan(plugin.path, `${plugin.name}:`);
   return found;
+}
+
+/** The description for a name the Quest lists: its own, else, for a prefixed name, a synced skill's. */
+function listedDescription(found: Record<string, string>, name: string): string | undefined {
+  const colon = name.indexOf(':');
+  return found[name] ?? (colon > 0 ? found[`${SYNCED}${name.slice(colon + 1)}`] : undefined);
 }
 
 const isObj = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -149,7 +158,12 @@ export function descriptionReporter({
     const scan = latest;
     void readDescriptions({ configDir, cwd, plugins }).then((found) => {
       if (scan !== latest) return; // The list moved on while this one was being read.
-      const descriptions = Object.fromEntries(Object.entries(found).filter(([name]) => listed.has(name)));
+      const descriptions = Object.fromEntries(
+        [...listed].sort().flatMap((name) => {
+          const description = listedDescription(found, name);
+          return description ? [[name, description]] : [];
+        }),
+      );
       const text = JSON.stringify(descriptions);
       if (text === sent) return;
       sent = text;
