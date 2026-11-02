@@ -164,7 +164,7 @@ function Row({
     >
       <RowGlyph entry={entry} short={short} category={category} manifest={manifest} />
       {entry.description ? (
-        <Tip text={entry.description} align="start" className="block min-w-0 flex-1">
+        <Tip text={entry.description} beside className="block min-w-0 flex-1">
           {main}
         </Tip>
       ) : (
