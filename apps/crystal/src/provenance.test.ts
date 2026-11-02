@@ -48,6 +48,15 @@ describe('verifyRelease', () => {
     await expect(verifyRelease(tarball, VERSION, { fetch: offline, trustedRoot })).resolves.toBeUndefined();
   });
 
+  it('says why when GitHub can’t be reached at all, not just that a fetch failed', async () => {
+    const failing = vi.fn(async () => {
+      throw new TypeError('fetch failed', { cause: new Error('self-signed certificate in certificate chain') });
+    }) as unknown as typeof globalThis.fetch;
+    await expect(verifyRelease(tarball, VERSION, { fetch: failing, trustedRoot })).rejects.toThrow(
+      /provenance check.*self-signed certificate in certificate chain/,
+    );
+  });
+
   it('says what stopped it when neither place answers', async () => {
     const fetch = routes({ [API]: () => new Response('limited', { status: 403 }) });
     await expect(verifyRelease(tarball, VERSION, { fetch, trustedRoot })).rejects.toThrow('GitHub answered 403');

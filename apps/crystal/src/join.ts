@@ -4,18 +4,22 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { createServer } from 'node:net';
+import { dirname, isAbsolute, join } from 'node:path';
 import { LEAVE_COMMAND, LEAVE_COMMAND_WINDOWS } from '@crystal-bridge/protocol';
-import { ENTRY, installRootOf, rollbackRelease } from './release.js';
+import { ENTRY, installRootOf, rollbackRelease, whyFailed } from './release.js';
 
 const LABEL = 'dev.crystal-bridge.crystal';
 const SERVICE = 'crystal.service';
 const TASK = 'CrystalBridgeKingdom';
+/** Registered and deleted again before the code is spent, to learn whether the real task will be taken. */
+const CHECK_TASK = `${TASK}Check`;
 /** Not the source default, so `pnpm dev` still runs on a machine that is also a Kingdom. */
 const MCP_PORT = '7711';
 /** The port of an agent that doesn't name one, which is every Linux Kingdom the deploy scripts made. */
@@ -23,6 +27,10 @@ const DEFAULT_MCP_PORT = '7701';
 /** How long `adopt` waits for Quests, as a deploy scheduled for an idle moment does. */
 const ADOPT_WAIT_SECONDS = 3600;
 const ADOPT_POLL_SECONDS = 5;
+/** The package's `engines`, which npx only warns about. */
+const MIN_NODE_MAJOR = 22;
+/** How long a new service gets to answer on its port before `join` calls it failed. */
+const START_WAIT_SECONDS = 20;
 
 export interface ServicePaths {
   nodeBin: string;
@@ -33,8 +41,22 @@ export interface ServicePaths {
   path: string;
 }
 
+const xmlText = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+/** systemd expands `%` in every value of a unit. */
+const systemdSpecifiers = (text: string) => text.replaceAll('%', '%%');
+
+/** One word of a systemd value: a space would otherwise end it. */
+function systemdWord(text: string): string {
+  return /[\s"'\\]/.test(text) ? `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"` : text;
+}
+
+/** One argument of ExecStart, which also substitutes `$`, unlike Environment=. */
+const systemdArgument = (text: string) => systemdWord(systemdSpecifiers(text).replaceAll('$', '$$$$'));
+
 /** A systemd user unit. The token stays in the env file, which only its owner can read. */
 export function systemdUnit({ nodeBin, mainJs, envFile, path }: ServicePaths): string {
+  const command = [nodeBin, `--env-file=${envFile}`, mainJs].map(systemdArgument).join(' ');
   return `# Written by \`crystal-bridge-kingdom join\`; its \`leave\` removes this.
 [Unit]
 Description=Crystal Bridge Kingdom agent
@@ -42,8 +64,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-Environment=PATH=${path}
-ExecStart=${nodeBin} --env-file=${envFile} ${mainJs}
+Environment=${systemdWord(`PATH=${systemdSpecifiers(path)}`)}
+ExecStart=${command}
 Restart=on-failure
 RestartSec=5
 # Stop only the agent: it closes its sessions on SIGTERM, and work a Quest left running must survive a restart.
@@ -65,14 +87,14 @@ export function launchdPlist({ nodeBin, mainJs, envFile, logFile, path }: Servic
   <string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${nodeBin}</string>
-    <string>--env-file=${envFile}</string>
-    <string>${mainJs}</string>
+    <string>${xmlText(nodeBin)}</string>
+    <string>--env-file=${xmlText(envFile)}</string>
+    <string>${xmlText(mainJs)}</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>${path}</string>
+    <string>${xmlText(path)}</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -86,15 +108,13 @@ export function launchdPlist({ nodeBin, mainJs, envFile, logFile, path }: Servic
   <key>ExitTimeOut</key>
   <integer>15</integer>
   <key>StandardOutPath</key>
-  <string>${logFile}</string>
+  <string>${xmlText(logFile)}</string>
   <key>StandardErrorPath</key>
-  <string>${logFile}</string>
+  <string>${xmlText(logFile)}</string>
 </dict>
 </plist>
 `;
 }
-
-const xmlText = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 /**
  * What the Windows task runs. It restarts Crystal after a crash, because the headless console hides the exit code from
@@ -192,8 +212,11 @@ export interface JoinDeps {
   user: string;
   uid: number;
   version: string;
+  /** The version of the Node running this, as `process.versions.node` gives it. */
+  nodeVersion: string;
   /** The real path of this running file. */
   mainPath: string;
+  /** The Node running this, which `stableNode` prefers a lasting way of naming. */
   nodeBin: string;
   path: string;
   claudeBin: string;
@@ -203,6 +226,7 @@ export interface JoinDeps {
   kill: (pid: number) => void;
   log: (line: string) => void;
   sleep: (ms: number) => Promise<void>;
+  portTaken: (port: number) => Promise<boolean>;
 }
 
 interface Layout {
@@ -242,6 +266,9 @@ async function checkMachine(deps: JoinDeps, where: Layout): Promise<string> {
   if (deps.platform !== 'linux' && deps.platform !== 'darwin' && deps.platform !== 'win32') {
     throw new Error('This installer runs on Linux, macOS and Windows.');
   }
+  if (Number.parseInt(deps.nodeVersion, 10) < MIN_NODE_MAJOR) {
+    throw new Error(`A Kingdom needs Node ${MIN_NODE_MAJOR} or newer, and this is Node ${deps.nodeVersion}.`);
+  }
   if (existsSync(where.envFile) && /^CRYSTAL_TOKEN=./m.test(readFileSync(where.envFile, 'utf8'))) {
     throw new Error(
       `This machine is already a Kingdom (${where.envFile}). To start over, first run: ${leaveCommand(deps)}`,
@@ -266,13 +293,81 @@ async function checkMachine(deps: JoinDeps, where: Layout): Promise<string> {
   return root;
 }
 
+/** Whether something on this machine already holds a local port, or Windows has it reserved. */
+export function portTaken(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once('error', () => resolve(true));
+    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(false)));
+  });
+}
+
+/** Each way of naming this user to Task Scheduler, the one least likely to be turned down first. */
+async function windowsUserForms(deps: JoinDeps): Promise<string[]> {
+  const who = await deps.exec('whoami', ['/user', '/fo', 'csv', '/nh']).catch(() => '');
+  const [, name, sid] = /^"(.*)","(S-1-[\d-]+)"/m.exec(who) ?? [];
+  return [...new Set([sid, name, deps.user].filter((form) => form !== undefined))];
+}
+
+/**
+ * Finds a form of the user Task Scheduler accepts, by having it register a task and deleting that again. A bare name
+ * can match nothing on an Entra or domain PC, and a SID has been reported turned down there too, so only asking tells.
+ */
+async function windowsTaskUser(deps: JoinDeps, where: Layout): Promise<string> {
+  mkdirSync(dirname(where.service), { recursive: true });
+  let why = '';
+  for (const user of await windowsUserForms(deps)) {
+    writeWindowsTask(user, where);
+    try {
+      await deps.exec('schtasks', ['/Create', '/TN', CHECK_TASK, '/XML', where.service, '/F']);
+    } catch (error) {
+      why = whyFailed(error);
+      continue;
+    }
+    await deps.exec('schtasks', ['/Delete', '/TN', CHECK_TASK, '/F']).catch(() => undefined);
+    return user;
+  }
+  rmSync(where.service, { force: true });
+  throw new Error(`Task Scheduler would not take a sign-in task for this user, so the code is still good: ${why}`);
+}
+
+/** What has to work for the service to start. Says which name a Windows task should use for this user. */
+async function checkServiceManager(deps: JoinDeps, where: Layout): Promise<string> {
+  if (await deps.portTaken(Number(MCP_PORT))) {
+    throw new Error(
+      `Port ${MCP_PORT} on this machine is taken, so a Kingdom could not start here. Stop what holds it and run this ` +
+        "again. If that is another account's Kingdom, one machine can only have one for now.",
+    );
+  }
+  if (deps.platform === 'win32') return windowsTaskUser(deps, where);
+  if (deps.platform === 'darwin') {
+    await deps.exec('launchctl', ['print', `gui/${deps.uid}`]).catch(() => {
+      throw new Error(
+        'launchd has no session for this user, which a Kingdom runs in. Run this while signed in at the Mac, or with ' +
+          'that user signed in at its screen.',
+      );
+    });
+    return deps.user;
+  }
+  await deps.exec('systemctl', ['--user', 'show-environment']).catch(() => {
+    throw new Error(
+      '"systemctl --user" can\'t be reached, and a Kingdom runs as a systemd user service. Log in as this user directly ' +
+        'rather than through su or sudo. In WSL, turn systemd on in /etc/wsl.conf first.',
+    );
+  });
+  return deps.user;
+}
+
 /** Copies the package out of npx's temporary folder, so the service outlives it. */
 function installCopy(root: string, deps: JoinDeps, base: string): string {
   // A symlink needs an administrator on Windows, so there the copy itself sits where `current` would point.
   const release = deps.platform === 'win32' ? join(base, 'current') : join(base, 'releases', deps.version);
-  rmSync(release, { recursive: true, force: true });
-  mkdirSync(release, { recursive: true });
-  cpSync(join(root, 'node_modules'), join(release, 'node_modules'), { recursive: true, verbatimSymlinks: true });
+  // `adopt` may be running from the very release it would replace.
+  if (!existsSync(release) || realpathSync(release) !== realpathSync(root)) {
+    rmSync(release, { recursive: true, force: true });
+    mkdirSync(release, { recursive: true });
+    cpSync(join(root, 'node_modules'), join(release, 'node_modules'), { recursive: true, verbatimSymlinks: true });
+  }
   if (deps.platform === 'win32') return join(release, ENTRY);
   const link = join(base, 'current');
   const next = `${link}.next`;
@@ -283,11 +378,15 @@ function installCopy(root: string, deps: JoinDeps, base: string): string {
 }
 
 async function redeemCode(hub: string, code: string, deps: JoinDeps): Promise<{ node: string; token: string }> {
-  const response = await deps.fetch(`${hub}/api/join`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
+  const response = await deps
+    .fetch(`${hub}/api/join`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+    .catch((error: unknown) => {
+      throw new Error(`Could not reach the hub at ${hub}: ${whyFailed(error)}`);
+    });
   const body = (await response.json()) as { node?: string; token?: string; error?: string };
   if (!response.ok || !body.node || !body.token) {
     throw new Error(`The hub refused this join: ${body.error ?? `status ${response.status}`}`);
@@ -354,38 +453,101 @@ async function stopService(deps: JoinDeps, where: Layout): Promise<void> {
   if (deps.platform !== 'darwin') await deps.exec('systemctl', ['--user', 'daemon-reload']).catch(() => undefined);
 }
 
+const pathDelimiter = (platform: NodeJS.Platform) => (platform === 'win32' ? ';' : ':');
+
 /** PATH for the service: npx's temporary folders won't outlive this run. */
-function lastingPath(path: string): string {
+function lastingPath(path: string, platform: NodeJS.Platform): string {
+  const delimiter = pathDelimiter(platform);
   return path
-    .split(':')
-    .filter((entry) => entry && !entry.includes('/_npx/'))
-    .join(':');
+    .split(delimiter)
+    .filter((entry) => entry && !entry.replaceAll('\\', '/').includes('/_npx/'))
+    .join(delimiter);
 }
 
-function writeService(mainJs: string, path: string, deps: JoinDeps, where: Layout): void {
+function realPath(path: string): string | undefined {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The name for the running Node that survives its being upgraded. `process.execPath` is the resolved file, which under
+ * Homebrew is in a folder named after the version and gone after the next upgrade, so a link on PATH that leads to the
+ * same file is better. Only the same file: another `node` on PATH could be any version, or a shim needing a shell.
+ */
+export function stableNode(nodeBin: string, path: string, platform: NodeJS.Platform): string {
+  const real = realPath(nodeBin);
+  if (!real) return nodeBin;
+  const name = platform === 'win32' ? 'node.exe' : 'node';
+  const links = path
+    .split(pathDelimiter(platform))
+    .filter((folder) => isAbsolute(folder))
+    .map((folder) => join(folder, name));
+  return links.find((link) => link !== nodeBin && realPath(link) === real) ?? nodeBin;
+}
+
+function writeWindowsTask(user: string, where: Layout): void {
+  const script = join(where.base, 'crystal.cmd');
+  // Task Scheduler reads the file as the UTF-16 its first line says it is.
+  writeFileSync(where.service, `\ufeff${windowsTask({ script, user })}`, 'utf16le');
+}
+
+function writeService(mainJs: string, path: string, user: string, deps: JoinDeps, where: Layout): void {
   mkdirSync(dirname(where.service), { recursive: true });
   mkdirSync(dirname(where.logFile), { recursive: true });
-  const paths = { nodeBin: deps.nodeBin, mainJs, envFile: where.envFile, logFile: where.logFile, path };
+  // The shell's PATH as well: an env file's own PATH can predate the link.
+  const delimiter = pathDelimiter(deps.platform);
+  const nodeBin = stableNode(deps.nodeBin, `${path}${delimiter}${deps.path}`, deps.platform);
+  const paths = { nodeBin, mainJs, envFile: where.envFile, logFile: where.logFile, path };
   if (deps.platform === 'win32') {
-    const script = join(where.base, 'crystal.cmd');
-    writeFileSync(script, windowsScript(deps.nodeBin));
-    // Task Scheduler reads the file as the UTF-16 its first line says it is.
-    writeFileSync(where.service, `\ufeff${windowsTask({ script, user: deps.user })}`, 'utf16le');
+    writeFileSync(join(where.base, 'crystal.cmd'), windowsScript(nodeBin));
+    writeWindowsTask(user, where);
   } else {
     writeFileSync(where.service, deps.platform === 'darwin' ? launchdPlist(paths) : systemdUnit(paths));
   }
+}
+
+/** The way to read what the service printed: systemd keeps it in the journal, the others in a file. */
+function serviceLog(deps: JoinDeps, where: Layout): string {
+  if (deps.platform === 'win32' || deps.platform === 'darwin') return where.logFile;
+  return `journalctl --user -u ${SERVICE}`;
+}
+
+/**
+ * Waits for this Kingdom's agent to answer locally. It has to answer with this Kingdom's name, because whatever already
+ * holds the port answers too: a service that can't bind only fails and restarts behind it.
+ */
+async function confirmStarted(node: string, deps: JoinDeps): Promise<void> {
+  let other: string | undefined;
+  for (let waited = 0; waited < START_WAIT_SECONDS; waited++) {
+    const status = await deps
+      .fetch(`http://127.0.0.1:${MCP_PORT}/status`, { signal: AbortSignal.timeout(1000) })
+      .catch(() => undefined);
+    const answer = (await status?.json().catch(() => undefined)) as { node?: string } | undefined;
+    if (answer?.node === node) return;
+    other = answer?.node ?? other;
+    await deps.sleep(1000);
+  }
+  throw new Error(
+    other
+      ? `the Kingdom "${other}" answers on port ${MCP_PORT}, so this one can't use it`
+      : `it did not answer on port ${MCP_PORT} within ${START_WAIT_SECONDS} seconds`,
+  );
 }
 
 /** Turns this machine into a Kingdom of the hub. Nothing is spent until everything that can be checked has passed. */
 export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Promise<void> {
   const where = layout(deps);
   const root = await checkMachine(deps, where);
+  const user = await checkServiceManager(deps, where);
   const hub = hubUrl.replace(/\/+$/, '');
   const mainJs = installCopy(root, deps, where.base);
   const { node, token } = await redeemCode(hub, code, deps);
 
   // Windows' task starts with the user's own PATH, so only these two need one written down.
-  const path = lastingPath(deps.path);
+  const path = lastingPath(deps.path, deps.platform);
   mkdirSync(dirname(where.envFile), { recursive: true });
   writeFileSync(
     where.envFile,
@@ -402,8 +564,17 @@ export async function runJoin(hubUrl: string, code: string, deps: JoinDeps): Pro
   );
   chmodSync(where.envFile, 0o600);
 
-  writeService(mainJs, path, deps, where);
-  await startService(deps, where);
+  writeService(mainJs, path, user, deps, where);
+  try {
+    await startService(deps, where);
+    await confirmStarted(node, deps);
+  } catch (error) {
+    throw new Error(
+      `The hub took this machine as Kingdom "${node}", but its service isn't running: ${whyFailed(error)}\n` +
+        `Its log: ${serviceLog(deps, where)}\nTo give the Kingdom up and start over: ${leaveCommand(deps)}`,
+      { cause: error },
+    );
+  }
 
   deps.log(`Kingdom "${node}" joined ${hub}. It runs as a service and dials out to the hub.`);
   if (deps.platform === 'win32') deps.log('On Windows it runs while you are signed in, and starts at each sign-in.');
@@ -489,7 +660,7 @@ export async function runAdopt(deps: JoinDeps): Promise<void> {
 
   await waitForQuiet(envValue(env, 'CRYSTAL_MCP_PORT') ?? DEFAULT_MCP_PORT, deps);
   const mainJs = installCopy(root, deps, where.base);
-  writeService(mainJs, lastingPath(envValue(env, 'PATH') ?? deps.path), deps, where);
+  writeService(mainJs, lastingPath(envValue(env, 'PATH') ?? deps.path, deps.platform), deps.user, deps, where);
   await replaceService(deps);
   deps.log(
     `Kingdom "${envValue(env, 'CRYSTAL_NODE') ?? ''}" now runs ${deps.version} and updates itself from its hub.`,

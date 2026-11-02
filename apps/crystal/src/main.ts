@@ -11,9 +11,17 @@ import { ClaudeSession } from './session.js';
 import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
 import { resolveClaudeBin } from './claude-bin.js';
 import { cachedCliVersion, execCliUpdate, execCliVersion } from './cli-version.js';
-import { runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.js';
+import { portTaken, runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.js';
 import { verifyRelease } from './provenance.js';
-import { activateRelease, heldVersions, releaseId, selfUpdateBase, stageRelease, type ReleaseDeps } from './release.js';
+import {
+  activateRelease,
+  heldVersions,
+  releaseId,
+  runningNode,
+  selfUpdateBase,
+  stageRelease,
+  type ReleaseDeps,
+} from './release.js';
 import { createUpdater } from './self-update.js';
 import {
   createSummons,
@@ -65,7 +73,7 @@ function releaseDeps(base: string, env: Record<string, string | undefined>): Rel
   return {
     base,
     platform: process.platform,
-    nodeBin: process.execPath,
+    nodeBin: runningNode(process.execPath),
     fetch,
     verify: (tarball, version) =>
       verifyRelease(tarball, version, {
@@ -225,6 +233,7 @@ function joinDeps(): JoinDeps {
     user: userInfo().username,
     uid: process.getuid?.() ?? 0,
     version: VERSION ?? 'dev',
+    nodeVersion: process.versions.node,
     mainPath: realpathSync(fileURLToPath(import.meta.url)),
     nodeBin: process.execPath,
     path: process.env.PATH ?? '',
@@ -241,6 +250,7 @@ function joinDeps(): JoinDeps {
     kill: (pid) => process.kill(pid),
     log: (line) => console.log(line),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    portTaken,
   };
 }
 

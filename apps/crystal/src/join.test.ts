@@ -9,8 +9,10 @@ import {
   readlinkSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -20,11 +22,13 @@ import {
   hubHttpUrl,
   hubSocketUrl,
   launchdPlist,
+  portTaken,
   runAdopt,
   runJoin,
   runLeave,
   runRollback,
   servicePath,
+  stableNode,
   systemdUnit,
   type JoinDeps,
 } from './join.js';
@@ -63,6 +67,111 @@ describe('service definitions', () => {
   it('neither one holds the token', () => {
     expect(systemdUnit(paths)).not.toContain('TOKEN');
     expect(launchdPlist(paths)).not.toContain('TOKEN');
+  });
+
+  const spaced = {
+    nodeBin: '/srv/a b/node',
+    mainJs: '/srv/a b/main.js',
+    envFile: '/srv/a b/crystal.env',
+    logFile: '/srv/a b/c.log',
+    path: '/mnt/c/Program Files/nodejs:/usr/bin',
+  };
+
+  it('a unit quotes a space, which would otherwise split an argument or cut PATH short', () => {
+    const unit = systemdUnit(spaced);
+    expect(unit).toContain('ExecStart="/srv/a b/node" "--env-file=/srv/a b/crystal.env" "/srv/a b/main.js"\n');
+    expect(unit).toContain('Environment="PATH=/mnt/c/Program Files/nodejs:/usr/bin"\n');
+  });
+
+  it('a unit escapes what systemd would otherwise expand or end a quote on', () => {
+    const unit = systemdUnit({ ...paths, mainJs: '/h/100% "$HOME"\\x.js', path: '/a$b:/c%d' });
+    expect(unit).toContain(' "/h/100%% \\"$$HOME\\"\\\\x.js"\n');
+    // Environment= has no $ substitution, so only the specifier is doubled.
+    expect(unit).toContain('Environment=PATH=/a$b:/c%%d\n');
+  });
+
+  const awkward = {
+    nodeBin: '/h/R&D/node',
+    mainJs: '/h/R&D/main.js',
+    envFile: '/h/R&D/crystal.env',
+    logFile: '/h/R&D/<c>.log',
+    path: '/h/R&D/bin:/usr/bin',
+  };
+
+  it('a plist escapes every path, so an ampersand in one does not break the file', () => {
+    const plist = launchdPlist(awkward);
+    expect(plist).toContain('<string>/h/R&amp;D/node</string>');
+    expect(plist).toContain('<string>--env-file=/h/R&amp;D/crystal.env</string>');
+    expect(plist).toContain('<string>/h/R&amp;D/main.js</string>');
+    expect(plist).toContain('<string>/h/R&amp;D/bin:/usr/bin</string>');
+    expect(plist).toContain('<string>/h/R&amp;D/&lt;c&gt;.log</string>');
+    expect(plist.replaceAll(/&(amp|lt|gt);/g, '')).not.toMatch(/&/);
+  });
+
+  it.runIf(process.platform === 'darwin')('plutil reads that plist', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cb-plist-'));
+    const file = join(dir, 'a.plist');
+    writeFileSync(file, launchdPlist(awkward));
+    await run('plutil', ['-lint', file]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('stableNode', () => {
+  let dir: string;
+  let real: string;
+  let bin: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cb-node-'));
+    real = join(dir, 'Cellar/node/25.0.0/bin/node');
+    bin = join(dir, 'bin');
+    mkdirSync(dirname(real), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(real, '');
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  // A symlink needs an administrator on Windows.
+  const onUnix = it.skipIf(process.platform === 'win32');
+
+  onUnix('takes the link on PATH that a package manager keeps pointing at its newest node', () => {
+    symlinkSync(real, join(bin, 'node'));
+    expect(stableNode(real, `/usr/bin:${dirname(real)}:${bin}`, 'darwin')).toBe(join(bin, 'node'));
+  });
+
+  onUnix('keeps the running node when the one on PATH is another node', () => {
+    writeFileSync(join(bin, 'node'), '');
+    expect(stableNode(real, bin, 'linux')).toBe(real);
+  });
+
+  onUnix('keeps the running node when nothing on PATH leads to it', () => {
+    expect(stableNode(real, `/usr/bin:${bin}`, 'linux')).toBe(real);
+  });
+
+  onUnix('never writes down a relative PATH entry, which means nothing to a service', () => {
+    symlinkSync(real, join(bin, 'node'));
+    expect(stableNode(real, 'bin', 'linux')).toBe(real);
+  });
+
+  onUnix('reads a Windows PATH', () => {
+    symlinkSync(real, join(bin, 'node.exe'));
+    expect(stableNode(real, `C:\\nope;${bin}`, 'win32')).toBe(join(bin, 'node.exe'));
+  });
+
+  it('copes with a running node it cannot find', () => {
+    expect(stableNode('/gone/node', bin, 'linux')).toBe('/gone/node');
+  });
+});
+
+describe('portTaken', () => {
+  it('says whether something here already holds a port', async () => {
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as { port: number };
+    expect(await portTaken(port)).toBe(true);
+    await new Promise((resolve) => server.close(resolve));
+    expect(await portTaken(port)).toBe(false);
   });
 });
 
@@ -110,6 +219,7 @@ describe('join and leave', () => {
       user: 'me',
       uid: 501,
       version: '0.2.0',
+      nodeVersion: '22.12.0',
       mainPath: join(npx, 'node_modules/@crystal-bridge/kingdom/dist/main.js'),
       nodeBin: '/opt/node/bin/node',
       path: `/c/_npx/ab/node_modules/.bin:/opt/node/bin:/usr/bin`,
@@ -126,6 +236,7 @@ describe('join and leave', () => {
       log: (line) => lines.push(line),
       kill: (pid) => killed.push(pid),
       sleep: async () => undefined,
+      portTaken: async () => false,
     };
   }
 
@@ -195,6 +306,82 @@ describe('join and leave', () => {
     expect(lines.join('\n')).toContain(LEAVE_COMMAND_WINDOWS);
     const copy = join(windowsBase(), 'current/node_modules/@crystal-bridge/kingdom/dist/main.js');
     expect(existsSync(copy)).toBe(true);
+  });
+
+  describe('who the Windows task runs as', () => {
+    const whoami = '"azuread\\me","S-1-12-1-11-22-33-44"\r\n';
+    const task = () => readFileSync(join(windowsBase(), 'task.xml')).toString('utf16le');
+
+    it('names the user by SID, since a bare name can match nothing on an Entra or domain PC', async () => {
+      answers['whoami /user'] = whoami;
+      await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+      expect(task().match(/<UserId>[^<]*<\/UserId>/g)).toEqual([
+        '<UserId>S-1-12-1-11-22-33-44</UserId>',
+        '<UserId>S-1-12-1-11-22-33-44</UserId>',
+      ]);
+    });
+
+    it('falls back to the plain name when whoami gives nothing it can read', async () => {
+      answers['whoami /user'] = new Error('no whoami');
+      await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+      expect(task()).toContain('<UserId>me</UserId>');
+    });
+
+    /** A Task Scheduler that only takes the task when it names this user this way. */
+    function takingOnly(form: string): JoinDeps {
+      const windows = windowsDeps();
+      return {
+        ...windows,
+        async exec(file, args) {
+          if (args.includes('/Create') && !task().includes(`<UserId>${form}</UserId>`)) {
+            throw new Error('No mapping between account names and security IDs was done.');
+          }
+          return windows.exec(file, args);
+        },
+      };
+    }
+
+    it('tries the account name next when Task Scheduler turns the SID down', async () => {
+      answers['whoami /user'] = whoami;
+      await runJoin('https://hub.example.com', 'CODE', takingOnly('azuread\\me'));
+      expect(task()).toContain('<UserId>azuread\\me</UserId>');
+      expect(calls).toContain('schtasks /Run /TN CrystalBridgeKingdom');
+    });
+
+    it('tries a throwaway task before the code is spent, and leaves none behind', async () => {
+      await runJoin('https://hub.example.com', 'CODE', windowsDeps());
+      const file = join(windowsBase(), 'task.xml');
+      const tried = calls.indexOf(`schtasks /Create /TN CrystalBridgeKingdomCheck /XML ${file} /F`);
+      expect(tried).toBeGreaterThan(-1);
+      expect(calls[tried + 1]).toBe('schtasks /Delete /TN CrystalBridgeKingdomCheck /F');
+    });
+
+    it('keeps the code when Task Scheduler takes no form of the user', async () => {
+      answers['whoami /user'] = whoami;
+      await expect(runJoin('https://hub.example.com', 'CODE', takingOnly('nobody'))).rejects.toThrow(
+        /Task Scheduler.*No mapping/s,
+      );
+      expect(fetchHub).not.toHaveBeenCalled();
+      expect(existsSync(join(windowsBase(), 'crystal.env'))).toBe(false);
+      expect(existsSync(join(windowsBase(), 'task.xml'))).toBe(false);
+    });
+  });
+
+  it.skipIf(process.platform === 'win32')('writes the stable node into the Windows script too', async () => {
+    const programs = join(dir, 'programs');
+    const nvm = join(dir, 'nvm/v22');
+    mkdirSync(programs);
+    mkdirSync(nvm, { recursive: true });
+    writeFileSync(join(nvm, 'node.exe'), '');
+    symlinkSync(join(nvm, 'node.exe'), join(programs, 'node.exe'));
+    await runJoin('https://hub.example.com', 'CODE', {
+      ...windowsDeps(),
+      nodeBin: join(nvm, 'node.exe'),
+      path: `C:\\Windows;${programs}`,
+    });
+    expect(readFileSync(join(windowsBase(), 'crystal.cmd'), 'utf8')).toContain(
+      `"${join(programs, 'node.exe')}" --env-file`,
+    );
   });
 
   it('names the Windows way to leave when this one has already joined', async () => {
@@ -370,6 +557,111 @@ describe('join and leave', () => {
     expect(lines.join('\n')).not.toContain('someone@example.com');
   });
 
+  describe('checks before the code is spent', () => {
+    const refusedBeforeSpending = async (made: JoinDeps, message: RegExp): Promise<void> => {
+      await expect(runJoin('https://hub.example.com', 'CODE', made)).rejects.toThrow(message);
+      expect(fetchHub).not.toHaveBeenCalled();
+      expect(existsSync(envFile())).toBe(false);
+    };
+
+    onUnix('refuses a node older than the package needs', async () => {
+      await refusedBeforeSpending({ ...deps(), nodeVersion: '20.11.0' }, /Node 22.*20\.11\.0/);
+    });
+
+    onUnix('refuses Linux with no user service manager to reach', async () => {
+      answers['systemctl --user show-environment'] = new Error('Failed to connect to bus');
+      await refusedBeforeSpending(deps(), /systemctl --user/);
+    });
+
+    onUnix('refuses macOS with no graphical session, which launchd agents need', async () => {
+      answers['launchctl print gui/501'] = new Error('Could not find domain');
+      await refusedBeforeSpending(deps('darwin'), /signed in at the Mac/);
+    });
+
+    onUnix('refuses a port something else holds, naming the likely second account', async () => {
+      await refusedBeforeSpending({ ...deps(), portTaken: async (port) => port === 7711 }, /7711.*another account/s);
+    });
+  });
+
+  describe('after starting the service', () => {
+    /** The agent's own /status: nothing answering yet, or the hub's reply to a join. */
+    function statusAnswers(status: () => Promise<unknown>): void {
+      fetchHub.mockImplementation(async (url: string) => {
+        if (!url.endsWith('/status')) return { ok: true, status: 200, json: async () => reply.body };
+        return { ok: true, status: 200, json: status };
+      });
+    }
+
+    onUnix('waits for the agent to answer on its port before saying it joined', async () => {
+      let tries = 0;
+      statusAnswers(async () => {
+        tries++;
+        if (tries < 4) throw new Error('not up');
+        return { node: 'node-c' };
+      });
+      await runJoin('https://hub.example.com', 'CODE', deps());
+      expect(fetchHub).toHaveBeenCalledWith('http://127.0.0.1:7711/status', expect.anything());
+      expect(tries).toBe(4);
+      expect(lines.join('\n')).toContain('joined');
+    });
+
+    onUnix('reports a service that never answers, and points at its log, instead of saying it joined', async () => {
+      fetchHub.mockImplementation(async (url: string) => {
+        if (url.endsWith('/status')) throw new Error('fetch failed');
+        return { ok: true, status: 200, json: async () => reply.body };
+      });
+      const sleep = vi.fn(async () => undefined);
+      await expect(runJoin('https://hub.example.com', 'CODE', { ...deps(), sleep })).rejects.toThrow(
+        /did not answer.*journalctl --user -u crystal\.service/s,
+      );
+      expect(sleep.mock.calls.length).toBeGreaterThanOrEqual(19);
+      expect(lines.join('\n')).not.toContain('joined');
+    });
+
+    onUnix('names the log file on macOS, where launchd writes one', async () => {
+      statusAnswers(async () => {
+        throw new Error('not up');
+      });
+      await expect(runJoin('https://hub.example.com', 'CODE', deps('darwin'))).rejects.toThrow(
+        join(home, 'Library/Logs/crystal-bridge/crystal.log'),
+      );
+    });
+
+    it('names the log file on Windows', async () => {
+      statusAnswers(async () => {
+        throw new Error('not up');
+      });
+      await expect(runJoin('https://hub.example.com', 'CODE', windowsDeps())).rejects.toThrow(
+        join(windowsBase(), 'crystal.log'),
+      );
+    });
+
+    onUnix('does not take another account’s Kingdom on that port for its own', async () => {
+      statusAnswers(async () => ({ node: 'someone-else' }));
+      await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/someone-else/);
+      expect(lines.join('\n')).not.toContain('joined');
+    });
+
+    onUnix('says how to get out when the service will not start at all', async () => {
+      answers['enable --now'] = new Error('Failed to start');
+      await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/Failed to start.*leave/s);
+    });
+  });
+
+  onUnix('writes a link on PATH rather than the versioned folder a Homebrew node runs from', async () => {
+    const cellar = join(dir, 'Cellar/node/25.0.0/bin');
+    const brew = join(dir, 'brew-bin');
+    mkdirSync(cellar, { recursive: true });
+    mkdirSync(brew);
+    writeFileSync(join(cellar, 'node'), '');
+    symlinkSync(join(cellar, 'node'), join(brew, 'node'));
+    const homebrew = { ...deps('darwin'), nodeBin: join(cellar, 'node'), path: `${brew}:/usr/bin` };
+    await runJoin('https://hub.example.com', 'CODE', homebrew);
+    const plist = readFileSync(servicePath(home, 'darwin'), 'utf8');
+    expect(plist).toContain(`<string>${join(brew, 'node')}</string>`);
+    expect(plist).not.toContain('Cellar');
+  });
+
   onUnix('leaves the temporary npx folder off the PATH the service keeps', async () => {
     await runJoin('https://hub.example.com', 'CODE', deps());
     expect(readFileSync(servicePath(home, 'linux'), 'utf8')).toContain('Environment=PATH=/opt/node/bin:/usr/bin\n');
@@ -459,6 +751,32 @@ describe('join and leave', () => {
       expect(calls).toEqual([]);
     });
 
+    onUnix('repairs a service left on a versioned node, finding the link on the PATH it runs from', async () => {
+      deployedKingdom();
+      fetchHub.mockResolvedValue(quiet);
+      const cellar = join(dir, 'Cellar/node/25.0.0/bin');
+      const brew = join(dir, 'brew-bin');
+      mkdirSync(cellar, { recursive: true });
+      mkdirSync(brew);
+      writeFileSync(join(cellar, 'node'), '');
+      symlinkSync(join(cellar, 'node'), join(brew, 'node'));
+      await runAdopt({ ...deps(), nodeBin: join(cellar, 'node'), path: `${brew}:/usr/bin` });
+      expect(readFileSync(servicePath(home, 'linux'), 'utf8')).toContain(`ExecStart=${join(brew, 'node')} `);
+    });
+
+    onUnix('run from the release it is already on, keeps that release instead of deleting it', async () => {
+      deployedKingdom();
+      fetchHub.mockResolvedValue(quiet);
+      const release = join(home, '.local/share/crystal-bridge/releases/0.2.0');
+      const entry = join(release, 'node_modules/@crystal-bridge/kingdom/dist/main.js');
+      mkdirSync(dirname(entry), { recursive: true });
+      writeFileSync(entry, '// agent');
+      await runAdopt({ ...deps(), mainPath: entry });
+      expect(readFileSync(entry, 'utf8')).toBe('// agent');
+      expect(readlinkSync(current())).toBe(release);
+      expect(calls).toContain('systemctl --user restart crystal.service');
+    });
+
     onUnix('on macOS waits for the old agent to go before starting the new one', async () => {
       deployedKingdom();
       fetchHub.mockResolvedValue(quiet);
@@ -503,6 +821,13 @@ describe('join and leave', () => {
     await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(/wrong, used or expired/);
     expect(existsSync(envFile())).toBe(false);
     expect(calls.some((call) => call.includes('enable --now'))).toBe(false);
+  });
+
+  onUnix('says why the hub could not be reached, not just that a fetch failed', async () => {
+    fetchHub.mockRejectedValue(new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND hub') }));
+    await expect(runJoin('https://hub.example.com', 'CODE', deps())).rejects.toThrow(
+      /https:\/\/hub\.example\.com.*fetch failed: getaddrinfo ENOTFOUND hub/,
+    );
   });
 
   onUnix('refuses to run from source, where there is nothing lasting to copy', async () => {
