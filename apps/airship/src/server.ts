@@ -94,6 +94,19 @@ const GUESSES = { max: 20, timeWindow: '1 minute' };
 /** Higher, for a whole fleet reconnecting after a hub restart. */
 const NODE_DIALS = { max: 300, timeWindow: '1 minute' };
 
+/**
+ * Whether a browser sent this for a page from another site. It brings the login along (a `tailscale serve` identity
+ * comes from the device, and a dev hub has none), and only reads are safe from that, because the browser won't show
+ * the page the answer. Fetch metadata comes first since a proxy may rewrite Host. No Origin means no browser sent it.
+ */
+function fromAnotherSite(headers: FastifyRequest['headers']): boolean {
+  const site = headers['sec-fetch-site'];
+  if (site) return site !== 'same-origin' && site !== 'none';
+  if (headers.origin === undefined) return false;
+  const host = headers['x-forwarded-host'] ?? headers.host;
+  return !URL.canParse(headers.origin) || new URL(headers.origin).host !== host;
+}
+
 /** Close code for a node whose hello names a protocol version this hub doesn't speak. */
 const CLOSE_WRONG_PROTOCOL = 4006;
 
@@ -255,9 +268,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   /** Whose request this is; one shared user when there's no login (pnpm dev, where the client side is open anyway). */
   const loginOf = (request: FastifyRequest): string => auth?.identify(request) ?? 'default';
 
+  app.addHook('onRequest', async (request, reply) => {
+    const changes = request.method !== 'GET' && request.method !== 'HEAD';
+    if ((changes || request.routeOptions.url === '/client') && fromAnotherSite(request.headers)) {
+      app.log.warn({ url: request.url, origin: request.headers.origin }, 'refused a request from another site');
+      await refuse(request, reply, 403, 'refused: this request came from another site');
+    }
+  });
+
   if (auth) {
     app.addHook('onRequest', async (request, reply) => {
-      const path = request.url.split('?', 1)[0]!;
+      // The route the router matched, not the raw URL: it decodes the path, so `/%61pi/sessions` reaches `/api/sessions`.
+      const path = request.routeOptions.url ?? request.url.split('?', 1)[0]!;
       if (OPEN_PATHS.has(path)) return;
       if (auth.publicApp && !path.startsWith('/api/') && path !== '/client') return;
       if (auth.identify(request)) return;
