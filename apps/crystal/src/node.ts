@@ -159,6 +159,11 @@ const CLOSE_WRONG_PROTOCOL = 4006;
 
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
+/**
+ * The hub never says it accepted a hello, it only closes on one it refuses, so a link that lasts this long counts as
+ * accepted. Backing off until then keeps a refused Kingdom from redialling every second against the hub's dial limit.
+ */
+const ACCEPTED_AFTER_MS = 5000;
 
 interface SessionState {
   seq: number;
@@ -726,10 +731,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     if (closed) return;
     const ws = new WebSocket(hubUrl, token ? { headers: { authorization: `Bearer ${token}` } } : {});
     socket = ws;
+    let accepted: NodeJS.Timeout | undefined;
 
     ws.on('open', () => {
       log('connected to the hub');
-      backoffMs = INITIAL_BACKOFF_MS;
+      accepted = setTimeout(() => {
+        backoffMs = INITIAL_BACKOFF_MS;
+      }, ACCEPTED_AFTER_MS);
+      accepted.unref?.();
       keepBeating(ws, options.heartbeatMs, () => log('the hub stopped answering, reconnecting'));
       wsSend(
         NodeHello.parse({
@@ -756,6 +765,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     ws.on('message', (data) => handleMessage(data));
 
     ws.on('close', (code, reason) => {
+      clearTimeout(accepted);
       if (socket === ws) socket = null;
       // Still retried: updating the hub can end the refusal.
       if (code === CLOSE_WRONG_PROTOCOL) log(`the hub refused this node: ${reason.toString()}`);

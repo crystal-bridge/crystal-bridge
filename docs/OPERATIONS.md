@@ -19,8 +19,9 @@ A hub and a Kingdom work together when they speak the same `PROTOCOL_VERSION`, w
 a protocol version are additive, so either side can be updated first; updating the hub first is the habit.
 
 A change an older peer can't handle bumps the version. The hub then refuses a Kingdom on another version instead of half
-working: both sides log the reason, and the Kingdom shows as offline and keeps retrying, so updating the older side
-ends the refusal without touching the other. A release's notes say when it bumps the protocol.
+working: both sides log the reason, and the Kingdom shows as offline and keeps retrying, backing off to one try every 30
+seconds, so updating the older side ends the refusal without touching the other. A Kingdom that updates itself hears
+which version to run before it's refused, so it crosses the bump alone. A release's notes say when it bumps the protocol.
 
 The Castle shows each Kingdom's release. A packaged Kingdom reports its version, and one deployed from git its commit.
 The Castle warns when a Kingdom's version is older than the hub's. Commits can't be ordered, so it never warns about a
