@@ -152,7 +152,7 @@ The guides are in [`docs/`](docs), and the same pages build into a site (`pnpm d
 - [Summons](docs/SUMMONS.md), long jobs on other machines
 - [Themes and art packs](docs/THEME.md)
 - [Engines and the protocol](docs/ENGINES.md)
-- [Contributing](CONTRIBUTING.md)
+- [Contributing](CONTRIBUTING.md), including how to help by testing your own setup
 
 ## Development
 
