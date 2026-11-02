@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import type { HubClient, ReplayProgress } from './hub.js';
+import type { ErrorListener, HubClient, ReplayProgress } from './hub.js';
 import {
   type Attachment,
   Effort,
@@ -655,7 +655,7 @@ export function App({ hub }: { hub: HubClient }) {
     );
   }
 
-  const subscribeErrors = useCallback((listener: (message: string) => void) => hub.onError(listener), [hub]);
+  const subscribeErrors = useCallback((listener: ErrorListener) => hub.onError(listener), [hub]);
 
   useEffect(() => {
     if (shown) hub.subscribe(shown);
@@ -763,6 +763,7 @@ export function App({ hub }: { hub: HubClient }) {
         onOpen={openQuest}
         labelOf={(other) => sessions.find((s) => s.id === other)?.label}
         subscribeErrors={subscribeErrors}
+        linkDown={status !== 'open'}
         compact={splitShown !== null}
         onSplit={primary && splitShown === null ? () => setPicking(true) : undefined}
         onExitSplit={primary && splitShown !== null ? () => setSplit(null) : undefined}

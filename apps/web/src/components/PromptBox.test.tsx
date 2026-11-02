@@ -25,6 +25,39 @@ describe('PromptBox', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  describe('a double tap on Send', () => {
+    function sent() {
+      const onStop = vi.fn();
+      const bar = (value: string) => (
+        <form onSubmit={(e) => e.preventDefault()}>
+          <PromptBox label="Follow-up" value={value} onChange={() => {}} running onStop={onStop} />
+        </form>
+      );
+      const view = render(bar('and then'));
+      // The first tap sent it, so the box emptied and the button became Stop under the finger.
+      view.rerender(bar(''));
+      return { onStop, stop: () => screen.getByRole('button', { name: 'Stop' }) };
+    }
+    afterEach(() => vi.useRealTimers());
+
+    it('does not stop the turn it just sent into', () => {
+      vi.useFakeTimers();
+      const { onStop, stop } = sent();
+      fireEvent.click(stop());
+      vi.advanceTimersByTime(300);
+      fireEvent.click(stop());
+      expect(onStop).not.toHaveBeenCalled();
+    });
+
+    it('lets Stop work a moment later', () => {
+      vi.useFakeTimers();
+      const { onStop, stop } = sent();
+      vi.advanceTimersByTime(1_000);
+      fireEvent.click(stop());
+      expect(onStop).toHaveBeenCalledOnce();
+    });
+  });
+
   it('is Send once there is text, even while a turn runs (the follow-up queues)', () => {
     const { onStop, onSubmit, button } = box({ running: true, value: 'and then' });
     expect(button().getAttribute('aria-label')).toBe('Send');
