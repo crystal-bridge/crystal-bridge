@@ -18,6 +18,17 @@ function repo() {
 }
 
 describe('gitChanges', () => {
+  it('keeps the next turn-s start when it begins as the last one finishes', async () => {
+    const { dir } = repo();
+    const changes = gitChanges(dir);
+    await changes.begin();
+    const finished = changes.finish();
+    const begun = changes.begin();
+    await Promise.all([finished, begun]);
+    writeFileSync(join(dir, 'kept.ts'), '2');
+    expect(await changes.finish()).toEqual(['kept.ts']);
+  });
+
   it('sees edits from any tool: committed, uncommitted, new and deleted', async () => {
     const { dir, git } = repo();
     const changes = gitChanges(dir);

@@ -552,10 +552,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
    * it's known to have been in, since nobody is there to watch it. Otherwise the user hears and decides. A request
    * nobody can answer now gets the same record even with no turn on file, or the Quest would go on showing as waiting.
    */
-  function reviveCutOff(node: string, socket: WebSocket, id: string): void {
+  function reviveCutOff(node: string, socket: WebSocket, id: string, stranded: boolean): void {
     const quest = store.getSession(id);
     const turn = store.cutOffTurn(id);
-    const stranded = store.waiting().some((entry) => entry.session === id);
     if (!quest || (!turn && !stranded)) return;
     const resuming =
       turn !== undefined &&
@@ -1059,12 +1058,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
             const released = store.releaseOrphans(node, hello.data.sessions);
             if (released.length > 0) app.log.info({ node, released }, 'marked orphaned sessions idle');
             // Also what an earlier hub left waiting: those aren't running, so nothing above released them.
-            const unheld = store
-              .waiting()
+            // One scan of the whole history, since a Kingdom can hold many Quests.
+            const waiting = store.waiting();
+            const stranded = new Set(waiting.map((entry) => entry.session));
+            const unheld = waiting
               .filter((entry) => entry.node === node && !hello.data.sessions?.includes(entry.session))
               .map((entry) => entry.session);
             for (const id of new Set([...released, ...unheld])) {
-              guarded('recording a cut-off Quest', reviveCutOff)(node, socket, id);
+              guarded('recording a cut-off Quest', reviveCutOff)(node, socket, id, stranded.has(id));
             }
           }
           return;

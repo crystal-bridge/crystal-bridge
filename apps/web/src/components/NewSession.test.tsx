@@ -166,6 +166,19 @@ describe('NewSession', () => {
     );
   });
 
+  it('says so when a file can-t be read, rather than doing nothing', async () => {
+    const onStart = fill();
+    const log = new File(['boom'], 'error.log', { type: 'text/plain' });
+    vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (this: FileReader) {
+      this.dispatchEvent(new ProgressEvent('error'));
+    });
+    fireEvent.change(screen.getByLabelText('Attach files'), { target: { files: [log] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/couldn't be read/);
+    expect(onStart).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
   it('starts in the project folder itself by default', () => {
     const onStart = fill();
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));

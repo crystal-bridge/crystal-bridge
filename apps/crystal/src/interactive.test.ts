@@ -1191,12 +1191,23 @@ describe('InteractiveSession turn boundaries', () => {
       });
       expect(session.busy).toBe(false);
       const inits = raws(events).filter((raw) => raw.subtype === 'init').length;
+      // The one a process sends as it comes up doesn't open a turn: that can happen between turns.
+      expect(
+        raws(events)
+          .filter((raw) => raw.subtype === 'init')
+          .at(-1),
+      ).toMatchObject({ listingOnly: true });
 
       hook('UserPromptSubmit', { prompt: 'a queued follow-up' });
       expect(session.busy).toBe(true);
       expect(session.busyReason).toMatch(/^turn open/);
       expect(begun).toHaveLength(2);
       expect(raws(events).filter((raw) => raw.subtype === 'init')).toHaveLength(inits + 1);
+      expect(
+        raws(events)
+          .filter((raw) => raw.subtype === 'init')
+          .at(-1),
+      ).not.toHaveProperty('listingOnly');
 
       hook('Stop', { last_assistant_message: '' });
       await tick();

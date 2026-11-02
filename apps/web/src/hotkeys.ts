@@ -45,6 +45,8 @@ export const HOTKEYS: readonly Hotkey[] = [
   { action: 'keys', code: 'Slash', what: () => 'List these keys' },
 ];
 
+const isMac = (): boolean => /mac/i.test(navigator.platform);
+
 /** What open dialogs and pickers are made of: the keys stand down while one has the user's attention. */
 const OPEN_PICKER = '[role="dialog"], [role="listbox"]';
 
@@ -60,6 +62,15 @@ export function hotkeyFor(event: KeyboardEvent): Hotkey | undefined {
   if (!event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return undefined;
   if (event.getModifierState('AltGraph')) return undefined;
   return HOTKEYS.find((key) => key.code === event.code && Boolean(key.shift) === event.shiftKey);
+}
+
+/**
+ * Whether a key press belongs to the text being typed. Option types letters on a Mac (`ą` and `ń` on a Polish layout)
+ * and it isn't AltGr, so the keys yield in a box with text in it. An empty box is where people move between Quests.
+ */
+export function typingOption(target: EventTarget | null, mac = isMac()): boolean {
+  if (!mac) return false;
+  return (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) && target.value !== '';
 }
 
 /** The next or previous id, wrapping at the ends; with nothing current, the end the direction starts from. */
@@ -80,8 +91,6 @@ export function needsYouNext(
     .sort((a, b) => (a.lastActivity ?? a.createdAt) - (b.lastActivity ?? b.createdAt))[0];
   return oldest && { node: oldest.node, session: oldest.id };
 }
-
-const isMac = (): boolean => /mac/i.test(navigator.platform);
 
 /** The modifiers as this platform writes them. */
 export function modifiers(shift: boolean | undefined, mac = isMac()): string {
