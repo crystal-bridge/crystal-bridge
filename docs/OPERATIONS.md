@@ -165,8 +165,11 @@ and runs as a non-root user. Without Docker:
 
 ```sh
 export AIRSHIP_AUTH=token AIRSHIP_DATA=~/crystal-bridge-hub
-npx --yes --package=<tarball-url> crystal-bridge-airship
+npx --yes --package=https://github.com/crystal-bridge/crystal-bridge/releases/download/v<version>/crystal-bridge-airship-<version>.tgz crystal-bridge-airship
 ```
+
+`<version>` is a release from the [Releases page](https://github.com/crystal-bridge/crystal-bridge/releases), such as
+`0.5.1`.
 
 Everything the hub keeps is in `AIRSHIP_DATA`, so back up that folder and keep it across upgrades. The hub refuses to
 listen on anything but loopback without token login. `crystal-bridge-airship backup` copies the database into its backups
@@ -196,10 +199,18 @@ it leaves a `last-mirror` file in the backups folder.
 `AIRSHIP_AUTH` picks how the hub knows who a request is from. `tailscale-serve` trusts the identity header, so put nothing else in front of the hub. `token` is the hub's own login and works behind any HTTPS proxy. Add a token per person or device on the hub:
 
 ```sh
-AIRSHIP_TOKENS=/var/lib/airship/access-tokens.json pnpm --filter @crystal-bridge/airship token:add laptop
+# A hub from deploy-airship.sh, whose data only the airship user can read:
+cd /opt/crystal-bridge/current/apps/airship
+sudo -u airship env AIRSHIP_TOKENS=/var/lib/airship/access-tokens.json ../../node_modules/.bin/tsx src/tokens-cli.ts add laptop
+
+# A packaged hub, run with the same AIRSHIP_DATA as the hub:
+crystal-bridge-airship token add laptop
+
+# The container:
+docker exec crystal-bridge crystal-bridge-airship token add laptop
 ```
 
-It's shown once, and the login page takes it. `token:list` shows the names, and `token:remove <name>` revokes one at once. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
+It's shown once, and the login page takes it. In place of `add laptop`, `list` shows the names, and `remove <name>` revokes one at once. In a checkout, the `pnpm` scripts `token:add`, `token:list` and `token:remove` do the same. Each name has its own synced appearance. Moving a hub from `tailscale-serve` to `token` starts appearances again, because they're stored per login.
 
 ### First run
 
@@ -236,7 +247,7 @@ and the log in `crystal.log`. A Task Scheduler task runs `crystal.cmd` at the us
 that script restarts Crystal after a crash. This needs no administrator, and it means the Kingdom runs only while that
 user is signed in. The folder is private to the user by default. The task names the user by the first form Task Scheduler
 takes: the SID, then the account name `whoami` gives, then the plain user name, because a plain name can match nothing on
-an Entra-joined or domain PC. To start it again by hand, run `schtasks /Run /TN CrystalBridgeKingdom`. `schtasks /End` won't stop Crystal, because it ends only the console.
+an Entra-joined or domain PC. To restart it, see [Restarting a Kingdom](#restarting-a-kingdom).
 
 `leave` (`LEAVE_COMMAND`, or `LEAVE_COMMAND_WINDOWS`, in `packages/protocol`) gives up the token and removes the service, the env file and the
 install. It works even if the hub can't be reached, and then says to remove the Kingdom from the app as well. Remove on
@@ -248,10 +259,34 @@ that Kingdom's Quests from the hub (sessions, events and relay counts), and the 
 while the Kingdom holds a token or a connection. It deletes only the hub's copy: transcripts stay on the machine, and
 existing backups keep the Quests until they age out.
 
+### Restarting a Kingdom
+
+A change to `crystal.env` takes effect when Crystal restarts. A restart cuts off any turn in progress, so pick a quiet
+moment. Quests come back [as they do after a deploy](#deploying).
+
+```sh
+systemctl --user restart crystal                                 # Linux
+launchctl kickstart -k gui/$(id -u)/dev.crystal-bridge.crystal   # macOS
+```
+
+On Windows, stop the process recorded in `crystal.pid`, and `crystal.cmd` starts Crystal again about five seconds later.
+In PowerShell:
+
+```powershell
+Get-Process -Id (Get-Content "$env:LOCALAPPDATA\crystal-bridge\crystal.pid") | Where-Object ProcessName -eq node | Stop-Process
+```
+
+If that finds no process, or Crystal doesn't come back, start it with `schtasks /Run /TN CrystalBridgeKingdom`. Don't use
+`/Run` to restart a running Crystal: `schtasks /End` ends only the console and leaves Crystal running, and a `/Run` after
+it starts a second copy that can't bind the port (7711). That copy keeps retrying and logs `EADDRINUSE` in `crystal.log`
+until you sign out and back in.
+
 ## Kingdoms that update themselves
 
 A Kingdom made by `join` follows its hub. A packaged hub names its own version to its Kingdoms, and each one moves to
-it alone, so updating the hub brings them along. A hub run from git has no version and names none unless you set
+it alone, so updating the hub brings them along. A hub run from git, which is what `deploy-airship.sh` and the Tailscale
+route in [Several machines](./SEVERAL-MACHINES.md) give you, has no version and names none, so its Kingdoms never follow.
+To change that, put the hub on a release with [`deploy-airship-package.sh`](#moving-onto-packages), or set
 `AIRSHIP_KINGDOM_VERSION`, which also picks another version, or `off` to name none. Naming none also stops an update
 that hasn't swapped yet, once that Kingdom next connects.
 
@@ -262,7 +297,9 @@ The Kingdom takes only a version number from the hub. It then:
    name this project's release workflow at that version's tag and that exact file. See
    [the security model](./SECURITY-MODEL.md).
 3. Installs it beside the running release with `npm install --ignore-scripts`, and runs the new copy once to see that
-   it loads. Everything so far leaves the running Kingdom alone, and needs `npm` on its PATH.
+   it loads. Everything so far leaves the running Kingdom alone. It needs `npm`: on Crystal's PATH on Linux and macOS,
+   and on Windows beside `node.exe` (`node_modules\npm` in that folder), where the Node.js installer puts it. On Windows,
+   being on PATH isn't enough.
 4. Waits until no Quest there is busy, as a deploy does. A Quest with a background command or agent running counts as
    busy.
 5. Swaps to it and restarts. Idle Quests resume on their next follow-up.
@@ -282,9 +319,13 @@ The first line is Linux and macOS, the second Windows. That returns to the relea
 The Kingdom won't take a release it left this way again, but it will take a newer one. There's no automatic rollback:
 a release that loads and then fails needs that command, so keep a way onto the machine.
 
-To stop a Kingdom updating itself, add `CRYSTAL_SELF_UPDATE=off` to its `crystal.env` and restart it. Kingdoms installed
-any other way (the deploy scripts, npm, a checkout) never update themselves: the Castle only warns when one falls behind.
-[Moving onto packages](#moving-onto-packages) brings one over.
+`rollback` records the release it left in a file called `held-version`, one version a line, in
+`~/.local/share/crystal-bridge` (`%LOCALAPPDATA%\crystal-bridge` on Windows). To take that release again, delete its line
+or the file, and [restart the Kingdom](#restarting-a-kingdom).
+
+To stop a Kingdom updating itself, add `CRYSTAL_SELF_UPDATE=off` to its `crystal.env` and
+[restart it](#restarting-a-kingdom). Kingdoms installed any other way (the deploy scripts, npm, a checkout) never update
+themselves: the Castle only warns when one falls behind. [Moving onto packages](#moving-onto-packages) brings one over.
 
 ### When the service can't find Node
 
@@ -344,7 +385,7 @@ don't know and their tabs skip what they can't read, so rolling back to one of t
 Then move each Kingdom, on that machine:
 
 ```sh
-npx --yes --package=<kingdom-tarball-url> crystal-bridge-kingdom adopt
+npx --yes --package=https://github.com/crystal-bridge/crystal-bridge/releases/download/v<version>/crystal-bridge-kingdom-<version>.tgz crystal-bridge-kingdom adopt
 ```
 
 `adopt` waits up to an hour for Quests to finish, swaps the service to the package and restarts. The env file stays as it

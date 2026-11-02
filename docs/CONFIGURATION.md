@@ -1,7 +1,9 @@
 # Configuration reference
 
-Crystal Bridge is configured with environment variables. A Kingdom reads `~/.config/crystal-bridge/crystal.env`, which
-`join` and the deploy scripts write; a hub from the deploy script reads `/etc/crystal-bridge/airship.env`. Commented
+Crystal Bridge is configured with environment variables. A Kingdom reads `~/.config/crystal-bridge/crystal.env`
+(`%LOCALAPPDATA%\crystal-bridge\crystal.env` on Windows), which `join` and the deploy scripts write; a hub from the deploy
+script reads `/etc/crystal-bridge/airship.env`. A change takes effect when that process restarts:
+[restart a Kingdom](./OPERATIONS.md#restarting-a-kingdom), or run `sudo systemctl restart airship` on the hub. Commented
 examples are in [`deploy/crystal`](../deploy/crystal/crystal.env.example) and
 [`deploy/airship`](../deploy/airship/airship.env.example).
 
@@ -15,7 +17,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_TOKEN` | unset | Crystal: its node token, sent as a bearer header and kept out of sessions' environment |
 | `CRYSTAL_MCP_PORT` | `7701`; `join` and the macOS deploy write `7711` | Crystal: its local port (permission tool, hooks, status) |
 | `CRYSTAL_IDLE_MS` | `600000` | Crystal: stop an idle session's process after this long; the next follow-up resumes it |
-| `CRYSTAL_DEFAULT_MODE` | `manual`; `join` and the deploy scripts write `auto` | Crystal: permission mode for new sessions. An unknown value also means `manual`. So `pnpm dev` asks for every action, and a joined or deployed Kingdom asks only when the CLI is unsure |
+| `CRYSTAL_DEFAULT_MODE` | `manual`; `join` and the deploy scripts write `auto` | Crystal: permission mode for a session that arrives without one. An unknown value also means `manual`. New Quest always sends the mode picked in the app (Auto unless this device chose another), so this reaches only Quests adopted with Recruit |
 | `CRYSTAL_PROJECT_ROOTS` | `~/code` | Crystal: where the New Quest picker looks for repos (separated like `PATH`: `:`, or `;` on Windows) |
 | `CRYSTAL_CHROME` | unset | Crystal: `1` starts sessions with `--chrome` |
 | `CRYSTAL_ENGINES` | `stream` | Crystal: `stream,interactive` enables the interactive engine; `stream` is always on |
@@ -27,7 +29,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_DRAIN_SECONDS` | `600` | Crystal deploy scripts: how long to wait for running turns before giving up |
 | `CLAUDE_BIN` | `claude` | Crystal: the CLI it runs |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Crystal: where the CLI keeps its session transcripts, for finding sessions |
-| `AIRSHIP_PORT` | `7700` | Airship: its HTTP/WebSocket port |
+| `AIRSHIP_PORT` | `7700` | Airship: its HTTP/WebSocket port. Leave it alone under `pnpm dev`: the web dev server's proxy always points at 7700 |
 | `AIRSHIP_HOST` | `127.0.0.1` | Airship: the address it listens on; anything but loopback needs `AIRSHIP_AUTH=token` |
 | `AIRSHIP_DATA` | unset | Airship: one folder for the database, tokens, keys and backups |
 | `AIRSHIP_DB` | `./airship.db`, or in `AIRSHIP_DATA` | Airship: the SQLite file |

@@ -9,11 +9,20 @@ The intended setup puts every machine on one [Tailscale](https://tailscale.com) 
 always-on host, published with `tailscale serve` (HTTPS), limited to your tailnet login (`AIRSHIP_ALLOWED_USERS`), with a
 token per Kingdom (`AIRSHIP_NODES`).
 
-Start the hub with the deploy script, which ships the pushed `main` over SSH:
+Start the hub with the deploy script, which ships the pushed `main` over SSH. Run it from a clean checkout of `main`. The
+hub host needs:
+
+- Node 22+ and pnpm, installed where `sudo` and systemd find them, which rules out a per-user install such as nvm
+- Passwordless `sudo` for your SSH user
+- Tailscale, signed in, with HTTPS certificates allowed on the tailnet (the DNS page of its admin console)
 
 ```sh
 scripts/deploy-airship.sh hub-host you@example.com    # first run sets the allowed tailnet login
 ```
+
+That hub runs from git, so it names no version, and Kingdoms you add to it never update themselves or warn that they're
+behind. To have them follow the hub, put it on a release first, with `scripts/deploy-airship-package.sh hub-host <version>`
+([Moving onto packages](./OPERATIONS.md#moving-onto-packages)).
 
 Then add each machine from the app: open **Config**, name the new Kingdom under **Add Kingdom**, and run the command it
 gives you on that machine. It needs Node 22+ and Claude Code signed in, and only outbound HTTPS: no SSH or inbound
@@ -40,6 +49,34 @@ enter the code and make your login in the browser ([First run](./OPERATIONS.md#f
 app as above. For a scripted setup, `crystal-bridge-airship token add <name>` still makes a login. The same hub runs
 without Docker from the release's tarball, with `AIRSHIP_AUTH=token` and `AIRSHIP_DATA` set; see
 [Running a packaged hub](./OPERATIONS.md#running-a-packaged-hub).
+
+Whatever sits in front has to pass WebSocket upgrades on `/client` (browsers) and `/node` (Kingdoms), or the app loads and
+never connects. Caddy's `reverse_proxy` does this by itself. With nginx, in the `http` block:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    server_name hub.example.com;
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:7700;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+The hub marks its login cookie `Secure` only when `X-Forwarded-Proto` says `https`.
 
 ## Behind a proxy or TLS inspection
 
@@ -73,4 +110,5 @@ scripts/deploy-crystal-macos.sh my-mac hub-host        # the Mac you run it on
 ## Next
 
 [Operations](./OPERATIONS.md) covers deploys that wait for running turns, rollbacks, backups, Web Push and monitoring.
-Read the [security model](./SECURITY-MODEL.md) before exposing the hub beyond your own private network.
+Read the [security model](./SECURITY-MODEL.md) before exposing the hub beyond your own private network. If something
+doesn't work, try [Troubleshooting](./TROUBLESHOOTING.md).

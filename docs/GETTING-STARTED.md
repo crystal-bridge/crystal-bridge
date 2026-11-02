@@ -6,7 +6,7 @@ This puts the hub, one Kingdom and the web app on your own computer. These steps
 ## Can I use this on one machine?
 
 Yes. One machine is a normal setup: one hub, one Kingdom, one tab. You still get Quests in the browser, approval cards, the
-Tavern, Split View, notifications, Recruit for your terminal sessions, and Summons through the built-in `here` target
+Tavern, Split the Party, notifications, Recruit for your terminal sessions, and Summons through the built-in `here` target
 (not on Windows). What you don't get is the point of several Kingdoms: one app across several machines or accounts.
 
 What to do next depends on what you want:
@@ -28,8 +28,8 @@ A few things to expect from `pnpm dev`:
   it too. To update, stop it, `git pull`, `pnpm install` and start it again. Your data stays in `apps/airship`.
 - **It looks for projects in `~/code`.** If your repositories are somewhere else, say so when you start it, since
   `crystal.env` isn't read here: `CRYSTAL_PROJECT_ROOTS=~/work pnpm dev`.
-- **It asks about every action.** New Quests start in the "ask every time" mode, unlike a joined Kingdom's auto mode. You
-  can choose another mode for each Quest.
+- **New Quests start in Auto,** as they do on a joined Kingdom: the CLI asks you only when it's unsure. New Quest has a
+  mode picker, and this device remembers your choice. Pick "Ask every time" to approve each action.
 
 ## Keep it running on this computer
 
@@ -57,3 +57,4 @@ app](./SEVERAL-MACHINES.md). A hub in a container on Windows is untested.
 - Learn the words the app uses: [How it fits together](./CONCEPTS.md).
 - Put the hub on an always-on host and connect more machines: [Several machines](./SEVERAL-MACHINES.md).
 - Change a setting: the [configuration reference](./CONFIGURATION.md).
+- Something not working, or want to file an Issue: [Troubleshooting](./TROUBLESHOOTING.md).
