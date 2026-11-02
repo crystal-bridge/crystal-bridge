@@ -35,6 +35,10 @@ Crystal reads the list again at each `summon` call and every few minutes, so a c
 can't be read, Crystal keeps the last good one and says why in its log. This works for a Kingdom started from that file,
 as `join` and `adopt` set it up. One started any other way, such as `pnpm dev`, keeps its list until a restart.
 
+A list that can't be read when Crystal starts doesn't stop it. It says why in its log and starts with only `here`, until
+the file is fixed. A Cast running on another machine then counts as taken off the list across a restart, so it's reported
+as lost, though the job carries on there.
+
 Taking a machine off the list stops new Casts there, and any Cast running on it is still seen through to its end,
 unless Crystal restarts first, when it's reported as lost. The same goes for a name moved to another machine: a running
 Cast stays with the machine it started on.
@@ -60,7 +64,7 @@ and `ps`, which they have. A Windows target needs OpenSSH, and uses the PowerShe
    so nothing has to survive shell quoting.
 2. **Detach.** The wrapper makes a job folder, starts the command detached and returns straight away. It gets its own
    process group from `setsid`, or `perl` where there's no `setsid`, as on macOS. The command runs under the target user's login shell, so it finds what a
-   terminal would.
+   terminal would, with the umask that login has. The job folder stays private to that user.
 3. **Follow.** The Kingdom holds one SSH connection open, running `tail -c +<offset> -f` on the log. New lines arrive as
    they're written, so nothing polls. When that connection ends, the far side's `tail` ends with it.
 4. **Reconnect.** If the connection drops, the job carries on. The Kingdom reconnects and reads from its last offset.
@@ -188,6 +192,42 @@ removed ends by itself; Windows won't remove the folder while its job is running
 
 Sharing works when the Kingdoms log in as the same SSH user, because that's whose home the turns are in. Under different
 users they don't see each other's turns. Waiting Casts don't always start in the order they were made.
+
+## Stopping a Cast by hand
+
+`cancel` only works from the Quest that started a Cast, so a hung Cast from a closed Quest has to be stopped on the
+target. Its job folder has what you need. Find the folder by a word of the command, then ask the job to stop as `cancel`
+does:
+
+```sh
+cd ~/.crystal-bridge/summons
+grep -l encode */command                  # gives <cast id>/command
+cd <cast id>
+: > cancel
+read pid group started < pid
+kill -s TERM -- "-$group"
+```
+
+If the job ignores that, wait ten seconds and send `KILL` the same way. Where `pid` and `group` differ, the job has no
+group of its own, and that group holds other things, so use `pkill -TERM -P "$pid"` instead, and then `kill -s TERM "$pid"`.
+
+On Windows, the `cancel` file is all it takes, and the job and everything it started stop within a second:
+
+```powershell
+cd $env:USERPROFILE\.crystal-bridge\summons
+Select-String -Path *\command -Pattern encode -List    # gives <cast id>\command
+New-Item <cast id>\cancel -ItemType File
+```
+
+What happens next:
+
+- **With `TERM`, or on Windows,** the wrapper records the end, so the Cast shows as dispelled and nobody is notified or
+  woken, as with any cancel. Without the `cancel` file it counts as failed with exit 143, and a closed Quest's Cast sends
+  a notification.
+- **With `KILL`,** the wrapper goes too and records nothing, so the Kingdom reports the Cast as lost at its next check,
+  within a few minutes.
+- **The turn** comes free either way. The wrapper gives it up itself, or a waiting Cast takes back a turn whose wrapper
+  is gone, within a couple of seconds, and starts.
 
 ## Security
 

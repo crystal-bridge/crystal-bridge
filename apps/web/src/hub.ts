@@ -71,6 +71,7 @@ export class HubClient {
   private readonly attentionListeners = new Set<(attention: Attention) => void>();
   private readonly castListeners = new Set<(node: string, cast: Cast) => void>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
+  private readonly reconnectListeners = new Set<() => void>();
   private readonly fileRequests = new Map<string, (reply: FileReply) => void>();
   private outbox: ClientMessage[] = [];
   private retryMs = 500;
@@ -81,6 +82,7 @@ export class HubClient {
   /** This hub has answered a ping on this socket. */
   private answersPing = false;
   private closed = false;
+  private opened = false;
 
   constructor(private readonly url: string = hubUrl()) {
     if (typeof window !== 'undefined') {
@@ -106,6 +108,12 @@ export class HubClient {
   onCast(listener: (node: string, cast: Cast) => void): () => void {
     this.castListeners.add(listener);
     return () => this.castListeners.delete(listener);
+  }
+
+  /** The socket came back after a drop. Sessions catch up by themselves; anything else may have missed frames. */
+  onReconnect(listener: () => void): () => void {
+    this.reconnectListeners.add(listener);
+    return () => this.reconnectListeners.delete(listener);
   }
 
   /** The user's Kingdom appearance, changed on another of their devices. */
@@ -293,6 +301,8 @@ export class HubClient {
       this.beatTimer = setInterval(() => {
         if (this.answersPing) this.ping(socket);
       }, HEARTBEAT_MS);
+      if (this.opened) for (const listener of this.reconnectListeners) listener();
+      this.opened = true;
     });
 
     socket.addEventListener('message', (event) => {

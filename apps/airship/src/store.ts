@@ -113,7 +113,7 @@ export interface Store {
    * Kingdom, or a running Cast after it ended, which a resend can do.
    */
   upsertCast(node: string, cast: Cast): Cast | undefined;
-  /** A Kingdom's newest Casts, newest first. */
+  /** A Kingdom's newest Casts, newest first, and any older ones still running, which are the ones that matter most. */
   casts(node: string, limit: number): Cast[];
   /** Whether a Cast's end has reached the user or its Quest. */
   castDelivered(id: string): boolean;
@@ -308,7 +308,11 @@ export function openStore(path: string): Store {
     `INSERT INTO casts (id, node, session, state, started_at, data) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (id) DO UPDATE SET state = excluded.state, data = excluded.data`,
   );
-  const castsStmt = db.prepare(`SELECT data FROM casts WHERE node = ? ORDER BY started_at DESC LIMIT ?`);
+  const castsStmt = db.prepare(
+    `SELECT data FROM casts WHERE node = @node AND (state = 'running' OR id IN
+       (SELECT id FROM casts WHERE node = @node ORDER BY started_at DESC LIMIT @limit))
+     ORDER BY started_at DESC`,
+  );
   const castDeliveredStmt = db.prepare(`UPDATE casts SET delivered = 1 WHERE id = ?`);
   const forgetCastsStmt = db.prepare(`DELETE FROM casts WHERE node = ?`);
   const forgetNodeTxn = db.transaction((node: string): string[] => {
@@ -457,7 +461,7 @@ export function openStore(path: string): Store {
       return cast;
     },
     casts(node, limit) {
-      return (castsStmt.all(node, limit) as { data: string }[]).map((row) => JSON.parse(row.data) as Cast);
+      return (castsStmt.all({ node, limit }) as { data: string }[]).map((row) => JSON.parse(row.data) as Cast);
     },
     castDelivered(id) {
       return (getCastStmt.get(id) as { delivered: number } | undefined)?.delivered === 1;

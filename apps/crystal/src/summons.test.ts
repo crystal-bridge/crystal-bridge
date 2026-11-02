@@ -1,9 +1,21 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { followScript } from './summon-scripts.js';
+import { windowsScripts } from './summon-scripts-windows.js';
 import {
   createSummons,
   envFileOf,
@@ -132,8 +144,25 @@ describe('liveTargets', () => {
     expect(live(undefined, 'render')()).toEqual([{ name: HERE }, { name: 'render', host: 'render' }]);
   });
 
-  it('still refuses a bad list at startup', () => {
-    expect(() => live(undefined, '-oProxyCommand=x')).toThrow(/CRYSTAL_SUMMONS/);
+  it('runs with the Kingdom itself after a typo at startup, and says why once', () => {
+    writeFileSync(envFile, 'CRYSTAL_SUMMONS=-oProxyCommand=x\n');
+    const targets = live(envFile, '-oProxyCommand=x');
+    expect(targets()).toEqual([{ name: HERE }]);
+    targets();
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatch(/CRYSTAL_SUMMONS/);
+  });
+
+  it('takes up the fixed list after a typo at startup, with no restart', () => {
+    writeFileSync(envFile, 'CRYSTAL_SUMMONS=-oProxyCommand=x\n');
+    const targets = live(envFile, '-oProxyCommand=x');
+    writeFileSync(envFile, 'CRYSTAL_SUMMONS=render\n');
+    expect(targets()).toEqual([{ name: HERE }, { name: 'render', host: 'render' }]);
+  });
+
+  it('stays on the Kingdom itself after a typo at startup with no file to read', () => {
+    expect(live(undefined, '-oProxyCommand=x')()).toEqual([{ name: HERE }]);
+    expect(logged).toHaveLength(1);
   });
 });
 
@@ -192,6 +221,48 @@ describe('summonCall', () => {
 
   it('needs a Cast to cancel', async () => {
     await expect(summonCall(fake, 's', { action: 'cancel' })).rejects.toThrow(/cast/);
+  });
+});
+
+describe('the Windows start', () => {
+  /** A PowerShell expression of double-quoted strings joined by `+`, as PowerShell reads it. */
+  const powershellValue = (expression: string, dir: string) =>
+    [...expression.matchAll(/"((?:[^"]|"")*)"/g)]
+      .map((part) => part[1]!.replaceAll('""', '"'))
+      .join('')
+      .replaceAll('$env:SystemRoot', 'C:\\Windows')
+      .replaceAll('$dir', dir);
+
+  /** How a Windows program splits its command line, leaving out backslashes before a quote, which this line hasn't. */
+  function windowsArgs(line: string): string[] {
+    const args: string[] = [];
+    let current: string | undefined;
+    let quoted = false;
+    for (let at = 0; at < line.length; at++) {
+      const char = line[at]!;
+      if (char === '"' && quoted && line[at + 1] === '"') {
+        current = `${current ?? ''}"`;
+        at += 1;
+      } else if (char === '"') {
+        quoted = !quoted;
+        current ??= '';
+      } else if (char === ' ' && !quoted) {
+        if (current !== undefined) args.push(current);
+        current = undefined;
+      } else {
+        current = `${current ?? ''}${char}`;
+      }
+    }
+    return current === undefined ? args : [...args, current];
+  }
+
+  it('keeps a profile path with a space in one argument', () => {
+    const script = windowsScripts.start('id', 'Write-Output hi')!;
+    const expression = /\[CrystalCast\]::Detach\((.*), \$dir\)/.exec(script)![1]!;
+    const dir = 'C:\\Users\\Jane Doe\\.crystal-bridge\\summons\\id';
+    const args = windowsArgs(powershellValue(expression, dir));
+    expect(args[0]).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    expect(args.slice(-3)).toEqual(['-File', `${dir}\\runner.ps1`, dir]);
   });
 });
 
@@ -484,6 +555,39 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     });
   });
 
+  // bash, and so macOS `sh`, read a piped script a byte at a time, so a `cat` of stdin takes whatever line comes next.
+  it.each(['sh', 'bash', 'dash'])('stops following under %s when its connection ends', async (shell) => {
+    const id = randomUUID();
+    mkdirSync(folder(id), { recursive: true });
+    writeFileSync(join(folder(id), 'log'), 'one\n');
+    const child = spawn(shell, ['-s'], { cwd: home, env: { PATH: process.env.PATH, HOME: home } });
+    const closed = new Promise((resolve) => child.on('close', resolve));
+    let out = '';
+    child.stdout.on('data', (data: Buffer) => (out += data.toString()));
+    child.stdin.write(followScript(id, 0));
+    await until(() => out.includes('one'));
+    const follower = execFileSync('pgrep', ['-P', String(child.pid), '-f', 'tail -c'])
+      .toString()
+      .trim();
+    child.stdin.end();
+    await closed;
+    try {
+      await until(() => {
+        try {
+          return !process.kill(Number(follower), 0);
+        } catch {
+          return true;
+        }
+      }, 1000);
+    } finally {
+      try {
+        process.kill(Number(follower), 'SIGKILL');
+      } catch {
+        // Gone, as it should be.
+      }
+    }
+  });
+
   it('runs a command, returns before it ends, and reports the log and the exit code', async () => {
     const made = summons();
     const cast = await start(made, 'echo one; sleep 1; echo two; exit 3');
@@ -527,6 +631,84 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     expect(done.logTail).toBe('last\n');
   });
 
+  it('reads a negative exit code, as a Windows job or crash leaves', async () => {
+    const cast = await start(summons(), holdFor('release'));
+    writeFileSync(join(folder(cast.id), 'exit'), '-1073741819\n');
+    expect(await final(cast.id)).toMatchObject({ state: 'failed', exitCode: -1073741819 });
+    writeFileSync(join(home, 'release'), '');
+  });
+
+  it('gives the job the umask of the login, not the wrapper’s own', async () => {
+    const made = summons({
+      spawnOn: () =>
+        spawn('sh', ['-c', 'umask 027; exec sh -s'], {
+          cwd: home,
+          env: { PATH: process.env.PATH, HOME: home, SHELL: '/bin/sh' },
+        }),
+    });
+    const cast = await start(made, 'umask; touch output');
+    expect((await final(cast.id)).logTail).toBe('0027\n');
+    expect(statSync(join(home, 'output')).mode & 0o777).toBe(0o640);
+    expect(statSync(folder(cast.id)).mode & 0o777).toBe(0o700);
+    expect(statSync(join(folder(cast.id), 'log')).mode & 0o777).toBe(0o600);
+  });
+
+  it('knows a live job whatever time zone or language a later connection arrives in', async () => {
+    const shell = (TZ: string, LANG: string) =>
+      spawn('sh', ['-s'], { cwd: home, env: { PATH: process.env.PATH, HOME: home, SHELL: '/bin/sh', TZ, LANG } });
+    let first = true;
+    const made = summons({
+      spawnOn: () => {
+        const child = first ? shell('America/New_York', 'en_US.UTF-8') : shell('Asia/Tokyo', 'de_DE.UTF-8');
+        first = false;
+        return child;
+      },
+      probeMs: 50,
+    });
+    const cast = await start(made, holdFor('release'));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(reports.find((report) => report.id === cast.id && report.state !== 'running')).toBeUndefined();
+    writeFileSync(join(home, 'release'), '');
+    expect(await final(cast.id)).toMatchObject({ state: 'succeeded' });
+  });
+
+  it('knows a live job that recorded its start the old way, in local time', async () => {
+    const made = summons({ probeMs: 50 });
+    const cast = await start(made, holdFor('release'));
+    const pidFile = join(folder(cast.id), 'pid');
+    const [pid = '', group = ''] = readFileSync(pidFile, 'utf8').split(' ');
+    const local = execFileSync('sh', ['-c', `ps -o lstart= -p ${pid} | tr -s ' ' '_'`])
+      .toString()
+      .trim();
+    writeFileSync(pidFile, `${pid} ${group} ${local}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(reports.find((report) => report.id === cast.id && report.state !== 'running')).toBeUndefined();
+    await made.cancel(SESSION, cast.id);
+    expect(await final(cast.id)).toMatchObject({ state: 'cancelled' });
+  });
+
+  it('checks again when a job’s last line lands on a check that has already heard `alive`', async () => {
+    const first = summons();
+    const cast = await start(first, holdFor('release'));
+    first.close();
+    const probed = join(home, 'probed');
+    const made = summons({
+      probeMs: 60_000,
+      spawnOn: (target) => {
+        const child = spawnOn(target);
+        const end = child.stdin.end.bind(child.stdin);
+        // The answer goes first, and the connection stays up a while, as it can on a slow link.
+        child.stdin.end = ((script?: string) =>
+          end(script?.includes('state=dead') ? `${script}\n: > "${probed}"; sleep 1.5\n` : script)) as never;
+        return child;
+      },
+    });
+    made.resume();
+    await until(() => existsSync(probed));
+    writeFileSync(join(home, 'release'), '');
+    expect(await final(cast.id)).toMatchObject({ state: 'succeeded' });
+  }, 15_000);
+
   it('refuses a folder that isn’t there, and leaves nothing behind', async () => {
     const made = summons();
     await expect(start(made, 'echo hi', { cwd: '/no/such/folder' })).rejects.toThrow(/no folder \/no\/such\/folder/);
@@ -560,6 +742,19 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     await made.cancel(SESSION, cast.id);
     expect(await final(cast.id)).toMatchObject({ state: 'cancelled' });
     expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  // The steps in docs/SUMMONS.md, for a Cast whose Quest has closed.
+  it('stops by hand on the target as a cancel, and gives up its turn', async () => {
+    const made = summons();
+    const hung = await start(made, 'echo $$ > hung; sleep 60 & wait');
+    const next = await start(made, 'echo mine');
+    await until(() => reports.some((r) => r.id === next.id && r.queued));
+    execFileSync('sh', ['-c', `: > cancel\nread pid group started < pid\nkill -s TERM -- "-$group"`], {
+      cwd: folder(hung.id),
+    });
+    expect(await final(hung.id)).toMatchObject({ state: 'cancelled', exitCode: 143 });
+    expect(await final(next.id)).toMatchObject({ state: 'succeeded', logTail: 'mine\n' });
   });
 
   it('returns a cancel’s result when a slow target is already being checked', async () => {

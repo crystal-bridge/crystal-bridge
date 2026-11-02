@@ -53,8 +53,9 @@ export function envFileOf(execArgv: readonly string[]): string | undefined {
 
 /**
  * The machine list as `envFile` has it now, so an edit counts with no restart. A file that can't be read or a list that
- * can't be parsed leaves the last good one in place: one typo mustn't take a Kingdom's machines away. Throws on a bad
- * `value` from startup, as `parseSummons` does. Without a file the startup list stands.
+ * can't be parsed leaves the last good one in place: one typo mustn't take a Kingdom's machines away. A bad `value` from
+ * startup has no good list before it, so that's the Kingdom alone: one typo mustn't stop it starting either. Without a
+ * file the startup list stands.
  */
 export function liveTargets(
   envFile: string | undefined,
@@ -62,8 +63,15 @@ export function liveTargets(
   platform: NodeJS.Platform,
   log: (message: string) => void = (message) => console.error(`[crystal:summons] ${message}`),
 ): () => Target[] {
-  let last = parseSummons(value, platform);
+  let last: Target[];
   let complaint: string | undefined;
+  try {
+    last = parseSummons(value, platform);
+  } catch (error) {
+    complaint = error instanceof Error ? error.message : String(error);
+    log(`starting with no Summons: ${complaint}`);
+    last = parseSummons(undefined, platform);
+  }
   return () => {
     if (envFile === undefined) return last;
     let text: string;
@@ -416,7 +424,7 @@ export function createSummons(options: SummonsOptions): Summons {
       // The wrapper's own newline goes first, for a log that didn't end its last line.
       if (rec.logTail === '\n' || rec.logTail.endsWith('\n\n')) rec.logTail = rec.logTail.slice(0, -1);
       // Read to the end, so there's nothing left to wait for.
-      void check(rec, false);
+      void checkAgain(rec, false);
       return;
     }
     if (!readSignal(rec, text)) rec.logTail = `${rec.logTail}${text}\n`.slice(-MAX_CAST_TAIL);
@@ -499,11 +507,17 @@ export function createSummons(options: SummonsOptions): Summons {
     return checking;
   }
 
+  /** For a job known to have ended: a check already on its way may have asked before it did, so this asks again. */
+  async function checkAgain(rec: CastRecord, settle = true): Promise<void> {
+    await check(rec, settle);
+    await check(rec, settle);
+  }
+
   async function probe(rec: CastRecord, target: Target, settle: boolean): Promise<void> {
     const { code, stdout } = await ask(target, (scripts) => scripts.probe(rec.id));
     if (code !== 0) return;
     const answer = stdout.trim().split('\n').at(-1) ?? '';
-    const exit = /^exit (\d+)( cancelled)?$/.exec(answer);
+    const exit = /^exit (-?\d+)( cancelled)?$/.exec(answer);
     if (exit) {
       // Found rather than read to the end of the log, so its last lines may still be on their way.
       if (settle) await new Promise((resolve) => setTimeout(resolve, settleMs));
@@ -654,9 +668,7 @@ export function createSummons(options: SummonsOptions): Summons {
         save();
         throw new Error(`could not reach ${rec.summon}: ${stderr.trim().slice(-500) || 'no answer'}`);
       }
-      await check(rec);
-      // That may have been a check already on its way, which asked before the job stopped.
-      await check(rec);
+      await checkAgain(rec);
       return outward(rec);
     },
 
