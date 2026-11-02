@@ -49,6 +49,15 @@ To keep your own names out of the repo too (host names, other identities), list 
 enters the repo. `pnpm checks` runs the scrub over every tracked file. In an emergency `SKIP_SIMPLE_GIT_HOOKS=1`
 skips the hooks; CI runs the same checks either way.
 
+## Party Member Needed
+
+You can help without writing code. The maintainers only run a few setups, so a report from a different machine, OS or
+network is worth a lot. Open calls are in the **Party Member Needed** category of
+[Discussions](https://github.com/crystal-bridge/crystal-bridge/discussions): each says the setup it needs, what to try and
+what to send back. Claim one with a reply. A pass is as useful as a fail, and a bug gets its own Issue.
+
+Maintainers start a call from the form in `.github/DISCUSSION_TEMPLATE/party-member-needed.yml`.
+
 ## Licensing of contributions
 
 Contributions are accepted under the repository's licence (see `LICENSE`). Art in `apps/web/public/heroes` follows

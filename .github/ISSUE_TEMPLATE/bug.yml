@@ -17,7 +17,7 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: The release (Airship health check or the app's footer), your OS, Node and Claude Code versions.
+      description: The release (the Castle or `GET /api/health`), your OS, Node and Claude Code versions.
   - type: textarea
     id: logs
     attributes:
