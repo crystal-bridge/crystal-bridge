@@ -10,7 +10,31 @@ permissions:
   contents: read
 
 jobs:
+  # Any tag would otherwise publish with valid provenance, so one has to be on main and pass what a pull request passes.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: The tag is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Types
+        run: pnpm typecheck
+      - name: Tests
+        run: pnpm test
+
   release:
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -62,7 +86,7 @@ jobs:
 
   # The hub image for both common architectures. `latest` is only for full releases, never a pre-release.
   image:
-    needs: release
+    needs: [verify, release]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

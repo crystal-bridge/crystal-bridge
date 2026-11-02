@@ -67,7 +67,9 @@ release carries a copy, GitHub's API is the fallback, and both have to pass the 
 
 What this doesn't cover:
 
-- **Who can push a release tag.** Whoever can run the release workflow can publish a release that passes.
+- **Who can push a release tag.** Whoever can run the release workflow can publish a release that passes. The workflow
+  refuses a tag that isn't on `main` or fails the tests, but it reads that check from the tagged commit, which can leave
+  it out, so only a rule on who may push tags closes this.
 - **Dependencies.** The proof covers this project's package. `npm install` resolves its dependencies from npm at
   install time, by the ranges in the package, as `join` does. Install scripts are off, but a dependency's code still runs.
 - **The first install.** `join` runs through `npx` from a URL and verifies nothing itself.
