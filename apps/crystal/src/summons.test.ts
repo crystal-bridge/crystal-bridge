@@ -763,6 +763,23 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     await made.cancel(SESSION, a.id);
   });
 
+  it('ends a Cast waiting for its turn once its folder has gone, as nothing could cancel it then', async () => {
+    const made = summons();
+    const a = await start(made, 'sleep 30');
+    const b = await start(made, 'exit 0');
+    await until(() => reports.some((r) => r.id === b.id && r.queued));
+    const runner = Number(readFileSync(join(folder(b.id), 'pid'), 'utf8').split(' ')[0]);
+    rmSync(folder(b.id), { recursive: true, force: true });
+    await until(() => {
+      try {
+        return !process.kill(runner, 0);
+      } catch {
+        return true;
+      }
+    });
+    await made.cancel(SESSION, a.id);
+  });
+
   describe('a finished Cast past its week', () => {
     const WEEK = 7 * 24 * 60 * 60_000;
     let clock: number;

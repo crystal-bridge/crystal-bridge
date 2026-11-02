@@ -106,6 +106,8 @@ take_turn() {
   limit=$(cat "$dir/limit" 2>/dev/null) || limit=1
   waiting=
   while :; do
+    # Its folder is the only way to reach it, so with that gone nothing else could end this wait.
+    [ -d "$dir" ] || exit 0
     [ -f "$dir/cancel" ] && return 1
     n=1
     while [ "$n" -le "$limit" ]; do

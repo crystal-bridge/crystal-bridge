@@ -220,6 +220,8 @@ function Take-Turn {
   $limit = [int][IO.File]::ReadAllText("$dir\limit")
   $waiting = $false
   while ($true) {
+    # Its folder is the only way to reach it, so with that gone nothing else could end this wait.
+    if (-not (Test-Path $dir)) { exit 0 }
     if (Test-Path "$dir\cancel") { return $null }
     for ($n = 1; $n -le $limit; $n++) {
       $slot = "$slots\$n"

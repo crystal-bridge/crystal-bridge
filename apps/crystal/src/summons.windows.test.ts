@@ -216,6 +216,22 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     forget(b.id);
   }, 120_000);
 
+  it('ends a Cast waiting for its turn once its folder has gone, as nothing could cancel it then', async () => {
+    const made = summons();
+    const a = await start(made, 'Start-Sleep 120');
+    const b = await start(made, 'Write-Output never');
+    await until(() => reports.some((report) => report.id === b.id && report.queued));
+    const dir = `$env:USERPROFILE\\.crystal-bridge\\summons\\${b.id}`;
+    const runner = powershell(`((Get-Content "${dir}\\pid") -split ' ')[0]`).trim();
+    powershell(`Remove-Item "${dir}" -Recurse -Force`);
+    await until(
+      () => powershell(`(Get-Process -Id ${runner} -ErrorAction Ignore | Measure-Object).Count`).trim() === '0',
+    );
+    await made.cancel(SESSION, a.id);
+    forget(a.id);
+    forget(b.id);
+  }, 120_000);
+
   it.runIf(HOST)('knows a Windows machine when it sees one', async () => {
     await expect(targetKind(process.env)(target)).resolves.toBe('windows');
   });
