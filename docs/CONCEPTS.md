@@ -33,6 +33,27 @@ The app calls a session a **Quest**.
 Each Claude agent in a Quest is a **Hero**. The leader runs the Quest, and subagents join the party for a task. Heroes
 gain pointless levels as you use them.
 
+## Keyboard shortcuts
+
+On a desktop, these work anywhere in the app, including while you type in a prompt box. Press `Alt+/` (`⌥/` on a Mac) to
+see them in the app. On a Mac, Option stands in for Alt.
+
+| Keys                          | What they do                                         |
+| ----------------------------- | ---------------------------------------------------- |
+| `Alt+J` / `Alt+K`             | Next / previous Quest in this Kingdom, in tab order  |
+| `Alt+Shift+J` / `Alt+Shift+K` | Next / previous Kingdom, skipping hidden ones        |
+| `Alt+Shift+1`-`9`             | That Kingdom                                         |
+| `Alt+A`                       | Next Quest needing you, on any shown Kingdom, oldest first |
+| `Alt+N`                       | New Quest                                            |
+| `Alt+H`                       | Home, the Airship                                    |
+| `Alt+/`                       | List the keys                                        |
+| `Alt+1`-`8`                   | Fire a Belt slot, with the Inventory open            |
+| `Alt+Left` / `Alt+Right`      | Move the focused tab                                 |
+
+In Split View, the Quest keys move the pane you last clicked. The keys stop working while a dialog or picker is open.
+Each move is an ordinary navigation, so the browser's Back returns from it. `Alt+Left` on its own is the browser's Back on
+Windows and Linux; it only moves a tab while that tab has focus.
+
 ## The words
 
 The default theme has its own word for everything, and a tooltip gives the plain term. If you'd rather not have any of

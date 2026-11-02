@@ -212,7 +212,7 @@ export function Inventory({ inventory, onUse, onSend, belt, onBeltChange, manife
     function onKey(event: KeyboardEvent) {
       // By position: on a Mac, Alt and a digit types a symbol.
       const digit = /^Digit([1-8])$/.exec(event.code);
-      if (!digit || !event.altKey || event.ctrlKey || event.metaKey) return;
+      if (!digit || !event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return;
       event.preventDefault();
       fireIndex.current(Number(digit[1]) - 1);
     }

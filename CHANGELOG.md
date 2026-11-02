@@ -9,6 +9,8 @@ one entry.
 
 - A team of helpers now looks like a Party: helpers out together take different Classes, by job where the job says
   something. Levels aren't affected, since XP goes to a Quest's leader.
+- Keyboard shortcuts for moving between Quests and Kingdoms, and to the next Quest needing you, without the mouse. `Alt+/`
+  lists them.
 
 ### Security
 
