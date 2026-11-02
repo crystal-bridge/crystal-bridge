@@ -1,4 +1,5 @@
 import type { Envelope } from '@crystal-bridge/protocol';
+import type { Helper, PartyMove } from './heroes.js';
 import { AGENT_TOOLS, launchedInBackground, sessionMode } from './model.js';
 
 /** A file the session wrote, for the side panel's Outputs. */
@@ -46,6 +47,8 @@ export interface SessionInfo {
   stats: SessionStats;
   outputs: OutputFile[];
   tasks: SessionTask[];
+  /** Helpers setting out and coming back, in order, for `partyClasses`. */
+  party: PartyMove[];
 }
 
 type Obj = Record<string, unknown>;
@@ -80,12 +83,18 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
     stats: { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, turns: 0, workingMs: 0 },
     outputs: [],
     tasks: [],
+    party: [],
   };
   const outputs = new Map<string, OutputFile>();
   const tasks = new Map<string, SessionTask>();
   /** Which call each of the CLI's task ids belongs to, and the `TaskStop` calls made so far. */
   const taskIds = new Map<string, string>();
   const stops = new Set<string>();
+  const finish = (task: SessionTask | undefined) => {
+    if (!task) return;
+    if (task.kind === 'agent' && task.running) info.party.push({ back: task.id });
+    task.running = false;
+  };
   let runningCost = 0;
   let windows: Record<string, number> = {};
   let compactWindow: number | undefined;
@@ -104,7 +113,7 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
       continue;
     }
     if (envelope.type === 'session.ended') {
-      for (const task of tasks.values()) task.running = false;
+      for (const task of tasks.values()) finish(task);
       continue;
     }
     if (envelope.type !== 'claude.event' || !isObj(payload.raw)) continue;
@@ -171,6 +180,12 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
         if (AGENT_TOOLS.has(block.name)) {
           const task: SessionTask = { id: block.id, kind: 'agent', description, running: true };
           if (typeof input.subagent_type === 'string') task.agentType = input.subagent_type;
+          if (!tasks.has(block.id)) {
+            const helper: Helper = { id: block.id };
+            if (typeof input.description === 'string') helper.description = input.description;
+            if (task.agentType) helper.agentType = task.agentType;
+            info.party.push({ out: helper });
+          }
           tasks.set(block.id, task);
         }
         if (block.name === 'Bash' && input.run_in_background === true) {
@@ -189,8 +204,7 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
         const launched = [backgroundTaskId, taskId, agentId].find((id) => typeof id === 'string');
         if (typeof launched === 'string') taskIds.set(launched, block.tool_use_id);
         if (stops.has(block.tool_use_id) && typeof stopped === 'string') {
-          const task = tasks.get(taskIds.get(stopped) ?? '');
-          if (task) task.running = false;
+          finish(tasks.get(taskIds.get(stopped) ?? ''));
         }
       }
     }
@@ -200,13 +214,12 @@ export function sessionInfo(envelopes: readonly Envelope[]): SessionInfo {
       for (const block of message.content) {
         if (isObj(block) && block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
           const task = tasks.get(block.tool_use_id);
-          if (task?.kind === 'agent') task.running = false;
+          if (task?.kind === 'agent') finish(task);
         }
       }
     }
     if (raw.type === 'system' && raw.subtype === 'task_notification' && typeof raw.tool_use_id === 'string') {
-      const task = tasks.get(raw.tool_use_id);
-      if (task) task.running = false;
+      finish(tasks.get(raw.tool_use_id));
     }
   }
 

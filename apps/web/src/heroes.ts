@@ -41,22 +41,23 @@ export type HeroState = 'resting' | 'working' | 'alert' | 'victory' | 'ko';
 /** The Class id for an agent: the leader's for the main agent, else the first keyword match, else the fallback. */
 export function matchClass(manifest: HeroManifest, agent: string | undefined, { leader = false } = {}): string {
   if (leader) return manifest.leader;
-  return matching(manifest, agent, (name, keyword) => name.includes(keyword)) ?? manifest.fallback;
+  return matching(manifest, agent, includesKeyword)[0] ?? manifest.fallback;
 }
 
-/** The first Class with a keyword that `found` finds in the text; a Class needn't have any keywords. */
+/** Every Class with a keyword that `found` finds in the text, in the art pack's order; a Class needn't have any. */
 function matching(
   manifest: HeroManifest,
   text: string | undefined,
   found: (text: string, keyword: string) => boolean,
-): string | undefined {
+): string[] {
   const lower = text?.toLowerCase();
-  if (!lower) return undefined;
-  const hit = Object.entries(manifest.classes).find(([, cls]) =>
-    (cls.match ?? []).some((keyword) => found(lower, keyword.toLowerCase())),
-  );
-  return hit?.[0];
+  if (!lower) return [];
+  return Object.entries(manifest.classes)
+    .filter(([, cls]) => (cls.match ?? []).some((keyword) => found(lower, keyword.toLowerCase())))
+    .map(([id]) => id);
 }
+
+const includesKeyword = (name: string, keyword: string) => name.includes(keyword);
 
 /** Whether a word in `text` starts with `keyword`, so "latest" isn't a test, and "reviewer" is a review. */
 function startsWord(text: string, keyword: string): boolean {
@@ -74,17 +75,72 @@ export interface Helper {
   agentType?: string | undefined;
 }
 
+/** A helper setting out, or the helper with this id coming back; a Quest's moves are in event order. */
+export type PartyMove = { out: Helper } | { back: string };
+
+/** The Classes that suit a helper, its job's before its agent type's. */
+function suited(manifest: HeroManifest, { description, agentType }: Helper): string[] {
+  return [...matching(manifest, description, startsWord), ...matching(manifest, agentType, includesKeyword)];
+}
+
 /**
- * A helper's Class: by its job, then its agent type, else a stable pick from its id, so it stays the same Class across
- * renders, reloads and devices. `matchClass` is for names alone, such as a Guild member on the Belt.
+ * Picks a Class for a helper joining a Party that holds `held`: the first suited Class nobody holds, else the least-held
+ * Class, with ties settled by a hash of the helper and the Class.
  */
-export function helperClass(manifest: HeroManifest, { id, description, agentType }: Helper): string {
-  const named =
-    matching(manifest, description, startsWord) ??
-    matching(manifest, agentType, (name, keyword) => name.includes(keyword));
+function pickClass(manifest: HeroManifest, helper: Helper, held: ReadonlyMap<string, number>): string {
+  const free = suited(manifest, helper).find((id) => !held.get(id));
+  if (free) return free;
+  const rank = (id: string) => [held.get(id) ?? 0, hash(`${helper.id}/${id}`)] as const;
+  const best = Object.keys(manifest.classes).reduce<string | undefined>((top, id) => {
+    if (top === undefined) return id;
+    const [a, b] = [rank(id), rank(top)];
+    return a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]) ? id : top;
+  }, undefined);
+  return best ?? manifest.fallback;
+}
+
+/**
+ * Every helper's Class in a Quest, spread so a team sent out together looks like a Party (#201). The Party is whoever is
+ * out when a helper sets out, so a long Quest can reuse Classes. It's built from event order and ids alone, so a helper
+ * keeps its Class as others come back, across reloads and devices. Classes are shared only once every one is held.
+ */
+export function partyClasses(manifest: HeroManifest, moves: readonly PartyMove[]): Map<string, string> {
+  const classes = new Map<string, string>();
+  const out = new Map<string, string>();
+  for (const move of moves) {
+    if ('back' in move) {
+      out.delete(move.back);
+      continue;
+    }
+    if (classes.has(move.out.id)) continue;
+    const held = new Map<string, number>();
+    for (const id of out.values()) held.set(id, (held.get(id) ?? 0) + 1);
+    const classId = pickClass(manifest, move.out, held);
+    classes.set(move.out.id, classId);
+    out.set(move.out.id, classId);
+  }
+  return classes;
+}
+
+/** Whether two Parties give the same Classes, so a view can keep the map it has and not redraw every row. */
+export function sameParty(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+  return a.size === b.size && [...a].every(([id, classId]) => b.get(id) === classId);
+}
+
+/** The Quest on screen's `partyClasses`, for the chat's cards and lines. */
+export const PartyContext = createContext<ReadonlyMap<string, string>>(new Map());
+
+/**
+ * A helper's Class: its Quest's Party's pick when known. Alone, it goes by its job, then its agent type, else a stable
+ * pick from its id. `matchClass` is for names alone, such as a Guild member on the Belt.
+ */
+export function helperClass(manifest: HeroManifest, helper: Helper, party?: ReadonlyMap<string, string>): string {
+  const picked = party?.get(helper.id);
+  if (picked) return picked;
+  const named = suited(manifest, helper)[0];
   if (named) return named;
   const ids = Object.keys(manifest.classes).sort();
-  return ids[hash(id) % ids.length] ?? manifest.fallback;
+  return ids[hash(helper.id) % ids.length] ?? manifest.fallback;
 }
 
 /** How long a finished turn's Victory shows before the Hero rests. */

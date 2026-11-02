@@ -5,6 +5,8 @@ import {
   heroAnimation,
   leaderFor,
   matchClass,
+  type PartyMove,
+  partyClasses,
   questState,
   VARIED,
   withLeader,
@@ -75,6 +77,88 @@ describe('matchClass', () => {
   it('falls back for unknown or missing agent names', () => {
     expect(matchClass(manifest, 'statusline-setup')).toBe('wizard');
     expect(matchClass(manifest, undefined)).toBe('wizard');
+  });
+});
+
+describe('partyClasses', () => {
+  const shipped = JSON.parse(shippedRaw) as HeroManifest;
+  const out = (id: string, description?: string, agentType?: string): PartyMove => ({
+    out: { id, ...(description ? { description } : {}), ...(agentType ? { agentType } : {}) },
+  });
+  const team = (...jobs: string[]) => jobs.map((job, i) => out(`call-${i}`, job));
+
+  it('spreads a team of the same job across the Classes, and shares only when out of them', () => {
+    const seven = partyClasses(shipped, team(...Array.from({ length: 7 }, (_, i) => `Fix bug ${i}`)));
+    expect(new Set(seven.values()).size).toBe(6);
+    expect(seven.size).toBe(7);
+  });
+
+  it('goes by the job where it can', () => {
+    const classes = partyClasses(shipped, team('Security review', 'Fix web client bugs', 'Write the docs'));
+    expect([...classes.values()]).toEqual(['paladin', 'cleric', 'ranger']);
+  });
+
+  it('lets a helper with two roles take its second when the first is held', () => {
+    const classes = partyClasses(shipped, team('Fix the build', 'Fix the build'));
+    expect([...classes.values()]).toEqual(['wizard', 'cleric']);
+  });
+
+  it('uses the agent type when the job says nothing', () => {
+    expect(partyClasses(shipped, [out('a', 'Tidy up', 'Explore')]).get('a')).toBe('rogue');
+  });
+
+  it('gives the same answer reloaded part-way through a team', () => {
+    const moves = team('Review Summons', 'Review web', 'Review hub', 'Review engines');
+    const whole = partyClasses(shipped, moves);
+    const part = partyClasses(shipped, moves.slice(0, 2));
+    expect(part.get('call-0')).toBe(whole.get('call-0'));
+    expect(part.get('call-1')).toBe(whole.get('call-1'));
+    expect(partyClasses(shipped, moves)).toEqual(whole);
+  });
+
+  it('keeps a helper-s Class when others come back', () => {
+    const first = team('Fix one', 'Fix two');
+    const before = partyClasses(shipped, first);
+    const after = partyClasses(shipped, [...first, { back: 'call-0' }, out('later', 'Fix three')]);
+    expect(after.get('call-0')).toBe(before.get('call-0'));
+    expect(after.get('call-1')).toBe(before.get('call-1'));
+  });
+
+  it('counts only who-s out, so a long Quest can use a Class again', () => {
+    const classes = partyClasses(shipped, [out('a', 'Fix one'), { back: 'a' }, out('b', 'Fix two')]);
+    expect(classes.get('b')).toBe('cleric');
+  });
+
+  it('counts a helper seen twice once, keeping its first Class', () => {
+    const classes = partyClasses(shipped, [out('a', 'Fix one'), out('a', 'Fix one'), out('b', 'Fix two')]);
+    expect(classes.get('a')).toBe('cleric');
+    expect(classes.get('b')).not.toBe('cleric');
+  });
+
+  it('copes with an art pack of one Class, or with no match lists', () => {
+    const solo = { ...shipped.classes.wizard!, match: [] };
+    const one: HeroManifest = { leader: 'solo', fallback: 'solo', classes: { solo } };
+    expect([...partyClasses(one, team('Fix', 'Fix')).values()]).toEqual(['solo', 'solo']);
+    const bare = Object.fromEntries(
+      Object.entries(shipped.classes).map(([id, cls]) => [id, { ...cls, match: undefined }]),
+    );
+    const moves = team('a', 'b', 'c', 'd', 'e', 'f');
+    expect(new Set(partyClasses({ ...shipped, classes: bare } as HeroManifest, moves).values()).size).toBe(6);
+  });
+
+  it('prefers the Party-s pick, and falls back for a helper it has not seen', () => {
+    const party = new Map([['a', 'sage']]);
+    expect(helperClass(shipped, { id: 'a', description: 'Security review' }, party)).toBe('sage');
+    expect(helperClass(shipped, { id: 'b', description: 'Security review' }, party)).toBe('paladin');
+  });
+
+  it('keeps a Guild reviewer a Cleric, though a job saying "review" alone picks no Class', () => {
+    expect(matchClass(shipped, 'code-reviewer')).toBe('cleric');
+    expect(helperClass(shipped, { id: 'x', description: 'Security review' })).toBe('paladin');
+    const picks = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id) =>
+      helperClass(shipped, { id, description: 'Review' }),
+    );
+    expect(new Set(picks).size).toBeGreaterThan(1);
   });
 });
 

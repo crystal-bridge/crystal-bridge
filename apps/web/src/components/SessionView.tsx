@@ -47,7 +47,7 @@ import { loadDraft, saveDraft } from '../drafts.js';
 import { attachedPaths, toAttachments } from '../attachments.js';
 import { currentActivity } from '../activity.js';
 import { type BattleResult, battleResults } from '../battle.js';
-import type { HeroManifest } from '../heroes.js';
+import { type HeroManifest, PartyContext, partyClasses, sameParty } from '../heroes.js';
 import { type HeldSend, loadHeld, saveHeld, unechoed } from '../held.js';
 import type { ErrorListener, ReplayProgress } from '../hub.js';
 
@@ -164,6 +164,8 @@ function CopyReply({ text }: { text: string }) {
     </button>
   );
 }
+
+const NO_HELPERS: ReadonlyMap<string, string> = new Map();
 
 /** How long a sent answer keeps its card's buttons disabled with no `permission.resolved`. */
 const SENDING_TIMEOUT_MS = 10_000;
@@ -616,6 +618,12 @@ export function SessionView({
   const info = useMemo(() => sessionInfo(deferred), [deferred]);
   const activity = useMemo(() => currentActivity(deferred), [deferred]);
   const battles = useMemo(() => battleResults(deferred), [deferred]);
+  // Who's who in the Party, kept the same until a Class changes, so a helper setting out doesn't redraw every row.
+  const helperClasses = useRef<ReadonlyMap<string, string>>(NO_HELPERS);
+  if (party) {
+    const classes = partyClasses(party.manifest, info.party);
+    if (!sameParty(classes, helperClasses.current)) helperClasses.current = classes;
+  }
   // A Quest between turns ends on its latest result, shown open; a new message or a close folds it again.
   const latestResult = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -647,347 +655,349 @@ export function SessionView({
 
   return (
     <FileOpenContext.Provider value={onOpenFile ?? null}>
-      <div className="flex h-full">
-        {inventoryOpen && !compact && (
-          <aside
-            aria-label={w('inventory')}
-            className="hidden w-64 shrink-0 overflow-y-auto border-r border-neutral-300 p-3 lg:block dark:border-neutral-700"
-          >
-            <Inventory
-              inventory={inventory}
-              onUse={setDraft}
-              onSend={closed ? undefined : onSend}
-              belt={belt}
-              onBeltChange={onBeltChange ?? (() => {})}
-              manifest={party?.manifest}
-            />
-          </aside>
-        )}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center justify-end gap-2 border-b border-neutral-300 px-4 py-1.5 text-xs dark:border-neutral-700">
-            {worktree && (
-              <span className="mr-auto font-mono text-neutral-500" title={`worktree of ${worktree.root}`}>
-                {worktree.branch}
-              </span>
-            )}
-            {forkedFrom && onOpen && (
-              <button
-                type="button"
-                onClick={() => onOpen(forkedFrom)}
-                title={sourceLabel}
-                className={`${worktree ? '' : 'mr-auto '}max-w-xs truncate rounded px-2 py-0.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800`}
-              >
-                {sourceLabel ? `Forked from ${truncate(sourceLabel, 40)}` : 'Forked from…'}
-              </button>
-            )}
-            {onFork && (
-              <Tip text="Fork: copy this conversation into a new session that continues separately" align="end">
-                <button
-                  type="button"
-                  aria-label="Fork"
-                  onClick={() => setForkDraft((open) => (open === null ? '' : null))}
-                  className={ICON_BUTTON}
-                >
-                  <Icon name="fork" />
-                </button>
-              </Tip>
-            )}
-            {onSplit && !compact && (
-              <Tip text={hint('splitView')} align="end" className="hidden lg:inline-flex">
-                <button type="button" aria-label={w('splitView')} onClick={onSplit} className={ICON_BUTTON}>
-                  <Icon name="split" />
-                </button>
-              </Tip>
-            )}
-            {onExitSplit && (
-              <Tip text={hint('exitSplit')} align="end" className="hidden lg:inline-flex">
-                <button type="button" aria-label={w('exitSplit')} onClick={onExitSplit} className={ICON_BUTTON}>
-                  <Icon name="exitSplit" />
-                </button>
-              </Tip>
-            )}
-            {panelToggles && (
-              <>
-                <Tip text={hint('inventory')} align="end" className="hidden lg:inline-flex">
-                  <button
-                    type="button"
-                    aria-label={w('inventory')}
-                    onClick={toggleInventory}
-                    aria-pressed={inventoryOpen}
-                    className={ICON_BUTTON}
-                  >
-                    <Icon name="inventory" />
-                  </button>
-                </Tip>
-                <Tip text="Details: the side panel" align="end" className="hidden lg:inline-flex">
-                  <button
-                    type="button"
-                    aria-label="Details"
-                    onClick={toggleDetails}
-                    aria-pressed={details}
-                    className={ICON_BUTTON}
-                  >
-                    <Icon name="details" />
-                  </button>
-                </Tip>
-              </>
-            )}
-            {!closed && (
-              <Tip text="Close this Quest: its history stays, it takes no more follow-ups" align="end">
-                <button
-                  type="button"
-                  aria-label="Close"
-                  onClick={() => setConfirmClose((open) => !open)}
-                  className={ICON_BUTTON}
-                >
-                  <Icon name="close" />
-                </button>
-              </Tip>
-            )}
-          </div>
-          {forkDraft !== null && (
-            <form
-              onSubmit={fork}
-              className="flex flex-wrap items-center gap-2 border-b border-neutral-300 bg-neutral-100 px-4 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-            >
-              <input
-                aria-label="First prompt for the fork"
-                placeholder="What should the fork try?"
-                value={forkDraft}
-                onChange={(e) => setForkDraft(e.target.value)}
-                autoFocus
-                className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-950"
-              />
-              <button
-                type="submit"
-                disabled={!forkDraft.trim()}
-                className="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                Start fork
-              </button>
-              <button
-                type="button"
-                onClick={() => setForkDraft(null)}
-                className="text-xs text-neutral-500 hover:underline"
-              >
-                Cancel
-              </button>
-            </form>
-          )}
-          {confirmClose && !closed && (
-            <div className="flex flex-wrap items-center gap-3 border-b border-neutral-300 bg-neutral-100 px-4 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900">
-              <span>Close this session? Its history stays; it takes no more follow-ups.</span>
-              {worktree && (
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input type="checkbox" checked={removeTree} onChange={(e) => setRemoveTree(e.target.checked)} />
-                  Remove its worktree (kept if it has uncommitted changes; the branch always stays)
-                </label>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  onClose(Boolean(worktree) && removeTree);
-                  setConfirmClose(false);
-                }}
-                className="rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700"
-              >
-                Close session
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmClose(false)}
-                className="text-xs text-neutral-500 hover:underline"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-          {/* The chat column is centred at a comfortable reading width; long replies are most of what people read. */}
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            <div
-              ref={scroller}
-              onScroll={onScroll}
-              data-testid="quest-scroll"
-              className="flex-1 overflow-y-auto overflow-x-hidden p-4"
-            >
-              {loading ? (
-                <LoadingHistory progress={progress} party={party} />
-              ) : (
-                <div className="mx-auto min-w-0 max-w-3xl space-y-3">
-                  {items.map((item) => (
-                    <div key={item.id} data-waiting={isWaiting(item)}>
-                      <MemoItem
-                        item={item}
-                        sending={item.kind === 'permission' && sending.has(item.requestId)}
-                        onAnswer={stableAnswer}
-                        onKeys={stableKeys}
-                        battle={
-                          item.kind === 'result'
-                            ? stableBattle(item.id, battles.turns.get(item.id))
-                            : item.kind === 'closed'
-                              ? stableBattle('quest', battles.quest)
-                              : undefined
-                        }
-                        latest={item.id === latestResult}
-                        manifest={party?.manifest}
-                        ts={tsOf(item.id)}
-                      />
-                    </div>
-                  ))}
-                  {held.map((send, i) => (
-                    <div
-                      key={i}
-                      className="cb-sent-prompt ml-auto max-w-[80%] whitespace-pre-wrap rounded px-3 py-2 opacity-70 [overflow-wrap:anywhere]"
-                    >
-                      {send.text}
-                      <span role="status" className="mt-1 block text-xs">
-                        {w(linkDown ? 'queuedSend' : 'sending')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {unseen && (
-              <button
-                type="button"
-                onClick={jumpToLatest}
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-lg hover:bg-blue-700"
-              >
-                {w('jumpToLatest')}
-              </button>
-            )}
-          </div>
-          {suggestions.length > 0 && (
-            <ul
-              role="listbox"
-              aria-label="Slash commands"
-              className="mx-3 mb-1 max-h-60 overflow-y-auto rounded border md:mx-auto md:w-full md:max-w-3xl border-neutral-300 bg-white text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
-            >
-              {suggestions.map((command, i) => (
-                <li
-                  key={command}
-                  role="option"
-                  aria-selected={i === highlight}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => complete(command)}
-                  className={`cursor-pointer px-2 py-1 font-mono ${i === highlight ? 'bg-blue-600 text-white' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
-                >
-                  /{command}
-                </li>
-              ))}
-            </ul>
-          )}
-          <form onSubmit={send} className="border-t border-neutral-300 p-3 dark:border-neutral-700">
-            {shell && (
-              <div
-                role="status"
-                aria-label="Shell mode"
-                title={hint('shellMode')}
-                className="cb-display mx-auto mb-1 max-w-3xl text-xs text-rose-600 dark:text-rose-400"
-              >
-                ✦ {w('shellMode')}
-              </div>
-            )}
-            {undelivered && (
-              <p
-                role="alert"
-                title={hint('notDelivered')}
-                className="mx-auto mb-1 max-w-3xl text-xs text-red-600 dark:text-red-400"
-              >
-                {w('notDelivered')}
-              </p>
-            )}
-            <div className="mx-auto max-w-3xl">
-              <PromptBox
-                label="Follow-up"
-                placeholder={closed ? 'Session closed' : 'Send a follow-up'}
-                disabled={closed}
-                value={draft}
-                shell={shell}
-                running={running}
-                onStop={onInterrupt}
-                files={closed ? undefined : { list: files, onChange: setFiles }}
-                onChange={(text) => {
-                  setDraft(text);
-                  setHighlight(0);
-                }}
-                onKeyDown={(e) => {
-                  // Enter here confirms an input method's text. Safari has already ended it, and only says so by 229.
-                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                  if (suggestions.length > 0) {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      const step = e.key === 'ArrowDown' ? 1 : -1;
-                      setHighlight((h) => (h + step + suggestions.length) % suggestions.length);
-                      return;
-                    }
-                    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-                      e.preventDefault();
-                      complete(suggestions[Math.min(highlight, suggestions.length - 1)]!);
-                      return;
-                    }
-                  }
-                  if (e.key === 'Enter' && !e.shiftKey) send(e);
-                }}
-                controls={
-                  <>
-                    <ThemedSelect
-                      id={modeId}
-                      label="Permission mode"
-                      icon="mode"
-                      title="Permission mode: how much the Quest may do without asking"
-                      value={mode ?? ''}
-                      options={[
-                        ...(mode === undefined ? [{ value: '', label: '…' }] : []),
-                        ...MODES,
-                        ...(mode !== undefined && !MODES.some((m) => m.value === mode)
-                          ? [{ value: mode, label: mode }]
-                          : []),
-                      ]}
-                      onChange={(value) => onMode(value as PermissionMode)}
-                    />
-                    {onEffort && (
-                      <ThemedSelect
-                        id={`effort-${session ?? 'quest'}`}
-                        label="Effort"
-                        icon="effort"
-                        title="Effort: how hard the Quest thinks. Takes effect from your next message once this turn and any background work are done."
-                        value={effort ?? ''}
-                        options={EFFORTS}
-                        onChange={(value) => onEffort((value as Effort) || undefined)}
-                      />
-                    )}
-                  </>
-                }
-              />
-            </div>
-          </form>
-        </div>
-        {fileViewer && !compact ? (
-          <aside aria-label={w('scroll')} className={FILE_ASIDE}>
-            {fileViewer}
-          </aside>
-        ) : (
-          details &&
-          !compact && (
+      <PartyContext.Provider value={helperClasses.current}>
+        <div className="flex h-full">
+          {inventoryOpen && !compact && (
             <aside
-              aria-label="Session details"
-              className="hidden w-80 shrink-0 overflow-y-auto border-l border-neutral-300 p-3 lg:block dark:border-neutral-700"
+              aria-label={w('inventory')}
+              className="hidden w-64 shrink-0 overflow-y-auto border-r border-neutral-300 p-3 lg:block dark:border-neutral-700"
             >
-              <SessionPanel
-                info={info}
-                kingdom={kingdom}
-                party={party}
-                relayedBytes={relayedBytes}
-                activity={activity}
-                plan={plan}
-                planAt={planAt}
+              <Inventory
+                inventory={inventory}
+                onUse={setDraft}
+                onSend={closed ? undefined : onSend}
+                belt={belt}
+                onBeltChange={onBeltChange ?? (() => {})}
+                manifest={party?.manifest}
               />
             </aside>
-          )
-        )}
-      </div>
+          )}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex items-center justify-end gap-2 border-b border-neutral-300 px-4 py-1.5 text-xs dark:border-neutral-700">
+              {worktree && (
+                <span className="mr-auto font-mono text-neutral-500" title={`worktree of ${worktree.root}`}>
+                  {worktree.branch}
+                </span>
+              )}
+              {forkedFrom && onOpen && (
+                <button
+                  type="button"
+                  onClick={() => onOpen(forkedFrom)}
+                  title={sourceLabel}
+                  className={`${worktree ? '' : 'mr-auto '}max-w-xs truncate rounded px-2 py-0.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800`}
+                >
+                  {sourceLabel ? `Forked from ${truncate(sourceLabel, 40)}` : 'Forked from…'}
+                </button>
+              )}
+              {onFork && (
+                <Tip text="Fork: copy this conversation into a new session that continues separately" align="end">
+                  <button
+                    type="button"
+                    aria-label="Fork"
+                    onClick={() => setForkDraft((open) => (open === null ? '' : null))}
+                    className={ICON_BUTTON}
+                  >
+                    <Icon name="fork" />
+                  </button>
+                </Tip>
+              )}
+              {onSplit && !compact && (
+                <Tip text={hint('splitView')} align="end" className="hidden lg:inline-flex">
+                  <button type="button" aria-label={w('splitView')} onClick={onSplit} className={ICON_BUTTON}>
+                    <Icon name="split" />
+                  </button>
+                </Tip>
+              )}
+              {onExitSplit && (
+                <Tip text={hint('exitSplit')} align="end" className="hidden lg:inline-flex">
+                  <button type="button" aria-label={w('exitSplit')} onClick={onExitSplit} className={ICON_BUTTON}>
+                    <Icon name="exitSplit" />
+                  </button>
+                </Tip>
+              )}
+              {panelToggles && (
+                <>
+                  <Tip text={hint('inventory')} align="end" className="hidden lg:inline-flex">
+                    <button
+                      type="button"
+                      aria-label={w('inventory')}
+                      onClick={toggleInventory}
+                      aria-pressed={inventoryOpen}
+                      className={ICON_BUTTON}
+                    >
+                      <Icon name="inventory" />
+                    </button>
+                  </Tip>
+                  <Tip text="Details: the side panel" align="end" className="hidden lg:inline-flex">
+                    <button
+                      type="button"
+                      aria-label="Details"
+                      onClick={toggleDetails}
+                      aria-pressed={details}
+                      className={ICON_BUTTON}
+                    >
+                      <Icon name="details" />
+                    </button>
+                  </Tip>
+                </>
+              )}
+              {!closed && (
+                <Tip text="Close this Quest: its history stays, it takes no more follow-ups" align="end">
+                  <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={() => setConfirmClose((open) => !open)}
+                    className={ICON_BUTTON}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </Tip>
+              )}
+            </div>
+            {forkDraft !== null && (
+              <form
+                onSubmit={fork}
+                className="flex flex-wrap items-center gap-2 border-b border-neutral-300 bg-neutral-100 px-4 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+              >
+                <input
+                  aria-label="First prompt for the fork"
+                  placeholder="What should the fork try?"
+                  value={forkDraft}
+                  onChange={(e) => setForkDraft(e.target.value)}
+                  autoFocus
+                  className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-950"
+                />
+                <button
+                  type="submit"
+                  disabled={!forkDraft.trim()}
+                  className="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Start fork
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForkDraft(null)}
+                  className="text-xs text-neutral-500 hover:underline"
+                >
+                  Cancel
+                </button>
+              </form>
+            )}
+            {confirmClose && !closed && (
+              <div className="flex flex-wrap items-center gap-3 border-b border-neutral-300 bg-neutral-100 px-4 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900">
+                <span>Close this session? Its history stays; it takes no more follow-ups.</span>
+                {worktree && (
+                  <label className="flex items-center gap-1.5 text-xs">
+                    <input type="checkbox" checked={removeTree} onChange={(e) => setRemoveTree(e.target.checked)} />
+                    Remove its worktree (kept if it has uncommitted changes; the branch always stays)
+                  </label>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose(Boolean(worktree) && removeTree);
+                    setConfirmClose(false);
+                  }}
+                  className="rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700"
+                >
+                  Close session
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClose(false)}
+                  className="text-xs text-neutral-500 hover:underline"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {/* The chat column is centred at a comfortable reading width; long replies are most of what people read. */}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <div
+                ref={scroller}
+                onScroll={onScroll}
+                data-testid="quest-scroll"
+                className="flex-1 overflow-y-auto overflow-x-hidden p-4"
+              >
+                {loading ? (
+                  <LoadingHistory progress={progress} party={party} />
+                ) : (
+                  <div className="mx-auto min-w-0 max-w-3xl space-y-3">
+                    {items.map((item) => (
+                      <div key={item.id} data-waiting={isWaiting(item)}>
+                        <MemoItem
+                          item={item}
+                          sending={item.kind === 'permission' && sending.has(item.requestId)}
+                          onAnswer={stableAnswer}
+                          onKeys={stableKeys}
+                          battle={
+                            item.kind === 'result'
+                              ? stableBattle(item.id, battles.turns.get(item.id))
+                              : item.kind === 'closed'
+                                ? stableBattle('quest', battles.quest)
+                                : undefined
+                          }
+                          latest={item.id === latestResult}
+                          manifest={party?.manifest}
+                          ts={tsOf(item.id)}
+                        />
+                      </div>
+                    ))}
+                    {held.map((send, i) => (
+                      <div
+                        key={i}
+                        className="cb-sent-prompt ml-auto max-w-[80%] whitespace-pre-wrap rounded px-3 py-2 opacity-70 [overflow-wrap:anywhere]"
+                      >
+                        {send.text}
+                        <span role="status" className="mt-1 block text-xs">
+                          {w(linkDown ? 'queuedSend' : 'sending')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {unseen && (
+                <button
+                  type="button"
+                  onClick={jumpToLatest}
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-lg hover:bg-blue-700"
+                >
+                  {w('jumpToLatest')}
+                </button>
+              )}
+            </div>
+            {suggestions.length > 0 && (
+              <ul
+                role="listbox"
+                aria-label="Slash commands"
+                className="mx-3 mb-1 max-h-60 overflow-y-auto rounded border md:mx-auto md:w-full md:max-w-3xl border-neutral-300 bg-white text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+              >
+                {suggestions.map((command, i) => (
+                  <li
+                    key={command}
+                    role="option"
+                    aria-selected={i === highlight}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => complete(command)}
+                    className={`cursor-pointer px-2 py-1 font-mono ${i === highlight ? 'bg-blue-600 text-white' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
+                  >
+                    /{command}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form onSubmit={send} className="border-t border-neutral-300 p-3 dark:border-neutral-700">
+              {shell && (
+                <div
+                  role="status"
+                  aria-label="Shell mode"
+                  title={hint('shellMode')}
+                  className="cb-display mx-auto mb-1 max-w-3xl text-xs text-rose-600 dark:text-rose-400"
+                >
+                  ✦ {w('shellMode')}
+                </div>
+              )}
+              {undelivered && (
+                <p
+                  role="alert"
+                  title={hint('notDelivered')}
+                  className="mx-auto mb-1 max-w-3xl text-xs text-red-600 dark:text-red-400"
+                >
+                  {w('notDelivered')}
+                </p>
+              )}
+              <div className="mx-auto max-w-3xl">
+                <PromptBox
+                  label="Follow-up"
+                  placeholder={closed ? 'Session closed' : 'Send a follow-up'}
+                  disabled={closed}
+                  value={draft}
+                  shell={shell}
+                  running={running}
+                  onStop={onInterrupt}
+                  files={closed ? undefined : { list: files, onChange: setFiles }}
+                  onChange={(text) => {
+                    setDraft(text);
+                    setHighlight(0);
+                  }}
+                  onKeyDown={(e) => {
+                    // Enter here confirms an input method's text. Safari has already ended it, and only says so by 229.
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (suggestions.length > 0) {
+                      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        const step = e.key === 'ArrowDown' ? 1 : -1;
+                        setHighlight((h) => (h + step + suggestions.length) % suggestions.length);
+                        return;
+                      }
+                      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                        e.preventDefault();
+                        complete(suggestions[Math.min(highlight, suggestions.length - 1)]!);
+                        return;
+                      }
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) send(e);
+                  }}
+                  controls={
+                    <>
+                      <ThemedSelect
+                        id={modeId}
+                        label="Permission mode"
+                        icon="mode"
+                        title="Permission mode: how much the Quest may do without asking"
+                        value={mode ?? ''}
+                        options={[
+                          ...(mode === undefined ? [{ value: '', label: '…' }] : []),
+                          ...MODES,
+                          ...(mode !== undefined && !MODES.some((m) => m.value === mode)
+                            ? [{ value: mode, label: mode }]
+                            : []),
+                        ]}
+                        onChange={(value) => onMode(value as PermissionMode)}
+                      />
+                      {onEffort && (
+                        <ThemedSelect
+                          id={`effort-${session ?? 'quest'}`}
+                          label="Effort"
+                          icon="effort"
+                          title="Effort: how hard the Quest thinks. Takes effect from your next message once this turn and any background work are done."
+                          value={effort ?? ''}
+                          options={EFFORTS}
+                          onChange={(value) => onEffort((value as Effort) || undefined)}
+                        />
+                      )}
+                    </>
+                  }
+                />
+              </div>
+            </form>
+          </div>
+          {fileViewer && !compact ? (
+            <aside aria-label={w('scroll')} className={FILE_ASIDE}>
+              {fileViewer}
+            </aside>
+          ) : (
+            details &&
+            !compact && (
+              <aside
+                aria-label="Session details"
+                className="hidden w-80 shrink-0 overflow-y-auto border-l border-neutral-300 p-3 lg:block dark:border-neutral-700"
+              >
+                <SessionPanel
+                  info={info}
+                  kingdom={kingdom}
+                  party={party}
+                  relayedBytes={relayedBytes}
+                  activity={activity}
+                  plan={plan}
+                  planAt={planAt}
+                />
+              </aside>
+            )
+          )}
+        </div>
+      </PartyContext.Provider>
     </FileOpenContext.Provider>
   );
 }

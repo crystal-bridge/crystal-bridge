@@ -5,6 +5,11 @@ one entry.
 
 ## Unreleased
 
+### Added
+
+- A team of helpers now looks like a Party: helpers out together take different Classes, by job where the job says
+  something. Levels aren't affected, since XP goes to a Quest's leader.
+
 ### Security
 
 - A hub on token login no longer lets a request through unchecked because of how its path is written. Update any hub
