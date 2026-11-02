@@ -189,9 +189,27 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     running = [];
   });
 
+  // A job outlives its Kingdom by design, and a test that fails never releases what it held. Once the folder goes,
+  // nothing else can: a job waiting on a file in it runs for good, so it has to stop here.
+  function stopJobs() {
+    const jobs = join(home, '.crystal-bridge', 'summons');
+    if (!existsSync(jobs)) return;
+    for (const id of readdirSync(jobs)) {
+      const job = join(jobs, id);
+      if (!existsSync(join(job, 'pid')) || existsSync(join(job, 'exit'))) continue;
+      const group = Number(readFileSync(join(job, 'pid'), 'utf8').split(' ')[1]);
+      try {
+        process.kill(-group, 'SIGKILL'); // TERM won't do: the runner traps it
+      } catch {
+        // It finished on its own in the meantime.
+      }
+    }
+  }
+
   afterEach(async () => {
     for (const summons of running) summons.close();
     await new Promise((resolve) => setTimeout(resolve, 50));
+    stopJobs();
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -218,6 +236,28 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     made.start({ session: SESSION, summon: HERE, command, onFinish: 'notify', ...extra });
   const final = (id: string) => until(() => reports.find((cast) => cast.id === id && cast.state !== 'running'));
   const folder = (id: string) => join(home, '.crystal-bridge', 'summons', id);
+
+  it('stops a job and one waiting for its turn, when a test leaves them running', async () => {
+    const made = summons();
+    const held = await start(made, 'while [ ! -f release ]; do sleep 0.1; done');
+    const waiting = await start(made, 'exit 0');
+    await until(() => reports.some((r) => r.id === waiting.id && r.queued));
+    const runners = [held, waiting].map((cast) =>
+      Number(readFileSync(join(folder(cast.id), 'pid'), 'utf8').split(' ')[0]),
+    );
+    const alive = (pid: number) => {
+      try {
+        return process.kill(pid, 0);
+      } catch {
+        return false;
+      }
+    };
+    expect(runners.every(alive)).toBe(true);
+
+    stopJobs();
+
+    await until(() => !runners.some(alive));
+  });
 
   describe('when the machine list changes', () => {
     const shell = () =>

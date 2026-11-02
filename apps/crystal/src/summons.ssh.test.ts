@@ -1,9 +1,10 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createSummons, sshArgs, targetShell, type Summons, type SummonsOptions } from './summons.js';
 
 /** A real `sshd`, which CI's `summons-ssh` job sets up. Elsewhere this file is skipped. */
@@ -23,7 +24,8 @@ async function until<T>(read: () => T | undefined | false, timeoutMs = 20_000): 
 const onTarget = (script: string) => execFileSync('ssh', ['-o', 'BatchMode=yes', HOST!, script]).toString();
 
 describe.runIf(HOST)('a Cast over real SSH', () => {
-  const home = mkdtempSync(join(tmpdir(), 'cb-summons-ssh-'));
+  // Made in a hook: a skipped suite still runs this body, but none of its hooks, so nothing would remove the folder.
+  const home = join(tmpdir(), `cb-summons-ssh-${randomUUID()}`);
   const shell = targetShell(process.env, home);
   let running: Summons[] = [];
   let reports: Cast[] = [];
@@ -55,6 +57,7 @@ describe.runIf(HOST)('a Cast over real SSH', () => {
     children = [];
   });
 
+  beforeAll(() => mkdirSync(home));
   afterAll(() => rmSync(home, { recursive: true, force: true }));
 
   // Needs a Linux target whose file system can punch holes; other targets keep the whole log.

@@ -1,9 +1,10 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { WINDOWS_COMMAND, windowsEnvelope, windowsScripts } from './summon-scripts-windows.js';
 import {
   createSummons,
@@ -42,7 +43,8 @@ function powershell(body: string): string {
 }
 
 describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target', () => {
-  const home = mkdtempSync(join(tmpdir(), 'cb-summons-win-'));
+  // Made in a hook: a skipped suite still runs this body, but none of its hooks, so nothing would remove the folder.
+  const home = join(tmpdir(), `cb-summons-win-${randomUUID()}`);
   const target: Target = HOST ? { name: 'win', host: HOST } : { name: 'win' };
   const viaSsh = targetShell(process.env, home);
   const shell = (to: Target) => {
@@ -88,6 +90,7 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     children = [];
   });
 
+  beforeAll(() => mkdirSync(home));
   afterAll(() => rmSync(home, { recursive: true, force: true }));
 
   it('runs a command and reports its log, exit code, name and progress', async () => {
