@@ -11,6 +11,40 @@ one entry.
   reachable by people you don't trust.
 - The hub refuses `/client` and changes that come from a page on another site, which a logged-in browser would otherwise
   carry out for it.
+- Remote images in agent text and repo files no longer load by themselves: they show as links, and the hub sends a
+  Content-Security-Policy.
+- Removed logins and rotated node tokens lose their open connections within 30 seconds, and hub databases and backups are
+  private (0600).
+- Crystal's node token is kept out of git commands run in a Quest's folder, and text typed into an interactive terminal
+  can't escape its paste.
+
+### Changed
+
+- Version skew is safer: a hub stores event types it doesn't know instead of leaving a newer Kingdom resending them, one
+  unreadable event no longer costs a tab a whole replay batch, and older tabs and hubs keep newer Appearance fields when
+  they save.
+- A Kingdom that can't read a command says so in the Quest instead of leaving the tab waiting.
+- `join` checks Node, the service manager and its port before spending the code, and confirms the Kingdom started. A
+  failed connection prints the real reason.
+- Kingdoms can cross a future protocol bump by themselves. A Kingdom already installed needs one `adopt` from this release
+  to survive `brew upgrade node`.
+- A job's output files on a Summon use your login's umask, and the docs show how to stop a Cast by hand.
+- An interactive Quest applies a permission mode change at the next message.
+
+### Fixed
+
+- One Quest failing to start, or a command failing, no longer takes its Kingdom down with every other Quest.
+- On Windows, stopping or restarting an interactive Quest no longer crashes Crystal, Casts end on a negative exit code or
+  a crash, and a profile path with a space no longer stops every Cast.
+- Interactive Quests end a turn on an API error, count turns the CLI starts by itself as busy so deploys wait for them, and
+  hold follow-ups while a terminal card is open.
+- A typo in `CRYSTAL_SUMMONS` no longer stops a Kingdom starting.
+- The hub stays up through a full disk without discarding events, a cloned or leftover Crystal can't knock out a live
+  Kingdom, search no longer freezes every Quest, and backups finish on a busy hub.
+- Follow-ups and New Quest briefs stay safe until they've really arrived, and a dropped link, an expired login or a
+  stranded approval card now says so instead of failing silently.
+- The Summoning Circle catches up after a reconnect and always lists running Casts, and follows leave no `tail` behind on
+  macOS targets.
 
 ## 0.5.1
 
