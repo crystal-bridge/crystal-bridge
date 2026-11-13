@@ -32,11 +32,11 @@
     "pre-push": "env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE sh -c 'pnpm typecheck && pnpm test'"
   },
   "devDependencies": {
-    "concurrently": "^10.0.6",
+    "concurrently": "^10.0.7",
     "prettier": "3.9.10",
     "simple-git-hooks": "2.14.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }
