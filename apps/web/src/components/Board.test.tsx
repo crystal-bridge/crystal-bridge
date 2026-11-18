@@ -309,6 +309,17 @@ describe('BoardPage', () => {
     expect(note.className).toMatch(/amber/);
   });
 
+  it('says on Run now when a press is what asks the synthesis step, since that spends plan usage', () => {
+    show({
+      scout: {
+        id: 'quest-board',
+        fresh: 0,
+        manifest: { ...manifest, synthesize: { prompt: 'synthesize.md', when: 'now' } },
+      },
+    });
+    expect(screen.getByRole('button', { name: 'Run now' }).getAttribute('title')).toMatch(/synthesis step.*usage/);
+  });
+
   it('runs the Scout now, and shows why the hub refused', async () => {
     const { onRunNow } = show();
     onRunNow.mockRejectedValueOnce(new Error('that Kingdom is offline'));

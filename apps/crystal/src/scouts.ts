@@ -23,6 +23,8 @@ import { projectFor, questPrompt } from './scout-actions.js';
 import {
   DEFAULT_SYNTHESIS_BUDGET_USD,
   applySynthesis,
+  carryOver,
+  judgedBy,
   readSynthesis,
   synthesisArgs,
   synthesisDigest,
@@ -183,9 +185,11 @@ interface Entry {
   listed?: NodeScoutRun;
   /**
    * The list and setup the last synthesis judged, by digest, and its answer, or why it failed. Kept in memory only, so a
-   * restart costs one more call.
+   * restart costs one more call, or for a Scout that synthesizes on Run now, a plain Board until the next press.
    */
   synthesis?: { digest: string; answer?: SynthesisAnswer; reason?: string };
+  /** The last answer that succeeded and the items it judged, which a failed press leaves in place for carrying over. */
+  answered?: { answer: SynthesisAnswer; judged: Record<string, string> };
 }
 
 const scheduleKey = (manifest: ScoutManifest) => `${manifest.schedule.cron}|${manifest.schedule.timezone}`;
@@ -520,6 +524,12 @@ export function createScouts(options: ScoutsOptions): Scouts {
     trigger: string,
   ): Promise<{ items: ScoutItem[]; note: { reason?: string; costUsd?: number } } | undefined> {
     const step = manifest.synthesize!;
+    // Only a press calls claude; a scheduled run keeps what the last answer still says.
+    if (step.when === 'now' && trigger !== 'now') {
+      const kept = entry.answered;
+      const reason = entry.synthesis?.answer ? undefined : entry.synthesis?.reason;
+      return { items: kept ? carryOver(items, kept, manifest) : items, note: reason ? { reason } : {} };
+    }
     const why = (reason: string) => `not synthesized: ${reason}`.slice(0, MAX_REASON);
     const instructions = scoutFile(entry.id, step.prompt);
     // No call is made, so nothing is kept: the next run reads the file again.
@@ -570,6 +580,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
         const read = readSynthesis(result.stdout);
         if (read.ok) {
           entry.synthesis = { digest, answer: read.answer };
+          entry.answered = { answer: read.answer, judged: judgedBy(items) };
           const costUsd = read.costUsd !== undefined ? { costUsd: read.costUsd } : {};
           return { items: applySynthesis(items, read.answer, manifest), note: costUsd };
         }

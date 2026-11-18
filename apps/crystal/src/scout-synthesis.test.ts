@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { MAX_SCOUT_ITEMS, type ScoutItem, type ScoutManifest } from '@crystal-bridge/protocol';
 import {
   applySynthesis,
+  carryOver,
+  judgedBy,
   readSynthesis,
   synthesisArgs,
   synthesisDigest,
@@ -192,6 +194,49 @@ describe('readSynthesis', () => {
     const read = readSynthesis(out);
     expect(read.ok && read.answer.items.map((one) => one.id)).toEqual(['pr:12']);
     expect(read.ok && read.answer.extra).toEqual([]);
+  });
+});
+
+describe('carryOver', () => {
+  const answer = {
+    items: [
+      { id: 'pr:12', rank: 1, summary: 'CI fails.', suggested: 'fix' },
+      { id: 'pr:15', rank: 2, summary: 'Safe bump.', suggested: 'merge' },
+      { id: 'pr:16', rank: 3, summary: 'Draft.' },
+    ],
+    extra: [{ title: 'Two pull requests touch the uploader', summary: 'Review them together.' }],
+  };
+  const kept = { answer, judged: judgedBy(items) };
+
+  it('applies the whole answer, extras included, to the list it judged', () => {
+    const out = carryOver(items, kept, manifest);
+    expect(out.map((item) => item.rank)).toEqual([1, 2, 3, undefined]);
+    expect(out).toHaveLength(4);
+  });
+
+  it('drops its ranks and extras once an item is new, keeping summaries on the ones it judged', () => {
+    const out = carryOver([{ id: 'pr:20', title: 'New' }, ...items], kept, manifest);
+    expect(out).toHaveLength(4);
+    expect(out.every((item) => item.rank === undefined)).toBe(true);
+    expect(out.find((item) => item.id === 'pr:12')).toMatchObject({ summary: 'CI fails.', suggested: 'fix' });
+  });
+
+  it('treats an item that changed since as unjudged: no stale summary, suggestion or rank', () => {
+    const changed = [{ ...items[0]!, title: 'Fix the retry loop: now urgent' }, items[1]!, items[2]!];
+    const out = carryOver(changed, kept, manifest);
+    expect(out[0]).toEqual(changed[0]);
+    expect(out.every((item) => item.rank === undefined)).toBe(true);
+    expect(out[1]).toMatchObject({ summary: 'Safe bump.' });
+  });
+
+  it('keeps ranks but drops extras once an item has left, since an extra may speak of it', () => {
+    const out = carryOver(items.slice(1), kept, manifest);
+    expect(out.map((item) => item.rank)).toEqual([2, 3]);
+  });
+
+  it('keeps a rank the collector set itself', () => {
+    const own = [{ id: 'pr:20', title: 'New', rank: 1 }, ...items];
+    expect(carryOver(own, kept, manifest)[0]).toMatchObject({ rank: 1 });
   });
 });
 
