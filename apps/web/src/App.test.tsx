@@ -857,7 +857,14 @@ describe('App Split View when a Quest closes', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        const body = url === '/api/sessions' ? held : url === '/api/nodes' ? ['node-b', 'node-a'] : [];
+        const body =
+          url === '/api/sessions'
+            ? held
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/nodes/node-b/scouts/quest-board'
+                ? { scout: 'quest-board', runs: [], items: [] }
+                : [];
         return new Response(JSON.stringify(body), { status: 200 });
       }),
     );
@@ -967,6 +974,30 @@ describe('App Split View when a Quest closes', () => {
 
     expect(screen.getByRole('tab', { name: /old quest/, selected: true })).toBeTruthy();
     expect(screen.queryByRole('tab', { name: /fix the build/, selected: true })).toBeNull();
+  });
+
+  it.each(['#/k/node-b/b/quest-board', '#/k/node-b', '#/k/node-b/new', '#/airship'])(
+    'stays on %s when the page loads there with a split saved',
+    async (hash) => {
+      openSplit();
+      window.history.replaceState(null, '', `/${hash}`);
+      await renderApp();
+      await nextPoll();
+
+      expect(window.location.hash).toBe(hash);
+      expect(screen.queryByRole('tab', { name: /fix the build/, selected: true })).toBeNull();
+      expect(savedPair()).not.toBeNull();
+    },
+  );
+
+  it('reopens a saved split when the page loads with no view in the address', async () => {
+    openSplit();
+    window.history.replaceState(null, '', '/');
+    await renderApp();
+    await nextPoll();
+
+    expect(screen.getByRole('tab', { name: /fix the build/, selected: true })).toBeTruthy();
+    expect(pane(/private work/)).toBeTruthy();
   });
 
   it('offers no Split on a closed Quest', async () => {

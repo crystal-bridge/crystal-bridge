@@ -298,7 +298,8 @@ export function App({ hub }: { hub: HubClient }) {
   useEffect(() => {
     if (split && shown && split !== shown) saveSplit({ primary: shown, second: split });
   }, [split, shown]);
-  // After a reload, once the Quests are known, reopen a saved split's main Quest (if both still exist and show here).
+  // After a load with no view in the address, once the Quests are known, reopen a saved split's main Quest (if both
+  // still exist and show here).
   const splitRestored = useRef(false);
   useEffect(() => {
     if (splitRestored.current || sessions.length === 0) return;
@@ -313,12 +314,13 @@ export function App({ hub }: { hub: HubClient }) {
       saveSplit(null);
       return;
     }
-    if (selected !== null) return;
+    // The address wins: a page loaded on a Board, a Castle, New Quest or the Airship stays there, the pair kept.
+    if (selected !== null || startRoute) return;
     if (!primary || !second || !visibleIds.has(primary.node) || !visibleIds.has(second.node)) return;
     setPrefs((prev) => ({ ...prev, active: primary.node }));
     setPage('castle');
     setSelected(primary.id);
-  }, [sessions, selected, visibleIds]);
+  }, [sessions, selected, visibleIds, startRoute]);
 
   const waitingByKingdom: Record<string, number> = {};
   for (const node of Object.values(waiting)) waitingByKingdom[node] = (waitingByKingdom[node] ?? 0) + 1;
