@@ -73,7 +73,8 @@ describe('docs site', () => {
     assert.ok(run.includes("link: '/scouts'"));
     const scouts = readFileSync(join(DOCS, 'SCOUTS.md'), 'utf8');
     const warning = scouts.slice(scouts.indexOf('::: warning Partly built'), scouts.indexOf(':::\n', 10));
-    assert.match(warning, /The synthesis step isn't built yet/);
+    assert.match(warning, /Scouts that run on the hub aren't built yet/);
+    assert.doesNotMatch(warning, /synthesis step isn't built/);
     assert.doesNotMatch(warning, /no Boards/);
     assert.doesNotMatch(warning, /Quest and run actions/);
   });

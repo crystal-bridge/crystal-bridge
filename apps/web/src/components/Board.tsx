@@ -211,6 +211,7 @@ function ItemText({ item, marked }: { item: BoardItem; marked: boolean }) {
         </span>
       </span>
       {item.subtitle && <span className="block truncate text-xs text-neutral-500">{item.subtitle}</span>}
+      {item.summary && <span className="block text-xs text-neutral-600 dark:text-neutral-300">{item.summary}</span>}
     </span>
   );
 }
@@ -424,6 +425,9 @@ export function BoardPage({
                     <span className="font-medium">{item.title}</span>
                   </span>
                   {item.subtitle && <span className="block text-xs text-neutral-500">{item.subtitle}</span>}
+                  {item.summary && (
+                    <span className="block text-xs text-neutral-600 dark:text-neutral-300">{item.summary}</span>
+                  )}
                 </td>
                 {columns.map((column) => (
                   <td key={column} className="py-1.5 pr-3">

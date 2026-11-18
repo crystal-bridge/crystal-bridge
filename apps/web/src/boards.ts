@@ -110,7 +110,11 @@ export function settled(item: BoardItem, now: number): BoardItem {
 export function boardSections(items: readonly BoardItem[], now: number): BoardSections {
   const sections: BoardSections = { open: [], snoozed: [], setAside: [], gone: [] };
   const grouped = new Map<string | undefined, BoardItem[]>();
-  for (const raw of items) {
+  // Ranked items first, by rank (from a collector or the synthesis step); the sort is stable, so ties and unranked items
+  // keep the collector's order, and each group lands where its best item does.
+  const unranked = Number.MAX_SAFE_INTEGER;
+  const byRank = [...items].sort((a, b) => (a.rank ?? unranked) - (b.rank ?? unranked));
+  for (const raw of byRank) {
     const item = settled(raw, now);
     if (item.goneAt !== undefined) sections.gone.push(item);
     else if (item.state === 'snoozed') sections.snoozed.push(item);

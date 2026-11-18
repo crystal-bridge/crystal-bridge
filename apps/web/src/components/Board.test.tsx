@@ -233,6 +233,14 @@ describe('BoardPage', () => {
     expect(screen.getByRole('button', { name: 'Done' }).getAttribute('title')).toBeNull();
   });
 
+  it.each(['list', 'table'] as const)('shows the line summing an item up, in a %s', (view) => {
+    show({
+      scout: { id: 'quest-board', fresh: 0, manifest: { ...manifest, view } },
+      items: [item({ state: 'seen', summary: 'CI fails on one runner; the fix looks small.' })],
+    });
+    expect(screen.getByText('CI fails on one runner; the fix looks small.')).toBeTruthy();
+  });
+
   it('runs the Scout now, and shows why the hub refused', async () => {
     const { onRunNow } = show();
     onRunNow.mockRejectedValueOnce(new Error('that Kingdom is offline'));

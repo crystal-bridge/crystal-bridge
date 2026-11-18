@@ -10,6 +10,9 @@ one entry.
 - A Kingdom runs Scouts: each folder under `~/.crystal-bridge/scouts/` names a collector and a schedule, and the Kingdom
   runs it, sends the hub what it found and pauses it after three failures in a row. The hub stores the items; their
   Boards come in a later release. See [Scouts and Boards](docs/SCOUTS.md).
+- A Scout with `synthesize` has the Kingdom's own `claude` rank its list, sum each item up in a line and suggest an
+  action, only when the list changed, with no tools and a budget cap. The Board orders items by rank, shows the
+  summary, and records each run's cost.
 
 ### Changed
 

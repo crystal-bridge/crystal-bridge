@@ -194,6 +194,24 @@ describe('a suggested action', () => {
   });
 });
 
+describe('what the synthesis step adds', () => {
+  it('gives an item a rank from 1 and a one-line summary', () => {
+    const ranked = ScoutItems.parse({ items: [{ ...item, rank: 1, summary: 'Checks fail on one runner.' }] }).items[0]!;
+    expect([ranked.rank, ranked.summary]).toEqual([1, 'Checks fail on one runner.']);
+    expect(ScoutItems.safeParse({ items: [{ ...item, rank: 0 }] }).success).toBe(false);
+    expect(ScoutItems.safeParse({ items: [{ ...item, rank: 1.5 }] }).success).toBe(false);
+    expect(ScoutItems.safeParse({ items: [{ ...item, summary: 'x'.repeat(301) }] }).success).toBe(false);
+  });
+
+  it('lets a Scout cap what one synthesis may spend', () => {
+    const capped = (maxBudgetUsd: unknown) =>
+      ScoutManifest.safeParse({ ...manifest, synthesize: { prompt: 'synthesize.md', maxBudgetUsd } }).success;
+    expect(capped(0.25)).toBe(true);
+    expect(capped(0)).toBe(false);
+    expect(capped(50)).toBe(false);
+  });
+});
+
 describe('ScoutLink, the item a Quest came from', () => {
   it('names the Scout and the item, with the title as it was', () => {
     const link = { scout: 'quest-board', item: item.id, title: item.title };

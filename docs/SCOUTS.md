@@ -4,8 +4,8 @@ A Scout rides out on a schedule, comes back with what it found, and posts it on 
 
 ::: warning Partly built
 This page is the agreed design. A Kingdom finds and runs Scouts on their schedules, the hub stores what they
-find, and the app shows each Scout's Board with a button for every action. The synthesis step isn't built yet. The
-work is tracked in the
+find, the app shows each Scout's Board with a button for every action, and the synthesis step ranks and sums up the
+list. Scouts that run on the hub aren't built yet. The work is tracked in the
 [v0.7 Scouts milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/9).
 :::
 
@@ -122,8 +122,10 @@ prints one JSON document to stdout:
 - **`group`** sorts items into sections on the Board.
 - **`fields`** are free for templates and for display.
 - **`actions`** name keys from `scout.json`. An item with none gets the Scout's defaults.
-- **`suggested`** names one of those actions, which the Board draws as the highlighted button. A collector can set it,
-  and the synthesis step will. It never runs anything by itself.
+- **`suggested`** names one of those actions, which the Board draws as the highlighted button. It never runs anything
+  by itself.
+- **`rank`** (a whole number from 1) puts the item in order on the Board, ranked items first; **`summary`** is one line
+  on why it matters. The synthesis step sets these and `suggested`, but whatever a collector sets itself wins.
 
 A non-zero exit, a timeout or output that doesn't parse marks the run as failed and leaves the Board as it was. The end
 of stderr goes into the run's record, which the hub stores and shows, so a collector must not print a secret there. A collector has two minutes unless `collect.timeoutSeconds` says otherwise; at the
@@ -178,10 +180,16 @@ screens only for now.
 
 A Scout with `synthesize` asks the Kingdom's own `claude` to judge the list. It runs only when the list changed since
 the last synthesis, so a quiet hour costs nothing. It uses the unmodified CLI under the Kingdom's login, in print mode,
-with structured output against a schema the Kingdom writes, with tools and MCP servers off and a budget cap. The flags
-it relies on (`-p`, `--output-format json`, `--json-schema`, `--tools ""`, `--strict-mcp-config`,
-`--no-session-persistence`, `--max-budget-usd`) exist in the CLI's own help. A recorded fixture will pin their exact
-output before the step ships.
+with structured output against a schema the Kingdom writes, with tools and MCP servers off and a budget cap:
+
+```
+claude -p --output-format json --json-schema <schema> --strict-mcp-config --no-session-persistence
+  --max-budget-usd <cap> --tools ""
+```
+
+The prompt is your `synthesize.md` as written, then the list as JSON in a block marked untrusted, the same way a
+`quest` action's prompt holds its item. It goes on stdin. `synthesize.maxBudgetUsd` sets the cap, up to $5; it's $0.50
+when unset. The call may take three minutes. A recording of its real output is in `apps/crystal/test/fixtures`.
 
 What it may return is fixed:
 
@@ -189,8 +197,14 @@ What it may return is fixed:
 - extra items of its own, such as "a filter would archive these 40 newsletters", whose actions also come from the
   Scout's list.
 
-The Kingdom checks the answer against the schema and drops anything else. Each run records its cost in Gold beside the
-Board.
+The Kingdom checks the answer against the schema and drops anything else, such as a suggestion the item doesn't offer.
+An extra item's id is `synthesis:` and a hash of its title, so dismissing one sticks for as long as it's worded the same.
+Each run records its cost in Gold beside the Board.
+
+When the step fails (the prompt file can't be read, `claude` isn't logged in, the budget runs out), the run still
+succeeds with the plain list and its record says why. It isn't tried again until the list changes, so a broken step
+doesn't spend every 15 minutes. The Kingdom keeps the last answer in memory, so after Crystal restarts, a Scout's next
+run synthesizes once more.
 
 Cost is the reason synthesis is optional and runs only on change. Every `claude` call loads the Kingdom's full Claude
 setup, so even a small call has a fixed cost, and it spends that Kingdom's plan usage. A recorded synthesis of three
