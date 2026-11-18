@@ -221,6 +221,13 @@ setup, so even a small call has a fixed cost, and it spends that Kingdom's plan 
 items cost $0.04 (the API-equivalent figure the CLI reports); a Kingdom with more plugins, skills or CLAUDE.md files
 pays more per call. A Scout that ran synthesis every 15 minutes regardless would spend about $4 a day or more.
 
+**Only on Run now.** Some lists change on almost every run: an inbox does. There, "only when the list changed" still
+means a call every 15 minutes, and a recorded call over 100 mail threads cost $0.64. Set `synthesize.when` to `now`
+and scheduled runs only collect; pressing Run now collects and synthesizes. Between presses, the items the last answer
+judged keep its summary and suggestion. Its ranks stay only while it judged every item in the list, since the Board puts
+unranked items last and new ones would sink below old. Run now says on hover that it spends plan usage. `changed`, the
+default, keeps today's behaviour.
+
 The step keeps the Kingdom's settings. Leaving them out (`--setting-sources ""`) saved about a tenth in that recording,
 but it would also drop settings a Kingdom may need for the CLI to work at all, such as an `env` block that points it at a
 proxy.

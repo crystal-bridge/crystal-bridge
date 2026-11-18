@@ -530,6 +530,11 @@ export function BoardPage({
               <button
                 type="button"
                 disabled={running}
+                title={
+                  manifest.synthesize?.when === 'now'
+                    ? 'Collects now, then asks the synthesis step to rank the list, which spends plan usage'
+                    : undefined
+                }
                 onClick={() => void runNow()}
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
               >

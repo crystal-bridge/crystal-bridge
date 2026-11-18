@@ -23,6 +23,7 @@ import { projectFor, questPrompt } from './scout-actions.js';
 import {
   DEFAULT_SYNTHESIS_BUDGET_USD,
   applySynthesis,
+  carryOver,
   readSynthesis,
   synthesisArgs,
   synthesisDigest,
@@ -520,6 +521,11 @@ export function createScouts(options: ScoutsOptions): Scouts {
     trigger: string,
   ): Promise<{ items: ScoutItem[]; note: { reason?: string; costUsd?: number } } | undefined> {
     const step = manifest.synthesize!;
+    // Only a press calls claude; a scheduled run keeps what the last answer still says.
+    if (step.when === 'now' && trigger !== 'now') {
+      const answer = entry.synthesis?.answer;
+      return { items: answer ? carryOver(items, answer, manifest) : items, note: {} };
+    }
     const why = (reason: string) => `not synthesized: ${reason}`.slice(0, MAX_REASON);
     const instructions = scoutFile(entry.id, step.prompt);
     // No call is made, so nothing is kept: the next run reads the file again.

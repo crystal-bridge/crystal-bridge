@@ -871,6 +871,46 @@ describe('Scouts', () => {
       expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
     });
 
+    it('with when "now", leaves scheduled runs to the collector and synthesizes on Run now', async () => {
+      await ready(synthesizing({ when: 'now' }));
+      now = slot(now);
+      await scouts!.tick();
+      await finish(ok(PRS));
+      expect(pending).toHaveLength(0);
+      expect(sent[0]!.run).toMatchObject({ trigger: 'schedule', outcome: 'succeeded' });
+      expect(sent[0]!.run.reason).toBeUndefined();
+      expect(sent[0]!.items?.every((item) => item.rank === undefined)).toBe(true);
+
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+      expect(sent[1]!.items?.[0]?.rank).toBe(1);
+    });
+
+    it('with when "now", keeps the last answer between presses, and its ranks only while they cover the whole list', async () => {
+      await ready(synthesizing({ when: 'now' }));
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+
+      // The same list on schedule: the whole answer still holds.
+      now = slot(now);
+      await scouts!.tick();
+      await finish(ok(PRS));
+      expect(pending).toHaveLength(0);
+      expect(sent[1]!.items?.map((item) => item.rank)).toEqual([1, 2, 3]);
+
+      // A new item arrives: no call, summaries and suggestions stay, and no ranks, so the new one doesn't sink.
+      now = slot(now);
+      await scouts!.tick();
+      await finish(ok({ items: [{ id: 'pr:20', title: 'New one' }, ...PRS.items] }));
+      expect(pending).toHaveLength(0);
+      const items = sent[2]!.items!;
+      expect(sent[2]!.run.costUsd).toBeUndefined();
+      expect(items.every((item) => item.rank === undefined && item.rankSource === undefined)).toBe(true);
+      expect(items.find((item) => item.id === 'pr:12')).toMatchObject({ suggested: 'fix', summarySource: 'synthesis' });
+      expect(items.find((item) => item.id === 'pr:20')?.summary).toBeUndefined();
+    });
+
     it('stops claude on close, and reports nothing', async () => {
       await ready();
       scouts!.runNow('quest-board');

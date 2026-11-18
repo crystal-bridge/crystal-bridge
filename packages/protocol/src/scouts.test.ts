@@ -55,6 +55,17 @@ describe('ScoutManifest', () => {
     expect(ScoutManifest.parse(manifest)).toEqual(manifest);
   });
 
+  it('synthesizes when the list changed, or only on Run now', () => {
+    for (const when of ['changed', 'now']) {
+      expect(ScoutManifest.safeParse({ ...manifest, synthesize: { prompt: 'synthesize.md', when } }).success).toBe(
+        true,
+      );
+    }
+    expect(
+      ScoutManifest.safeParse({ ...manifest, synthesize: { prompt: 'synthesize.md', when: 'hourly' } }).success,
+    ).toBe(false);
+  });
+
   it('needs a five-field cron and a time zone, so a Scout means the same on every machine', () => {
     const at = (schedule: unknown) => ScoutManifest.safeParse({ ...manifest, schedule }).success;
     expect(at({ cron: '0 9 * * *', timezone: 'UTC' })).toBe(true);

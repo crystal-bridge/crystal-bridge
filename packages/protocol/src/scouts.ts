@@ -80,7 +80,11 @@ export const ScoutManifest = z.object({
   synthesize: z
     .object({
       prompt: scoutFile,
-      when: z.enum(['changed']).optional(),
+      /**
+       * `changed` (the default): any run whose list changed. `now`: only a Run now press, so a list that changes all day
+       * (mail) costs a call per press, not per change; scheduled runs keep the last answer as far as it still fits.
+       */
+      when: z.enum(['changed', 'now']).optional(),
       /** The most one synthesis may spend, in US dollars as the CLI counts it; the Kingdom's default when absent. */
       maxBudgetUsd: z.number().positive().max(5).optional(),
     })

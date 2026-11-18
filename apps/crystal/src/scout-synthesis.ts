@@ -229,6 +229,22 @@ export function readSynthesis(stdout: string): SynthesisRead {
  * The list with the answer applied: a rank, summary and suggestion on each item it names, unless the collector set its
  * own, and a suggestion only from the item's own actions. Extra items follow, each id taken from its title.
  */
+/**
+ * The last answer applied to a list it may not have seen, for a Scout that synthesizes only on Run now. Summaries and
+ * suggestions stay on the items it judged. Its ranks stay only while it judged every item: a new item has no rank, and
+ * the Board puts unranked items last, so new mail would sink below old. Without them the collector's order shows.
+ */
+export function carryOver(items: ScoutItem[], answer: SynthesisAnswer, manifest: ScoutManifest): ScoutItem[] {
+  const judged = new Set(answer.items.map((one) => one.id));
+  const applied = applySynthesis(items, answer, manifest);
+  if (items.every((item) => judged.has(item.id))) return applied;
+  return applied.map((item) => {
+    if (item.rankSource !== SYNTHESIS) return item;
+    const { rank: _rank, rankSource: _source, ...rest } = item;
+    return rest;
+  });
+}
+
 export function applySynthesis(items: ScoutItem[], answer: SynthesisAnswer, manifest: ScoutManifest): ScoutItem[] {
   const byId = new Map(answer.items.map((one) => [one.id, one]));
   const judged = items.map(withoutSources).map((item) => {
