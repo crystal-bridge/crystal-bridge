@@ -1,0 +1,27 @@
+{
+  "name": "GitHub",
+  "schedule": { "cron": "*/15 * * * *", "timezone": "UTC" },
+  "collect": { "command": ["node", "collect.mjs"], "timeoutSeconds": 120 },
+  "view": "list",
+  "actions": {
+    "open": { "kind": "link", "label": "Open", "url": "{{url}}" },
+    "later": { "kind": "snooze", "label": "Later", "for": "1d" },
+    "done": { "kind": "done", "label": "Done" },
+    "fix": {
+      "kind": "quest",
+      "label": "Fix the checks",
+      "project": "~/code/{{fields.repo}}",
+      "prompt": "fix.md",
+      "worktree": true
+    },
+    "answer": {
+      "kind": "quest",
+      "label": "Answer the review",
+      "project": "~/code/{{fields.repo}}",
+      "prompt": "answer.md",
+      "worktree": true
+    },
+    "triage": { "kind": "quest", "label": "Triage", "project": "~/code/{{fields.repo}}", "prompt": "triage.md" }
+  },
+  "defaults": ["open", "later", "done"]
+}

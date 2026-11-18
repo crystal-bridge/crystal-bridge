@@ -308,7 +308,8 @@ Quest's event stream doesn't change. Boards stay off phones for now, like the Su
 
 ## Field notes: the first two Scouts
 
-**A Quest Board** uses the Kingdom's own `gh` login, so no token is stored anywhere new.
+**A Quest Board** uses the Kingdom's own `gh` login, so no token is stored anywhere new. A working one ships as an
+example: [`examples/scouts/github`](../examples/scouts/github/README.md).
 
 - GitHub search finds the candidates: your open pull requests, review requests, and open issues you wrote or are
   assigned.
@@ -316,8 +317,10 @@ Quest's event stream doesn't change. Boards stay off phones for now, like the Su
   fix, and ready to merge.
 - Whether a pull request waits on you or on them is no GitHub field. The collector works it out from the last person,
   not bot, who commented, reviewed or pushed.
-- The notifications API is a cheap check for change: a reply of "not modified" costs no rate limit. It accepts the
-  `gh` login's token but refuses fine-grained tokens and GitHub App tokens.
+- The notifications API is a cheap check for change: a reply of "not modified" costs no rate limit. Ask by ETag
+  (`If-None-Match`); `If-Modified-Since` got a full reply in testing. It accepts the `gh` login's token but refuses
+  fine-grained tokens and GitHub App tokens. A check finishing makes no notification, and nor does anything you do
+  yourself, so a kept list still needs a fresh search now and then.
 - GitHub's rate limits are per account. Run one such Scout per GitHub account, on one Kingdom.
 
 **A mail Board** needs a Google sign-in, which is the hard part.

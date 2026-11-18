@@ -17,7 +17,7 @@
     "notices:check": "tsx scripts/third-party-notices.ts --check",
     "icons": "tsx apps/web/scripts/icons.ts && prettier --write apps/web/src/theme/iconData.ts",
     "test": "pnpm -r test && pnpm test:scripts",
-    "test:scripts": "tsx --test scripts/*.test.ts",
+    "test:scripts": "tsx --test scripts/*.test.ts examples/scouts/*/*.test.ts",
     "checks": "tsx scripts/repo-checks.ts all",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && simple-git-hooks || true",
     "typecheck": "pnpm -r typecheck",
