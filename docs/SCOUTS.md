@@ -334,7 +334,8 @@ example: [`examples/scouts/github`](../examples/scouts/github/README.md).
   yourself, so a kept list still needs a fresh search now and then.
 - GitHub's rate limits are per account. Run one such Scout per GitHub account, on one Kingdom.
 
-**A mail Board** needs a Google sign-in, which is the hard part.
+**A mail Board** needs a Google sign-in, which is the hard part. A working one ships as an example, with the sign-in
+step by step: [`examples/scouts/gmail`](../examples/scouts/gmail/README.md).
 
 - You create your own Google Cloud project with a Desktop OAuth client, with the `gmail.modify` scope, plus
   `gmail.settings.basic` to create filters.
@@ -343,8 +344,9 @@ example: [`examples/scouts/github`](../examples/scouts/github/README.md).
 - On a Workspace account, an admin may block the app or the scopes.
 - A collector reads changes with `history.list` from a saved position, which needs no public address. When Google says
   the position is too old, it reads the inbox in full again.
-- Archive removes the `INBOX` label. Spam adds `SPAM`; whether that teaches Gmail the way its Report spam button does
-  is unconfirmed. A filter is created through the settings API.
+- Archive removes the `INBOX` label. Spam adds `SPAM`; Google doesn't document whether that teaches Gmail the way its
+  Report spam button does, so treat it as moving the mail only. A filter is created through the settings API.
+- A token that fails makes each run fail with a sign-in message, and the third failure in a row pauses the Scout.
 - Synthesis sees headers and a trimmed, cleaned body, never attachments, and redacts codes and account numbers.
 
 ## Not planned

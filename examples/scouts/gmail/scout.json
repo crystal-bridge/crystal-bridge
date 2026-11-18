@@ -1,0 +1,31 @@
+{
+  "name": "Gmail",
+  "schedule": { "cron": "*/15 * * * *", "timezone": "UTC" },
+  "collect": { "command": ["node", "collect.mjs"], "timeoutSeconds": 120 },
+  "synthesize": { "prompt": "synthesize.md" },
+  "view": "list",
+  "actions": {
+    "open": { "kind": "link", "label": "Open", "url": "{{url}}" },
+    "follow-up": { "kind": "quest", "label": "Follow up", "project": "~", "prompt": "follow-up.md" },
+    "archive": { "kind": "run", "label": "Archive", "command": ["node", "act.mjs"], "batch": true, "then": "done" },
+    "filter": {
+      "kind": "run",
+      "label": "Filter sender",
+      "command": ["node", "act.mjs"],
+      "batch": true,
+      "confirm": true,
+      "then": "done"
+    },
+    "spam": {
+      "kind": "run",
+      "label": "Spam",
+      "command": ["node", "act.mjs"],
+      "batch": true,
+      "confirm": true,
+      "then": "dismiss"
+    },
+    "later": { "kind": "snooze", "label": "Later", "for": "1d" },
+    "done": { "kind": "done", "label": "Done" }
+  },
+  "defaults": ["open", "later", "done"]
+}
