@@ -184,8 +184,8 @@ screens only for now.
 
 ## Consult the oracle: the synthesis step
 
-A Scout with `synthesize` asks the Kingdom's own `claude` to judge the list. It runs only when the list, `synthesize.md`
-or the Scout's actions changed since the last synthesis, and never for an empty list, so a quiet hour costs nothing. It uses the unmodified CLI under the Kingdom's login, in print mode,
+A Scout with `synthesize` asks the Kingdom's own `claude` to judge the list. By default it runs only when the list,
+`synthesize.md` or the Scout's actions changed since the last synthesis (see *Only on Run now* below for a press-only step), and never for an empty list, so a quiet hour costs nothing. It uses the unmodified CLI under the Kingdom's login, in print mode,
 with structured output against a schema the Kingdom writes, with tools and MCP servers off and a budget cap:
 
 ```
@@ -216,17 +216,21 @@ again on schedule until something changes, so a broken step doesn't spend every 
 reason meanwhile. Once you've fixed the cause, Run now tries again. The Kingdom keeps the last answer in memory, so after Crystal restarts, a Scout's next
 run synthesizes once more.
 
-Cost is the reason synthesis is optional and runs only on change. Every `claude` call loads the Kingdom's full Claude
+Cost is the reason synthesis is optional and runs only on change, or only on a press. Every `claude` call loads the Kingdom's full Claude
 setup, so even a small call has a fixed cost, and it spends that Kingdom's plan usage. A recorded synthesis of three
 items cost $0.04 (the API-equivalent figure the CLI reports); a Kingdom with more plugins, skills or CLAUDE.md files
 pays more per call. A Scout that ran synthesis every 15 minutes regardless would spend about $4 a day or more.
 
 **Only on Run now.** Some lists change on almost every run: an inbox does. There, "only when the list changed" still
-means a call every 15 minutes, and a recorded call over 100 mail threads cost $0.64. Set `synthesize.when` to `now`
-and scheduled runs only collect; pressing Run now collects and synthesizes. Between presses, the items the last answer
-judged keep its summary and suggestion. Its ranks stay only while it judged every item in the list, since the Board puts
-unranked items last and new ones would sink below old. Run now says on hover that it spends plan usage. `changed`, the
-default, keeps today's behaviour.
+means a call every 15 minutes, and a recorded call over 100 mail threads cost $0.57. Set `synthesize.when` to `now`
+and scheduled runs only collect; pressing Run now collects and synthesizes, if anything changed since the last press.
+Between presses, the last answer that succeeded is carried over: an item keeps its summary and suggestion while it's as
+the answer saw it, so a thread with a new reply loses them. Its ranks stay only while the answer judged every item,
+since the Board puts unranked items last and new ones would sink below old, and its extra items stay only for the
+very list they were written about. A failed press keeps the last good answer and repeats its reason on each run. The
+answer is kept in memory, so after Crystal restarts the Board shows the plain list until the next press. Run now says
+on hover that it may spend plan usage. Kingdoms and the hub need this release before a Scout sets `now`: an older one
+fails that Scout's `scout.json`. `changed`, the default, keeps the behaviour above.
 
 The step keeps the Kingdom's settings. Leaving them out (`--setting-sources ""`) saved about a tenth in that recording,
 but it would also drop settings a Kingdom may need for the CLI to work at all, such as an `env` block that points it at a

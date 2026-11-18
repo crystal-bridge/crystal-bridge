@@ -229,22 +229,6 @@ export function readSynthesis(stdout: string): SynthesisRead {
  * The list with the answer applied: a rank, summary and suggestion on each item it names, unless the collector set its
  * own, and a suggestion only from the item's own actions. Extra items follow, each id taken from its title.
  */
-/**
- * The last answer applied to a list it may not have seen, for a Scout that synthesizes only on Run now. Summaries and
- * suggestions stay on the items it judged. Its ranks stay only while it judged every item: a new item has no rank, and
- * the Board puts unranked items last, so new mail would sink below old. Without them the collector's order shows.
- */
-export function carryOver(items: ScoutItem[], answer: SynthesisAnswer, manifest: ScoutManifest): ScoutItem[] {
-  const judged = new Set(answer.items.map((one) => one.id));
-  const applied = applySynthesis(items, answer, manifest);
-  if (items.every((item) => judged.has(item.id))) return applied;
-  return applied.map((item) => {
-    if (item.rankSource !== SYNTHESIS) return item;
-    const { rank: _rank, rankSource: _source, ...rest } = item;
-    return rest;
-  });
-}
-
 export function applySynthesis(items: ScoutItem[], answer: SynthesisAnswer, manifest: ScoutManifest): ScoutItem[] {
   const byId = new Map(answer.items.map((one) => [one.id, one]));
   const judged = items.map(withoutSources).map((item) => {
@@ -282,4 +266,43 @@ export function applySynthesis(items: ScoutItem[], answer: SynthesisAnswer, mani
     });
   }
   return [...judged, ...extra];
+}
+
+/** Each item as the collector sent it, by id, hashed: what an answer judged, so a later list can tell what changed. */
+export function judgedBy(items: ScoutItem[]): Record<string, string> {
+  return Object.fromEntries(
+    items.map((item) => [
+      item.id,
+      createHash('sha256')
+        .update(JSON.stringify(asCollected(item)))
+        .digest('hex'),
+    ]),
+  );
+}
+
+/**
+ * The last good answer applied to a list it may not have seen, for a Scout that synthesizes only on Run now. An item
+ * keeps its summary and suggestion only while it's as the answer judged it: a thread with a new reply is unjudged.
+ * Ranks stay only while every item is judged, since the Board puts unranked items last and new mail would sink below
+ * old. Extras stay only for the very list they were written about.
+ */
+export function carryOver(
+  items: ScoutItem[],
+  kept: { answer: SynthesisAnswer; judged: Record<string, string> },
+  manifest: ScoutManifest,
+): ScoutItem[] {
+  const now = judgedBy(items);
+  const same = items.filter((item) => kept.judged[item.id] === now[item.id]);
+  if (same.length === items.length && items.length === Object.keys(kept.judged).length) {
+    return applySynthesis(items, kept.answer, manifest);
+  }
+  const fresh = new Set(same.map((item) => item.id));
+  const answer = { items: kept.answer.items.filter((one) => fresh.has(one.id)), extra: [] };
+  const applied = applySynthesis(items, answer, manifest);
+  if (same.length === items.length) return applied;
+  return applied.map((item) => {
+    if (item.rankSource !== SYNTHESIS) return item;
+    const { rank: _rank, rankSource: _source, ...rest } = item;
+    return rest;
+  });
 }

@@ -532,7 +532,7 @@ export function BoardPage({
                 disabled={running}
                 title={
                   manifest.synthesize?.when === 'now'
-                    ? 'Collects now, then asks the synthesis step to rank the list, which spends plan usage'
+                    ? `Collects now, then asks ${hint('synthesis')} to rank the list if it changed since the last press, which may spend plan usage`
                     : undefined
                 }
                 onClick={() => void runNow()}

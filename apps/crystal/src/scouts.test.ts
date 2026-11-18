@@ -911,6 +911,22 @@ describe('Scouts', () => {
       expect(items.find((item) => item.id === 'pr:20')?.summary).toBeUndefined();
     });
 
+    it('with when "now", keeps carrying the last good answer after a failed press, and says why', async () => {
+      await ready(synthesizing({ when: 'now' }));
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize({ items: PRS.items.slice(1) }, { kind: 'timed-out', stderr: '' });
+      expect(sent[1]!.run.reason).toMatch(/stopped after/);
+
+      now = slot(now);
+      await scouts!.tick();
+      await finish(ok({ items: PRS.items.slice(1) }));
+      expect(pending).toHaveLength(0);
+      expect(sent[2]!.run.reason).toMatch(/stopped after/);
+      expect(sent[2]!.items?.find((item) => item.id === 'pr:15')?.suggested).toBe('merge');
+    });
+
     it('stops claude on close, and reports nothing', async () => {
       await ready();
       scouts!.runNow('quest-board');
