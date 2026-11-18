@@ -334,17 +334,24 @@ example: [`examples/scouts/github`](../examples/scouts/github/README.md).
   yourself, so a kept list still needs a fresh search now and then.
 - GitHub's rate limits are per account. Run one such Scout per GitHub account, on one Kingdom.
 
-**A mail Board** needs a Google sign-in, which is the hard part.
+**A mail Board** needs a Google sign-in, which is the hard part. A working one ships as an example, with the sign-in
+step by step: [`examples/scouts/gmail`](../examples/scouts/gmail/README.md).
 
 - You create your own Google Cloud project with a Desktop OAuth client, with the `gmail.modify` scope, plus
   `gmail.settings.basic` to create filters.
-- Leave the app's publishing status **In production**, unverified, under Google's personal-use exemption. In
-  **Testing** its tokens expire every seven days, which breaks an unattended Scout each week.
+- In **Testing**, with yourself as a test user, a sign-in expires every seven days. **In production** (unverified) it
+  lasts, but Google enables publishing only once the app's Branding page has a home page, privacy policy and terms
+  links on an authorized domain.
+- A new project allows 6,000 units of Gmail quota a minute per user, and reading 100 threads in full tripped it within
+  seconds: the collector waits and retries, and a first read of 100 threads took 75 seconds.
+- Synthesis runs only on Run now (`synthesize.when: "now"`): a mail list changes on nearly every run, and one call over
+  100 threads cost $0.57.
 - On a Workspace account, an admin may block the app or the scopes.
 - A collector reads changes with `history.list` from a saved position, which needs no public address. When Google says
   the position is too old, it reads the inbox in full again.
-- Archive removes the `INBOX` label. Spam adds `SPAM`; whether that teaches Gmail the way its Report spam button does
-  is unconfirmed. A filter is created through the settings API.
+- Archive removes the `INBOX` label. Spam adds `SPAM`; Google doesn't document whether that teaches Gmail the way its
+  Report spam button does, so treat it as moving the mail only. A filter is created through the settings API.
+- A token that fails makes each run fail with a sign-in message, and the third failure in a row pauses the Scout.
 - Synthesis sees headers and a trimmed, cleaned body, never attachments, and redacts codes and account numbers.
 
 ## Not planned
