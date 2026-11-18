@@ -193,8 +193,13 @@ The Kingdom checks the answer against the schema and drops anything else. Each r
 Board.
 
 Cost is the reason synthesis is optional and runs only on change. Every `claude` call loads the Kingdom's full Claude
-setup, so even a tiny turn costs about $0.07-0.14 (the API-equivalent figure the CLI reports) and spends that Kingdom's
-plan usage. A Scout that ran synthesis every 15 minutes regardless would spend about $10 a day of it.
+setup, so even a small call has a fixed cost, and it spends that Kingdom's plan usage. A recorded synthesis of three
+items cost $0.04 (the API-equivalent figure the CLI reports); a Kingdom with more plugins, skills or CLAUDE.md files
+pays more per call. A Scout that ran synthesis every 15 minutes regardless would spend about $4 a day or more.
+
+The step keeps the Kingdom's settings. Leaving them out (`--setting-sources ""`) saved about a tenth in that recording,
+but it would also drop settings a Kingdom may need for the CLI to work at all, such as an `env` block that points it at a
+proxy.
 
 ## Take up the posting: actions
 

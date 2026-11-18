@@ -4,7 +4,7 @@ Recorded by `scripts/capture.ts` against the real CLI, version **2.1.312**, on 2
 Re-record with:
 
 ```
-pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow|background-agent|weekly-only ...]
+pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow|background-agent|synthesis|weekly-only ...]
 ```
 
 Every run uses these flags, with `cwd` set to a fresh `mkdtemp` git repo:
@@ -29,6 +29,7 @@ JSON-RPC `params` the CLI sends, so the "wire" section of `permission-calls.json
 | `interrupt.ndjson` | Bash `python3 -c 'import time; time.sleep(30)'`; SIGINT 2 s after the `tool_use` | allow | exit **0** about 0.6 s after SIGINT, `result/error_during_execution` |
 | `resume.ndjson` | `--resume <interrupt session>`, "Reply with the single word RESUMED." | none | exit 0, `result/success`, `result: "RESUMED"`, same `session_id` |
 | `slow-allow.ndjson` | same prompt as allow; answer held for 60 s | allow after 60 s | exit 0, `result/success`, `duration_ms` 64688 |
+| `synthesis.ndjson`, `synthesis-no-settings.ndjson` | a Scout's synthesis call: rank three items against a schema (2.1.327); the second adds `--setting-sources ""` | none | exit 0, one `result/success` line; see The synthesis call |
 | `weekly-only.ndjson` | "Reply with the single word DONE.", on a plan with only a weekly limit (2.1.316) | none | exit 0, `result/success`; see Plan windows |
 | `permission-calls.json` | `onRequest`: what Task 4's `onRequest` received. `wire`: raw `initialize`, `tools/list` and `tools/call` params per scenario | | |
 
@@ -283,6 +284,25 @@ Of 919 such blocks in 180 local transcripts, from three CLI versions back to 202
 text. So the web model treats non-empty thinking as speech, and the empty block stays private. To record another, run a
 turn like that by hand with the stream engine's flags, put the output here and run `capture.ts --rescrub`.
 
+## The synthesis call (2.1.327, recorded 2026-11-18)
+
+`synthesis.ndjson` is one call as a Scout's synthesis step makes it, with no stream-json and no permission tool:
+
+```
+claude -p --output-format json --json-schema '<schema>' --strict-mcp-config --no-session-persistence
+  --max-budget-usd 0.5 --tools ''       # the prompt on stdin
+```
+
+`--tools` takes several values, so it goes last and the prompt goes on stdin; given as an argument after it, the prompt
+would be read as a tool name. The output is a single `result` line. The answer is in `structured_output`, already
+parsed, and again as a JSON string in `result`. The CLI meets the schema through a tool of its own: `num_turns` is 2
+and `stop_reason` is `tool_use`, though `--tools ''` is set and `permission_denials` is empty. Both runs kept to the
+schema: a rank, a summary and an allowed `suggested` per item, with no extra item.
+
+**Cost.** The full setup cost $0.043 (4,823 cache-creation tokens); `--setting-sources ''` cost $0.039 (4,095). On
+this machine, settings add about 700 tokens, roughly a tenth. That's one run each, and a Kingdom with more plugins,
+skills or CLAUDE.md files would save more.
+
 ## Scrubbing
 
 `scrub()` in `capture.ts` rewrites every line before it is written. For any `system` line that carries inventory
@@ -290,7 +310,7 @@ keys: `tools` keeps only built-in names (it drops `mcp__*` except `mcp__crystal_
 `crystal`, `slash_commands`, `skills`, `agents` and `plugins` become `[]`, `output_style` becomes `"default"`, and
 `cwd` becomes `/tmp/FIXTURE`. On every line: the temp repo path (and its `-tmp-…` project-dir form) becomes
 `/tmp/FIXTURE`, `$HOME` becomes `/HOME`, email addresses become the `user` placeholder at `example.com`, and account/org/user `*_id`/`*_uuid` keys
-holding UUIDs become zero UUIDs. Model identifiers become `claude-model` (`claude-model-2` and so on for further
+holding UUIDs become zero UUIDs, and `credential_expires_at` becomes the epoch. Model identifiers become `claude-model` (`claude-model-2` and so on for further
 distinct models). Each `rate_limit_event`'s `rate_limit_info` keeps its keys but gets fixed values: `status` is `allowed`,
 every `resetsAt` and `utilization` is `0`, `overageStatus` is `rejected`, and `overageDisabledReason` is dropped.
 `--rescrub` re-applies all of this to the existing fixtures without running the CLI. Session ids, message uuids and tool-use ids are kept as recorded.
