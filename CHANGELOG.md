@@ -5,6 +5,11 @@ one entry.
 
 ## Unreleased
 
+### Fixed
+
+- A Cast on a machine whose `tail` can't watch files, such as Ubuntu 26.04's when it has no inotify left, no
+  longer finishes before its last lines are read.
+
 ### Changed
 
 - New Quest now has the same layout as a running Quest: the Inventory, Belt and side panel are there before you start,

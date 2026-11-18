@@ -174,8 +174,13 @@ export interface SummonsOptions {
   retryMs?: number;
   /** How often a Cast's log end goes to the hub. */
   reportMs?: number;
-  /** How long a job found finished gets for its last lines to arrive. */
+  /** How long a job found finished gets for its last lines to arrive when no follow is connected. */
   settleMs?: number;
+  /**
+   * How long a job found finished waits for a connected follow to read its log to the end. A `tail` that polls, as one
+   * with no inotify left does, sees new lines only about once a second. Default 5 s; it ends as soon as the end is read.
+   */
+  drainMs?: number;
   /** How much of a running job's log stays on the target; default `DEFAULT_LOG_TRIM`. */
   logTrim?: LogTrim;
 }
@@ -222,6 +227,10 @@ interface Follower {
   reportTimer?: NodeJS.Timeout;
   /** The check in progress, for anyone who needs its answer. */
   checking?: Promise<void>;
+  /** Read the wrapper's last line, so the whole log is in. */
+  atEnd?: boolean;
+  /** Called once the log has been read to its end. */
+  onEnd?: () => void;
 }
 
 interface Result {
@@ -260,6 +269,7 @@ export function createSummons(options: SummonsOptions): Summons {
   const retryMs = options.retryMs ?? 5000;
   const reportMs = options.reportMs ?? 2000;
   const settleMs = options.settleMs ?? 1000;
+  const drainMs = options.drainMs ?? 5000;
 
   const records = new Map<string, CastRecord>();
   const followers = new Map<string, Follower>();
@@ -421,6 +431,8 @@ export function createSummons(options: SummonsOptions): Summons {
     }
     rec.offset += line.length + 1;
     if (text === FINISHED_LINE) {
+      follower.atEnd = true;
+      follower.onEnd?.();
       // The wrapper's own newline goes first, for a log that didn't end its last line.
       if (rec.logTail === '\n' || rec.logTail.endsWith('\n\n')) rec.logTail = rec.logTail.slice(0, -1);
       // Read to the end, so there's nothing left to wait for.
@@ -467,6 +479,7 @@ export function createSummons(options: SummonsOptions): Summons {
     followers.set(rec.id, follower);
     follower.pending = Buffer.alloc(0);
     follower.inLog = false;
+    follower.atEnd = false;
     if (!target) {
       // Taken off the list while Crystal was down: nothing here can reach it any more.
       void finish(rec, 'lost');
@@ -513,14 +526,34 @@ export function createSummons(options: SummonsOptions): Summons {
     await check(rec, settle);
   }
 
+  /**
+   * Waits for a connected follow to read a log that's complete (`logged`) to its end, however slowly its `tail` notices
+   * new lines. With no follow connected, or no end written yet, it waits a short while instead.
+   */
+  function readToEnd(id: string, logged: boolean): Promise<void> {
+    const follower = followers.get(id);
+    if (follower?.atEnd) return Promise.resolve();
+    const live =
+      logged && follower?.child !== undefined && follower.child.exitCode === null && follower.child.signalCode === null;
+    return new Promise((resolve) => {
+      const timer = setTimeout(done, live ? drainMs : settleMs);
+      function done(): void {
+        clearTimeout(timer);
+        if (follower && follower.onEnd === done) follower.onEnd = undefined;
+        resolve();
+      }
+      if (live && follower) follower.onEnd = done;
+    });
+  }
+
   async function probe(rec: CastRecord, target: Target, settle: boolean): Promise<void> {
     const { code, stdout } = await ask(target, (scripts) => scripts.probe(rec.id));
     if (code !== 0) return;
     const answer = stdout.trim().split('\n').at(-1) ?? '';
-    const exit = /^exit (-?\d+)( cancelled)?$/.exec(answer);
+    const exit = /^exit (-?\d+)( cancelled)?( logged)?$/.exec(answer);
     if (exit) {
       // Found rather than read to the end of the log, so its last lines may still be on their way.
-      if (settle) await new Promise((resolve) => setTimeout(resolve, settleMs));
+      if (settle) await readToEnd(rec.id, exit[3] !== undefined);
       const cancelled = exit[2] !== undefined || rec.cancelling === true;
       const exitCode = Number(exit[1]);
       finish(rec, cancelled ? 'cancelled' : exitCode === 0 ? 'succeeded' : 'failed', exitCode);

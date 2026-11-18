@@ -351,6 +351,7 @@ if (Test-Path "$dir\\pid") {
 if (Test-Path "$dir\\exit") {
   $state = 'exit ' + ([IO.File]::ReadAllText("$dir\\exit")).Trim()
   if (Test-Path "$dir\\cancel") { $state += ' cancelled' }
+  if ((Get-Content -LiteralPath "$dir\\log" -Tail 1 -Encoding UTF8 -ErrorAction SilentlyContinue) -eq '${FINISHED_LINE}') { $state += ' logged' }
 }
 [Console]::Out.WriteLine($state)
 `;

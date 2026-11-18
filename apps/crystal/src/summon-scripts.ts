@@ -249,7 +249,8 @@ cat >/dev/null; kill "$follower" 2>/dev/null
 }
 
 /**
- * Prints how the job stands, on its last line: `exit <code>` with `cancelled` if it was, `alive`, `dead` or `gone`. A
+ * Prints how the job stands, on its last line: `exit <code>` with `cancelled` if it was and `logged` once the log ends
+ * with the wrapper's last line, `alive`, `dead` or `gone`. A
  * signal death recorded by a machine that has restarted since reads as dead: where the runner couldn't tell it was
  * shutting down, this is what's left of a job the shutdown ended.
  */
@@ -271,6 +272,7 @@ if [ -f "$dir/exit" ]; then
   elif [ "$code" -gt 128 ] && [ -s "$dir/boot" ] && [ "$(boot_id)" != "$(cat "$dir/boot")" ]; then
     state=dead
   fi
+  [ "$state" = dead ] || [ "$(tail -c ${FINISHED_LINE.length + 1} "$dir/log" 2>/dev/null)" != '${FINISHED_LINE}' ] || state="$state logged"
 fi
 echo "$state"
 `;

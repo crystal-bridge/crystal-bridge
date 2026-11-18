@@ -631,6 +631,42 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     expect(done.logTail).toBe('last\n');
   });
 
+  it('reads a job’s log to its end when the follow only polls, as a tail with no inotify does', async () => {
+    // `tail -c +N -f FILE` that looks once a second: a tail that has run out of inotify, or a network home folder.
+    const shims = mkdtempSync(join(tmpdir(), 'cb-polling-tail-'));
+    writeFileSync(
+      join(shims, 'tail'),
+      [
+        '#!/bin/sh',
+        'pos=$((${2#+} - 1)); file=$4',
+        'while :; do',
+        '  size=$(wc -c < "$file" | tr -d " ")',
+        '  if [ "$size" -gt "$pos" ]; then dd if="$file" bs=1 skip="$pos" count=$((size - pos)) 2>/dev/null; pos=$size; fi',
+        '  sleep 1',
+        'done',
+        '',
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+    let spawned = 0;
+    const pollingFollow = (target: Target) => {
+      spawned += 1;
+      if (spawned !== 2) return spawnOn(target);
+      return spawn('sh', ['-s'], {
+        cwd: home,
+        env: { PATH: `${shims}:${process.env.PATH}`, HOME: home, SHELL: '/bin/sh' },
+      });
+    };
+    try {
+      const made = summons({ spawnOn: pollingFollow, probeMs: 50 });
+      const cast = await start(made, 'sleep 0.3; echo last; exit 0');
+      const done = await final(cast.id);
+      expect(done).toMatchObject({ state: 'succeeded', logTail: 'last\n' });
+    } finally {
+      rmSync(shims, { recursive: true, force: true });
+    }
+  });
+
   it('reads a negative exit code, as a Windows job or crash leaves', async () => {
     const cast = await start(summons(), holdFor('release'));
     writeFileSync(join(folder(cast.id), 'exit'), '-1073741819\n');
