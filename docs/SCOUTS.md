@@ -126,6 +126,8 @@ prints one JSON document to stdout:
   by itself.
 - **`rank`** (a whole number from 1) puts the item in order on the Board, ranked items first; **`summary`** is one line
   on why it matters. The synthesis step sets these and `suggested`, but whatever a collector sets itself wins.
+- **`rankSource`** and **`summarySource`** say what set `rank` or `summary` when the collector didn't, as a short word.
+  The synthesis step sets `synthesis`. The Kingdom drops any a collector prints, so only it says what the step wrote.
 
 A non-zero exit, a timeout or output that doesn't parse marks the run as failed and leaves the Board as it was. The end
 of stderr goes into the run's record, which the hub stores and shows, so a collector must not print a secret there. A collector has two minutes unless `collect.timeoutSeconds` says otherwise; at the
@@ -172,6 +174,10 @@ screens only for now.
   Kingdom, and its button stays disabled until the Kingdom answers. A Quest it starts opens, and a refusal shows why.
 - **A batch button** above a group, such as "Archive all 12", for a `run` action with `batch` that several of the
   group's items offer. An action with `confirm` asks "Yes, Archive" in place before it goes.
+- **Where an item's order and summary came from**, on hover: "Rank 2 · summary from Augury (the synthesis step)", or
+  "from the collector", on the title or anywhere on the row. A faint ✦ beside the title marks a summary the synthesis
+  step wrote, and each extra item it added ("Written by Augury"): those words come from a model that read the items, so
+  a planted instruction could have shaped them. A rank alone gets no mark; the order already shows it.
 - **Folded away:** snoozed items, items set aside (done or dismissed), each with Bring back, and items gone lately.
 - **The Scout itself:** Run now, its schedule and next run, what its last run brought back, why it's paused, why its
   `scout.json` doesn't load, and its recent runs with their outcome, timing, items, reason, the end of stderr and cost.
@@ -200,6 +206,8 @@ What it may return is fixed:
 
 The Kingdom checks the answer against the schema and drops anything else, such as a suggestion the item doesn't offer.
 An extra item's id is `synthesis:` and a hash of its title, so dismissing one sticks for as long as it's worded the same.
+Every rank and summary the step sets carries `rankSource` or `summarySource` `synthesis`, which the Board shows as a
+mark and a tooltip, so its words are never mistaken for a collector's.
 Each run records its cost in Gold beside the Board.
 
 When the step fails (the prompt file can't be read, `claude` isn't logged in, the budget runs out), the run still

@@ -246,6 +246,55 @@ describe('BoardPage', () => {
     expect(summary.classList.contains('block')).toBe(false);
   });
 
+  it.each(['list', 'table'] as const)(
+    'marks a summary the synthesis step wrote, naming it on hover, in a %s',
+    (view) => {
+      show({
+        scout: { id: 'quest-board', fresh: 0, manifest: { ...manifest, view } },
+        items: [
+          item({ state: 'seen', rank: 1, rankSource: 'synthesis', summary: 'Small fix.', summarySource: 'synthesis' }),
+          item({ id: '2', title: 'Answer the review', state: 'seen', rank: 2, summary: 'The collector wrote this.' }),
+          item({
+            id: 'synthesis:0123456789ab',
+            title: 'Two PRs touch the uploader',
+            state: 'seen',
+            summary: 'Pair them.',
+            summarySource: 'synthesis',
+          }),
+        ],
+      });
+      const note = 'Rank 1 · rank and summary from Augury (the synthesis step)';
+      const marks = screen.getAllByRole('img', { name: /synthesis step/ });
+      expect(marks.map((mark) => mark.getAttribute('title'))).toEqual([note, 'Written by Augury (the synthesis step)']);
+      const row = (title: string) => screen.getByText(title).closest(view === 'list' ? 'li' : 'tr')!;
+      expect(row('Fix the retry loop').getAttribute('title')).toBe(note);
+      // The collector's own rank is on hover too, with no marker.
+      expect(row('Answer the review').getAttribute('title')).toBe('Rank 2 · rank and summary from the collector');
+      expect(within(row('Answer the review')).queryByRole('img')).toBeNull();
+      // Hovering the title itself names the source too, not only the row's gaps.
+      expect(screen.getByText('Fix the retry loop').getAttribute('title')).toBe(`Fix the retry loop\n${note}`);
+    },
+  );
+
+  it('marks no summary the Board does not show, but still marks an extra row the step wrote', () => {
+    show({
+      items: [
+        item({ state: 'seen', summary: '', summarySource: 'synthesis' }),
+        item({
+          id: 'synthesis:0123456789ab',
+          title: 'Pair them',
+          state: 'seen',
+          summary: '',
+          summarySource: 'synthesis',
+        }),
+      ],
+    });
+    const marks = screen.getAllByRole('img');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.getAttribute('aria-label')).toBe('Written by Augury (the synthesis step)');
+    expect(within(screen.getByText('Fix the retry loop').closest('li')!).queryByRole('img')).toBeNull();
+  });
+
   it('keeps a failed run-s reason on its line, not as a warning', () => {
     show({ runs: [run({ outcome: 'failed', reason: 'the collector exited with code 3' })] });
     fireEvent.click(screen.getByText('Recent runs'));

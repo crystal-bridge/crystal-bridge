@@ -44,7 +44,14 @@ describe('synthesisDigest', () => {
   });
 
   it('ignores what the step itself would set, so a collector that echoes it back does not run it again', () => {
-    const echoed = items.map((item, at) => ({ ...item, rank: at + 1, summary: 'why', suggested: 'open' }));
+    const echoed = items.map((item, at) => ({
+      ...item,
+      rank: at + 1,
+      rankSource: 'synthesis',
+      summary: 'why',
+      summarySource: 'synthesis',
+      suggested: 'open',
+    }));
     expect(synthesisDigest(echoed)).toBe(synthesisDigest(items));
   });
 });
@@ -203,12 +210,31 @@ describe('applySynthesis', () => {
     expect(first).toMatchObject({ id: 'pr:12', rank: 2, summary: 'CI fails.', suggested: 'fix' });
     expect(second).toEqual(items[1]);
     // pr:16 offers only the default `open`, so `merge` is dropped.
-    expect(third).toEqual({ ...items[2], rank: 1, summary: 'Draft, nothing to do.' });
+    expect(third).toEqual({
+      ...items[2],
+      rank: 1,
+      rankSource: 'synthesis',
+      summary: 'Draft, nothing to do.',
+      summarySource: 'synthesis',
+    });
   });
 
-  it('keeps what the collector set itself', () => {
+  it('keeps what the collector set itself, naming the step only for what the step set', () => {
     const own = [{ ...items[0]!, rank: 9, summary: 'mine', suggested: 'open' }];
-    expect(applySynthesis(own, answer, manifest)[0]).toMatchObject({ rank: 9, summary: 'mine', suggested: 'open' });
+    const kept = applySynthesis(own, answer, manifest)[0]!;
+    expect(kept).toMatchObject({ rank: 9, summary: 'mine', suggested: 'open' });
+    expect(kept).not.toHaveProperty('rankSource');
+    expect(kept).not.toHaveProperty('summarySource');
+    const claimed = applySynthesis(
+      [{ ...items[0]!, summarySource: 'triage', rank: 9, rankSource: 'synthesis' }],
+      answer,
+      manifest,
+    )[0]!;
+    expect(claimed).toMatchObject({ rank: 9, summary: 'CI fails.', summarySource: 'synthesis' });
+    expect(claimed).not.toHaveProperty('rankSource');
+    const half = applySynthesis([{ ...items[0]!, rank: 9 }], answer, manifest)[0]!;
+    expect(half).toMatchObject({ rank: 9, summary: 'CI fails.', summarySource: 'synthesis' });
+    expect(half).not.toHaveProperty('rankSource');
   });
 
   it('adds extra items with an id from their title, so dismissing one sticks while the wording does', () => {
@@ -217,9 +243,13 @@ describe('applySynthesis', () => {
     expect(extra[0]).toMatchObject({
       title: 'Two pull requests touch the uploader',
       summary: 'Review them together.',
+      summarySource: 'synthesis',
       // `open` is a link, which an extra item may not offer.
       actions: [],
     });
+    expect(extra[0]).not.toHaveProperty('rankSource');
+    const ranked = { items: [], extra: [{ ...answer.extra[0]!, rank: 4 }] };
+    expect(applySynthesis(items, ranked, manifest)[3]).toMatchObject({ rank: 4, rankSource: 'synthesis' });
     expect(extra[0]).not.toHaveProperty('suggested');
     expect(extra[0]!.id).toMatch(/^synthesis:[0-9a-f]{12}$/);
     expect(applySynthesis(items, answer, manifest)[3]!.id).toBe(extra[0]!.id);

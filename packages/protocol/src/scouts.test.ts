@@ -203,6 +203,14 @@ describe('what the synthesis step adds', () => {
     expect(ScoutItems.safeParse({ items: [{ ...item, summary: 'x'.repeat(301) }] }).success).toBe(false);
   });
 
+  it('names where a rank or summary came from when the collector did not set it, as a short word', () => {
+    const marked = ScoutItems.parse({
+      items: [{ ...item, rank: 2, rankSource: 'synthesis', summary: 's', summarySource: 'synthesis' }],
+    }).items[0]!;
+    expect([marked.rankSource, marked.summarySource]).toEqual(['synthesis', 'synthesis']);
+    expect(ScoutItems.safeParse({ items: [{ ...item, summarySource: 'a newer step' }] }).success).toBe(false);
+  });
+
   it('lets a Scout cap what one synthesis may spend', () => {
     const capped = (maxBudgetUsd: unknown) =>
       ScoutManifest.safeParse({ ...manifest, synthesize: { prompt: 'synthesize.md', maxBudgetUsd } }).success;
