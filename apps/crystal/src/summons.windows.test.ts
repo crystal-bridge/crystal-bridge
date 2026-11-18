@@ -101,6 +101,8 @@ describe.runIf(HOST || process.platform === 'win32')('a Cast on a Windows target
     const done = await final(cast.id);
     expect(done).toMatchObject({ state: 'failed', exitCode: 3, name: 'Café run', progress: { done: 1, total: 2 } });
     expect(done.logTail.trim()).toBe('one');
+    // The log ends with the wrapper's last line, which a probe reports so the Kingdom waits for its follow to read it.
+    expect(powershell(windowsScripts.probe(cast.id)).trim().split(/\r?\n/).at(-1)).toMatch(/^exit 3 logged \d+$/);
     forget(cast.id);
   }, 90_000);
 
