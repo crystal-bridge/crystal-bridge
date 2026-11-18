@@ -73,8 +73,10 @@ what the hub stores and the Board shows.
 
 - **Archive** takes the thread out of the inbox.
 - **Filter sender** asks first, then creates a Gmail filter that skips the inbox for mail from that address (shown
-  beside the sender's name), and archives the threads. A filter that already exists counts as made. A sender address
-  with anything a Gmail search would read as an operator, such as a leading `-`, gets no Filter button.
+  beside the sender's name), and archives the threads. A filter that already exists counts as made. Only bulk mail
+  offers it, a thread from a mailing list or with an unsubscribe link, so a person's thread never does and a batch
+  press over Primary can't filter your correspondents. A sender address with anything a Gmail search would read as an
+  operator, such as a leading `-`, gets no Filter button either.
 - **Spam** asks first, then moves the thread to Spam by adding Gmail's `SPAM` label. Google doesn't document whether
   that teaches Gmail's spam filter the way its **Report spam** button does, so for a sender that keeps getting through,
   use Report spam in Gmail itself.

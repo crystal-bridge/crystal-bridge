@@ -259,7 +259,11 @@ export function toItem(thread, { email, bodyChars }) {
   });
   const count = messages.length;
   const list = header(sender, 'List-Id');
-  const canFilter = Boolean(theirs && from.address && FILTERABLE.test(from.address));
+  const plain = Boolean(theirs && from.address && FILTERABLE.test(from.address));
+  const unsubscribe = Boolean(header(sender, 'List-Unsubscribe'));
+  // Only bulk mail (a list, or one you can unsubscribe from) offers a filter: a person's never does, so a batch press
+  // over Primary can't send people's mail past the inbox.
+  const canFilter = plain && Boolean(list || unsubscribe);
   return {
     id: `thread:${thread.id}`,
     // Back to new when a message arrives in the thread; reading it or changing labels doesn't count.
@@ -267,7 +271,7 @@ export function toItem(thread, { email, bodyChars }) {
     title: clip(redact(subject, { codes }).trim() || '(no subject)', 500),
     subtitle: clip(
       [
-        canFilter ? `${redact(from.name)} <${from.address}>` : redact(from.name),
+        plain ? `${redact(from.name)} <${from.address}>` : redact(from.name),
         `${count} message${count === 1 ? '' : 's'}`,
         ...(fromMe ? ['you replied last'] : []),
       ].join(' · '),
@@ -277,17 +281,25 @@ export function toItem(thread, { email, bodyChars }) {
     group,
     fields: {
       from: clip(redact(from.name), 200),
-      fromAddress: canFilter ? from.address : null,
+      fromAddress: plain ? from.address : null,
       date: new Date(Number(latest.internalDate)).toISOString(),
       category: group,
       messages: count,
       unread: messages.some((message) => (message.labelIds ?? []).includes('UNREAD')),
       fromMe,
       list: list ? clip(list, 200) : null,
-      unsubscribe: Boolean(header(sender, 'List-Unsubscribe')),
+      unsubscribe,
       body,
     },
-    actions: ['open', 'follow-up', 'archive', ...(canFilter ? ['filter', 'spam'] : []), 'later', 'done'],
+    actions: [
+      'open',
+      'follow-up',
+      'archive',
+      ...(canFilter ? ['filter'] : []),
+      ...(theirs ? ['spam'] : []),
+      'later',
+      'done',
+    ],
   };
 }
 

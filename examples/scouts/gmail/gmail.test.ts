@@ -116,7 +116,9 @@ describe('toItem', () => {
     assert.equal(item.fields.fromAddress, 'ana@example.org');
     assert.equal(item.fields.unread, true);
     assert.equal(item.fields.body, 'Are you free on Friday?');
-    assert.ok(item.actions.includes('filter'));
+    // A person gets no Filter sender: a batch press over Primary must not send people's mail past the inbox.
+    assert.ok(!item.actions.includes('filter'));
+    assert.ok(item.actions.includes('spam'));
     assert.ok(ScoutItems.safeParse({ items: [item] }).success);
   });
 
@@ -136,6 +138,7 @@ describe('toItem', () => {
     assert.equal(item.fields.list, 'Deals <deals.shop.example>');
     assert.equal(item.fields.unsubscribe, true);
     assert.equal(item.fields.unread, false);
+    assert.ok(item.actions.includes('filter'));
   });
 
   it('leaves out drafts, trash and spam, so an unsent reply is neither the latest message nor sent anywhere', () => {
