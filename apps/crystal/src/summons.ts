@@ -539,7 +539,8 @@ export function createSummons(options: SummonsOptions): Summons {
       follower?.child !== undefined &&
       follower.child.exitCode === null &&
       follower.child.signalCode === null;
-    const until = now() + MAX_DRAIN_MS;
+    // A monotonic clock: a wall-clock step mid-wait would cut it short or stretch it.
+    const until = performance.now() + MAX_DRAIN_MS;
     return new Promise((resolve) => {
       let timer: NodeJS.Timeout | undefined;
       const wait = (ms: number) => {
@@ -548,7 +549,7 @@ export function createSummons(options: SummonsOptions): Summons {
         // Shutting down needn't wait for it: nothing is reported once Summons has closed.
         timer.unref?.();
       };
-      wait(live ? drainMs : settleMs);
+      wait(live ? Math.min(drainMs, MAX_DRAIN_MS) : settleMs);
       function done(): void {
         clearTimeout(timer);
         if (follower && follower.onRead === read) follower.onRead = undefined;
@@ -556,7 +557,7 @@ export function createSummons(options: SummonsOptions): Summons {
       }
       function read(): void {
         if (rec.offset >= size!) done();
-        else wait(Math.max(0, Math.min(drainMs, until - now())));
+        else wait(Math.max(0, Math.min(drainMs, until - performance.now())));
       }
       if (live && follower) follower.onRead = read;
     });

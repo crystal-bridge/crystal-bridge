@@ -694,7 +694,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
           `if [ "$1" != -c ] || [ "$3" != -f ]; then PATH=$(printf %s "$PATH" | cut -d: -f2-) exec tail "$@"; fi`,
           `file=$4; sleep ${wait}`,
           ...lines,
-          'sleep 30',
+          'exec sleep 30',
           '',
         ].join('\n'),
         { mode: 0o755 },
@@ -717,7 +717,7 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
 
     it('keeps waiting while the follow is still reading, past the usual wait', async () => {
       pieces(0.2, [0, 0.2, 0.2, 0.2, 0.2, 0.2]);
-      const made = summons({ spawnOn: piecesShell, probeMs: 50, drainMs: 400 });
+      const made = summons({ spawnOn: piecesShell, probeMs: 50, drainMs: 800 });
       const cast = await start(made, 'for n in 1 2 3 4 5; do echo "line $n"; done; exit 0');
       expect((await final(cast.id)).logTail).toContain('line 5\n');
     });
