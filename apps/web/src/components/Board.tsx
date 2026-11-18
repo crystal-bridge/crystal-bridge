@@ -212,7 +212,7 @@ function ItemText({ item, marked }: { item: BoardItem; marked: boolean }) {
       </span>
       {item.subtitle && <span className="block truncate text-xs text-neutral-500">{item.subtitle}</span>}
       {item.summary && (
-        <span className="line-clamp-2 block text-xs text-neutral-600 dark:text-neutral-300" title={item.summary}>
+        <span className="line-clamp-2 text-xs text-neutral-600 dark:text-neutral-300" title={item.summary}>
           {item.summary}
         </span>
       )}
@@ -434,10 +434,7 @@ export function BoardPage({
                   </span>
                   {item.subtitle && <span className="block text-xs text-neutral-500">{item.subtitle}</span>}
                   {item.summary && (
-                    <span
-                      className="line-clamp-2 block text-xs text-neutral-600 dark:text-neutral-300"
-                      title={item.summary}
-                    >
+                    <span className="line-clamp-2 text-xs text-neutral-600 dark:text-neutral-300" title={item.summary}>
                       {item.summary}
                     </span>
                   )}

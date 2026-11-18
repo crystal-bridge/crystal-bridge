@@ -148,6 +148,27 @@ describe('readSynthesis', () => {
     expect(read.answer.extra[0]!.title.length).toBeLessThanOrEqual(500);
   });
 
+  it('never splits a character where the limit falls inside one', () => {
+    const odd = 'a' + '\u{1F600}'.repeat(300);
+    const out = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      structured_output: {
+        items: [{ id: 'pr:12', rank: 1, summary: odd }],
+        extra: [{ title: odd + odd, summary: 's' }],
+      },
+    });
+    const read = readSynthesis(out);
+    if (!read.ok) throw new Error(read.reason);
+    const { summary } = read.answer.items[0]!;
+    const { title } = read.answer.extra[0]!;
+    expect(summary.length).toBe(299);
+    expect(title.length).toBe(499);
+    for (const text of [summary, title])
+      expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
   it('drops an entry it cannot use and keeps the rest', () => {
     const out = JSON.stringify({
       type: 'result',

@@ -802,11 +802,49 @@ describe('Scouts', () => {
       expect(sent[1]!.run).toMatchObject({ trigger: 'schedule', reason: sent[0]!.run.reason });
       expect(sent[1]!.run.costUsd).toBeUndefined();
 
-      // Run now, say after raising the cap, tries again.
+      // Run now tries again, say once the cap was raised.
       scouts!.runNow('quest-board');
       await collectThenSynthesize(PRS);
       expect(sent[2]!.run.reason).toBeUndefined();
       expect(sent[2]!.items?.[0]?.rank).toBe(1);
+    });
+
+    it('runs again when scout.json changes what the step sees, such as its budget cap', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      writeFileSync(join(dir, 'quest-board', 'scout.json'), JSON.stringify(synthesizing({ maxBudgetUsd: 1 })));
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run).toMatchObject({ trigger: 'schedule' });
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('reads a missing synthesize.md again on the next run, keeping nothing from the miss', async () => {
+      scoutFolder('quest-board', synthesizing());
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      await finish(ok(PRS));
+      expect(sent[0]!.run.reason).toBe("not synthesized: can't read synthesize.md in the Scout's folder");
+      writeFileSync(join(dir, 'quest-board', 'synthesize.md'), 'Rank.\n');
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run.reason).toBeUndefined();
+      expect(sent[1]!.items?.[0]?.rank).toBe(1);
+    });
+
+    it('tries a failed step again on schedule once the list changes', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS, { kind: 'timed-out', stderr: '' });
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize({ items: PRS.items.slice(1) });
+      expect(sent[1]!.run.reason).toBeUndefined();
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
     });
 
     it('stops claude on close, and reports nothing', async () => {

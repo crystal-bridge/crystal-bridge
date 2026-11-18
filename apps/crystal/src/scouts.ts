@@ -524,6 +524,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
     // No call is made, so nothing is kept: the next run reads the file again.
     if (typeof instructions !== 'string') return { items, note: { reason: why(instructions.reason) } };
     const digest = synthesisDigest(items, {
+      name: manifest.name,
       instructions,
       synthesize: step,
       actions: manifest.actions,

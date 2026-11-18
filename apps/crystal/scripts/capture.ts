@@ -694,8 +694,14 @@ async function main(): Promise<void> {
 
 // Only when run, so a test can import `scrub` without calling the CLI.
 // Real paths, so a run through a symlink, such as macOS's /tmp, still counts.
-const entry = process.argv[1] ? realpathSync(process.argv[1]) : '';
-if (entry === realpathSync(fileURLToPath(import.meta.url))) {
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   main().catch((e: unknown) => {
     console.error(e);
     process.exit(1);

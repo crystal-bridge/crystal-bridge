@@ -241,6 +241,16 @@ describe('BoardPage', () => {
     const summary = screen.getByText('CI fails on one runner; the fix looks small.');
     // Clamped to two lines, with the whole text on hover.
     expect(summary.getAttribute('title')).toBe('CI fails on one runner; the fix looks small.');
+    expect(summary.className).toMatch(/line-clamp-2/);
+    // `block` comes later in the built CSS and would undo the clamp's display.
+    expect(summary.classList.contains('block')).toBe(false);
+  });
+
+  it('keeps a failed run-s reason on its line, not as a warning', () => {
+    show({ runs: [run({ outcome: 'failed', reason: 'the collector exited with code 3' })] });
+    fireEvent.click(screen.getByText('Recent runs'));
+    expect(screen.queryByText('the collector exited with code 3')).toBeNull();
+    expect(screen.getByText(/· the collector exited with code 3/)).toBeTruthy();
   });
 
   it('sets a succeeded run-s note on a line of its own, as a warning', () => {
