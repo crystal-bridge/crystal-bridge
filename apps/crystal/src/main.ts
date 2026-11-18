@@ -25,6 +25,7 @@ import {
   type ReleaseDeps,
 } from './release.js';
 import { createUpdater } from './self-update.js';
+import { createScouts } from './scouts.js';
 import {
   createSummons,
   envFileOf,
@@ -37,7 +38,7 @@ import {
 import { execFile } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { realpathSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The package version, written in by the build (scripts/build.ts); undefined when running from source. */
@@ -66,6 +67,8 @@ const PROJECTS_DIR = join(CONFIG_DIR, 'projects');
 const PROJECT_ROOTS = (process.env.CRYSTAL_PROJECT_ROOTS ?? join(homedir(), 'code')).split(delimiter).filter(Boolean);
 
 const CLAUDE_BIN = resolveClaudeBin(process.env);
+// One folder per Scout (docs/SCOUTS.md); its schedule state sits beside the folder, not in it.
+const SCOUTS_DIR = process.env.CRYSTAL_SCOUTS_DIR || join(homedir(), '.crystal-bridge', 'scouts');
 
 /** Exiting with a failure is what makes every service manager, and `crystal.cmd`, start Crystal again. */
 const EXIT_RESTART = 75;
@@ -134,6 +137,14 @@ async function main(): Promise<void> {
     report: (cast) => node.reportCast(cast),
   });
 
+  const scouts = createScouts({
+    dir: SCOUTS_DIR,
+    statePath: join(dirname(SCOUTS_DIR), `${basename(SCOUTS_DIR)}-state.json`),
+    env: sessionEnv,
+    onScouts: (list) => node.reportScouts(list),
+    onRun: (scout, run, items) => node.reportScoutRun(scout, run, items),
+  });
+
   const permissionServer = await createPermissionServer({
     port: MCP_PORT,
     host: '127.0.0.1',
@@ -175,6 +186,7 @@ async function main(): Promise<void> {
     listInventory: (cwd) => listInventory(cwd ?? homedir()),
     ...(updater ? { onKingdomVersion: updater.target } : {}),
     summons,
+    scouts,
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
@@ -208,6 +220,7 @@ async function main(): Promise<void> {
   });
 
   summons.resume();
+  scouts.start();
 
   console.log(
     `[crystal] node "${NODE_ID}" dialing ${HUB_URL}, permission server on http://127.0.0.1:${permissionServer.port}`,
@@ -224,7 +237,7 @@ async function main(): Promise<void> {
     updater?.close();
     summons.close();
     // Wait for the claude processes to stop: with KillMode=process nothing else would end them.
-    await node.close();
+    await Promise.all([node.close(), scouts.close()]);
     await permissionServer.close();
     process.exit(code);
   };

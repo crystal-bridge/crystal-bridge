@@ -5,16 +5,22 @@ one entry.
 
 ## Unreleased
 
-### Fixed
+### Added
 
-- A Cast on a machine whose `tail` can't watch files, such as Ubuntu 26.04's when it has no inotify left, no
-  longer finishes before its last lines are read.
+- A Kingdom runs Scouts: each folder under `~/.crystal-bridge/scouts/` names a collector and a schedule, and the Kingdom
+  runs it, sends the hub what it found and pauses it after three failures in a row. The hub stores the items; their
+  Boards come in a later release. See [Scouts and Boards](docs/SCOUTS.md).
 
 ### Changed
 
 - New Quest now has the same layout as a running Quest: the Inventory, Belt and side panel are there before you start,
   and the prompt box sits at the bottom. The Inventory and slash suggestions are live from the Kingdom for the picked
   project, with no prompt sent. A Kingdom on an older release lists nothing here until it's updated.
+
+### Fixed
+
+- A Cast on a machine whose `tail` can't watch files, such as Ubuntu 26.04's when it has no inotify left, no
+  longer finishes before its last lines are read.
 
 ## 0.6.0
 

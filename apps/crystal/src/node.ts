@@ -3,6 +3,9 @@ import {
   HubCliUpdate,
   HubListInventory,
   HubKingdomVersion,
+  HubScoutAction,
+  HubScoutRunNow,
+  NodeScoutActed,
   MAX_CLI_UPDATE_REASON,
   NodeCliUpdated,
   NodeInventoryListed,
@@ -30,6 +33,11 @@ import {
   type NodeCast,
   type NodeSummons,
   type Summon,
+  type NodeScoutRun,
+  type NodeScouts,
+  type Scout,
+  type ScoutItem,
+  type ScoutRun,
 } from '@crystal-bridge/protocol';
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
@@ -121,6 +129,8 @@ export interface StartNodeOptions {
   projects?: () => Promise<Project[]>;
   /** This Kingdom's Summons and Casts, told to the hub on each connect; without it, none are mentioned. */
   summons?: { list(): Summon[]; casts(): Cast[] };
+  /** This Kingdom's Scouts (`scouts.ts`), told to the hub with their latest runs on each connect; unset runs none. */
+  scouts?: { list(): Scout[]; recent(): NodeScoutRun[]; runNow(id: string): void };
   /** How often to rescan `transcripts`; the hub only hears about a change. Default 60 s. */
   scanMs?: number;
   /** How often to check the hub is still there. Default `HEARTBEAT_MS`. */
@@ -145,6 +155,10 @@ export interface CrystalNode {
   reportCast(cast: Cast): void;
   /** Tells the hub the machine list changed. A frame lost to a dropped connection is sent again on the next connect. */
   reportSummons(summons: Summon[]): void;
+  /** Tells the hub the Scouts changed. The list goes again on the next connect. */
+  reportScouts(scouts: Scout[]): void;
+  /** Tells the hub a Scout's run ended. The latest runs go again on the next connect; the hub ignores repeats. */
+  reportScoutRun(scout: string, run: ScoutRun, items: ScoutItem[] | undefined): void;
   /** Whether a session is open here, so only a real Quest can use the `summon` tool. */
   holds(session: string): boolean;
   /**
@@ -795,6 +809,26 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const runNow = HubScoutRunNow.safeParse(parsed);
+    if (runNow.success) {
+      options.scouts?.runNow(runNow.data.scout);
+      return;
+    }
+
+    // Actions arrive with #230; until then each gets an answer, so the Board doesn't wait on one.
+    const action = HubScoutAction.safeParse(parsed);
+    if (action.success) {
+      wsSend(
+        NodeScoutActed.parse({
+          kind: 'scout-acted',
+          requestId: action.data.requestId,
+          ok: false,
+          reason: "this Kingdom can't carry out Scout actions yet: it may need an update",
+        }),
+      );
+      return;
+    }
+
     const kingdomVersion = HubKingdomVersion.safeParse(parsed);
     if (kingdomVersion.success) {
       options.onKingdomVersion?.(kingdomVersion.data.version);
@@ -838,6 +872,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.updateCli ? { cliUpdate: true } : {}),
           ...(options.listInventory ? { inventory: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
+          ...(options.scouts ? { scouts: true } : {}),
         }),
       );
       resendUnacked();
@@ -847,6 +882,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       if (options.summons) {
         wsSend({ kind: 'summons', summons: options.summons.list() } satisfies NodeSummons);
         for (const cast of options.summons.casts()) wsSend({ kind: 'cast', cast } satisfies NodeCast);
+      }
+      if (options.scouts) {
+        reportScouts(options.scouts.list());
+        for (const frame of options.scouts.recent()) wsSend(frame);
       }
     });
 
@@ -965,10 +1004,28 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     wsSend({ kind: 'summons', summons } satisfies NodeSummons);
   }
 
+  function reportScouts(scouts: Scout[]): void {
+    wsSend({ kind: 'scouts', scouts } satisfies NodeScouts);
+  }
+
+  function reportScoutRun(scout: string, run: ScoutRun, items: ScoutItem[] | undefined): void {
+    wsSend({ kind: 'scout-run', scout, run, ...(items ? { items } : {}) } satisfies NodeScoutRun);
+  }
+
   function holds(session: string): boolean {
     const state = sessions.get(session);
     return state !== undefined && !state.closed;
   }
 
-  return { handlePermissionRequest, status, reportSelfUpdate, reportCast, reportSummons, holds, close };
+  return {
+    handlePermissionRequest,
+    status,
+    reportSelfUpdate,
+    reportCast,
+    reportSummons,
+    reportScouts,
+    reportScoutRun,
+    holds,
+    close,
+  };
 }
