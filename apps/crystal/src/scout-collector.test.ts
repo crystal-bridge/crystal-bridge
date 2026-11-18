@@ -103,9 +103,11 @@ describe('spawnCollector', () => {
     script('hang.mjs', `setInterval(() => {}, 1000);`);
     const collector = spawnCollector({ cwd, command: [NODE, 'hang.mjs'], env: env(), timeoutMs: 60_000 });
     collector.stop();
-    const result = await collector.result;
-    expect(result).toMatchObject({ kind: 'exited', code: null });
-    expect((result as { signal?: string }).signal).toBeTruthy();
+    const result = (await collector.result) as { kind: string; code: number | null; signal?: string | null };
+    expect(result.kind).toBe('exited');
+    // POSIX ends it by signal; Windows' taskkill /F leaves exit code 1. Either way, not an exit of its own.
+    if (process.platform === 'win32') expect(result.code).toBe(1);
+    else expect([result.code, Boolean(result.signal)]).toEqual([null, true]);
   });
 
   it('finishes when the collector exits, even if something it left behind holds its output open', async () => {
