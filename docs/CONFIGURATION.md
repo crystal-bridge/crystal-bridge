@@ -26,7 +26,8 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_PID_FILE` | unset; Windows' `crystal.cmd` sets it | Crystal: where to record its process id, so `leave` can stop it |
 | `CRYSTAL_LOGIN_SHELL` | `$SHELL`, then `/bin/bash` | Crystal: the shell whose login environment sessions get; `join` writes it |
 | `CRYSTAL_SESSION` | set by Crystal | Not a setting: the session id on each `claude` process, so a hook can tell it runs under the bridge |
-| `CRYSTAL_SCOUT` | set by Crystal | Not a setting: a Scout's collector gets its Scout id |
+| `CRYSTAL_SCOUT` | set by Crystal | Not a setting: a Scout's collector and action scripts get its Scout id |
+| `CRYSTAL_SCOUT_ACTION` | set by Crystal | Not a setting: a Scout's `run` action script gets the action's key |
 | `CRYSTAL_SCOUT_STATE` | set by Crystal | Not a setting: a Scout's collector gets the `state` folder it may keep its own state in, which Crystal creates and never reads |
 | `CRYSTAL_SELF_UPDATE` | on | Crystal: `off` stops a Kingdom installed by `join` updating itself |
 | `CRYSTAL_DRAIN_SECONDS` | `600` | Crystal deploy scripts: how long to wait for running turns before giving up |

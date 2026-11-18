@@ -15,6 +15,7 @@ import {
   IncrementalView,
   sessionEngine,
   sessionForkedFrom,
+  sessionScout,
   sessionEffort,
   sessionMode,
   sessionWorktree,
@@ -95,6 +96,8 @@ export interface SessionViewProps {
   onFork?: (prompt: string) => void;
   /** Shows another session, e.g. the one this fork came from. */
   onOpen?: (session: string) => void;
+  /** Shows a Scout's Board on this Quest's Kingdom, e.g. the one whose item started it. */
+  onOpenBoard?: (scout: string) => void;
   /** A session's label, if this client knows it, e.g. to name the Quest a fork came from. */
   labelOf?: (session: string) => string | undefined;
   /** This device's name for the session's Kingdom, for the side panel. */
@@ -363,6 +366,7 @@ export function SessionView({
   onClose = () => {},
   onFork,
   onOpen,
+  onOpenBoard,
   labelOf,
   kingdom = '',
   party,
@@ -595,6 +599,7 @@ export function SessionView({
   const effort = sessionEffort(envelopes);
   const worktree = sessionWorktree(envelopes);
   const forkedFrom = sessionForkedFrom(envelopes);
+  const fromItem = sessionScout(envelopes);
   // The interactive CLI runs a leading `!` as a shell command; the stream engine sends it as text.
   const shell = sessionEngine(envelopes) === 'interactive' && draft.trimStart().startsWith('!');
   const sourceLabel = forkedFrom ? labelOf?.(forkedFrom) : undefined;
@@ -679,6 +684,16 @@ export function SessionView({
                   className={`${worktree ? '' : 'mr-auto '}max-w-xs truncate rounded px-2 py-0.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800`}
                 >
                   {sourceLabel ? `Forked from ${truncate(sourceLabel, 40)}` : 'Forked from…'}
+                </button>
+              )}
+              {fromItem && onOpenBoard && (
+                <button
+                  type="button"
+                  onClick={() => onOpenBoard(fromItem.scout)}
+                  title={`An item on the ${fromItem.scout} ${w('board')}`}
+                  className={`${worktree || forkedFrom ? '' : 'mr-auto '}max-w-xs truncate rounded px-2 py-0.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800`}
+                >
+                  {`From ${truncate(fromItem.title, 40)}`}
                 </button>
               )}
               {onFork && (

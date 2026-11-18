@@ -1,4 +1,4 @@
-import type { Envelope } from '@crystal-bridge/protocol';
+import { ScoutLink, type Envelope } from '@crystal-bridge/protocol';
 import type { Helper } from './heroes.js';
 
 /** The tools that send out a helper. */
@@ -585,6 +585,13 @@ export function sessionEngine(envelopes: readonly Envelope[]): string | undefine
 export function sessionForkedFrom(envelopes: readonly Envelope[]): string | undefined {
   const started = envelopes.find((e) => e.type === 'session.started');
   return started && isObj(started.payload) ? str(started.payload.forkedFrom) : undefined;
+}
+
+/** The Board item a Quest was started from, if a Scout's action started it. */
+export function sessionScout(envelopes: readonly Envelope[]): ScoutLink | undefined {
+  const started = envelopes.find((e) => e.type === 'session.started');
+  if (!started || !isObj(started.payload)) return undefined;
+  return ScoutLink.safeParse(started.payload.scout).data;
 }
 
 /** Slash commands and skills the CLI last reported for the session, minus the ones that only work in a terminal. */

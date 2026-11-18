@@ -363,6 +363,65 @@ describe('App Kingdom tabs', () => {
     expect(await screen.findByText('Fix the retry loop')).toBeTruthy();
   });
 
+  it('opens the Board a Quest came from, leaving the Quest', async () => {
+    const quest = sessions[0]!.id;
+    const started = [
+      {
+        node: 'node-b',
+        session: quest,
+        seq: 0,
+        ts: 1,
+        type: 'session.started',
+        payload: {
+          cwd: '/w',
+          prompt: 'p',
+          label: 'p',
+          scout: { scout: 'quest-board', item: '1', title: 'Fix the retry loop' },
+        },
+      },
+    ] as Envelope[];
+    const scout = {
+      id: 'quest-board',
+      fresh: 0,
+      manifest: {
+        name: 'Quest Board',
+        schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+        collect: { command: ['./collect.sh'] },
+        view: 'list',
+        actions: {},
+      },
+    };
+    const board = {
+      scout: 'quest-board',
+      runs: [],
+      items: [{ id: '1', title: 'A row on the Board', state: 'seen', firstSeen: 0, changedAt: 0 }],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/nodes/node-b/scouts'
+                ? { scouts: [scout] }
+                : url === '/api/nodes/node-b/scouts/quest-board'
+                  ? board
+                  : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    window.history.replaceState(null, '', `/#/k/node-b/q/${quest}`);
+    render(<App hub={{ ...fakeHub(), events: (id: string) => (id === quest ? started : NO_EVENTS) } as HubClient} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'From Fix the retry loop' }));
+    expect(await screen.findByText('A row on the Board')).toBeTruthy();
+    expect(window.location.hash).toBe('#/k/node-b/b/quest-board');
+  });
+
   it('reopens New Quest on its Kingdom from the address, not the default one', async () => {
     window.history.replaceState(null, '', '/#/k/node-b/new');
     await renderApp();

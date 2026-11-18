@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeF
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Scout, ScoutItem, ScoutRun } from '@crystal-bridge/protocol';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CATCH_UP_AFTER_MS,
   DEFAULT_TIMEOUT_SECONDS,
@@ -12,6 +12,7 @@ import {
   jitterOf,
   type CollectRequest,
   type CollectResult,
+  type QuestStart,
   type Scouts,
 } from './scouts.js';
 
@@ -84,6 +85,7 @@ describe('Scouts', () => {
   function make(env: Record<string, string> = { PATH: '/bin' }): Scouts {
     scouts = createScouts({
       dir,
+      home,
       statePath: join(home, 'scouts-state.json'),
       env,
       now: () => now,
@@ -611,6 +613,154 @@ describe('Scouts', () => {
       rmSync(join(dir, 'quest-board'), { recursive: true });
       await scouts!.tick();
       expect(scouts!.recent()).toEqual([]);
+    });
+  });
+
+  describe('actions', () => {
+    const REQUEST = '22222222-2222-4222-8222-222222222222';
+    const pr: ScoutItem = {
+      id: 'github:pr:owner/repo#1',
+      title: 'Fix the retry loop',
+      fields: { checkout: '~/code/repo' },
+      actions: ['fix', 'archive', 'tidy', 'done'],
+    };
+    const other: ScoutItem = { ...pr, id: 'github:pr:owner/repo#2', title: 'Second' };
+    let started: QuestStart[];
+    const startQuest = async (start: QuestStart) => {
+      started.push(start);
+      return { ok: true as const, session: '33333333-3333-4333-8333-333333333333' };
+    };
+    const action = (name: string, items: ScoutItem[] = [pr]) => ({
+      kind: 'scout-action' as const,
+      requestId: REQUEST,
+      scout: 'quest-board',
+      action: name,
+      items,
+    });
+
+    beforeEach(async () => {
+      started = [];
+      mkdirSync(join(home, 'code', 'repo'), { recursive: true });
+      scoutFolder(
+        'quest-board',
+        manifest({
+          actions: {
+            fix: {
+              kind: 'quest',
+              label: 'Fix it',
+              project: '{{fields.checkout}}',
+              prompt: 'fix.md',
+              mode: 'auto',
+              worktree: true,
+            },
+            escape: { kind: 'quest', label: 'Escape', project: '~', prompt: '../../secret.md' },
+            archive: { kind: 'run', label: 'Archive', command: ['./act.sh', 'archive'], batch: true, then: 'done' },
+            tidy: { kind: 'run', label: 'Tidy', command: ['./act.sh', 'tidy'] },
+            done: { kind: 'done', label: 'Done' },
+          },
+        }),
+      );
+      writeFileSync(join(dir, 'quest-board', 'fix.md'), 'Fix the failing check, then push.\n');
+      make();
+      await scouts!.tick();
+    });
+
+    it('starts a Quest in the filled project, with the template apart from the untrusted item', async () => {
+      const answer = await scouts!.act(action('fix'), startQuest);
+      expect(answer).toEqual({ ok: true, session: '33333333-3333-4333-8333-333333333333' });
+      expect(started).toHaveLength(1);
+      const [start] = started;
+      expect(start).toMatchObject({
+        cwd: join(home, 'code', 'repo'),
+        mode: 'auto',
+        worktree: true,
+        from: { scout: 'quest-board', item: pr.id, title: pr.title },
+      });
+      expect(start!.prompt.startsWith('Fix the failing check, then push.')).toBe(true);
+      expect(start!.prompt).toContain('<untrusted-item>');
+    });
+
+    it('passes on why a Quest could not start', async () => {
+      const answer = await scouts!.act(action('fix'), async () => ({ ok: false, reason: 'no worktree' }));
+      expect(answer).toEqual({ ok: false, reason: 'no worktree' });
+    });
+
+    it('starts one Quest per press: never for several items at once', async () => {
+      const answer = await scouts!.act(action('fix', [pr, other]), startQuest);
+      expect(answer.ok).toBe(false);
+      expect(started).toEqual([]);
+    });
+
+    it('refuses a prompt file outside the Scout’s folder, a missing one, and a project that is no folder', async () => {
+      writeFileSync(join(home, 'secret.md'), 'secret');
+      expect(await scouts!.act(action('escape', [{ ...pr, actions: ['escape'] }]), startQuest)).toMatchObject({
+        ok: false,
+      });
+      rmSync(join(dir, 'quest-board', 'fix.md'));
+      expect(await scouts!.act(action('fix'), startQuest)).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/fix\.md/),
+      });
+      writeFileSync(join(dir, 'quest-board', 'fix.md'), 'Fix it.');
+      const elsewhere = { ...pr, fields: { checkout: '~/code/missing' } };
+      expect(await scouts!.act(action('fix', [elsewhere]), startQuest)).toMatchObject({ ok: false });
+      expect(started).toEqual([]);
+    });
+
+    it('refuses an action the item does not offer, one the Scout does not declare, and one the hub carries out', async () => {
+      const bare = { ...pr, actions: ['done'] };
+      expect(await scouts!.act(action('fix', [bare]), startQuest)).toMatchObject({ ok: false });
+      expect(await scouts!.act(action('nope'), startQuest)).toMatchObject({ ok: false });
+      expect(await scouts!.act(action('done'), startQuest)).toMatchObject({ ok: false });
+      expect(await scouts!.act({ ...action('fix'), scout: 'elsewhere' }, startQuest)).toMatchObject({ ok: false });
+      expect(started).toEqual([]);
+      expect(pending).toEqual([]);
+    });
+
+    it('runs a script in the Scout’s folder with the items as JSON on stdin', async () => {
+      const answer = scouts!.act(action('archive', [pr, other]), startQuest);
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      const { request } = pending[0]!;
+      expect(request.cwd).toBe(join(dir, 'quest-board'));
+      expect(request.command).toEqual(['./act.sh', 'archive']);
+      expect(request.env).toMatchObject({ CRYSTAL_SCOUT: 'quest-board', CRYSTAL_SCOUT_ACTION: 'archive' });
+      expect(JSON.parse(request.stdin!)).toEqual({ scout: 'quest-board', action: 'archive', items: [pr, other] });
+      pending.shift()!.finish({ kind: 'exited', code: 0, stdout: '', stderr: '' });
+      expect(await answer).toEqual({ ok: true });
+    });
+
+    it('says why a script failed, with the end of its stderr', async () => {
+      const answer = scouts!.act(action('tidy'), startQuest);
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      pending.shift()!.finish({ kind: 'exited', code: 2, stdout: '', stderr: 'token expired' });
+      const result = await answer;
+      expect(result.ok).toBe(false);
+      expect(result).toMatchObject({ reason: expect.stringMatching(/code 2[\s\S]*token expired/) });
+    });
+
+    it('makes the state folder a script is pointed at, even when no collector has run', async () => {
+      rmSync(join(dir, 'quest-board', 'state'), { recursive: true, force: true });
+      const answer = scouts!.act(action('tidy'), startQuest);
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      expect(statSync(join(dir, 'quest-board', 'state')).isDirectory()).toBe(true);
+      pending.shift()!.finish({ kind: 'exited', code: 0, stdout: '', stderr: '' });
+      await answer;
+    });
+
+    it('stops a running script on close, and takes no action after it', async () => {
+      void scouts!.act(action('tidy'), startQuest);
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      const closing = scouts!.close();
+      expect(pending[0]!.stopped).toBe(true);
+      pending.shift()!.finish({ kind: 'exited', code: null, signal: 'SIGTERM', stdout: '', stderr: '' });
+      await closing;
+      expect(await scouts!.act(action('tidy'), startQuest)).toMatchObject({ ok: false });
+      expect(pending).toEqual([]);
+    });
+
+    it('runs a script that takes one item at a time only on one item', async () => {
+      expect(await scouts!.act(action('tidy', [pr, other]), startQuest)).toMatchObject({ ok: false });
+      expect(pending).toEqual([]);
     });
   });
 });

@@ -6,11 +6,12 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { MAX_CLI_UPDATE_REASON, NodeError, type Effort } from '@crystal-bridge/protocol';
+import { MAX_CLI_UPDATE_REASON, NodeError, type Effort, type HubScoutAction } from '@crystal-bridge/protocol';
 import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
 import { startNode, surviveRejections, type CrystalNode, type SessionFactory, type SessionLike } from './node.js';
+import type { ActResult, QuestStart } from './scouts.js';
 
 // Captured before any test fakes the global timers, so test-side waits for real socket I/O
 // keep working even while a test is driving reconnection with `vi.useFakeTimers()`.
@@ -416,6 +417,7 @@ describe('startNode', () => {
       list: () => [scout],
       recent: () => [{ kind: 'scout-run' as const, scout: 'quest-board', run, items }],
       runNow,
+      act: vi.fn(async (): Promise<ActResult> => ({ ok: false, reason: 'not here' })),
     });
 
     it('says in hello that it runs Scouts, only when it does', async () => {
@@ -466,18 +468,107 @@ describe('startNode', () => {
       await vi.waitFor(() => expect(runNow).toHaveBeenCalledWith('quest-board'));
     });
 
-    it('answers an action it can’t carry out yet, so the Board isn’t left waiting', async () => {
-      createNode({ scouts: fakeScouts() });
+    const fromItem = { scout: 'quest-board', item: 'a', title: 'First' };
+    const questScouts = (start: Omit<QuestStart, 'from'> = { cwd: '/repo', prompt: 'Fix it.' }) => ({
+      ...fakeScouts(),
+      act: vi.fn((_request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>) =>
+        startQuest({ ...start, from: fromItem }),
+      ),
+    });
+    const askAction = (conn: ConnRecorder, requestId: string) =>
+      conn.socket.send(JSON.stringify({ kind: 'scout-action', requestId, scout: 'quest-board', action: 'fix', items }));
+
+    it('starts the Quest a quest action asks for, linked to its item, and answers with its id', async () => {
+      const scouts = questScouts({ cwd: '/repo', prompt: 'Fix it.', mode: 'auto' });
+      createNode({ scouts });
       const conn = await nextConnection(harness, 0);
       await waitForFrame(conn, (frame) => frame.kind === 'hello');
       const requestId = randomUUID();
-      conn.socket.send(JSON.stringify({ kind: 'scout-action', requestId, scout: 'quest-board', action: 'fix', items }));
+      askAction(conn, requestId);
+      const started = await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      expect(started.payload).toMatchObject({
+        cwd: '/repo',
+        prompt: 'Fix it.',
+        label: 'First',
+        mode: 'auto',
+        scout: fromItem,
+      });
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toEqual({
+        kind: 'scout-acted',
+        requestId,
+        ok: true,
+        session: started.session,
+      });
+      expect(created).toHaveLength(1);
+      expect(created[0]!.opts).toMatchObject({ session: started.session, cwd: '/repo', permissionMode: 'auto' });
+      expect(created[0]!.fake.start).toHaveBeenCalledWith('Fix it.');
+      expect(scouts.act.mock.calls[0]![0]).toMatchObject({ requestId, scout: 'quest-board', action: 'fix', items });
+    });
+
+    it('answers why a Quest could not start, rather than with an error for a Quest the hub never heard of', async () => {
+      createNode({
+        scouts: questScouts({ cwd: '/plain', prompt: 'p', worktree: true }),
+        worktrees: async () => {
+          throw new Error('/plain is not a git repository');
+        },
+      });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const requestId = randomUUID();
+      askAction(conn, requestId);
       expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toEqual({
         kind: 'scout-acted',
         requestId,
         ok: false,
-        reason: expect.stringMatching(/can't carry out/),
+        reason: 'could not create a worktree: /plain is not a git repository',
       });
+      expect(conn.frames.some((frame) => frame.kind === 'node-error')).toBe(false);
+      expect(created).toHaveLength(0);
+    });
+
+    it('ends a Quest whose start throws, as New Quest does, and says why on the Board', async () => {
+      const fake = new FakeSession();
+      fake.start.mockImplementation(() => {
+        throw new Error('spawn ENOTDIR');
+      });
+      createNode({ scouts: questScouts(), sessionFactory: () => fake });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const requestId = randomUUID();
+      askAction(conn, requestId);
+      const started = await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      expect(
+        await waitForFrame(conn, (frame) => frame.type === 'session.ended' && frame.session === started.session),
+      ).toMatchObject({ payload: { reason: 'error' } });
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toMatchObject({
+        requestId,
+        ok: false,
+        reason: expect.stringContaining('spawn ENOTDIR'),
+      });
+    });
+
+    it('answers an action that throws, so the Board isn’t left waiting', async () => {
+      createNode({
+        scouts: { ...fakeScouts(), act: vi.fn(async () => Promise.reject(new Error('boom'))) },
+      });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const requestId = randomUUID();
+      askAction(conn, requestId);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toMatchObject({
+        requestId,
+        ok: false,
+        reason: expect.stringMatching(/boom/),
+      });
+    });
+
+    it('answers an action even without Scouts of its own', async () => {
+      createNode({});
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const requestId = randomUUID();
+      askAction(conn, requestId);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toMatchObject({ requestId, ok: false });
     });
   });
 

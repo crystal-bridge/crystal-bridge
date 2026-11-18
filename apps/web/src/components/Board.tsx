@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Board, BoardItem, BoardItemState, ListedScout, ScoutManifest, ScoutRun } from '@crystal-bridge/protocol';
-import { actionsFor, boardSections, type BoardAction, linkFor, settled, snoozeUntil, tableColumns } from '../boards.js';
+import type {
+  Board,
+  BoardItem,
+  BoardItemState,
+  ListedScout,
+  ScoutAction,
+  ScoutManifest,
+  ScoutRun,
+} from '@crystal-bridge/protocol';
+import { actionsFor, batchesFor, boardSections, linkFor, settled, snoozeUntil, tableColumns } from '../boards.js';
 import { duration } from '../format.js';
 import { hint, scoutReturnLine, w } from '../theme/words.js';
 import { Gold } from './Gold.js';
@@ -21,11 +29,18 @@ export interface BoardPageProps {
   onChange: (ids: string[], state: BoardItemState, until?: number) => Promise<void>;
   /** Asks the Kingdom to run the Scout now; rejects with the hub's reason. */
   onRunNow: () => Promise<void>;
+  /** Has the Kingdom carry out a `quest` or `run` action on items; rejects with the reason it didn't. */
+  onAct: (action: string, ids: string[]) => Promise<{ session?: string }>;
+  /** Opens the Quest an action started. */
+  onOpenQuest: (session: string) => void;
   onBack: () => void;
 }
 
 const button =
-  'rounded border border-neutral-300 px-2 py-0.5 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800';
+  'rounded border border-neutral-300 px-2 py-0.5 text-xs hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800';
+/** The suggested action stands out from the item's other buttons. */
+const suggestedButton =
+  'rounded border border-blue-600 bg-blue-600 px-2 py-0.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50';
 
 const OUTCOME_DOT: Record<string, string> = {
   succeeded: 'bg-green-500',
@@ -48,19 +63,68 @@ function NewMark() {
   );
 }
 
-/** An item's buttons. A link opens in a new tab; the rest change its state. */
+/**
+ * A button the Kingdom carries out. One that wants confirming asks first, in place, with no browser dialog. It stays
+ * disabled while the Kingdom works, so a second press doesn't start a second Quest.
+ */
+function KingdomButton({
+  label,
+  confirm,
+  suggested,
+  run,
+}: {
+  label: string;
+  confirm: boolean;
+  suggested?: boolean;
+  run: () => Promise<void>;
+}) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const go = () => {
+    setAsking(false);
+    setBusy(true);
+    void run().finally(() => setBusy(false));
+  };
+  if (asking) {
+    return (
+      <span className="flex gap-1">
+        <button type="button" onClick={go} className={suggestedButton}>
+          {`Yes, ${label}`}
+        </button>
+        <button type="button" onClick={() => setAsking(false)} className={button}>
+          Cancel
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => (confirm ? setAsking(true) : go())}
+      className={suggested ? suggestedButton : button}
+      {...(suggested ? { title: 'Suggested' } : {})}
+    >
+      {busy ? `${label}…` : label}
+    </button>
+  );
+}
+
+/** An item's buttons. A link opens in a new tab; a quest or run goes to the Kingdom; the rest change its state. */
 function ItemActions({
   item,
   manifest,
   now,
   act,
+  perform,
 }: {
   item: BoardItem;
   manifest: ScoutManifest;
   now: number;
   act: (ids: string[], state: BoardItemState, until?: number) => void;
+  perform: (key: string, ids: string[]) => Promise<void>;
 }) {
-  const press = (action: BoardAction) => {
+  const press = (action: ScoutAction) => {
     if (action.kind === 'snooze') act([item.id], 'snoozed', snoozeUntil(action.for, now));
     else if (action.kind === 'done') act([item.id], 'done');
     else if (action.kind === 'dismiss') act([item.id], 'dismissed');
@@ -68,20 +132,71 @@ function ItemActions({
   return (
     <span className="flex shrink-0 flex-wrap gap-1">
       {actionsFor(item, manifest).map(({ key, action }) => {
+        const suggested = item.suggested === key;
         if (action.kind === 'link') {
           const href = linkFor(action.url, item);
           return href ? (
-            <a key={key} href={href} target="_blank" rel="noopener noreferrer" className={button}>
+            <a
+              key={key}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={suggested ? suggestedButton : button}
+              {...(suggested ? { title: 'Suggested' } : {})}
+            >
               {action.label}
             </a>
           ) : null;
         }
+        if (action.kind === 'quest' || action.kind === 'run') {
+          return (
+            <KingdomButton
+              key={key}
+              label={action.label}
+              confirm={action.kind === 'run' && Boolean(action.confirm)}
+              suggested={suggested}
+              run={() => perform(key, [item.id])}
+            />
+          );
+        }
         return (
-          <button key={key} type="button" onClick={() => press(action)} className={button}>
+          <button
+            key={key}
+            type="button"
+            onClick={() => press(action)}
+            className={suggested ? suggestedButton : button}
+            {...(suggested ? { title: 'Suggested' } : {})}
+          >
             {action.label}
           </button>
         );
       })}
+    </span>
+  );
+}
+
+/** One button per `run` action that takes several items, for the items in view that offer it. */
+function BatchActions({
+  items,
+  manifest,
+  perform,
+}: {
+  items: readonly BoardItem[];
+  manifest: ScoutManifest;
+  perform: (key: string, ids: string[]) => Promise<void>;
+}) {
+  const batches = batchesFor(items, manifest);
+  if (batches.length === 0) return null;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {batches.map(({ key, action, ids }) => (
+        <KingdomButton
+          key={key}
+          label={`${action.label} all ${ids.length}`}
+          confirm={Boolean(action.confirm)}
+          run={() => perform(key, ids)}
+        />
+      ))}
     </span>
   );
 }
@@ -157,7 +272,19 @@ function RunRow({ run, now }: { run: ScoutRun; now: number }) {
  * A Scout's Board (docs/SCOUTS.md): what it found, drawn from data alone in one of three views, with a button for each
  * thing to do about an item. Opening it marks what's new as seen; the mark stays until the Board is left.
  */
-export function BoardPage({ kingdom, scout, board, missing, failed, now, onChange, onRunNow, onBack }: BoardPageProps) {
+export function BoardPage({
+  kingdom,
+  scout,
+  board,
+  missing,
+  failed,
+  now,
+  onChange,
+  onRunNow,
+  onAct,
+  onOpenQuest,
+  onBack,
+}: BoardPageProps) {
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -170,6 +297,17 @@ export function BoardPage({ kingdom, scout, board, missing, failed, now, onChang
     (until === undefined ? onChange(ids, state) : onChange(ids, state, until)).catch((failure: unknown) =>
       setError(failure instanceof Error ? failure.message : String(failure)),
     );
+  };
+
+  /** A quest or run action, carried out by the Kingdom; a Quest it starts opens. */
+  const perform = async (key: string, ids: string[]): Promise<void> => {
+    setError(null);
+    try {
+      const { session } = await onAct(key, ids);
+      if (session) onOpenQuest(session);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
   };
 
   useEffect(() => {
@@ -254,48 +392,53 @@ export function BoardPage({ kingdom, scout, board, missing, failed, now, onChang
       <span className={`flex min-w-0 flex-1 ${item.state === 'done' ? 'text-neutral-500 line-through' : ''}`}>
         <ItemText item={item} marked={item.state !== 'done' && isMarked(item)} />
       </span>
-      {manifest && <ItemActions item={item} manifest={manifest} now={now} act={act} />}
+      {manifest && <ItemActions item={item} manifest={manifest} now={now} act={act} perform={perform} />}
     </li>
   );
 
   const columns = view === 'table' ? tableColumns(sections.open.flatMap((group) => group.items)) : [];
   const table = (
-    <table className="w-full text-left text-sm">
-      <thead className="text-xs text-neutral-500">
-        <tr>
-          <th className="py-1 pr-3 font-medium">Item</th>
-          {columns.map((column) => (
-            <th key={column} className="py-1 pr-3 font-medium">
-              {column}
-            </th>
-          ))}
-          <th className="py-1" />
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-        {sections.open.flatMap((group) =>
-          group.items.map((item) => (
-            <tr key={item.id}>
-              <td className="py-1.5 pr-3">
-                <span className="flex items-center gap-2">
-                  {isMarked(item) && <NewMark />}
-                  <span className="font-medium">{item.title}</span>
-                </span>
-                {item.subtitle && <span className="block text-xs text-neutral-500">{item.subtitle}</span>}
-              </td>
-              {columns.map((column) => (
-                <td key={column} className="py-1.5 pr-3">
-                  {shown(item.fields?.[column])}
+    <>
+      {manifest && (
+        <BatchActions items={sections.open.flatMap((group) => group.items)} manifest={manifest} perform={perform} />
+      )}
+      <table className="w-full text-left text-sm">
+        <thead className="text-xs text-neutral-500">
+          <tr>
+            <th className="py-1 pr-3 font-medium">Item</th>
+            {columns.map((column) => (
+              <th key={column} className="py-1 pr-3 font-medium">
+                {column}
+              </th>
+            ))}
+            <th className="py-1" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+          {sections.open.flatMap((group) =>
+            group.items.map((item) => (
+              <tr key={item.id}>
+                <td className="py-1.5 pr-3">
+                  <span className="flex items-center gap-2">
+                    {isMarked(item) && <NewMark />}
+                    <span className="font-medium">{item.title}</span>
+                  </span>
+                  {item.subtitle && <span className="block text-xs text-neutral-500">{item.subtitle}</span>}
                 </td>
-              ))}
-              <td className="py-1.5">
-                {manifest && <ItemActions item={item} manifest={manifest} now={now} act={act} />}
-              </td>
-            </tr>
-          )),
-        )}
-      </tbody>
-    </table>
+                {columns.map((column) => (
+                  <td key={column} className="py-1.5 pr-3">
+                    {shown(item.fields?.[column])}
+                  </td>
+                ))}
+                <td className="py-1.5">
+                  {manifest && <ItemActions item={item} manifest={manifest} now={now} act={act} perform={perform} />}
+                </td>
+              </tr>
+            )),
+          )}
+        </tbody>
+      </table>
+    </>
   );
 
   return (
@@ -370,11 +513,14 @@ export function BoardPage({ kingdom, scout, board, missing, failed, now, onChang
             <>
               {sections.open.map((group) => (
                 <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
-                  {(group.group !== undefined || sections.open.length > 1) && (
-                    <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
-                      {group.group ?? 'Other'}
-                    </h3>
-                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    {(group.group !== undefined || sections.open.length > 1) && (
+                      <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
+                        {group.group ?? 'Other'}
+                      </h3>
+                    )}
+                    {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
+                  </div>
                   <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">{group.items.map(row)}</ul>
                 </section>
               ))}

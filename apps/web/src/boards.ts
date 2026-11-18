@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
   Board,
+  BoardAct,
   BoardItem,
   BoardItemsChange,
   BoardItemState,
@@ -60,17 +61,32 @@ export function linkFor(template: string, item: ScoutItem): string | undefined {
   }
 }
 
-/** The actions a Board can carry out by itself. A Kingdom carries out `quest` and `run`, which come with #230. */
-export type BoardAction = Extract<ScoutAction, { kind: 'link' | 'snooze' | 'done' | 'dismiss' }>;
-
 /** An item's buttons: the actions it names, else the Scout's defaults, in that order, each declared by the Scout. */
-export function actionsFor(item: ScoutItem, manifest: ScoutManifest): { key: string; action: BoardAction }[] {
+export function actionsFor(item: ScoutItem, manifest: ScoutManifest): { key: string; action: ScoutAction }[] {
   const keys = item.actions ?? manifest.defaults ?? [];
   return keys.flatMap((key) => {
     const action = Object.hasOwn(manifest.actions, key) ? manifest.actions[key] : undefined;
-    if (!action || action.kind === 'quest' || action.kind === 'run') return [];
-    return [{ key, action }];
+    return action ? [{ key, action }] : [];
   });
+}
+
+export type BatchAction = Extract<ScoutAction, { kind: 'run' }>;
+
+/** The `run` actions that take several items, each with the items that offer it, when more than one does. */
+export function batchesFor(
+  items: readonly ScoutItem[],
+  manifest: ScoutManifest,
+): { key: string; action: BatchAction; ids: string[] }[] {
+  const batches = new Map<string, { key: string; action: BatchAction; ids: string[] }>();
+  for (const item of items) {
+    for (const { key, action } of actionsFor(item, manifest)) {
+      if (action.kind !== 'run' || !action.batch) continue;
+      const batch = batches.get(key);
+      if (batch) batch.ids.push(item.id);
+      else batches.set(key, { key, action, ids: [item.id] });
+    }
+  }
+  return [...batches.values()].filter((batch) => batch.ids.length > 1);
 }
 
 export interface BoardSections {
@@ -267,4 +283,26 @@ export async function runScoutNow(node: string, scout: string): Promise<void> {
     throw new Error(UNREACHABLE);
   }
   if (!response.ok) throw await refusal(response);
+}
+
+/** Has the Kingdom carry out a `quest` or `run` action on items. A Quest's id comes back, to open it. */
+export async function actOnItems(
+  node: string,
+  scout: string,
+  action: string,
+  ids: string[],
+): Promise<{ session?: string }> {
+  const body: BoardAct = { action, ids };
+  let response: Response;
+  try {
+    response = await fetch(`${boardPath(node, scout)}/act`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(UNREACHABLE);
+  }
+  if (!response.ok) throw await refusal(response);
+  return (await response.json()) as { session?: string };
 }

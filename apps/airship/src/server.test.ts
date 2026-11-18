@@ -286,7 +286,13 @@ describe('airship server', () => {
       schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
       collect: { command: ['./collect.sh'] },
       view: 'list',
-      actions: { done: { kind: 'done', label: 'Done' } },
+      actions: {
+        done: { kind: 'done', label: 'Done' },
+        fix: { kind: 'quest', label: 'Fix it', project: '~/code/repo', prompt: 'fix.md' },
+        archive: { kind: 'run', label: 'Archive', command: ['./act.sh'], batch: true, then: 'done' },
+        tidy: { kind: 'run', label: 'Tidy', command: ['./act.sh'] },
+      },
+      defaults: ['archive', 'done'],
     };
     const run = (id = RUN) => ({
       id,
@@ -296,7 +302,7 @@ describe('airship server', () => {
       outcome: 'succeeded',
       items: 1,
     });
-    const items = [{ id: 'pr:1', rev: 'a', title: 'Fix the retry loop' }];
+    const items = [{ id: 'pr:1', rev: 'a', title: 'Fix the retry loop', actions: ['fix', 'archive', 'tidy', 'done'] }];
 
     async function scoutingNode(scouts = true) {
       const socket = await openSocket(`${wsUrl}/node`);
@@ -387,6 +393,130 @@ describe('airship server', () => {
       await scoutingNode(false);
       await client.frames.waitFor((frame) => frame.kind === 'scouts');
       expect((await post('/api/nodes/node-a/scouts/quest-board/run')).status).toBe(409);
+    });
+
+    describe('quest and run actions', () => {
+      const SESSION_ID = '55555555-5555-4555-8555-555555555555';
+      const two = [...items, { id: 'pr:2', rev: 'b', title: 'Second', subtitle: 'from elsewhere' }];
+
+      async function withTwo() {
+        const { client, node } = await withBoard();
+        send(node.socket, {
+          kind: 'scout-run',
+          scout: 'quest-board',
+          run: { ...run(OTHER_RUN), startedAt: 5 },
+          items: two,
+        });
+        await client.frames.waitFor(
+          (frame) => frame.kind === 'board' && (frame.board as { items: unknown[] }).items.length === 2,
+        );
+        return { client, node };
+      }
+      const OTHER_RUN = '66666666-6666-4666-8666-666666666666';
+
+      /** Answers the next scout-action the Kingdom gets, and returns it. */
+      async function answer(node: { socket: WebSocket; frames: FrameRecorder }, reply: Record<string, unknown>) {
+        const asked = await node.frames.waitFor((frame) => frame.kind === 'scout-action');
+        send(node.socket, { kind: 'scout-acted', requestId: asked.requestId, ...reply });
+        return asked;
+      }
+
+      it('sends a quest action to the Kingdom with the item as the hub stores it, and answers with the Quest', async () => {
+        const { node } = await withBoard();
+        const pressed = post('/api/nodes/node-a/scouts/quest-board/act', { action: 'fix', ids: ['pr:1'] });
+        const asked = await answer(node, { ok: true, session: SESSION_ID });
+        expect(asked).toMatchObject({ scout: 'quest-board', action: 'fix', items: items });
+        expect((asked.items as Record<string, unknown>[])[0]).not.toHaveProperty('state');
+        expect(await json(await pressed)).toEqual({ status: 200, body: { session: SESSION_ID } });
+      });
+
+      it('runs a batch on several items, and marks them as the action says once it succeeds', async () => {
+        const { client, node } = await withTwo();
+        const pressed = post('/api/nodes/node-a/scouts/quest-board/act', { action: 'archive', ids: ['pr:1', 'pr:2'] });
+        const asked = await answer(node, { ok: true });
+        expect((asked.items as { id: string }[]).map((item) => item.id)).toEqual(['pr:1', 'pr:2']);
+        expect((await pressed).status).toBe(200);
+        const changed = await client.frames.waitFor((frame) => frame.kind === 'board-items');
+        expect(changed).toMatchObject({
+          items: [
+            { id: 'pr:1', state: 'done' },
+            { id: 'pr:2', state: 'done' },
+          ],
+        });
+      });
+
+      it('takes the answer only from the Kingdom it asked', async () => {
+        const { node } = await withBoard();
+        const pressed = post('/api/nodes/node-a/scouts/quest-board/act', { action: 'fix', ids: ['pr:1'] });
+        const asked = await node.frames.waitFor((frame) => frame.kind === 'scout-action');
+        const other = await openSocket(`${wsUrl}/node`);
+        sockets.push(other);
+        send(other, { kind: 'hello', node: 'node-b', scouts: true });
+        send(other, { kind: 'scout-acted', requestId: asked.requestId, ok: true, session: SESSION_ID });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        send(node.socket, { kind: 'scout-acted', requestId: asked.requestId, ok: false, reason: 'refused here' });
+        expect(await json(await pressed)).toEqual({ status: 409, body: { error: 'refused here' } });
+      });
+
+      it('passes on why the Kingdom refused, and leaves the items as they were', async () => {
+        const { node } = await withTwo();
+        const pressed = post('/api/nodes/node-a/scouts/quest-board/act', { action: 'archive', ids: ['pr:2'] });
+        await answer(node, { ok: false, reason: 'the script exited with code 2' });
+        expect(await json(await pressed)).toEqual({ status: 409, body: { error: 'the script exited with code 2' } });
+        expect(store.board('node-a', 'quest-board', Date.now())!.items.find((item) => item.id === 'pr:2')?.state).toBe(
+          'new',
+        );
+      });
+
+      it('refuses what the Scout doesn’t offer, before asking the Kingdom', async () => {
+        await withTwo();
+        const act = (body: unknown) => post('/api/nodes/node-a/scouts/quest-board/act', body);
+        expect((await act({ action: 'nope', ids: ['pr:1'] })).status).toBe(400);
+        expect((await act({ action: 'done', ids: ['pr:1'] })).status).toBe(400);
+        expect((await act({ action: 'fix', ids: ['pr:2'] })).status).toBe(400);
+        expect((await act({ action: 'fix', ids: ['pr:1', 'pr:2'] })).status).toBe(400);
+        expect((await act({ action: 'tidy', ids: ['pr:1', 'pr:2'] })).status).toBe(400);
+        expect((await act({ action: 'fix', ids: ['pr:9'] })).status).toBe(409);
+        expect((await act({ ids: ['pr:1'] })).status).toBe(400);
+        expect((await post('/api/nodes/node-a/scouts/nope/act', { action: 'fix', ids: ['pr:1'] })).status).toBe(404);
+        expect((await post('/api/nodes/node-b/scouts/quest-board/act', { action: 'fix', ids: ['pr:1'] })).status).toBe(
+          404,
+        );
+      });
+
+      it('won’t act on an item the collector stopped listing', async () => {
+        const { client, node } = await withBoard();
+        send(node.socket, {
+          kind: 'scout-run',
+          scout: 'quest-board',
+          run: { ...run(OTHER_RUN), startedAt: 5 },
+          items: [],
+        });
+        await client.frames.waitFor(
+          (frame) =>
+            frame.kind === 'board' && (frame.board as { items: { goneAt?: number }[] }).items[0]?.goneAt !== undefined,
+        );
+        expect((await post('/api/nodes/node-a/scouts/quest-board/act', { action: 'fix', ids: ['pr:1'] })).status).toBe(
+          409,
+        );
+      });
+
+      it('won’t ask a Kingdom too old for Scouts, and stops waiting when the Kingdom goes', async () => {
+        const client = await connectClient();
+        const old = await scoutingNode(false);
+        await client.frames.waitFor((frame) => frame.kind === 'scouts');
+        send(old.socket, { kind: 'scout-run', scout: 'quest-board', run: run(), items });
+        await client.frames.waitFor((frame) => frame.kind === 'board');
+        expect((await post('/api/nodes/node-a/scouts/quest-board/act', { action: 'fix', ids: ['pr:1'] })).status).toBe(
+          409,
+        );
+        old.socket.close();
+        const node = await scoutingNode();
+        const pressed = post('/api/nodes/node-a/scouts/quest-board/act', { action: 'fix', ids: ['pr:1'] });
+        await node.frames.waitFor((frame) => frame.kind === 'scout-action');
+        node.socket.close();
+        expect(await json(await pressed)).toEqual({ status: 409, body: { error: 'the Kingdom went offline' } });
+      });
     });
 
     it('forgets a removed Kingdom’s Boards with its Quests', async () => {

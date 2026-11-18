@@ -69,7 +69,7 @@ import { FileOpenContext } from './components/markdown.js';
 import { sessionInfo } from './info.js';
 import { beltFor, withBelt } from './belt.js';
 import { useCircle } from './summons.js';
-import { changeBoardItems, runScoutNow, useBoard, useScouts } from './boards.js';
+import { actOnItems, changeBoardItems, runScoutNow, useBoard, useScouts } from './boards.js';
 import { BoardPage } from './components/Board.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
@@ -500,6 +500,21 @@ export function App({ hub }: { hub: HubClient }) {
     setSelected(id);
   }
 
+  /** Shows a Scout's Board on its Kingdom, leaving any open Quest, which would otherwise stay in front of it. */
+  function showBoard(node: string, scout: string) {
+    if (node !== active) {
+      if (loadPrefs().hidden.includes(node)) return;
+      setPrefs((prev) => {
+        const next = { ...prev, active: node };
+        savePrefs(next);
+        return next;
+      });
+    }
+    setSelected(null);
+    setBoardScout(scout);
+    setPage('board');
+  }
+
   /** Takes a Quest's tab away on this device until it has new activity; the Castle shows instead if it was open. */
   function putAwayQuest(id: string) {
     const session = sessions.find((s) => s.id === id);
@@ -885,6 +900,7 @@ export function App({ hub }: { hub: HubClient }) {
         }
         onFork={primary ? fork : undefined}
         onOpen={openQuest}
+        onOpenBoard={node ? (scout) => showBoard(node, scout) : undefined}
         labelOf={(other) => sessions.find((s) => s.id === other)?.label}
         subscribeErrors={subscribeErrors}
         linkDown={status !== 'open'}
@@ -1344,6 +1360,12 @@ export function App({ hub }: { hub: HubClient }) {
                 now={now}
                 onChange={changeItems}
                 onRunNow={() => runScoutNow(kingdom.id, boardScout)}
+                onAct={(action, ids) => actOnItems(kingdom.id, boardScout, action, ids)}
+                onOpenQuest={(session) => {
+                  openQuest(session);
+                  // The Kingdom stored the Quest before answering, so the list has it now.
+                  void refresh();
+                }}
                 onBack={() => setPage('castle')}
               />
             ) : view === 'new' ? (
