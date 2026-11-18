@@ -74,7 +74,11 @@ export type Concept =
   | 'scroll'
   | 'summons'
   | 'casts'
-  | 'summoningCircle';
+  | 'summoningCircle'
+  | 'scout'
+  | 'scouts'
+  | 'board'
+  | 'boards';
 
 export type Words = Record<Concept, Word>;
 
@@ -145,6 +149,10 @@ export const CRYSTAL: Words = {
   summons: { themed: 'Summons', plain: 'machines reached by SSH' },
   casts: { themed: 'Casts', plain: 'jobs on those machines' },
   summoningCircle: { themed: 'Summoning Circle', plain: 'the machines this Kingdom can use, and their jobs' },
+  scout: { themed: 'Scout', plain: 'a scheduled job that collects items' },
+  scouts: { themed: 'Scouts', plain: 'scheduled jobs that collect items' },
+  board: { themed: 'Board', plain: 'the items a Scout found, to act on' },
+  boards: { themed: 'Boards', plain: 'what each Scout found, to act on' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -214,6 +222,11 @@ export const CLASSIC: Words = {
   summons: { themed: 'Machines', plain: 'Machines reached by SSH' },
   casts: { themed: 'Jobs', plain: 'Jobs' },
   summoningCircle: { themed: 'Machines', plain: 'The machines this node can use, and their jobs' },
+  // Not "Job": Classic already calls a Cast that.
+  scout: { themed: 'Scheduled job', plain: 'Scheduled job' },
+  scouts: { themed: 'Scheduled jobs', plain: 'Scheduled jobs' },
+  board: { themed: 'Board', plain: 'Board' },
+  boards: { themed: 'Boards', plain: 'Boards' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };
@@ -250,7 +263,7 @@ const CRYSTAL_STEPS: StepWords = {
   listen: { themed: ['Heeding'], plain: 'reading your message' },
   think: { themed: ['Pondering', 'Plotting'], plain: 'thinking' },
   reply: { themed: ['Scribing'], plain: 'writing a reply' },
-  read: { themed: ['Studying', 'Scouting'], plain: 'reading files' },
+  read: { themed: ['Studying', 'Perusing'], plain: 'reading files' },
   write: { themed: ['Forging', 'Inscribing'], plain: 'editing files' },
   run: { themed: ['Casting', 'Invoking'], plain: 'running a command' },
   search: { themed: ['Tracking', 'Hunting'], plain: 'searching' },
@@ -321,6 +334,25 @@ const USE_PLAIN: Record<UseKind, string> = { spells: 'skill', items: 'command', 
 export function useLine(kind: UseKind, hero: string, name: string, theme: Words = words): Word {
   const plain = `Used ${USE_PLAIN[kind]}: ${name}`;
   return { themed: theme === CLASSIC ? plain : `${hero} ${USE_VERBS[kind]} ${name}!`, plain };
+}
+
+/** What a Scout's last run brought back, e.g. "Your Scout returned with 4 findings."; the plain form is the hint. */
+export function scoutReturnLine(count: number, theme: Words = words): Word {
+  const plain = `Found ${count} ${count === 1 ? 'item' : 'items'}`;
+  if (theme === CLASSIC) return { themed: plain, plain };
+  const themed =
+    count === 0
+      ? 'Your Scout returned empty-handed.'
+      : `Your Scout returned with ${count} ${count === 1 ? 'finding' : 'findings'}.`;
+  return { themed, plain };
+}
+
+/** A Board's new items, e.g. "3 new postings on the Quest Board."; a name that doesn't end in Board gets the word. */
+export function postingsLine(count: number, board: string, theme: Words = words): Word {
+  const plain = `${count} new on ${board}`;
+  if (theme === CLASSIC) return { themed: plain, plain };
+  const named = /\bboard$/i.test(board) ? board : `${board} Board`;
+  return { themed: `${count} new ${count === 1 ? 'posting' : 'postings'} on the ${named}.`, plain };
 }
 
 /** The chat's line when a Quest starts a Cast, e.g. "You summoned Shiva!". */

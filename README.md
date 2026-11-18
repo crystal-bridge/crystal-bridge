@@ -54,6 +54,8 @@ The default theme has its own words for things. Classic uses plain ones.
 | **Summon** | A machine a Kingdom can run jobs on over SSH, with nothing installed there |
 | **Cast** | One job on a Summon |
 | **Summoning Circle** | The Castle's panel of a Kingdom's Summons and their Casts |
+| **Scout** | A scheduled job on a Kingdom that runs your script and collects what it finds |
+| **Board** | A Scout's page: what it found, with a button for each thing you can do about an item |
 | **Recruit** | Adopt a session found outside the bridge |
 | **Chronicle** | History: closed Quests and search |
 | **HP, Stamina, MP, Gold** | Plan usage left (short and long limits), context left, and cost |

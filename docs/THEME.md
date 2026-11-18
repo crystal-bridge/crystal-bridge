@@ -85,6 +85,8 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Summon** | a machine reached by SSH, named by you | See [Summons](./SUMMONS.md). The Classic theme says Machine. |
 | **Cast** | a job on a Summon | "Shiva is casting Video Upscaler!" It **landed**, **fizzled** or **was dispelled**. The Classic theme says Job. |
 | **Summoning Circle** | where a Kingdom's Summons are listed | A panel on the Castle. |
+| **Scout** | a scheduled job on a Kingdom that collects items | See [Scouts and Boards](./SCOUTS.md). "Your Scout returned with 4 findings." The Classic theme says Scheduled job, since it already calls a Cast a Job. |
+| **Board** | the page showing what a Scout found | Opened from the Castle's Boards. "3 new postings on the Quest Board." |
 | **Config** | settings | The app-bar gear menu. |
 
 ### Inventory
@@ -140,6 +142,10 @@ When a Quest starts a Cast, the chat says "You summoned Shiva!". In the Summonin
 Video Upscaler! 12/50", then **landed**, **fizzled**, **was dispelled** or "Shiva vanished!", each with the plain words as
 its tooltip. Words in `summonLine` and `castLine` (`apps/web/src/theme/words.ts`); Classic: "encode on render: Finished".
 
+A Board says what its Scout's last run brought back: "Your Scout returned with 4 findings.", or "returned empty-handed."
+The Castle counts what's new on each Board: "3 new postings on the Quest Board." (a name that doesn't end in Board gets
+the word). Words in `scoutReturnLine` and `postingsLine`; Classic: "Found 4 items" and "3 new on Quest Board".
+
 ### Stats
 
 HP, Stamina and MP bars drain in five colour steps, green when full through yellow and orange to red near empty
@@ -174,7 +180,7 @@ itself on old cards too. Stored turns keep the Time and Loot they were recorded 
 
 While the party leader works, the Party card names what it's doing with a word for that kind of step, picked per
 step from a small set: Heeding (reading your message), Pondering/Plotting (thinking), Scribing (writing a reply),
-Studying/Scouting (reading files), Forging/Inscribing (editing), Casting/Invoking (running a command),
+Studying/Perusing (reading files), Forging/Inscribing (editing), Casting/Invoking (running a command),
 Tracking/Hunting (searching), Scrying (the web), Rallying (sending out a subagent), Parleying (asking you),
 Charting (planning), Awaiting orders (waiting for you), Wielding (any other tool). The plain meaning is the tooltip.
 They live in `apps/web/src/theme/words.ts` (`stepWord`); the Classic theme uses plain verbs.

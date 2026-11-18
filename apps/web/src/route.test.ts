@@ -7,6 +7,7 @@ describe('route', () => {
     [{ page: 'castle', node: 'node-a' }, '#/k/node-a'],
     [{ page: 'new', node: 'node-a' }, '#/k/node-a/new'],
     [{ page: 'quest', node: 'node a/b', session: 'q-1' }, '#/k/node%20a%2Fb/q/q-1'],
+    [{ page: 'board', node: 'node-a', scout: 'quest-board' }, '#/k/node-a/b/quest-board'],
   ];
 
   it('writes where the user is as a hash, and reads it back', () => {
@@ -17,6 +18,7 @@ describe('route', () => {
   });
 
   it('reads nothing from an empty or unknown hash', () => {
-    for (const hash of ['', '#', '#/', '#/k', '#/k/a/zzz', '#/other', '#/k/a/q/']) expect(parseRoute(hash)).toBeNull();
+    for (const hash of ['', '#', '#/', '#/k', '#/k/a/zzz', '#/other', '#/k/a/q/', '#/k/a/b/'])
+      expect(parseRoute(hash)).toBeNull();
   });
 });

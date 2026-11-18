@@ -12,6 +12,7 @@ import {
 import type { ErrorListener, HubClient, ReplayProgress } from './hub.js';
 import {
   type Attachment,
+  type BoardItemState,
   Effort,
   type Engine,
   type Envelope,
@@ -68,6 +69,8 @@ import { FileOpenContext } from './components/markdown.js';
 import { sessionInfo } from './info.js';
 import { beltFor, withBelt } from './belt.js';
 import { useCircle } from './summons.js';
+import { changeBoardItems, runScoutNow, useBoard, useScouts } from './boards.js';
+import { BoardPage } from './components/Board.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { HotkeyList } from './components/HotkeyList.js';
@@ -193,8 +196,14 @@ export function App({ hub }: { hub: HubClient }) {
     document.documentElement.style.setProperty('--prompt-text', text);
   }, [appearance]);
   // The main view: the Airship (Home), or inside the active Kingdom its Castle, the New Quest form, or a Quest.
-  const [page, setPage] = useState<'airship' | 'castle' | 'new'>(() =>
-    startRoute?.page === 'airship' || startRoute?.page === 'new' ? startRoute.page : 'castle',
+  const [page, setPage] = useState<'airship' | 'castle' | 'new' | 'board'>(() =>
+    startRoute?.page === 'airship' || startRoute?.page === 'new' || startRoute?.page === 'board'
+      ? startRoute.page
+      : 'castle',
+  );
+  // The Scout whose Board is open, when the page is a Board.
+  const [boardScout, setBoardScout] = useState<string | null>(() =>
+    startRoute?.page === 'board' ? startRoute.scout : null,
   );
   // A folder New Quest starts with, when it was opened from one (the Castle's most-used folders).
   const [newCwd, setNewCwd] = useState<string | undefined>(undefined);
@@ -264,6 +273,13 @@ export function App({ hub }: { hub: HubClient }) {
   const kingdomFound = external.find((row) => row.node === active)?.sessions ?? EMPTY_FOUND;
   const kingdomProjects = projectLists.find((row) => row.node === active)?.projects ?? EMPTY_PROJECTS;
   const circle = useCircle(hub, active ?? undefined);
+  const scouts = useScouts(hub, active ?? undefined);
+  const openBoard = useBoard(hub, active ?? undefined, page === 'board' ? (boardScout ?? undefined) : undefined);
+  const changeItems = useCallback(
+    (ids: string[], state: BoardItemState, until?: number) =>
+      active && boardScout ? changeBoardItems(active, boardScout, ids, state, until) : Promise.resolve(),
+    [active, boardScout],
+  );
   // A session from another Kingdom (after a switch, or one just hidden) is never shown, nor any on the Airship.
   const shown =
     page === 'airship' || (selected !== null && sessions.some((s) => s.id === selected && s.node !== active))
@@ -1018,6 +1034,7 @@ export function App({ hub }: { hub: HubClient }) {
     else if (active && view === 'quest' && shown) route = { page: 'quest', node: active, session: shown };
     else if (active && view === 'new') route = { page: 'new', node: active };
     else if (active && view === 'castle') route = { page: 'castle', node: active };
+    else if (active && view === 'board' && boardScout) route = { page: 'board', node: active, scout: boardScout };
     if (!route) return;
     const hash = formatRoute(route);
     if (window.location.hash !== hash) {
@@ -1026,7 +1043,7 @@ export function App({ hub }: { hub: HubClient }) {
       else window.history.replaceState(null, '', url);
     }
     addressSet.current = true;
-  }, [view, active, shown]);
+  }, [view, active, shown, boardScout]);
   // And the view follows the address when something else changes it (a link, an edited address), as on a reload.
   const followRoute = useRef<(route: Route) => void>(() => {});
   followRoute.current = (route) => {
@@ -1036,7 +1053,8 @@ export function App({ hub }: { hub: HubClient }) {
     }
     if (prefs.hidden.includes(route.node)) return;
     updatePrefs((prev) => ({ ...prev, active: route.node }));
-    setPage(route.page === 'new' ? 'new' : 'castle');
+    setPage(route.page === 'new' || route.page === 'board' ? route.page : 'castle');
+    if (route.page === 'board') setBoardScout(route.scout);
     setSelected(route.page === 'quest' ? route.session : null);
   };
   useEffect(() => {
@@ -1172,7 +1190,7 @@ export function App({ hub }: { hub: HubClient }) {
             <QuestStrip
               castleName={kingdom.name}
               quests={tabs}
-              current={shown ?? page}
+              current={shown ?? (page === 'board' ? 'castle' : page)}
               waiting={waitingIds}
               heroes={heroManifest ? { manifest: heroManifest, states: heroStates } : undefined}
               onCastle={() => {
@@ -1315,6 +1333,19 @@ export function App({ hub }: { hub: HubClient }) {
               ) : (
                 questView(shown, envelopes, progress, true)
               )
+            ) : view === 'board' && boardScout ? (
+              <BoardPage
+                key={`${kingdom.id}:${boardScout}`}
+                kingdom={kingdom.name}
+                scout={scouts.find((scout) => scout.id === boardScout)}
+                board={openBoard.board}
+                missing={openBoard.missing}
+                failed={openBoard.failed}
+                now={now}
+                onChange={changeItems}
+                onRunNow={() => runScoutNow(kingdom.id, boardScout)}
+                onBack={() => setPage('castle')}
+              />
             ) : view === 'new' ? (
               <NewSession
                 key={`${kingdom.id}:${newCwd ?? ''}`}
@@ -1350,6 +1381,11 @@ export function App({ hub }: { hub: HubClient }) {
                 release={engineLists.find((row) => row.node === kingdom.id)?.release}
                 hubRelease={servedRelease}
                 circle={circle}
+                scouts={scouts}
+                onOpenBoard={(scout) => {
+                  setBoardScout(scout);
+                  setPage('board');
+                }}
                 garrison={
                   heroManifest
                     ? {

@@ -15,6 +15,9 @@ import { notSentLine } from './theme/words.js';
 
 export type HubStatus = 'connecting' | 'open' | 'closed';
 
+/** The frames that keep Boards current: a Kingdom's Scouts, a Board after a run, and items whose state changed. */
+export type BoardsFrame = Extract<HubToClient, { kind: 'scouts' | 'board' | 'board-items' }>;
+
 /** How far a session's history has loaded: events received of the replay's total, and whether it's complete. */
 export interface ReplayProgress {
   received: number;
@@ -70,6 +73,7 @@ export class HubClient {
   private readonly errorListeners = new Set<ErrorListener>();
   private readonly attentionListeners = new Set<(attention: Attention) => void>();
   private readonly castListeners = new Set<(node: string, cast: Cast) => void>();
+  private readonly boardListeners = new Set<(frame: BoardsFrame) => void>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
   private readonly reconnectListeners = new Set<() => void>();
   private readonly fileRequests = new Map<string, (reply: FileReply) => void>();
@@ -108,6 +112,12 @@ export class HubClient {
   onCast(listener: (node: string, cast: Cast) => void): () => void {
     this.castListeners.add(listener);
     return () => this.castListeners.delete(listener);
+  }
+
+  /** A Kingdom's Scouts or one of their Boards changed, on any Kingdom. */
+  onBoards(listener: (frame: BoardsFrame) => void): () => void {
+    this.boardListeners.add(listener);
+    return () => this.boardListeners.delete(listener);
   }
 
   /** The socket came back after a drop. Sessions catch up by themselves; anything else may have missed frames. */
@@ -344,6 +354,10 @@ export class HubClient {
     if (frame.data.kind === 'cast') {
       const { node, cast } = frame.data;
       for (const listener of this.castListeners) listener(node, cast);
+      return;
+    }
+    if (frame.data.kind === 'scouts' || frame.data.kind === 'board' || frame.data.kind === 'board-items') {
+      for (const listener of this.boardListeners) listener(frame.data);
       return;
     }
     if (frame.data.kind === 'appearance') {

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { levelFor } from '../levels.js';
 import { RECENT_MS } from '../quests.js';
@@ -35,6 +35,42 @@ function renderCastle(overrides: Partial<Parameters<typeof Castle>[0]> = {}) {
 
 describe('Castle', () => {
   afterEach(() => cleanup());
+
+  describe('Boards', () => {
+    const manifest = {
+      name: 'Quest Board',
+      schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+      collect: { command: ['./collect.sh'] },
+      view: 'list' as const,
+      actions: {},
+    };
+
+    it('lists each Scout’s Board with its new postings, and opens one', () => {
+      const props = renderCastle({
+        scouts: [
+          { id: 'quest-board', fresh: 3, manifest },
+          { id: 'mail', fresh: 0, manifest: { ...manifest, name: 'Mail' }, paused: 'Failed 3 times in a row.' },
+          { id: 'broken', fresh: 0, error: 'scout.json: not JSON' },
+        ],
+        onOpenBoard: vi.fn(),
+      });
+      const section = screen.getByRole('region', { name: 'Boards' });
+      expect(section.closest('.hidden.md\\:block')).not.toBeNull();
+      const buttons = within(section).getAllByRole('button');
+      expect(buttons.map((b) => b.textContent)).toEqual([
+        expect.stringContaining('3 new postings on the Quest Board.'),
+        expect.stringContaining('Paused'),
+        expect.stringContaining("scout.json doesn't load"),
+      ]);
+      fireEvent.click(buttons[0]!);
+      expect(props.onOpenBoard).toHaveBeenCalledWith('quest-board');
+    });
+
+    it('stays away on a Kingdom with no Scouts', () => {
+      renderCastle({ scouts: [], onOpenBoard: vi.fn() });
+      expect(screen.queryByRole('region', { name: 'Boards' })).toBeNull();
+    });
+  });
 
   describe('a Kingdom updating itself', () => {
     const update = (state: 'installing' | 'waiting' | 'restarting' | 'failed', reason?: string) => ({

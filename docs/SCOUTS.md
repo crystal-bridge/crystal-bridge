@@ -3,8 +3,9 @@
 A Scout rides out on a schedule, comes back with what it found, and posts it on a Board for you to act on.
 
 ::: warning Partly built
-This page is the agreed design. A Kingdom finds and runs Scouts on their schedules, and the hub stores what they
-find, but there are no Boards to show it yet, and no synthesis or actions. The work is tracked in the
+This page is the agreed design. A Kingdom finds and runs Scouts on their schedules, the hub stores what they
+find, and the app shows each Scout's Board with its link, snooze, done and dismiss buttons. Quest and run actions and
+the synthesis step aren't built yet. The work is tracked in the
 [v0.7 Scouts milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/9).
 :::
 
@@ -152,6 +153,21 @@ in your bank's site and press Done. A collector that issues one reminder each mo
 
 Gone items leave the Board and stay in a short history, so an item resolved elsewhere, such as a merged pull request,
 needs nothing from you.
+
+## Read the Board: what it shows
+
+The Castle lists a Kingdom's Boards, each with how many items are new, or why its Scout is paused or its `scout.json`
+doesn't load. A Board opens at its own address, `#/k/<kingdom>/b/<scout>`. Like the Summoning Circle, Boards show on wide
+screens only for now.
+
+- **The items** to act on, drawn in the Scout's `view`: a `list` under each `group`, a `checklist` whose box marks an
+  item done, or a `table` with a column per field. Opening the Board marks new items seen; their New mark stays until
+  you leave.
+- **The buttons** each item offers. A `link` opens its filled address in a new tab, and only a web address once
+  filled. A `snooze`, `done` or `dismiss` changes the item's state on every open Board.
+- **Folded away:** snoozed items, items set aside (done or dismissed), each with Bring back, and items gone lately.
+- **The Scout itself:** Run now, its schedule and next run, what its last run brought back, why it's paused, why its
+  `scout.json` doesn't load, and its recent runs with their outcome, timing, items, reason, the end of stderr and cost.
 
 ## Consult the oracle: the synthesis step
 

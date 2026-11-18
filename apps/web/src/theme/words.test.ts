@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { CLASSIC, CRYSTAL, helperLine, hint, stepWord, toolChip, useLine, w, castLine, summonLine } from './words.js';
+import {
+  CLASSIC,
+  CRYSTAL,
+  helperLine,
+  hint,
+  stepWord,
+  toolChip,
+  useLine,
+  w,
+  castLine,
+  summonLine,
+  postingsLine,
+  scoutReturnLine,
+} from './words.js';
 
 describe('theme words', () => {
   it('gives the themed word, and a hint with the plain term when they differ', () => {
@@ -139,5 +152,38 @@ describe('useLine', () => {
     for (const [file, source] of Object.entries(sources)) {
       expect(source, file).not.toMatch(/label="(Kingdom|Quest|Party|Hero)"/);
     }
+  });
+});
+
+describe('Scout and Board words', () => {
+  it('names Scouts and Boards, and Classic never reuses its word for a Cast', () => {
+    expect(hint('scout', CRYSTAL)).toBe('Scout (a scheduled job that collects items)');
+    expect(w('board', CRYSTAL)).toBe('Board');
+    expect(w('scouts', CLASSIC)).toBe('Scheduled jobs');
+    expect(w('scouts', CLASSIC)).not.toBe(w('casts', CLASSIC));
+  });
+
+  it('tells what a Scout brought back as a game line, with the plain words as the hint', () => {
+    expect(scoutReturnLine(4, CRYSTAL)).toEqual({
+      themed: 'Your Scout returned with 4 findings.',
+      plain: 'Found 4 items',
+    });
+    expect(scoutReturnLine(1, CRYSTAL).themed).toBe('Your Scout returned with 1 finding.');
+    expect(scoutReturnLine(0, CRYSTAL).themed).toBe('Your Scout returned empty-handed.');
+    expect(scoutReturnLine(4, CLASSIC).themed).toBe('Found 4 items');
+  });
+
+  it('keeps step words clear of Scout, which means a scheduled job', () => {
+    const read = [0, 1, 2, 3].map((seed) => stepWord('read', seed, CRYSTAL).themed);
+    expect(read.some((word) => /scout/i.test(word))).toBe(false);
+  });
+
+  it('counts new postings on a Board', () => {
+    expect(postingsLine(3, 'Quest Board', CRYSTAL)).toEqual({
+      themed: '3 new postings on the Quest Board.',
+      plain: '3 new on Quest Board',
+    });
+    expect(postingsLine(1, 'Mail', CRYSTAL).themed).toBe('1 new posting on the Mail Board.');
+    expect(postingsLine(3, 'Quest Board', CLASSIC).themed).toBe('3 new on Quest Board');
   });
 });
