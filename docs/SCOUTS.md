@@ -2,8 +2,9 @@
 
 A Scout rides out on a schedule, comes back with what it found, and posts it on a Board for you to act on.
 
-::: warning Not built yet
-This page is the agreed design. Nothing on it ships yet. The work is tracked in the
+::: warning Partly built
+This page is the agreed design. A Kingdom finds and runs Scouts on their schedules, and the hub stores what they
+find, but there are no Boards to show it yet, and no synthesis or actions. The work is tracked in the
 [v0.7 Scouts milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/9).
 :::
 
@@ -51,8 +52,9 @@ one reaches the other.
 ## Lay out the camp: a Scout's folder
 
 Each Scout is a folder under `~/.crystal-bridge/scouts/` on the Kingdom (`%USERPROFILE%\.crystal-bridge\scouts\` on
-Windows). Crystal reads the folder again when it changes, so adding or editing a Scout needs no restart. A Scout whose
-`scout.json` doesn't parse keeps its last good version and shows the error on its Board.
+Windows; `CRYSTAL_SCOUTS_DIR` moves it). Crystal reads the folder again every few seconds, so adding or editing a Scout
+needs no restart. A folder name must be lowercase letters, digits and dashes, since it's the Scout's id; other folders
+are left alone. A Scout whose `scout.json` doesn't load keeps its last good version and shows the error on its Board.
 
 ```
 ~/.crystal-bridge/scouts/quest-board/
@@ -66,8 +68,8 @@ Windows). Crystal reads the folder again when it changes, so adding or editing a
 
 Files first, so any harness, any editor or a Quest can write a Scout. An editor in the app may come later.
 
-This is a sketch of `scout.json`. The exact schema lands with the runner, in `packages/protocol`, so the Kingdom and the
-hub check the same thing:
+This is an example `scout.json`. The exact schema is `ScoutManifest` in `packages/protocol/src/scouts.ts`, so the Kingdom
+and the hub check the same thing:
 
 ```json
 {
@@ -120,9 +122,14 @@ prints one JSON document to stdout:
 - **`fields`** are free for templates and for display.
 - **`actions`** name keys from `scout.json`. An item with none gets the Scout's defaults.
 
-A non-zero exit, a timeout or output that doesn't parse marks the run as failed and leaves the Board as it was. Text on
-stderr goes into the run's record. The collector gets a few variables, such as `CRYSTAL_SCOUT_STATE` for the folder it
-may keep its own state in. It never gets the Kingdom's node token.
+A non-zero exit, a timeout or output that doesn't parse marks the run as failed and leaves the Board as it was. The end
+of stderr goes into the run's record. A collector has two minutes unless `collect.timeoutSeconds` says otherwise; at the
+timeout Crystal stops it and everything it started. The collector gets `CRYSTAL_SCOUT`, its Scout's id, and
+`CRYSTAL_SCOUT_STATE`, the Scout's `state` folder, which Crystal creates and never reads. It never gets the Kingdom's
+node token.
+
+The `command` runs directly, with no shell between, so a script needs its own `#!` line and execute permission. On
+Windows, name the interpreter: `["powershell", "-NoProfile", "-File", "collect.ps1"]`.
 
 Each run sends the whole list, never a change list. The hub compares it with the last one, so a collector stays simple
 and a missed run loses nothing.
@@ -194,9 +201,14 @@ instructions. The Quest's permission mode still applies, and a Scout's synthesis
 - **A missed run catches up once.** After a laptop sleeps through several, the Scout runs once when it wakes, not once
   per missed slot.
 - **No overlap.** A run that's due while the last one is still going is skipped and recorded as skipped.
-- **A fixed jitter per Scout**, so Scouts due at the same minute don't all start at once.
-- **Repeated failures pause the Scout.** After three failed runs in a row it stops and says so on its Board, until you
-  run it again by hand. A token that needs signing in again shows up this way.
+- **A fixed jitter per Scout**, under half a minute, so Scouts due at the same minute don't all start at once.
+- **A new Scout waits for its first time.** Adding one, or changing its schedule, doesn't run it at once: use Run now.
+- **Repeated failures pause the Scout.** After three failed runs in a row it stops and says so on its Board. Run now
+  still works, and the first run that succeeds puts it back on its schedule. A token that needs signing in again shows
+  up this way.
+
+Each Scout's next run and failure count are kept in `scouts-state.json` beside the scouts folder, so a pause and a
+missed run survive a restart. A run that ends while the hub is out of reach is sent when the Kingdom reconnects.
 
 ## Where it runs
 

@@ -68,10 +68,10 @@ describe('docs site', () => {
     assert.ok(run.includes("link: '/summons'"));
   });
 
-  it('files Scouts under running it, and says plainly it is a design until it ships', () => {
+  it('files Scouts under running it, and says plainly what of the design has not shipped', () => {
     const run = config.slice(config.indexOf("text: 'Run it'"), config.indexOf("text: 'Keep it safe'"));
     assert.ok(run.includes("link: '/scouts'"));
-    assert.match(readFileSync(join(DOCS, 'SCOUTS.md'), 'utf8'), /::: warning Not built yet/);
+    assert.match(readFileSync(join(DOCS, 'SCOUTS.md'), 'utf8'), /::: warning Partly built\n.*no Boards/s);
   });
 
   it('marks nothing that has shipped as planned', () => {

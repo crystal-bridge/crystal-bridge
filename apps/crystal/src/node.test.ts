@@ -391,6 +391,96 @@ describe('startNode', () => {
     });
   });
 
+  describe('Scouts', () => {
+    const scout = {
+      id: 'quest-board',
+      nextRunAt: 1,
+      manifest: {
+        name: 'Quest Board',
+        schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+        collect: { command: ['./collect.sh'] },
+        view: 'list' as const,
+        actions: { done: { kind: 'done' as const, label: 'Done' } },
+      },
+    };
+    const run = {
+      id: '33333333-3333-4333-8333-333333333333',
+      startedAt: 1,
+      finishedAt: 2,
+      trigger: 'schedule',
+      outcome: 'succeeded',
+      items: 1,
+    };
+    const items = [{ id: 'a', title: 'First' }];
+    const fakeScouts = (runNow = vi.fn()) => ({
+      list: () => [scout],
+      recent: () => [{ kind: 'scout-run' as const, scout: 'quest-board', run, items }],
+      runNow,
+    });
+
+    it('says in hello that it runs Scouts, only when it does', async () => {
+      createNode({});
+      const plain = await waitForFrame(await nextConnection(harness, 0), (frame) => frame.kind === 'hello');
+      expect(plain.scouts).toBeUndefined();
+      await node!.close();
+      createNode({ scouts: fakeScouts() });
+      const hello = await waitForFrame(await nextConnection(harness, 1), (frame) => frame.kind === 'hello');
+      expect(hello.scouts).toBe(true);
+    });
+
+    it('tells the hub its Scouts and their latest runs on each connect, so a run finished offline arrives', async () => {
+      createNode({ scouts: fakeScouts() });
+      const conn = await nextConnection(harness, 0);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scouts')).toEqual({
+        kind: 'scouts',
+        scouts: [scout],
+      });
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-run')).toEqual({
+        kind: 'scout-run',
+        scout: 'quest-board',
+        run,
+        items,
+      });
+    });
+
+    it('passes on changed Scouts and a finished run', async () => {
+      const crystal = createNode({});
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      crystal.reportScouts([scout]);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scouts')).toMatchObject({ scouts: [scout] });
+      crystal.reportScoutRun('quest-board', { ...run, outcome: 'failed', items: undefined }, undefined);
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-run')).toEqual({
+        kind: 'scout-run',
+        scout: 'quest-board',
+        run: { ...run, outcome: 'failed', items: undefined },
+      });
+    });
+
+    it('runs a Scout when the hub says Run now', async () => {
+      const runNow = vi.fn();
+      createNode({ scouts: fakeScouts(runNow) });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      conn.socket.send(JSON.stringify({ kind: 'scout-run-now', scout: 'quest-board' }));
+      await vi.waitFor(() => expect(runNow).toHaveBeenCalledWith('quest-board'));
+    });
+
+    it('answers an action it can’t carry out yet, so the Board isn’t left waiting', async () => {
+      createNode({ scouts: fakeScouts() });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const requestId = randomUUID();
+      conn.socket.send(JSON.stringify({ kind: 'scout-action', requestId, scout: 'quest-board', action: 'fix', items }));
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toEqual({
+        kind: 'scout-acted',
+        requestId,
+        ok: false,
+        reason: expect.stringMatching(/can't carry out/),
+      });
+    });
+  });
+
   describe('listing the Inventory before a Quest', () => {
     const REQUEST = '22222222-2222-4222-8222-222222222222';
     const ask = (conn: ConnRecorder, cwd?: string) =>

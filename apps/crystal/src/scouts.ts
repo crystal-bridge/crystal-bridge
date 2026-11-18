@@ -1,0 +1,588 @@
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { Cron } from 'croner';
+import {
+  MAX_SCOUT_STDERR,
+  ScoutId,
+  ScoutItems,
+  ScoutManifest,
+  type NodeScoutRun,
+  type Scout,
+  type ScoutItem,
+  type ScoutRun,
+} from '@crystal-bridge/protocol';
+
+/**
+ * Scouts (docs/SCOUTS.md): each folder under the Kingdom's scouts folder holds a `scout.json` and a collector. This
+ * module finds them, runs each collector on its schedule and hands every finished run to the hub link. It never reads
+ * a Scout's own state or any credential a collector uses.
+ */
+
+/** How long a collector may run when `scout.json` doesn't say. */
+export const DEFAULT_TIMEOUT_SECONDS = 120;
+/** Failed runs in a row that pause a Scout's schedule. */
+export const FAILURES_TO_PAUSE = 3;
+/** A due run found later than this was missed (the machine slept, or Crystal was down), so it runs as a catch-up. */
+export const CATCH_UP_AFTER_MS = 2 * 60_000;
+/** Runs kept per Scout to send again after a reconnect; the hub ignores one it already has. */
+export const RUNS_KEPT = 5;
+/** The most Scouts a Kingdom reports, as `NodeScouts` allows. */
+const MAX_SCOUTS = 100;
+/** How often the folder is read again and due runs started. A wall-clock check, so a sleep is noticed on waking. */
+const TICK_MS = 10_000;
+/** Jitter stays under this, so Scouts due at the same minute don't all start at once. */
+const MAX_JITTER_MS = 30_000;
+/** More than any list of `MAX_SCOUT_ITEMS` items needs. */
+const MAX_STDOUT = 32 * 1024 * 1024;
+/** How long a stopped collector gets to end before it's killed outright. */
+const KILL_GRACE_MS = 5_000;
+
+export interface CollectRequest {
+  cwd: string;
+  command: string[];
+  env: Record<string, string>;
+  timeoutMs: number;
+  /** Bytes of stdout allowed; default `MAX_STDOUT`. */
+  maxStdout?: number;
+}
+
+export type CollectResult =
+  | { kind: 'exited'; code: number | null; signal?: string | null; stdout: string; stderr: string }
+  | { kind: 'timed-out'; stderr: string }
+  | { kind: 'too-much'; stderr: string }
+  | { kind: 'not-started'; message: string };
+
+export interface Collector {
+  result: Promise<CollectResult>;
+  /** Ends it early, as when Crystal shuts down. */
+  stop(): void;
+}
+
+export interface ScoutsOptions {
+  /** The folder holding one folder per Scout. */
+  dir: string;
+  /** Where each Scout's next run and failure count are kept across restarts. */
+  statePath: string;
+  /** The environment collectors get: the sessions' login environment, which holds no node token. */
+  env: Record<string, string>;
+  /** Runs a collector; `spawnCollector` in production. */
+  collect?: (request: CollectRequest) => Collector;
+  now?: () => number;
+  /** The Scouts changed: their list, a definition, an error, a pause or a next run. */
+  onScouts(scouts: Scout[]): void;
+  /** A run ended; one that succeeded carries its whole list. */
+  onRun(scout: string, run: ScoutRun, items: ScoutItem[] | undefined): void;
+  log?: (line: string) => void;
+}
+
+export interface Scouts {
+  /** The Scouts as the hub should see them. */
+  list(): Scout[];
+  /** Each Scout's latest runs, oldest first, to send again after a reconnect. */
+  recent(): NodeScoutRun[];
+  /** Runs a Scout at once (the Board's Run now), or records a skip if it's already running. */
+  runNow(id: string): void;
+  /** Reads the folder again and starts any run that's due. Runs on a timer after `start`. */
+  tick(): Promise<void>;
+  /** Resolves once no collector is running. */
+  idle(): Promise<void>;
+  /** Ticks on a timer until `close`. */
+  start(): void;
+  /** Stops the timer and every running collector; their runs aren't reported. */
+  close(): void;
+}
+
+/** A fixed offset per Scout, from its id, so it's the same on every tick and every restart. */
+export function jitterOf(id: string): number {
+  let hash = 2166136261;
+  for (const char of id) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % MAX_JITTER_MS;
+}
+
+/** What's kept across restarts, per Scout. `schedule` is the cron and zone `next` was worked out for. */
+interface Saved {
+  schedule: string;
+  next?: number;
+  failures: number;
+  /** Why it paused, when it did. */
+  paused?: string;
+}
+
+interface Entry {
+  id: string;
+  /** The last `scout.json` that loaded. */
+  manifest?: ScoutManifest;
+  cron?: Cron;
+  /** The text last read, so an unchanged file isn't parsed again. */
+  text?: string;
+  error?: string;
+  saved?: Saved;
+  running?: Collector;
+  recent: NodeScoutRun[];
+}
+
+const scheduleKey = (manifest: ScoutManifest) => `${manifest.schedule.cron}|${manifest.schedule.timezone}`;
+
+/** The first problem zod found, as `path: message`. */
+function firstIssue(error: { issues: { path: PropertyKey[]; message: string }[] }): string {
+  const issue = error.issues[0];
+  if (!issue) return 'it doesn’t match';
+  const path = issue.path.map(String).join('.');
+  return path ? `${path}: ${issue.message}` : issue.message;
+}
+
+/** A cron that will come round, in a zone that exists, or why not. */
+function cronOf(manifest: ScoutManifest): Cron | string {
+  const { cron, timezone } = manifest.schedule;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone });
+  } catch {
+    return `schedule: "${timezone}" is no time zone this machine knows (try one like "America/Chicago")`;
+  }
+  let job: Cron;
+  try {
+    job = new Cron(cron.trim(), { timezone, paused: true, mode: '5-part' });
+  } catch (error) {
+    return `schedule: "${cron}" isn't a five-field cron: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  if (!job.nextRun()) return `schedule: "${cron}" never comes round`;
+  return job;
+}
+
+function tail(text: string, max = MAX_SCOUT_STDERR): string {
+  return text.length > max ? text.slice(-max) : text;
+}
+
+export function createScouts(options: ScoutsOptions): Scouts {
+  const { dir, statePath, env, onScouts, onRun } = options;
+  const now = options.now ?? Date.now;
+  const collect = options.collect ?? spawnCollector;
+  const log = options.log ?? ((line: string) => console.error(`[crystal:scouts] ${line}`));
+
+  const entries = new Map<string, Entry>();
+  const running = new Set<Promise<void>>();
+  let saved = readSaved();
+  let written = JSON.stringify(saved, null, 2);
+  let lastList: string | undefined;
+  let timer: NodeJS.Timeout | undefined;
+  let closed = false;
+  let ticking: Promise<void> | undefined;
+
+  function readSaved(): Record<string, Saved> {
+    try {
+      const parsed = JSON.parse(readFileSync(statePath, 'utf8')) as unknown;
+      return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, Saved>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Writes what's kept across restarts, when it changed. */
+  function save(): void {
+    saved = Object.fromEntries([...entries].flatMap(([id, entry]) => (entry.saved ? [[id, entry.saved]] : [])));
+    const json = JSON.stringify(saved, null, 2);
+    if (json === written) return;
+    try {
+      const temp = `${statePath}.${process.pid}.tmp`;
+      writeFileSync(temp, json);
+      renameSync(temp, statePath);
+      written = json;
+    } catch (error) {
+      log(`could not save the Scouts' schedule: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** The next time a Scout is due after `from`, jitter included. */
+  function nextAfter(entry: Entry, from: number): number | undefined {
+    const next = entry.cron?.nextRun(new Date(from));
+    return next ? next.getTime() + jitterOf(entry.id) : undefined;
+  }
+
+  function list(): Scout[] {
+    return [...entries.values()].map((entry) => {
+      const paused = entry.saved?.paused;
+      const nextRunAt = entry.manifest && !paused ? entry.saved?.next : undefined;
+      return {
+        id: entry.id,
+        ...(entry.manifest ? { manifest: entry.manifest } : {}),
+        ...(entry.error ? { error: entry.error } : {}),
+        ...(paused ? { paused } : {}),
+        ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+      };
+    });
+  }
+
+  function announce(): void {
+    const scouts = list();
+    const json = JSON.stringify(scouts);
+    if (json === lastList) return;
+    lastList = json;
+    onScouts(scouts);
+  }
+
+  /** Reads one Scout's `scout.json`, keeping the last good one when the new one doesn't load. */
+  function load(entry: Entry): void {
+    let text: string;
+    try {
+      text = readFileSync(join(dir, entry.id, 'scout.json'), 'utf8');
+    } catch {
+      entry.text = undefined;
+      entry.error = 'no scout.json in this folder yet';
+      return;
+    }
+    if (text === entry.text) return;
+    entry.text = text;
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
+      entry.error = `scout.json isn't JSON: ${error instanceof Error ? error.message : String(error)}`;
+      return;
+    }
+    const parsed = ScoutManifest.safeParse(json);
+    if (!parsed.success) {
+      entry.error = `scout.json: ${firstIssue(parsed.error)}`;
+      return;
+    }
+    const cron = cronOf(parsed.data);
+    if (typeof cron === 'string') {
+      entry.error = `scout.json: ${cron}`;
+      return;
+    }
+    entry.manifest = parsed.data;
+    entry.cron = cron;
+    entry.error = undefined;
+    const key = scheduleKey(parsed.data);
+    const kept = entry.saved ?? saved[entry.id];
+    if (kept && kept.schedule === key) {
+      entry.saved = kept;
+    } else {
+      // A new Scout, or a new schedule: it waits for its first time rather than running at once.
+      const next = nextAfter(entry, now());
+      entry.saved = {
+        schedule: key,
+        failures: kept?.failures ?? 0,
+        ...(kept?.paused ? { paused: kept.paused } : {}),
+        ...(next !== undefined ? { next } : {}),
+      };
+    }
+  }
+
+  function scan(): void {
+    let names: string[];
+    try {
+      names = readdirSync(dir, { withFileTypes: true })
+        .filter((dirent) => dirent.isDirectory() && ScoutId.safeParse(dirent.name).success)
+        .map((dirent) => dirent.name)
+        .sort();
+    } catch {
+      names = [];
+    }
+    if (names.length > MAX_SCOUTS) {
+      log(`found ${names.length} Scouts; only the first ${MAX_SCOUTS} by name are used`);
+      names = names.slice(0, MAX_SCOUTS);
+    }
+    for (const id of [...entries.keys()]) {
+      if (names.includes(id)) continue;
+      entries.get(id)?.running?.stop();
+      entries.delete(id);
+    }
+    const fresh = new Map<string, Entry>();
+    for (const id of names) {
+      const entry = entries.get(id) ?? { id, recent: [] };
+      load(entry);
+      fresh.set(id, entry);
+    }
+    entries.clear();
+    for (const [id, entry] of fresh) entries.set(id, entry);
+  }
+
+  function send(entry: Entry, run: ScoutRun, items?: ScoutItem[]): void {
+    entry.recent.push({ kind: 'scout-run', scout: entry.id, run, ...(items ? { items } : {}) } as NodeScoutRun);
+    if (entry.recent.length > RUNS_KEPT) entry.recent.splice(0, entry.recent.length - RUNS_KEPT);
+    onRun(entry.id, run, items);
+  }
+
+  function skip(entry: Entry, trigger: string): void {
+    const at = now();
+    send(entry, {
+      id: randomUUID(),
+      startedAt: at,
+      finishedAt: at,
+      trigger,
+      outcome: 'skipped',
+      reason: 'the last run was still running',
+    });
+  }
+
+  /** The run's outcome and items from what the collector did. */
+  function judge(
+    result: CollectResult,
+    timeoutMs: number,
+  ): { outcome: string; reason?: string; stderr?: string; items?: ScoutItem[] } {
+    const stderr = 'stderr' in result && result.stderr ? { stderr: tail(result.stderr) } : {};
+    switch (result.kind) {
+      case 'not-started':
+        return { outcome: 'failed', reason: `could not start the collector: ${result.message}` };
+      case 'timed-out':
+        return { outcome: 'timed-out', reason: `stopped after ${timeoutMs / 1000} s`, ...stderr };
+      case 'too-much':
+        return { outcome: 'failed', reason: `printed more than ${MAX_STDOUT / 1024 / 1024} MB`, ...stderr };
+      case 'exited': {
+        if (result.code !== 0) {
+          const how =
+            result.code === null ? `was killed by ${result.signal ?? 'a signal'}` : `exited with code ${result.code}`;
+          return { outcome: 'failed', reason: `the collector ${how}`, ...stderr };
+        }
+        let json: unknown;
+        try {
+          json = JSON.parse(result.stdout);
+        } catch (error) {
+          const why = error instanceof Error ? error.message : String(error);
+          return { outcome: 'failed', reason: `what the collector printed isn't JSON: ${why}`, ...stderr };
+        }
+        const parsed = ScoutItems.safeParse(json);
+        if (!parsed.success) {
+          return { outcome: 'failed', reason: `the collector's list: ${firstIssue(parsed.error)}`, ...stderr };
+        }
+        return { outcome: 'succeeded', items: parsed.data.items, ...stderr };
+      }
+    }
+  }
+
+  function begin(entry: Entry, trigger: string): void {
+    const manifest = entry.manifest!;
+    const startedAt = now();
+    const cwd = join(dir, entry.id);
+    const state = join(cwd, 'state');
+    const timeoutMs = (manifest.collect.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
+    try {
+      mkdirSync(state, { recursive: true });
+    } catch (error) {
+      log(`no state folder for ${entry.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const childEnv: Record<string, string> = { ...env, CRYSTAL_SCOUT: entry.id, CRYSTAL_SCOUT_STATE: state };
+    delete childEnv.CRYSTAL_TOKEN;
+    const collector = collect({ cwd, command: [...manifest.collect.command], env: childEnv, timeoutMs });
+    entry.running = collector;
+    const done = collector.result
+      .catch((error: unknown): CollectResult => ({ kind: 'not-started', message: String(error) }))
+      .then((result) => {
+        // Stopped by `close`, or its folder went: nobody is waiting for this run.
+        if (entry.running !== collector || closed) return;
+        entry.running = undefined;
+        if (entries.get(entry.id) !== entry) return;
+        const { items, ...verdict } = judge(result, timeoutMs);
+        const run: ScoutRun = {
+          id: randomUUID(),
+          startedAt,
+          finishedAt: now(),
+          trigger,
+          ...verdict,
+          ...(items ? { items: items.length } : {}),
+        };
+        settle(entry, run.outcome);
+        send(entry, run, items);
+        save();
+        announce();
+      })
+      .finally(() => running.delete(done));
+    running.add(done);
+  }
+
+  /** Counts failures, pausing or resuming the schedule. A skip changes nothing. */
+  function settle(entry: Entry, outcome: string): void {
+    const saved = entry.saved;
+    if (!saved || outcome === 'skipped') return;
+    if (outcome === 'succeeded') {
+      saved.failures = 0;
+      if (saved.paused) {
+        delete saved.paused;
+        const next = nextAfter(entry, now());
+        if (next !== undefined) saved.next = next;
+      }
+      return;
+    }
+    saved.failures += 1;
+    if (saved.failures >= FAILURES_TO_PAUSE && !saved.paused) {
+      saved.paused = `stopped after ${saved.failures} failed runs in a row: run it now to try again`;
+    }
+  }
+
+  function runNow(id: string): void {
+    const entry = entries.get(id);
+    if (!entry || closed) return;
+    if (!entry.manifest) {
+      const at = now();
+      send(entry, {
+        id: randomUUID(),
+        startedAt: at,
+        finishedAt: at,
+        trigger: 'now',
+        outcome: 'failed',
+        reason: entry.error ?? 'this Scout has no scout.json that loads',
+      });
+      return;
+    }
+    if (entry.running) return skip(entry, 'now');
+    begin(entry, 'now');
+  }
+
+  async function tick(): Promise<void> {
+    if (closed) return;
+    scan();
+    const at = now();
+    for (const entry of entries.values()) {
+      const saved = entry.saved;
+      if (!entry.manifest || !saved || saved.paused || saved.next === undefined || at < saved.next) continue;
+      const trigger = at - saved.next > CATCH_UP_AFTER_MS ? 'catch-up' : 'schedule';
+      const next = nextAfter(entry, at);
+      if (next === undefined) delete saved.next;
+      else saved.next = next;
+      if (entry.running) skip(entry, trigger);
+      else begin(entry, trigger);
+    }
+    save();
+    announce();
+  }
+
+  function loop(): void {
+    if (closed) return;
+    ticking = tick()
+      .catch((error: unknown) => log(`a tick failed: ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => {
+        ticking = undefined;
+        if (closed) return;
+        timer = setTimeout(loop, TICK_MS);
+        timer.unref?.();
+      });
+  }
+
+  return {
+    list,
+    recent: () => [...entries.values()].flatMap((entry) => entry.recent),
+    runNow,
+    tick,
+    async idle() {
+      await ticking;
+      while (running.size > 0) await Promise.all([...running]);
+    },
+    start() {
+      if (!timer && !ticking) loop();
+    },
+    close() {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      for (const entry of entries.values()) entry.running?.stop();
+    },
+  };
+}
+
+/**
+ * Runs a collector as Crystal's own user, in the Scout's folder. On POSIX it gets a process group of its own, so a
+ * timeout ends whatever a shell script started too. stdout is kept whole up to a cap; stderr only its end.
+ */
+export function spawnCollector(request: CollectRequest): Collector {
+  const { cwd, command, env, timeoutMs, maxStdout = MAX_STDOUT } = request;
+  const [file, ...args] = command;
+  const posix = process.platform !== 'win32';
+  let stop: () => void = () => {};
+
+  const result = new Promise<CollectResult>((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(file!, args, { cwd, env, detached: posix, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      resolve({ kind: 'not-started', message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    const stdout: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderr = '';
+    let ended: 'timed-out' | 'too-much' | undefined;
+    let settled = false;
+    let grace: NodeJS.Timeout | undefined;
+
+    const finish = (value: CollectResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(grace);
+      resolve(value);
+    };
+
+    const signal = (name: NodeJS.Signals) => {
+      try {
+        if (posix && child.pid) process.kill(-child.pid, name);
+        // Windows has no process groups: taskkill ends the tree under the collector.
+        else if (child.pid)
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on(
+            'error',
+            () => child.kill(),
+          );
+        else child.kill(name);
+      } catch {
+        // Already gone.
+      }
+    };
+
+    /** Asks politely, then kills the lot; a grandchild holding the pipes open can't keep the run going forever. */
+    const end = (why?: 'timed-out' | 'too-much') => {
+      ended ??= why;
+      signal('SIGTERM');
+      grace ??= setTimeout(() => {
+        signal('SIGKILL');
+        // The pipes may never close if something outside the group holds them.
+        grace = setTimeout(() => finishEnded(null, 'SIGKILL'), 1_000);
+        grace.unref?.();
+      }, KILL_GRACE_MS);
+      grace.unref?.();
+    };
+
+    const finishEnded = (code: number | null, sig: NodeJS.Signals | null) => {
+      if (ended) finish({ kind: ended, stderr: tail(stderr) });
+      else
+        finish({
+          kind: 'exited',
+          code,
+          signal: sig,
+          stdout: Buffer.concat(stdout).toString('utf8'),
+          stderr: tail(stderr),
+        });
+    };
+
+    const timer = setTimeout(() => end('timed-out'), timeoutMs);
+    timer.unref?.();
+    stop = () => end();
+
+    child.stdout!.on('data', (chunk: Buffer) => {
+      if (ended) return;
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > maxStdout) return end('too-much');
+      stdout.push(chunk);
+    });
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => {
+      stderr = tail(stderr + chunk);
+    });
+    child.on('error', (error) => finish({ kind: 'not-started', message: error.message }));
+    child.on('close', (code, sig) => {
+      // The leader is gone; anything it left behind in its group goes too.
+      if (posix && child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          // Nothing left.
+        }
+      }
+      finishEnded(code, sig);
+    });
+  });
+
+  return { result, stop: () => stop() };
+}
