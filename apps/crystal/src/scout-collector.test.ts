@@ -52,6 +52,27 @@ describe('spawnCollector', () => {
     expect(readFileSync(join(printed.cwd, 'collect.mjs'), 'utf8')).toContain('CRYSTAL_SCOUT_STATE');
   });
 
+  it('writes stdin to a script that asks for it, and copes with one that never reads it', async () => {
+    script(
+      'echo.mjs',
+      `let text = ''; process.stdin.on('data', (c) => (text += c)); process.stdin.on('end', () => process.stdout.write(text));`,
+    );
+    const items = JSON.stringify({ items: [{ id: 'a', title: 'A' }] });
+    const echoed = await spawnCollector({
+      cwd,
+      command: [NODE, 'echo.mjs'],
+      env: env(),
+      timeoutMs: 10_000,
+      stdin: items,
+    }).result;
+    expect(echoed).toMatchObject({ kind: 'exited', code: 0, stdout: items });
+    script('deaf.mjs', `process.exit(0)`);
+    const big = 'x'.repeat(4 * 1024 * 1024);
+    const deaf = await spawnCollector({ cwd, command: [NODE, 'deaf.mjs'], env: env(), timeoutMs: 10_000, stdin: big })
+      .result;
+    expect(deaf).toMatchObject({ kind: 'exited', code: 0 });
+  });
+
   it('reports the exit code of a collector that fails', async () => {
     script('fail.mjs', `process.exit(4)`);
     const { result } = spawnCollector({ cwd, command: [NODE, 'fail.mjs'], env: env(), timeoutMs: 10_000 });

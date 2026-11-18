@@ -29,8 +29,12 @@ import {
   NodeProjects,
   NodeHello,
   NodeSummons,
+  BoardAct,
   BoardItemsChange,
+  type HubScoutAction,
   type HubScoutRunNow,
+  NodeScoutActed,
+  ScoutItem,
   NodeScoutRun,
   NodeScouts,
   type Cast,
@@ -148,6 +152,8 @@ const FILE_TIMEOUT_MS = 15_000;
 const CLI_UPDATE_WAIT_MS = 6 * 60 * 1000;
 /** A Kingdom lists within 15 seconds or says it can't, so this only meets one that stopped answering. */
 const INVENTORY_WAIT_MS = 20_000;
+/** How long a Board's quest or run action waits for its Kingdom: a script there may take two minutes. */
+const SCOUT_ACTION_WAIT_MS = 150_000;
 
 /**
  * Sends an error and, for a refused WebSocket upgrade, closes the connection afterwards: an upgrade
@@ -404,6 +410,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const inventoryLists = new Map<
     string,
     { node: string; finish: (events: NodeInventoryListed['events'], error?: string) => void }
+  >();
+  // Board actions in flight, by request: only the asked node's answer ends one.
+  const scoutActs = new Map<
+    string,
+    { node: string; finish: (answer: { ok: boolean; reason?: string; session?: string }) => void }
   >();
   // Every connected client, for errors that aren't about one session.
   const clients = new Set<WebSocket>();
@@ -989,6 +1000,68 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     sendJson(socket, { kind: 'scout-run-now', scout } satisfies HubScoutRunNow);
     return reply.code(202).send();
   });
+  // A quest or run action: the Kingdom carries it out on the items as the hub stores them, never as a client sends them.
+  app.post('/api/nodes/:node/scouts/:scout/act', async (request, reply) => {
+    const { node, scout } = request.params as { node: string; scout: string };
+    const wanted = BoardAct.safeParse(request.body);
+    if (!wanted.success) return reply.code(400).send({ error: 'expected { action, ids }' });
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    const now = Date.now();
+    const listed = store.scouts(node, now).find((one) => one.id === scout);
+    if (!listed) return reply.code(404).send({ error: 'no such Scout on that Kingdom' });
+    if (!scoutNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    const manifest = listed.manifest;
+    const { action: key, ids } = wanted.data;
+    const action = manifest && Object.hasOwn(manifest.actions, key) ? manifest.actions[key] : undefined;
+    if (!manifest || !action) return reply.code(400).send({ error: `the Scout declares no action ${key}` });
+    if (action.kind !== 'quest' && action.kind !== 'run') {
+      return reply.code(400).send({ error: `the Board changes an item's state itself for ${action.label}` });
+    }
+    const unique = [...new Set(ids)];
+    const single = action.kind === 'quest' || !action.batch;
+    if (single && unique.length !== 1)
+      return reply.code(400).send({ error: `${action.label} takes one item at a time` });
+    const onBoard = new Map(
+      (store.board(node, scout, now)?.items ?? [])
+        .filter((item) => item.goneAt === undefined)
+        .map((item) => [item.id, item]),
+    );
+    const chosen = unique.map((id) => onBoard.get(id));
+    if (chosen.some((item) => item === undefined)) {
+      return reply.code(409).send({ error: 'some of these items are no longer on the Board' });
+    }
+    const items = chosen.map((item) => ScoutItem.parse(item));
+    if (!items.every((item) => (item.actions ?? manifest.defaults ?? []).includes(key))) {
+      return reply.code(400).send({ error: `not every item offers ${action.label}` });
+    }
+    const requestId = randomUUID();
+    const frame: HubScoutAction = { kind: 'scout-action', requestId, scout, action: key, items };
+    const answer = await new Promise<{ ok: boolean; reason?: string; session?: string }>((resolve) => {
+      const finish = (result: { ok: boolean; reason?: string; session?: string }) => {
+        clearTimeout(timer);
+        scoutActs.delete(requestId);
+        resolve(result);
+      };
+      const timer = setTimeout(
+        () => finish({ ok: false, reason: 'the Kingdom did not answer in time' }),
+        SCOUT_ACTION_WAIT_MS,
+      );
+      scoutActs.set(requestId, { node, finish });
+      sendJson(socket, frame);
+    });
+    if (!answer.ok) return reply.code(409).send({ error: answer.reason ?? 'the Kingdom could not do this' });
+    if (action.kind === 'run' && action.then) {
+      const state = action.then === 'done' ? 'done' : 'dismissed';
+      const changed = store.changeBoardItems(node, scout, { ids: unique, state }, Date.now());
+      if (changed.length > 0) {
+        for (const client of clients) sendToClient(client, { kind: 'board-items', node, scout, items: changed });
+        sendScouts(node);
+      }
+    }
+    return answer.session ? { session: answer.session } : {};
+  });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>
     [...engines]
@@ -1190,6 +1263,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           return;
         }
 
+        const acted = NodeScoutActed.safeParse(parsed);
+        if (acted.success) {
+          const waiting = scoutActs.get(acted.data.requestId);
+          if (waiting?.node !== helloNode) {
+            app.log.warn({ node: helloNode }, 'dropped a Board action answer nobody is waiting for from this node');
+            return;
+          }
+          const { ok, reason, session } = acted.data;
+          waiting.finish({ ok, ...(reason ? { reason } : {}), ...(session ? { session } : {}) });
+          return;
+        }
+
         const summonList = NodeSummons.safeParse(parsed);
         if (summonList.success) {
           summons.set(helloNode, summonList.data.summons);
@@ -1335,6 +1420,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           scoutNodes.delete(helloNode);
           for (const waiting of [...inventoryLists.values()]) {
             if (waiting.node === helloNode) waiting.finish(undefined, 'the Kingdom went offline');
+          }
+          for (const waiting of [...scoutActs.values()]) {
+            if (waiting.node === helloNode) waiting.finish({ ok: false, reason: 'the Kingdom went offline' });
           }
         }
       });

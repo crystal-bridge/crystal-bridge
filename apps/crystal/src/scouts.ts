@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, relative, resolve, isAbsolute } from 'node:path';
 import { Cron } from 'croner';
 import { z } from 'zod';
 import {
@@ -9,11 +10,15 @@ import {
   ScoutId,
   ScoutItems,
   ScoutManifest,
+  type HubScoutAction,
   type NodeScoutRun,
+  type PermissionMode,
   type Scout,
   type ScoutItem,
+  type ScoutLink,
   type ScoutRun,
 } from '@crystal-bridge/protocol';
+import { projectFor, questPrompt } from './scout-actions.js';
 
 /**
  * Scouts (docs/SCOUTS.md): each folder under the Kingdom's scouts folder holds a `scout.json` and a collector. This
@@ -43,6 +48,12 @@ const KILL_GRACE_MS = 5_000;
 const PIPE_GRACE_MS = 2_000;
 /** As `ScoutRun.reason` allows. */
 const MAX_REASON = 2000;
+/** How long a `run` action's script may take. The hub waits a little longer for the answer. */
+export const ACTION_TIMEOUT_SECONDS = 120;
+/** The largest prompt template a `quest` action reads. */
+const MAX_PROMPT_BYTES = 64 * 1024;
+/** What a `run` action's script may print; nobody reads it. */
+const MAX_ACTION_STDOUT = 1024 * 1024;
 
 export interface CollectRequest {
   cwd: string;
@@ -51,6 +62,8 @@ export interface CollectRequest {
   timeoutMs: number;
   /** Bytes of stdout allowed; default `MAX_STDOUT`. */
   maxStdout?: number;
+  /** Written to its stdin, which is then closed; unset gives it no stdin. */
+  stdin?: string;
 }
 
 export type CollectResult =
@@ -65,9 +78,24 @@ export interface Collector {
   stop(): void;
 }
 
+/** A Quest a `quest` action asks for, started the way New Quest starts one. */
+export interface QuestStart {
+  cwd: string;
+  prompt: string;
+  mode?: PermissionMode;
+  worktree?: boolean;
+  /** The item it came from, so the Quest links back to it. */
+  from: ScoutLink;
+}
+
+/** How an action went; `session` is the Quest a `quest` action started. */
+export type ActResult = { ok: true; session?: string } | { ok: false; reason: string };
+
 export interface ScoutsOptions {
   /** The folder holding one folder per Scout. */
   dir: string;
+  /** Where `~` in a `quest` action's project points; default the user's home folder. */
+  home?: string;
   /** Where each Scout's next run and failure count are kept across restarts. */
   statePath: string;
   /** The environment collectors get: the sessions' login environment, which holds no node token. */
@@ -89,6 +117,8 @@ export interface Scouts {
   recent(): NodeScoutRun[];
   /** Runs a Scout at once (the Board's Run now), or records a skip if it's already running. */
   runNow(id: string): void;
+  /** Carries out a `quest` or `run` action on items the hub sent, starting a Quest through `startQuest`. */
+  act(request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
   /** Reads the folder again and starts any run that's due. Runs on a timer after `start`. */
   tick(): Promise<void>;
   /** Resolves once no collector is running. */
@@ -171,12 +201,15 @@ function tail(text: string, max = MAX_SCOUT_STDERR): string {
 
 export function createScouts(options: ScoutsOptions): Scouts {
   const { dir, statePath, env, onScouts, onRun } = options;
+  const home = options.home ?? homedir();
   const now = options.now ?? Date.now;
   const collect = options.collect ?? spawnCollector;
   const log = options.log ?? ((line: string) => console.error(`[crystal:scouts] ${line}`));
 
   const entries = new Map<string, Entry>();
   const running = new Set<Promise<void>>();
+  // Scripts `run` actions started, stopped by `close` like collectors.
+  const acting = new Set<Collector>();
   let saved = readSaved();
   let written = JSON.stringify(saved, null, 2);
   let lastList: string | undefined;
@@ -393,6 +426,13 @@ export function createScouts(options: ScoutsOptions): Scouts {
     }
   }
 
+  /** What a Scout's scripts get: the login environment, the Scout's id and state folder, and never the node token. */
+  function scriptEnv(id: string, state: string, extra: Record<string, string> = {}): Record<string, string> {
+    const childEnv: Record<string, string> = { ...env, CRYSTAL_SCOUT: id, CRYSTAL_SCOUT_STATE: state, ...extra };
+    delete childEnv.CRYSTAL_TOKEN;
+    return childEnv;
+  }
+
   function begin(entry: Entry, trigger: string): void {
     const manifest = entry.manifest!;
     const startedAt = now();
@@ -405,8 +445,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
     } catch (error) {
       log(`no state folder for ${entry.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const childEnv: Record<string, string> = { ...env, CRYSTAL_SCOUT: entry.id, CRYSTAL_SCOUT_STATE: state };
-    delete childEnv.CRYSTAL_TOKEN;
+    const childEnv = scriptEnv(entry.id, state);
     const collector = collect({ cwd, command: [...manifest.collect.command], env: childEnv, timeoutMs });
     entry.running = collector;
     const done = collector.result
@@ -473,6 +512,102 @@ export function createScouts(options: ScoutsOptions): Scouts {
     begin(entry, 'now');
   }
 
+  /** A file named in `scout.json`, read only from inside the Scout's own folder. */
+  function scoutFile(id: string, name: string): string | { reason: string } {
+    const folder = join(dir, id);
+    const path = resolve(folder, name);
+    const inside = relative(folder, path);
+    if (!inside || inside.startsWith('..') || isAbsolute(inside)) {
+      return { reason: `${name} isn't inside the Scout's folder` };
+    }
+    try {
+      if (statSync(path).size > MAX_PROMPT_BYTES) return { reason: `${name} is over ${MAX_PROMPT_BYTES / 1024} KB` };
+      return readFileSync(path, 'utf8');
+    } catch {
+      return { reason: `can't read ${name} in the Scout's folder` };
+    }
+  }
+
+  function runScript(entry: Entry, key: string, command: string[], items: readonly ScoutItem[]): Promise<ActResult> {
+    const cwd = join(dir, entry.id);
+    const state = join(cwd, 'state');
+    const timeoutMs = ACTION_TIMEOUT_SECONDS * 1000;
+    try {
+      mkdirSync(state, { recursive: true, mode: 0o700 });
+    } catch (error) {
+      log(`no state folder for ${entry.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const script = collect({
+      cwd,
+      command,
+      env: scriptEnv(entry.id, state, { CRYSTAL_SCOUT_ACTION: key }),
+      timeoutMs,
+      maxStdout: MAX_ACTION_STDOUT,
+      stdin: JSON.stringify({ scout: entry.id, action: key, items }),
+    });
+    acting.add(script);
+    const answer = script.result
+      .catch((error: unknown): CollectResult => ({ kind: 'not-started', message: String(error) }))
+      .then((result): ActResult => {
+        const stderr = 'stderr' in result && result.stderr.trim() ? `: ${tail(result.stderr.trim(), 500)}` : '';
+        switch (result.kind) {
+          case 'not-started':
+            return { ok: false, reason: `could not start the script: ${result.message}` };
+          case 'timed-out':
+            return { ok: false, reason: `the script was stopped after ${ACTION_TIMEOUT_SECONDS} s${stderr}` };
+          case 'too-much':
+            return { ok: false, reason: `the script printed too much${stderr}` };
+          case 'exited':
+            if (result.code === 0) return { ok: true };
+            return {
+              ok: false,
+              reason: `the script ${result.code === null ? `was killed by ${result.signal ?? 'a signal'}` : `exited with code ${result.code}`}${stderr}`,
+            };
+        }
+      })
+      .finally(() => acting.delete(script));
+    const done = answer.then(() => {});
+    running.add(done);
+    void done.finally(() => running.delete(done));
+    return answer;
+  }
+
+  async function act(
+    request: HubScoutAction,
+    startQuest: (start: QuestStart) => Promise<ActResult>,
+  ): Promise<ActResult> {
+    const refuse = (reason: string): ActResult => ({ ok: false, reason });
+    if (closed) return refuse('this Kingdom is shutting down');
+    const entry = entries.get(request.scout);
+    const manifest = entry?.manifest;
+    if (!entry || !manifest) return refuse(`this Kingdom has no Scout ${request.scout} that loads`);
+    const action = Object.hasOwn(manifest.actions, request.action) ? manifest.actions[request.action] : undefined;
+    if (!action) return refuse(`the Scout declares no action ${request.action}`);
+    // The hub checks this too; a Kingdom doesn't take its word for it.
+    const offered = (item: ScoutItem) => (item.actions ?? manifest.defaults ?? []).includes(request.action);
+    if (!request.items.every(offered)) return refuse(`not every item offers ${action.label}`);
+    if (action.kind === 'quest') {
+      if (request.items.length !== 1) return refuse('a Quest starts from one item at a time');
+      const item = request.items[0]!;
+      const instructions = scoutFile(entry.id, action.prompt);
+      if (typeof instructions !== 'string') return refuse(instructions.reason);
+      const project = projectFor(action.project, item, home);
+      if ('reason' in project) return refuse(project.reason);
+      return startQuest({
+        cwd: project.cwd,
+        prompt: questPrompt(instructions, manifest.name, item),
+        ...(action.mode ? { mode: action.mode } : {}),
+        ...(action.worktree ? { worktree: true } : {}),
+        from: { scout: entry.id, item: item.id, title: item.title },
+      });
+    }
+    if (action.kind === 'run') {
+      if (!action.batch && request.items.length !== 1) return refuse(`${action.label} takes one item at a time`);
+      return runScript(entry, request.action, [...action.command], request.items);
+    }
+    return refuse(`the hub carries out ${action.kind} itself`);
+  }
+
   async function tick(): Promise<void> {
     if (closed) return;
     scan();
@@ -510,6 +645,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
         entry.listed && !entry.recent.includes(entry.listed) ? [entry.listed, ...entry.recent] : entry.recent,
       ),
     runNow,
+    act,
     tick,
     async idle() {
       await ticking;
@@ -522,6 +658,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
       closed = true;
       if (timer) clearTimeout(timer);
       for (const entry of entries.values()) entry.running?.stop();
+      for (const script of acting) script.stop();
       // Waits, so a collector that ignores the polite stop is killed before Crystal exits rather than outliving it.
       let cap: NodeJS.Timeout | undefined;
       const capped = new Promise<void>((resolve) => (cap = setTimeout(resolve, KILL_GRACE_MS + PIPE_GRACE_MS)));
@@ -536,7 +673,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
  * timeout ends whatever a shell script started too. stdout is kept whole up to a cap; stderr only its end.
  */
 export function spawnCollector(request: CollectRequest): Collector {
-  const { cwd, command, env, timeoutMs, maxStdout = MAX_STDOUT } = request;
+  const { cwd, command, env, timeoutMs, maxStdout = MAX_STDOUT, stdin } = request;
   const [file, ...args] = command;
   const posix = process.platform !== 'win32';
   let stop: () => void = () => {};
@@ -544,7 +681,13 @@ export function spawnCollector(request: CollectRequest): Collector {
   const result = new Promise<CollectResult>((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(file!, args, { cwd, env, detached: posix, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(file!, args, {
+        cwd,
+        env,
+        detached: posix,
+        windowsHide: true,
+        stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      });
     } catch (error) {
       resolve({ kind: 'not-started', message: error instanceof Error ? error.message : String(error) });
       return;
@@ -607,6 +750,12 @@ export function spawnCollector(request: CollectRequest): Collector {
     const timer = setTimeout(() => end('timed-out'), timeoutMs);
     timer.unref?.();
     stop = () => end();
+
+    if (stdin !== undefined && child.stdin) {
+      // A script that never reads its stdin closes the pipe early; that's its business, not an error here.
+      child.stdin.on('error', () => {});
+      child.stdin.end(stdin);
+    }
 
     child.stdout!.on('data', (chunk: Buffer) => {
       if (ended) return;

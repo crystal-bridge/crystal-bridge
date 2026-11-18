@@ -73,8 +73,9 @@ describe('docs site', () => {
     assert.ok(run.includes("link: '/scouts'"));
     const scouts = readFileSync(join(DOCS, 'SCOUTS.md'), 'utf8');
     const warning = scouts.slice(scouts.indexOf('::: warning Partly built'), scouts.indexOf(':::\n', 10));
-    assert.match(warning, /Quest and run actions\s+and\s+the synthesis step aren't built yet/);
+    assert.match(warning, /The synthesis step isn't built yet/);
     assert.doesNotMatch(warning, /no Boards/);
+    assert.doesNotMatch(warning, /Quest and run actions/);
   });
 
   it('marks nothing that has shipped as planned', () => {

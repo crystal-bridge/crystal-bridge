@@ -13,6 +13,8 @@ const manifest: ScoutManifest = {
     later: { kind: 'snooze', label: 'Later', for: '1d' },
     done: { kind: 'done', label: 'Done' },
     drop: { kind: 'dismiss', label: 'Not mine' },
+    fix: { kind: 'quest', label: 'Fix it', project: '~/code/repo', prompt: 'fix.md' },
+    archive: { kind: 'run', label: 'Archive', command: ['./act.sh'], batch: true, confirm: true },
   },
   defaults: ['open', 'later', 'done', 'drop'],
 };
@@ -47,6 +49,8 @@ function show(props: Partial<BoardPageProps> & { items?: BoardItem[]; runs?: Sco
   const scout: ListedScout = { id: 'quest-board', fresh: 1, manifest, lastRun: runs[0] };
   const onChange = vi.fn(async () => {});
   const onRunNow = vi.fn(async () => {});
+  const onAct = vi.fn(async (_action: string, _ids: string[]): Promise<{ session?: string }> => ({}));
+  const onOpenQuest = vi.fn();
   const onBack = vi.fn();
   const view = render(
     <BoardPage
@@ -57,11 +61,13 @@ function show(props: Partial<BoardPageProps> & { items?: BoardItem[]; runs?: Sco
       now={NOW}
       onChange={onChange}
       onRunNow={onRunNow}
+      onAct={onAct}
+      onOpenQuest={onOpenQuest}
       onBack={onBack}
       {...rest}
     />,
   );
-  return { ...view, onChange, onRunNow, onBack, board, scout };
+  return { ...view, onChange, onRunNow, onAct, onOpenQuest, onBack, board, scout };
 }
 
 describe('BoardPage', () => {
@@ -102,6 +108,8 @@ describe('BoardPage', () => {
         now={NOW}
         onChange={onChange}
         onRunNow={vi.fn()}
+        onAct={vi.fn()}
+        onOpenQuest={vi.fn()}
         onBack={vi.fn()}
       />,
     );
@@ -169,6 +177,60 @@ describe('BoardPage', () => {
     ).toEqual(['Item', 'repo', 'checks', 'draft', '']);
     expect(within(table).getByRole('cell', { name: 'failing' })).toBeTruthy();
     expect(within(table).getByRole('cell', { name: 'no' })).toBeTruthy();
+  });
+
+  it('starts the Quest an item offers, and opens it', async () => {
+    const { onAct, onOpenQuest } = show({ items: [item({ state: 'seen', actions: ['fix', 'done'] })] });
+    onAct.mockResolvedValueOnce({ session: 'quest-1' });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Fix it' }));
+    });
+    expect(onAct).toHaveBeenCalledWith('fix', ['1']);
+    expect(onOpenQuest).toHaveBeenCalledWith('quest-1');
+  });
+
+  it('shows why a Kingdom refused an action, and lets it be pressed again', async () => {
+    const { onAct } = show({ items: [item({ state: 'seen', actions: ['fix'] })] });
+    onAct.mockRejectedValueOnce(new Error('no such project folder: ~/code/repo'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Fix it' }));
+    });
+    expect(screen.getByRole('alert').textContent).toContain('no such project folder');
+    expect((screen.getByRole('button', { name: 'Fix it' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('asks before an action that wants confirming, and runs it only on yes', async () => {
+    const { onAct } = show({ items: [item({ state: 'seen', actions: ['archive'] })] });
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    expect(onAct).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onAct).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Yes, Archive' }));
+    });
+    expect(onAct).toHaveBeenCalledWith('archive', ['1']);
+  });
+
+  it('offers a batch action once for a group, on every item in it that offers it', async () => {
+    const { onAct } = show({
+      items: [
+        item({ state: 'seen', actions: ['archive'] }),
+        item({ id: '2', state: 'seen', title: 'Second', actions: ['archive'] }),
+      ],
+    });
+    const group = screen.getByRole('region', { name: 'Needs a fix' });
+    fireEvent.click(within(group).getByRole('button', { name: 'Archive all 2' }));
+    await act(async () => {
+      fireEvent.click(within(group).getByRole('button', { name: 'Yes, Archive all 2' }));
+    });
+    expect(onAct).toHaveBeenCalledWith('archive', ['1', '2']);
+  });
+
+  it('highlights the action suggested for an item', () => {
+    show({ items: [item({ state: 'seen', actions: ['fix', 'done'], suggested: 'fix' })] });
+    expect(screen.getByRole('button', { name: 'Fix it' }).getAttribute('title')).toBe('Suggested');
+    expect(screen.getByRole('button', { name: 'Done' }).getAttribute('title')).toBeNull();
   });
 
   it('runs the Scout now, and shows why the hub refused', async () => {
@@ -249,6 +311,8 @@ describe('BoardPage', () => {
           now={now}
           onChange={onChange}
           onRunNow={vi.fn()}
+          onAct={vi.fn()}
+          onOpenQuest={vi.fn()}
           onBack={vi.fn()}
         />,
       );

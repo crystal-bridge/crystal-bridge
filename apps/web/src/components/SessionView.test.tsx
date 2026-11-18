@@ -490,6 +490,43 @@ describe('SessionView forking', () => {
   });
 });
 
+describe('SessionView from a Board', () => {
+  afterEach(() => cleanup());
+
+  it('links a Quest a Board started back to that Board, by the item’s title', () => {
+    const onOpenBoard = vi.fn();
+    const scout = { scout: 'quest-board', item: 'github:pr:owner/repo#1', title: 'Fix the retry loop' };
+    render(
+      <SessionView
+        envelopes={[envelope(0, 'session.started', { cwd: '/w', prompt: 'p', label: 'p', scout })]}
+        onAnswer={vi.fn()}
+        onSend={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMode={vi.fn()}
+        onOpenBoard={onOpenBoard}
+        subscribeErrors={() => () => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'From Fix the retry loop' }));
+    expect(onOpenBoard).toHaveBeenCalledWith('quest-board');
+  });
+
+  it('shows no link for a link it can’t read', () => {
+    render(
+      <SessionView
+        envelopes={[envelope(0, 'session.started', { cwd: '/w', prompt: 'p', label: 'p', scout: { scout: '../x' } })]}
+        onAnswer={vi.fn()}
+        onSend={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMode={vi.fn()}
+        onOpenBoard={vi.fn()}
+        subscribeErrors={() => () => {}}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /^From / })).toBeNull();
+  });
+});
+
 describe('SessionView inventory', () => {
   afterEach(() => {
     cleanup();

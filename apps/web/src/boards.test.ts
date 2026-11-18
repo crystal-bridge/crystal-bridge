@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoardsFrame, HubClient } from './hub.js';
 import {
   actionsFor,
+  batchesFor,
   boardSections,
   linkFor,
   snoozeUntil,
@@ -74,12 +75,38 @@ describe('actionsFor', () => {
     expect(actionsFor(item(), { ...manifest, defaults: undefined })).toEqual([]);
   });
 
-  it('leaves out the actions a Kingdom carries out until the Board can send them', () => {
+  it('includes the actions a Kingdom carries out', () => {
     const withQuest: ScoutManifest = {
       ...manifest,
       actions: { ...manifest.actions, fix: { kind: 'quest', label: 'Fix', project: '~/code/r', prompt: 'fix.md' } },
     };
-    expect(actionsFor(item({ actions: ['fix', 'done'] }), withQuest).map((a) => a.key)).toEqual(['done']);
+    expect(actionsFor(item({ actions: ['fix', 'done'] }), withQuest).map((a) => a.key)).toEqual(['fix', 'done']);
+  });
+});
+
+describe('batchesFor', () => {
+  const batching: ScoutManifest = {
+    ...manifest,
+    actions: {
+      ...manifest.actions,
+      archive: { kind: 'run', label: 'Archive', command: ['./act.sh'], batch: true },
+      tidy: { kind: 'run', label: 'Tidy', command: ['./act.sh'] },
+    },
+  };
+
+  it('offers a batch action once for the items that offer it, when there are several', () => {
+    const items = [
+      item({ id: 'a', actions: ['archive', 'tidy'] }),
+      item({ id: 'b', actions: ['archive', 'tidy'] }),
+      item({ id: 'c', actions: ['done'] }),
+    ];
+    expect(batchesFor(items, batching)).toEqual([
+      { key: 'archive', action: batching.actions.archive, ids: ['a', 'b'] },
+    ]);
+  });
+
+  it('offers nothing for a single item, which has its own button', () => {
+    expect(batchesFor([item({ actions: ['archive'] })], batching)).toEqual([]);
   });
 });
 

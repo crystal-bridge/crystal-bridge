@@ -4,8 +4,8 @@ A Scout rides out on a schedule, comes back with what it found, and posts it on 
 
 ::: warning Partly built
 This page is the agreed design. A Kingdom finds and runs Scouts on their schedules, the hub stores what they
-find, and the app shows each Scout's Board with its link, snooze, done and dismiss buttons. Quest and run actions and
-the synthesis step aren't built yet. The work is tracked in the
+find, and the app shows each Scout's Board with a button for every action. The synthesis step isn't built yet. The
+work is tracked in the
 [v0.7 Scouts milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/9).
 :::
 
@@ -122,6 +122,8 @@ prints one JSON document to stdout:
 - **`group`** sorts items into sections on the Board.
 - **`fields`** are free for templates and for display.
 - **`actions`** name keys from `scout.json`. An item with none gets the Scout's defaults.
+- **`suggested`** names one of those actions, which the Board draws as the highlighted button. A collector can set it,
+  and the synthesis step will. It never runs anything by itself.
 
 A non-zero exit, a timeout or output that doesn't parse marks the run as failed and leaves the Board as it was. The end
 of stderr goes into the run's record, which the hub stores and shows, so a collector must not print a secret there. A collector has two minutes unless `collect.timeoutSeconds` says otherwise; at the
@@ -164,7 +166,10 @@ screens only for now.
   item done, or a `table` with a column per field. Opening the Board marks new items seen; their New mark stays until
   you leave.
 - **The buttons** each item offers. A `link` opens its filled address in a new tab, and only a web address once
-  filled. A `snooze`, `done` or `dismiss` changes the item's state on every open Board.
+  filled. A `snooze`, `done` or `dismiss` changes the item's state on every open Board. A `quest` or `run` goes to the
+  Kingdom, and its button stays disabled until the Kingdom answers. A Quest it starts opens, and a refusal shows why.
+- **A batch button** above a group, such as "Archive all 12", for a `run` action with `batch` that several of the
+  group's items offer. An action with `confirm` asks "Yes, Archive" in place before it goes.
 - **Folded away:** snoozed items, items set aside (done or dismissed), each with Bring back, and items gone lately.
 - **The Scout itself:** Run now, its schedule and next run, what its last run brought back, why it's paused, why its
   `scout.json` doesn't load, and its recent runs with their outcome, timing, items, reason, the end of stderr and cost.
@@ -203,12 +208,35 @@ plan usage. A Scout that ran synthesis every 15 minutes regardless would spend a
 A `run` action can take several items at once, so "archive these 12" is one press. On success it can mark its items done
 or dismissed, as the action says.
 
-**The Kingdom starts the Quest.** A `quest` action goes to the Kingdom, which fills the template from the item and
-starts the Quest the same way New Quest does. It then appears in the app like any other Quest, with the item linked.
+The hub sends a `quest` or `run` action to the Kingdom with the items as the hub stores them, never as a browser sends
+them. An item the collector no longer lists can't be acted on, and both the hub and the Kingdom check that each item
+offers the action.
+
+**The Kingdom starts the Quest.** A `quest` action starts one Quest from one item, the same way New Quest does: in
+the action's `project`, with its `mode` and, when `worktree` is set, in a worktree of its own. It then appears in the
+app like any other Quest, and its header shows "From" and the item's title, which opens the Board.
+
+- **`prompt`** names a file in the Scout's folder, read as it is. Its <code v-pre>{{...}}</code> placeholders are not filled: your
+  instructions say "the item below", and the item follows them.
+- **`project`** is filled from the item, such as <code v-pre>{{fields.checkout}}</code>. Once filled, it must be a full path or start
+  with `~/`, must not contain `..`, and must be a folder that exists. Otherwise the Quest doesn't start, and the Board
+  says why.
 
 **Item text is untrusted.** A pull request comment or an email body is written by someone else, and may be written to
-steer an agent. A template puts the item's text in a block the prompt marks as untrusted input, apart from your own
-instructions. The Quest's permission mode still applies, and a Scout's synthesis step has no tools at all.
+steer an agent. So the Quest's prompt is your template, then a line saying the item is untrusted data, then the item
+as JSON between `<untrusted-item>` and `</untrusted-item>`. Every `<` inside the JSON is escaped, so the item can't
+close the block early. The Quest's permission mode still applies, and a Scout's synthesis step has no tools at all.
+
+**A script gets the items on stdin.** A `run` action's `command` runs in the Scout's folder, with no shell between, like
+a collector. It gets `CRYSTAL_SCOUT`, `CRYSTAL_SCOUT_STATE` and `CRYSTAL_SCOUT_ACTION`, the action's key, and reads
+one JSON document on stdin:
+
+```json
+{ "scout": "mail", "action": "archive", "items": [{ "id": "msg:1", "title": "Weekly digest" }] }
+```
+
+Exit 0 means it worked, and `then` marks the items `done` or `dismissed`. Any other exit leaves them as they were and
+shows the code and the end of stderr on the Board. A script has two minutes. What it prints to stdout is ignored, up to 1 MB; more than that fails the action.
 
 ## Keep the watch: schedules
 

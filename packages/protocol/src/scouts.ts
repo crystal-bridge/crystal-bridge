@@ -121,6 +121,8 @@ export const ScoutItem = z.object({
     .refine((fields) => Object.keys(fields).length <= 32, { message: 'at most 32 fields' })
     .optional(),
   actions: z.array(ActionKey).max(16).optional(),
+  /** The action the Board highlights for this item, from a collector or the synthesis step. Nothing runs until pressed. */
+  suggested: ActionKey.optional(),
 });
 export type ScoutItem = z.infer<typeof ScoutItem>;
 
@@ -201,6 +203,22 @@ export const BoardItemsChange = z
     message: 'a snooze needs `until`, and only a snooze takes one',
   });
 export type BoardItemsChange = z.infer<typeof BoardItemsChange>;
+
+/** Client -> hub (REST): carry out a `quest` or `run` action on these items. The hub sends them as it stores them. */
+export const BoardAct = z.object({
+  action: ActionKey,
+  ids: z.array(z.string().min(1).max(500)).min(1).max(MAX_SCOUT_ITEMS),
+});
+export type BoardAct = z.infer<typeof BoardAct>;
+
+/** The item a Quest was started from, carried in its `session.started` as `scout`, so the Quest links back to it. */
+export const ScoutLink = z.object({
+  scout: ScoutId,
+  item: z.string().min(1).max(500),
+  /** The item's title when the Quest started. */
+  title: z.string().max(500),
+});
+export type ScoutLink = z.infer<typeof ScoutLink>;
 
 // node -> hub
 

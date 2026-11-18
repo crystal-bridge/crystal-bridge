@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BoardAct,
   BoardItemsChange,
   HubScoutAction,
   HubScoutRunNow,
@@ -10,6 +11,7 @@ import {
   NodeScoutRun,
   NodeScouts,
   ScoutItems,
+  ScoutLink,
   ScoutManifest,
 } from './index.js';
 
@@ -174,5 +176,28 @@ describe('BoardItemsChange', () => {
     expect(BoardItemsChange.safeParse({ ids: ['a'], state: 'snoozed', until: 10 }).success).toBe(true);
     expect(BoardItemsChange.safeParse({ ids: ['a'], state: 'snoozed' }).success).toBe(false);
     expect(BoardItemsChange.safeParse({ ids: [], state: 'done' }).success).toBe(false);
+  });
+});
+
+describe('BoardAct', () => {
+  it('names one action and the items it acts on, by id only', () => {
+    expect(BoardAct.parse({ action: 'fix', ids: ['a'] })).toEqual({ action: 'fix', ids: ['a'] });
+    expect(BoardAct.safeParse({ action: 'fix', ids: [] }).success).toBe(false);
+    expect(BoardAct.safeParse({ action: 'Not A Key', ids: ['a'] }).success).toBe(false);
+  });
+});
+
+describe('a suggested action', () => {
+  it('lets an item name one action as the suggested button, and only by key', () => {
+    expect(ScoutItems.parse({ items: [{ ...item, suggested: 'fix' }] }).items[0]!.suggested).toBe('fix');
+    expect(ScoutItems.safeParse({ items: [{ ...item, suggested: 'Fix it!' }] }).success).toBe(false);
+  });
+});
+
+describe('ScoutLink, the item a Quest came from', () => {
+  it('names the Scout and the item, with the title as it was', () => {
+    const link = { scout: 'quest-board', item: item.id, title: item.title };
+    expect(ScoutLink.parse(link)).toEqual(link);
+    expect(ScoutLink.safeParse({ ...link, scout: '../x' }).success).toBe(false);
   });
 });

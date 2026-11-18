@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   HubAck,
   HubCliUpdate,
@@ -5,7 +6,7 @@ import {
   HubKingdomVersion,
   HubScoutAction,
   HubScoutRunNow,
-  NodeScoutActed,
+  type NodeScoutActed,
   MAX_CLI_UPDATE_REASON,
   NodeCliUpdated,
   NodeInventoryListed,
@@ -37,6 +38,7 @@ import {
   type NodeScouts,
   type Scout,
   type ScoutItem,
+  type ScoutLink,
   type ScoutRun,
 } from '@crystal-bridge/protocol';
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
@@ -45,6 +47,7 @@ import { readSessionFile } from './files.js';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
 import type { ReplayEvent } from './transcripts.js';
 import type { ClaudeSessionEvent } from './session.js';
+import type { ActResult, QuestStart } from './scouts.js';
 
 /** The subset of `ClaudeSession` the node link drives, so tests can supply a fake. */
 export interface SessionLike {
@@ -130,7 +133,12 @@ export interface StartNodeOptions {
   /** This Kingdom's Summons and Casts, told to the hub on each connect; without it, none are mentioned. */
   summons?: { list(): Summon[]; casts(): Cast[] };
   /** This Kingdom's Scouts (`scouts.ts`), told to the hub with their latest runs on each connect; unset runs none. */
-  scouts?: { list(): Scout[]; recent(): NodeScoutRun[]; runNow(id: string): void };
+  scouts?: {
+    list(): Scout[];
+    recent(): NodeScoutRun[];
+    runNow(id: string): void;
+    act(request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
+  };
   /** How often to rescan `transcripts`; the hub only hears about a change. Default 60 s. */
   scanMs?: number;
   /** How often to check the hub is still there. Default `HEARTBEAT_MS`. */
@@ -390,61 +398,113 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   }
 
   async function handleSessionStart(cmd: Extract<NodeCommand, { type: 'session.start' }>): Promise<void> {
+    const started = await startSession(cmd);
+    if (!started.ok && started.reason) sendNodeError(cmd.session, started.reason);
+  }
+
+  /**
+   * Starts a session, as New Quest asks or a Scout's `quest` action does. `scout` is the item a Quest came from. Says
+   * why not when it can't; a reason left out means nothing needs saying.
+   */
+  async function startSession(
+    cmd: Extract<NodeCommand, { type: 'session.start' }> & { scout?: ScoutLink },
+  ): Promise<{ ok: true } | { ok: false; reason?: string }> {
     // A second start would spawn another claude for the same conversation and restart seq at 0.
     if (sessions.has(cmd.session)) {
       log(`ignored session.start for a session that already exists: ${cmd.session}`);
-      sendNodeError(cmd.session, `session already exists: ${cmd.session}`);
-      return;
+      return { ok: false, reason: `session already exists: ${cmd.session}` };
     }
 
     if (cmd.forkFrom && cmd.worktree) {
-      sendNodeError(cmd.session, 'a fork runs in its source session’s folder, not a new worktree');
-      return;
+      return { ok: false, reason: 'a fork runs in its source session’s folder, not a new worktree' };
     }
 
-    if (!runs(cmd.engine)) {
-      sendNodeError(cmd.session, `this node does not run the ${cmd.engine} engine`);
-      return;
-    }
+    if (!runs(cmd.engine)) return { ok: false, reason: `this node does not run the ${cmd.engine} engine` };
 
     let cwd = cmd.cwd;
     let worktree: { root: string; branch: string } | undefined;
     if (cmd.worktree) {
-      if (!worktrees) {
-        sendNodeError(cmd.session, 'this node cannot create worktrees');
-        return;
-      }
+      if (!worktrees) return { ok: false, reason: 'this node cannot create worktrees' };
       try {
         const made = await worktrees(cmd.cwd, cmd.session);
         cwd = made.path;
         worktree = { root: made.root, branch: made.branch };
       } catch (error) {
-        sendNodeError(
-          cmd.session,
-          `could not create a worktree: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        return;
+        return {
+          ok: false,
+          reason: `could not create a worktree: ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
       // Checked again: the same start may have arrived twice while the worktree was being made.
-      if (sessions.has(cmd.session)) return;
+      if (sessions.has(cmd.session)) return { ok: false };
     }
 
     // Saved first: if they can't be, nothing starts.
     const prompt = withFiles(cmd.session, cmd.prompt, cmd.attachments);
-    if (prompt === undefined) return;
+    if (prompt === undefined) return { ok: false };
     const runtime = createSession(cmd.session, cwd, 0, cmd.mode, cmd.forkFrom, cmd.engine, cmd.effort);
     sendEnvelope(cmd.session, 'session.started', {
       cwd,
       prompt,
-      label: labelFromPrompt(cmd.prompt),
+      // A Board's Quests share one template, so each is named after its item.
+      label: labelFromPrompt(cmd.scout?.title || cmd.prompt),
       mode: cmd.mode ?? defaultMode,
       ...(worktree ? { worktree } : {}),
       ...(cmd.forkFrom ? { forkedFrom: cmd.forkFrom } : {}),
       ...(cmd.engine ? { engine: cmd.engine } : {}),
       ...(cmd.effort ? { effort: cmd.effort } : {}),
+      ...(cmd.scout ? { scout: cmd.scout } : {}),
     });
 
     runtime.start(prompt);
+    return { ok: true };
+  }
+
+  /** Starts the Quest a Scout's `quest` action asks for, the way New Quest starts one. */
+  async function startQuest(start: QuestStart): Promise<ActResult> {
+    const session = randomUUID();
+    let started: Awaited<ReturnType<typeof startSession>>;
+    try {
+      started = await startSession({
+        type: 'session.start',
+        node: nodeId,
+        session,
+        cwd: start.cwd,
+        prompt: start.prompt,
+        ...(start.mode ? { mode: start.mode } : {}),
+        ...(start.worktree ? { worktree: true } : {}),
+        scout: start.from,
+      });
+    } catch (error) {
+      // As for New Quest (#194): nothing is running the Quest, so it ends rather than looking alive.
+      failSession(session, error);
+      return {
+        ok: false,
+        reason: `the Quest did not start: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    return started.ok ? { ok: true, session } : { ok: false, reason: started.reason ?? 'the Quest did not start' };
+  }
+
+  /** Carries out a Board's `quest` or `run` action; the answer always goes back, so the Board never waits on it. */
+  async function handleScoutAction(request: HubScoutAction): Promise<void> {
+    let answer: ActResult;
+    try {
+      answer = options.scouts
+        ? await options.scouts.act(request, startQuest)
+        : { ok: false, reason: 'this Kingdom runs no Scouts' };
+    } catch (error) {
+      answer = { ok: false, reason: `the action failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    const reply: NodeScoutActed = answer.ok
+      ? {
+          kind: 'scout-acted',
+          requestId: request.requestId,
+          ok: true,
+          ...(answer.session ? { session: answer.session } : {}),
+        }
+      : { kind: 'scout-acted', requestId: request.requestId, ok: false, reason: answer.reason.slice(0, 2000) };
+    wsSend(reply);
   }
 
   /**
@@ -815,17 +875,9 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
-    // Actions arrive with #230; until then each gets an answer, so the Board doesn't wait on one.
     const action = HubScoutAction.safeParse(parsed);
     if (action.success) {
-      wsSend(
-        NodeScoutActed.parse({
-          kind: 'scout-acted',
-          requestId: action.data.requestId,
-          ok: false,
-          reason: "this Kingdom can't carry out Scout actions yet: it may need an update",
-        }),
-      );
+      void handleScoutAction(action.data);
       return;
     }
 
