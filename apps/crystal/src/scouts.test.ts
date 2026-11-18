@@ -821,7 +821,21 @@ describe('Scouts', () => {
       expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
     });
 
-    it('reads a missing synthesize.md again on the next run, keeping nothing from the miss', async () => {
+    it('runs again when the Scout is renamed, since its prompt names it', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      writeFileSync(
+        join(dir, 'quest-board', 'scout.json'),
+        JSON.stringify({ ...synthesizing(), name: 'Pull requests' }),
+      );
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('reads a missing synthesize.md again on the next scheduled run', async () => {
       scoutFolder('quest-board', synthesizing());
       make();
       await scouts!.tick();
