@@ -133,6 +133,20 @@ describe('boardSections', () => {
     expect(sections.gone.map((i) => i.id)).toEqual(['7']);
   });
 
+  it('puts ranked items first by rank, the rest in the collector-s order, and each group where its best item is', () => {
+    const items = [
+      item({ id: '1', group: 'Waiting' }),
+      item({ id: '2', group: 'Needs a fix', rank: 3 }),
+      item({ id: '3', group: 'Waiting', rank: 2 }),
+      item({ id: '4', group: 'Needs a fix', rank: 1 }),
+      item({ id: '5', group: 'Waiting' }),
+    ];
+    expect(boardSections(items, 1_000).open.map((g) => [g.group, g.items.map((i) => i.id)])).toEqual([
+      ['Needs a fix', ['4', '2']],
+      ['Waiting', ['3', '1', '5']],
+    ]);
+  });
+
   it('brings a snooze back as new once its time has passed', () => {
     const sections = boardSections([item({ id: '4', state: 'snoozed', until: 5_000 })], 6_000);
     expect(sections.open[0]!.items[0]).toMatchObject({ id: '4', state: 'new' });

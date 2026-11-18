@@ -77,7 +77,14 @@ export const ScoutManifest = z.object({
     command: z.array(z.string().max(4096)).min(1).max(64),
     timeoutSeconds: z.number().int().min(1).max(3600).optional(),
   }),
-  synthesize: z.object({ prompt: scoutFile, when: z.enum(['changed']).optional() }).optional(),
+  synthesize: z
+    .object({
+      prompt: scoutFile,
+      when: z.enum(['changed']).optional(),
+      /** The most one synthesis may spend, in US dollars as the CLI counts it; the Kingdom's default when absent. */
+      maxBudgetUsd: z.number().positive().max(5).optional(),
+    })
+    .optional(),
   view: ScoutView,
   actions: z.record(ActionKey, ScoutAction).refine((actions) => Object.keys(actions).length <= 32, {
     message: 'at most 32 actions',
@@ -123,6 +130,10 @@ export const ScoutItem = z.object({
   actions: z.array(ActionKey).max(16).optional(),
   /** The action the Board highlights for this item, from a collector or the synthesis step. Nothing runs until pressed. */
   suggested: ActionKey.optional(),
+  /** Where it stands among the list, 1 first, from a collector or the synthesis step. Ties keep the list's order. */
+  rank: z.number().int().min(1).optional(),
+  /** One line on why it matters, from a collector or the synthesis step. */
+  summary: z.string().max(300).optional(),
 });
 export type ScoutItem = z.infer<typeof ScoutItem>;
 
@@ -156,7 +167,7 @@ export const ScoutRun = z.object({
   trigger: runWord,
   /** One of `ScoutRunOutcome`'s, or a newer one. Only `succeeded` carries items. */
   outcome: runWord,
-  /** Why it failed or was skipped, in plain words. */
+  /** Why it failed or was skipped, or why an optional step such as synthesis did not run, in plain words. */
   reason: z.string().max(2000).optional(),
   /** The end of what the collector wrote to stderr. */
   stderr: z.string().max(MAX_SCOUT_STDERR).optional(),

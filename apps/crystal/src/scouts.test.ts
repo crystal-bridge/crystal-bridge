@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Scout, ScoutItem, ScoutRun } from '@crystal-bridge/protocol';
@@ -613,6 +613,266 @@ describe('Scouts', () => {
       rmSync(join(dir, 'quest-board'), { recursive: true });
       await scouts!.tick();
       expect(scouts!.recent()).toEqual([]);
+    });
+  });
+
+  describe('the synthesis step', () => {
+    const PRS = {
+      items: [
+        { id: 'pr:12', title: 'Fix the retry loop', actions: ['fix', 'done'] },
+        { id: 'pr:15', title: 'Bump a test dependency', actions: ['merge', 'done'] },
+        { id: 'pr:16', title: 'Draft: rework settings page' },
+      ],
+    };
+    const recorded = readFileSync(join(import.meta.dirname, '..', 'test', 'fixtures', 'synthesis.ndjson'), 'utf8');
+    const answered = (stdout = recorded, code = 0): CollectResult => ({ kind: 'exited', code, stdout, stderr: '' });
+    const synthesizing = (overrides: Record<string, unknown> = {}) =>
+      manifest({
+        synthesize: { prompt: 'synthesize.md', ...overrides },
+        actions: {
+          fix: { kind: 'run', label: 'Fix', command: ['./fix.sh'] },
+          merge: { kind: 'run', label: 'Merge', command: ['./merge.sh'] },
+          done: { kind: 'done', label: 'Done' },
+        },
+        defaults: ['done'],
+      });
+
+    /** Finishes the collector, then the synthesis call it leads to, and waits for the run. */
+    async function collectThenSynthesize(list: unknown, synthesis: CollectResult = answered()): Promise<void> {
+      pending.shift()!.finish(ok(list));
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      await finish(synthesis);
+    }
+
+    async function ready(json = synthesizing(), env?: Record<string, string>): Promise<void> {
+      scoutFolder('quest-board', json);
+      writeFileSync(join(dir, 'quest-board', 'synthesize.md'), 'Rank what needs me first.\n');
+      make(env);
+      await scouts!.tick();
+    }
+
+    it('asks the Kingdom-s own claude, with no tools and a budget cap, and the list on stdin', async () => {
+      await ready(synthesizing(), { PATH: '/bin', CRYSTAL_TOKEN: 'secret' });
+      scouts!.runNow('quest-board');
+      pending.shift()!.finish(ok(PRS));
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      const { request } = pending[0]!;
+      expect(request.cwd).toBe(join(dir, 'quest-board'));
+      expect(request.command.slice(0, 2)).toEqual(['claude', '-p']);
+      expect(request.command.slice(-2)).toEqual(['--tools', '']);
+      expect(request.command[request.command.indexOf('--max-budget-usd') + 1]).toBe('0.5');
+      expect(request.command).not.toContain('--bare');
+      expect(request.env).not.toHaveProperty('CRYSTAL_TOKEN');
+      expect(request.stdin?.startsWith('Rank what needs me first.')).toBe(true);
+      expect(request.stdin).toContain('"id":"pr:12"');
+      await finish(answered());
+    });
+
+    it('sends the list ranked and summed up, with what it cost', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      const { run, items } = sent[0]!;
+      expect(run).toMatchObject({ outcome: 'succeeded', items: 3 });
+      expect(run.costUsd).toBeCloseTo(0.043272);
+      expect(items?.map((item) => [item.id, item.rank, item.suggested])).toEqual([
+        ['pr:12', 1, 'fix'],
+        ['pr:15', 2, 'merge'],
+        ['pr:16', 3, undefined],
+      ]);
+      expect(items?.[0]?.summary).toMatch(/retry/);
+    });
+
+    it('runs only when the list changed, applying the last answer again in between', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      scouts!.runNow('quest-board');
+      await finish(ok({ items: [...PRS.items].reverse() }));
+      expect(pending).toHaveLength(0);
+      expect(sent[1]!.run.costUsd).toBeUndefined();
+      expect(sent[1]!.items?.find((item) => item.id === 'pr:12')?.rank).toBe(1);
+
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize({ items: PRS.items.slice(1) });
+      expect(sent[2]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('keeps the plain list when the synthesis fails, and says why', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      const over = JSON.stringify({
+        type: 'result',
+        subtype: 'error_max_budget_usd',
+        is_error: true,
+        total_cost_usd: 0.5,
+      });
+      await collectThenSynthesize(PRS, answered(over, 1));
+      expect(sent[0]!.run).toMatchObject({
+        outcome: 'succeeded',
+        costUsd: 0.5,
+        reason: expect.stringMatching(/budget/),
+      });
+      expect(sent[0]!.items?.every((item) => item.rank === undefined)).toBe(true);
+    });
+
+    it.each([
+      [{ kind: 'not-started', message: 'spawn claude ENOENT' }, /could not start claude.*ENOENT/],
+      [{ kind: 'timed-out', stderr: '' }, /stopped after/],
+      [{ kind: 'exited', code: 1, stdout: '', stderr: 'Not logged in' }, /exited with code 1.*Not logged in/],
+      [{ kind: 'exited', code: null, signal: 'SIGKILL', stdout: '', stderr: '' }, /killed by SIGKILL/],
+      [{ kind: 'exited', code: 0, stdout: '', stderr: '' }, /printed no result/],
+      [{ kind: 'too-much', stderr: '' }, /more than 4 MB/],
+    ] as [CollectResult, RegExp][])('says why when claude itself fails (%o)', async (result, why) => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS, result);
+      expect(sent[0]!.run).toMatchObject({ outcome: 'succeeded', items: 3, reason: expect.stringMatching(why) });
+    });
+
+    it('says so when the prompt file can-t be read, and never calls claude', async () => {
+      scoutFolder('quest-board', synthesizing());
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      await finish(ok(PRS));
+      expect(pending).toHaveLength(0);
+      expect(sent[0]!.run).toMatchObject({ outcome: 'succeeded', reason: expect.stringMatching(/synthesize\.md/) });
+    });
+
+    it('takes the Scout-s budget cap and the Kingdom-s CLAUDE_BIN', async () => {
+      await ready(synthesizing({ maxBudgetUsd: 0.2 }), { PATH: '/bin', CLAUDE_BIN: '/opt/claude' });
+      scouts!.runNow('quest-board');
+      pending.shift()!.finish(ok(PRS));
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      const { command } = pending[0]!.request;
+      expect(command[0]).toBe('/opt/claude');
+      expect(command[command.indexOf('--max-budget-usd') + 1]).toBe('0.2');
+      await finish(answered());
+    });
+
+    it('counts as running while it thinks, so Run now records a skip', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      pending.shift()!.finish(ok(PRS));
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      scouts!.runNow('quest-board');
+      expect(sent[0]!.run.outcome).toBe('skipped');
+      await finish(answered());
+      expect(sent[1]!.run.outcome).toBe('succeeded');
+    });
+
+    it('never calls claude for an empty list', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await finish(ok({ items: [] }));
+      expect(pending).toHaveLength(0);
+      expect(sent[0]!.run).toMatchObject({ outcome: 'succeeded', items: 0 });
+      expect(sent[0]!.run.reason).toBeUndefined();
+    });
+
+    it('runs again when synthesize.md changes, though the list did not', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      writeFileSync(join(dir, 'quest-board', 'synthesize.md'), 'Rank by age instead.\n');
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('says why on every run while a failure stands, and Run now tries again', async () => {
+      await ready();
+      now = slot(now);
+      await scouts!.tick();
+      const out = JSON.stringify({
+        type: 'result',
+        subtype: 'error_max_budget_usd',
+        is_error: true,
+        total_cost_usd: 0.5,
+      });
+      await collectThenSynthesize(PRS, answered(out, 1));
+      expect(sent[0]!.run.reason).toBe('not synthesized: it reached its budget cap (synthesize.maxBudgetUsd)');
+
+      // A scheduled run with the same list repeats the reason and makes no call.
+      now = slot(now);
+      await scouts!.tick();
+      await finish(ok(PRS));
+      expect(pending).toHaveLength(0);
+      expect(sent[1]!.run).toMatchObject({ trigger: 'schedule', reason: sent[0]!.run.reason });
+      expect(sent[1]!.run.costUsd).toBeUndefined();
+
+      // Run now tries again, say once the cap was raised.
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      expect(sent[2]!.run.reason).toBeUndefined();
+      expect(sent[2]!.items?.[0]?.rank).toBe(1);
+    });
+
+    it('runs again when scout.json changes what the step sees, such as its budget cap', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      writeFileSync(join(dir, 'quest-board', 'scout.json'), JSON.stringify(synthesizing({ maxBudgetUsd: 1 })));
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run).toMatchObject({ trigger: 'schedule' });
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('runs again when the Scout is renamed, since its prompt names it', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      writeFileSync(
+        join(dir, 'quest-board', 'scout.json'),
+        JSON.stringify({ ...synthesizing(), name: 'Pull requests' }),
+      );
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('reads a missing synthesize.md again on the next scheduled run', async () => {
+      scoutFolder('quest-board', synthesizing());
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      await finish(ok(PRS));
+      expect(sent[0]!.run.reason).toBe("not synthesized: can't read synthesize.md in the Scout's folder");
+      writeFileSync(join(dir, 'quest-board', 'synthesize.md'), 'Rank.\n');
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run.reason).toBeUndefined();
+      expect(sent[1]!.items?.[0]?.rank).toBe(1);
+    });
+
+    it('tries a failed step again on schedule once the list changes', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS, { kind: 'timed-out', stderr: '' });
+      now = slot(now);
+      await scouts!.tick();
+      await collectThenSynthesize({ items: PRS.items.slice(1) });
+      expect(sent[1]!.run.reason).toBeUndefined();
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('stops claude on close, and reports nothing', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      pending.shift()!.finish(ok(PRS));
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      const synthesis = pending[0]!;
+      const closing = scouts!.close();
+      expect(synthesis.stopped).toBe(true);
+      synthesis.finish({ kind: 'exited', code: null, signal: 'SIGTERM', stdout: '', stderr: '' });
+      await closing;
+      scouts = undefined;
+      expect(sent).toHaveLength(0);
     });
   });
 

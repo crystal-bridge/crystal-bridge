@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
- * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command,
+ * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command, synthesis,
  * weekly-only.
  * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
  * Every fixture line is passed through `scrub()`.
@@ -14,6 +14,7 @@
  * re-applies `scrub()` to the existing fixtures in place, without running the CLI.
  */
 import { spawn, execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from 'node:fs/promises';
 import http from 'node:http';
@@ -25,6 +26,7 @@ import { createPermissionServer, type PermissionDecision, type PermissionRequest
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'fixtures');
 const HOME = homedir();
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
+const EPOCH = '1970-01-01T00:00:00.000Z';
 const TIMEOUT_MS = 180_000;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -110,7 +112,9 @@ function scrubAccountIds(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = typeof v === 'string' && ACCOUNT_KEY_RE.test(k) && UUID_RE.test(v) ? ZERO_UUID : scrubAccountIds(v);
+      // When this machine's login expires says something about the account: keep the key, not the time.
+      if (k === 'credential_expires_at' && typeof v === 'string') out[k] = EPOCH;
+      else out[k] = typeof v === 'string' && ACCOUNT_KEY_RE.test(k) && UUID_RE.test(v) ? ZERO_UUID : scrubAccountIds(v);
     }
     return out;
   }
@@ -312,6 +316,103 @@ function runClaude(opts: RunOptions): Promise<RunResult> {
   });
 }
 
+/**
+ * One print-mode call with a single JSON answer, as a Scout's synthesis step makes it. The prompt goes on stdin, because
+ * `--tools` takes several values and would swallow a prompt given as an argument after it.
+ */
+function runPrint(cwd: string, args: string[], prompt: string): Promise<RunResult> {
+  const child = spawn('claude', ['-p', ...args], { cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const result: RunResult = { lines: [], stderr: '', exitCode: null, signal: null, timedOut: false, notes: [] };
+  let stdout = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => (stdout += chunk));
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (c: string) => (result.stderr += c));
+  child.stdin.on('error', () => {});
+  child.stdin.end(prompt);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      result.timedOut = true;
+      child.kill('SIGKILL');
+    }, TIMEOUT_MS);
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      result.lines = stdout.split('\n').filter((line) => line.trim());
+      result.exitCode = code;
+      result.signal = signal;
+      resolve(result);
+    });
+  });
+}
+
+/** A Scout's list as the synthesis step would see it, and the schema the Kingdom would hold the answer to. */
+const SYNTHESIS_ITEMS = [
+  {
+    id: 'pr:12',
+    title: 'Fix the retry loop in the uploader',
+    subtitle: 'CI failing, review requested',
+    actions: ['fix', 'open'],
+  },
+  { id: 'pr:15', title: 'Bump a test dependency', subtitle: 'CI passing, approved', actions: ['merge', 'open'] },
+  { id: 'pr:16', title: 'Draft: rework settings page', subtitle: 'draft, no reviews', actions: ['open'] },
+];
+const SYNTHESIS_PROMPT = `Rank these pull requests by what needs the reader first. For each, write a one-line summary and suggest one action from its own list, or none. Add at most one extra item if a pattern across them deserves its own row.
+
+<untrusted-items>
+${JSON.stringify({ items: SYNTHESIS_ITEMS })}
+</untrusted-items>`;
+const SYNTHESIS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['items'],
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'rank', 'summary'],
+        properties: {
+          id: { type: 'string' },
+          rank: { type: 'integer', minimum: 1 },
+          summary: { type: 'string', maxLength: 200 },
+          suggested: { type: 'string', enum: ['fix', 'merge', 'open'] },
+        },
+      },
+    },
+    extra: {
+      type: 'array',
+      maxItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'summary'],
+        properties: {
+          title: { type: 'string', maxLength: 200 },
+          summary: { type: 'string', maxLength: 200 },
+          suggested: { type: 'string', enum: ['fix', 'merge', 'open'] },
+        },
+      },
+    },
+  },
+};
+function synthesisArgs(extra: string[] = []): string[] {
+  return [
+    '--output-format',
+    'json',
+    '--json-schema',
+    JSON.stringify(SYNTHESIS_SCHEMA),
+    '--strict-mcp-config',
+    '--no-session-persistence',
+    '--max-budget-usd',
+    '0.5',
+    ...extra,
+    // Last, since it takes several values.
+    '--tools',
+    '',
+  ];
+}
+
 function hasToolUse(msg: Record<string, unknown>): boolean {
   if (msg.type !== 'assistant') return false;
   const content = (msg.message as { content?: Array<{ type?: string }> } | undefined)?.content ?? [];
@@ -412,6 +513,14 @@ async function main(): Promise<void> {
 
   try {
     if (want('allow')) await record('allow', await simple('allow', BASH_PROMPT, allow));
+    if (want('synthesis')) {
+      // As a Scout's synthesis step runs: the Kingdom's full setup, then with no setting sources, to compare the cost.
+      await record('synthesis', await runPrint(repo, synthesisArgs(), SYNTHESIS_PROMPT));
+      await record(
+        'synthesis-no-settings',
+        await runPrint(repo, synthesisArgs(['--setting-sources', '']), SYNTHESIS_PROMPT),
+      );
+    }
     if (asked('weekly-only')) {
       await record('weekly-only', await simple('weekly-only', 'Reply with the single word DONE.', allow));
     }
@@ -583,7 +692,18 @@ async function main(): Promise<void> {
   console.log(scrubText(JSON.stringify(summary, null, 2), repo));
 }
 
-main().catch((e: unknown) => {
-  console.error(e);
-  process.exit(1);
-});
+// Only when run, so a test can import `scrub` without calling the CLI.
+// Real paths, so a run through a symlink, such as macOS's /tmp, still counts.
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
+  main().catch((e: unknown) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

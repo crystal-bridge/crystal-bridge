@@ -18,7 +18,18 @@ import {
   type ScoutLink,
   type ScoutRun,
 } from '@crystal-bridge/protocol';
+import { resolveClaudeBin } from './claude-bin.js';
 import { projectFor, questPrompt } from './scout-actions.js';
+import {
+  DEFAULT_SYNTHESIS_BUDGET_USD,
+  applySynthesis,
+  readSynthesis,
+  synthesisArgs,
+  synthesisDigest,
+  synthesisPrompt,
+  synthesisSchema,
+  type SynthesisAnswer,
+} from './scout-synthesis.js';
 
 /**
  * Scouts (docs/SCOUTS.md): each folder under the Kingdom's scouts folder holds a `scout.json` and a collector. This
@@ -54,6 +65,10 @@ export const ACTION_TIMEOUT_SECONDS = 120;
 const MAX_PROMPT_BYTES = 64 * 1024;
 /** What a `run` action's script may print; nobody reads it. */
 const MAX_ACTION_STDOUT = 1024 * 1024;
+/** How long the synthesis step's `claude` call may take. */
+export const SYNTHESIS_TIMEOUT_SECONDS = 180;
+/** What that call may print: one result line, with the answer twice. */
+const MAX_SYNTHESIS_STDOUT = 4 * 1024 * 1024;
 
 export interface CollectRequest {
   cwd: string;
@@ -165,6 +180,11 @@ interface Entry {
   recent: NodeScoutRun[];
   /** The latest run that brought a list, kept even once `recent` has moved past it. */
   listed?: NodeScoutRun;
+  /**
+   * The list and setup the last synthesis judged, by digest, and its answer, or why it failed. Kept in memory only, so a
+   * restart costs one more call.
+   */
+  synthesis?: { digest: string; answer?: SynthesisAnswer; reason?: string };
 }
 
 const scheduleKey = (manifest: ScoutManifest) => `${manifest.schedule.cron}|${manifest.schedule.timezone}`;
@@ -450,18 +470,29 @@ export function createScouts(options: ScoutsOptions): Scouts {
     entry.running = collector;
     const done = collector.result
       .catch((error: unknown): CollectResult => ({ kind: 'not-started', message: String(error) }))
-      .then((result) => {
+      .then(async (result) => {
         // Stopped by `close`, or its folder went: nobody is waiting for this run.
         if (entry.running !== collector || closed) return;
+        const judged = judge(result, timeoutMs);
+        let { items } = judged;
+        let synthesized: { reason?: string; costUsd?: number } = {};
+        if (items && items.length > 0 && manifest.synthesize && entries.get(entry.id) === entry) {
+          const step = await synthesize(entry, manifest, items, cwd, childEnv, trigger);
+          // Stopped by `close` while it thought.
+          if (!step || closed) return;
+          items = step.items;
+          synthesized = step.note;
+        }
         entry.running = undefined;
         if (entries.get(entry.id) !== entry) return;
-        const { items, ...verdict } = judge(result, timeoutMs);
+        const { items: _collected, ...verdict } = judged;
         const run: ScoutRun = {
           id: randomUUID(),
           startedAt,
           finishedAt: now(),
           trigger,
           ...verdict,
+          ...synthesized,
           ...(items ? { items: items.length } : {}),
         };
         settle(entry, run.outcome);
@@ -471,6 +502,84 @@ export function createScouts(options: ScoutsOptions): Scouts {
       })
       .finally(() => running.delete(done));
     running.add(done);
+  }
+
+  /**
+   * The synthesis step, for a list the collector just brought. Runs `claude` only when the list or the step's setup
+   * changed since the last synthesis, applying the last answer again otherwise. A failure keeps the plain list, and its
+   * reason is repeated on each run until something changes; Run now tries again regardless. While it thinks it holds
+   * the Scout's running slot, so `close` stops it and Run now records a skip. Resolves undefined when it was stopped.
+   */
+  async function synthesize(
+    entry: Entry,
+    manifest: ScoutManifest,
+    items: ScoutItem[],
+    cwd: string,
+    childEnv: Record<string, string>,
+    trigger: string,
+  ): Promise<{ items: ScoutItem[]; note: { reason?: string; costUsd?: number } } | undefined> {
+    const step = manifest.synthesize!;
+    const why = (reason: string) => `not synthesized: ${reason}`.slice(0, MAX_REASON);
+    const instructions = scoutFile(entry.id, step.prompt);
+    // No call is made, so nothing is kept: the next run reads the file again.
+    if (typeof instructions !== 'string') return { items, note: { reason: why(instructions.reason) } };
+    const digest = synthesisDigest(items, {
+      name: manifest.name,
+      instructions,
+      synthesize: step,
+      actions: manifest.actions,
+      defaults: manifest.defaults,
+    });
+    const last = entry.synthesis;
+    if (last?.digest === digest && (last.answer || trigger !== 'now')) {
+      if (last.answer) return { items: applySynthesis(items, last.answer, manifest), note: {} };
+      return { items, note: last.reason ? { reason: last.reason } : {} };
+    }
+    const failed = (reason: string, costUsd?: number) => {
+      entry.synthesis = { digest, reason: why(reason) };
+      return { items, note: { reason: why(reason), ...(costUsd !== undefined ? { costUsd } : {}) } };
+    };
+    const call = collect({
+      cwd,
+      command: [
+        resolveClaudeBin(childEnv),
+        ...synthesisArgs(synthesisSchema(manifest), step.maxBudgetUsd ?? DEFAULT_SYNTHESIS_BUDGET_USD),
+      ],
+      env: childEnv,
+      timeoutMs: SYNTHESIS_TIMEOUT_SECONDS * 1000,
+      maxStdout: MAX_SYNTHESIS_STDOUT,
+      stdin: synthesisPrompt(instructions, manifest, items),
+    });
+    entry.running = call;
+    const result = await call.result.catch((error: unknown): CollectResult => ({
+      kind: 'not-started',
+      message: String(error),
+    }));
+    if (entry.running !== call || closed) return undefined;
+    const stderr = 'stderr' in result && result.stderr.trim() ? `: ${tail(result.stderr.trim(), 200)}` : '';
+    switch (result.kind) {
+      case 'not-started':
+        return failed(`could not start claude: ${result.message}`);
+      case 'timed-out':
+        return failed(`claude was stopped after ${SYNTHESIS_TIMEOUT_SECONDS} s${stderr}`);
+      case 'too-much':
+        return failed(`claude printed more than ${MAX_SYNTHESIS_STDOUT / 1024 / 1024} MB`);
+      case 'exited': {
+        // A call the CLI ended itself, such as on the budget cap, still prints a result saying why.
+        const read = readSynthesis(result.stdout);
+        if (read.ok) {
+          entry.synthesis = { digest, answer: read.answer };
+          const costUsd = read.costUsd !== undefined ? { costUsd: read.costUsd } : {};
+          return { items: applySynthesis(items, read.answer, manifest), note: costUsd };
+        }
+        if (result.code !== 0 && !result.stdout.trim()) {
+          const how =
+            result.code === null ? `was killed by ${result.signal ?? 'a signal'}` : `exited with code ${result.code}`;
+          return failed(`claude ${how}${stderr}`);
+        }
+        return failed(read.reason, read.costUsd);
+      }
+    }
   }
 
   /** Counts failures, pausing or resuming the schedule. A skip changes nothing. */
