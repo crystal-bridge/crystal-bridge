@@ -174,8 +174,13 @@ export interface SummonsOptions {
   retryMs?: number;
   /** How often a Cast's log end goes to the hub. */
   reportMs?: number;
-  /** How long a job found finished gets for its last lines to arrive. */
+  /** How long a job found finished gets for its last lines to arrive when no follow is connected. */
   settleMs?: number;
+  /**
+   * How long a job found finished waits for a connected follow to read its log to the end. A `tail` that polls, as one
+   * with no inotify left does, sees new lines only about once a second. Default 5 s; it ends as soon as the end is read.
+   */
+  drainMs?: number;
   /** How much of a running job's log stays on the target; default `DEFAULT_LOG_TRIM`. */
   logTrim?: LogTrim;
 }
@@ -222,6 +227,8 @@ interface Follower {
   reportTimer?: NodeJS.Timeout;
   /** The check in progress, for anyone who needs its answer. */
   checking?: Promise<void>;
+  /** Called after each part of the log is read, for a wait on how far it has got. */
+  onRead?: () => void;
 }
 
 interface Result {
@@ -244,6 +251,8 @@ const SHORT_TIMEOUT_MS = 30_000;
 const LONG_TIMEOUT_MS = 60_000;
 /** Finished Casts stay on record, and their folders on the target, this long. */
 const KEEP_MS = 7 * 24 * 60 * 60_000;
+/** The longest a finished Cast waits for its follow to read a log that keeps coming. */
+const MAX_DRAIN_MS = 60_000;
 
 function firstWord(command: string): string {
   return command.trim().split(/\s+/, 1)[0]!.slice(0, 200);
@@ -260,6 +269,7 @@ export function createSummons(options: SummonsOptions): Summons {
   const retryMs = options.retryMs ?? 5000;
   const reportMs = options.reportMs ?? 2000;
   const settleMs = options.settleMs ?? 1000;
+  const drainMs = options.drainMs ?? 5000;
 
   const records = new Map<string, CastRecord>();
   const followers = new Map<string, Follower>();
@@ -420,6 +430,7 @@ export function createSummons(options: SummonsOptions): Summons {
       return;
     }
     rec.offset += line.length + 1;
+    follower.onRead?.();
     if (text === FINISHED_LINE) {
       // The wrapper's own newline goes first, for a log that didn't end its last line.
       if (rec.logTail === '\n' || rec.logTail.endsWith('\n\n')) rec.logTail = rec.logTail.slice(0, -1);
@@ -446,6 +457,7 @@ export function createSummons(options: SummonsOptions): Summons {
       const { inLog } = follower;
       if (inLog) rec.offset += pending.length;
       if (inLog) rec.logTail = `${rec.logTail}${pending.toString('utf8')}`.slice(-MAX_CAST_TAIL);
+      if (inLog) follower.onRead?.();
       pending = Buffer.alloc(0);
     }
     follower.pending = pending;
@@ -513,14 +525,54 @@ export function createSummons(options: SummonsOptions): Summons {
     await check(rec, settle);
   }
 
+  /**
+   * Waits for a connected follow to read a complete log (`size` bytes, ending with the wrapper's last line) to its
+   * end, however slowly its `tail` notices new lines. By bytes, not by spotting the last line, since a job may print
+   * that itself. The wait starts again each time the follow reads more, up to `MAX_DRAIN_MS`, so a long log still being
+   * read after a restart isn't cut off. With no follow connected, or no end written yet, it waits a short while instead.
+   */
+  function readToEnd(rec: CastRecord, size: number | undefined): Promise<void> {
+    if (size !== undefined && rec.offset >= size) return Promise.resolve();
+    const follower = followers.get(rec.id);
+    const live =
+      size !== undefined &&
+      follower?.child !== undefined &&
+      follower.child.exitCode === null &&
+      follower.child.signalCode === null;
+    // A monotonic clock: a wall-clock step mid-wait would cut it short or stretch it.
+    const until = performance.now() + MAX_DRAIN_MS;
+    return new Promise((resolve) => {
+      let timer: NodeJS.Timeout | undefined;
+      const wait = (ms: number) => {
+        clearTimeout(timer);
+        timer = setTimeout(done, ms);
+        // Shutting down needn't wait for it: nothing is reported once Summons has closed.
+        timer.unref?.();
+      };
+      wait(live ? Math.min(drainMs, MAX_DRAIN_MS) : settleMs);
+      function done(): void {
+        clearTimeout(timer);
+        if (follower && follower.onRead === read) follower.onRead = undefined;
+        resolve();
+      }
+      function read(): void {
+        if (rec.offset >= size!) done();
+        else wait(Math.max(0, Math.min(drainMs, until - performance.now())));
+      }
+      if (live && follower) follower.onRead = read;
+    });
+  }
+
   async function probe(rec: CastRecord, target: Target, settle: boolean): Promise<void> {
     const { code, stdout } = await ask(target, (scripts) => scripts.probe(rec.id));
     if (code !== 0) return;
     const answer = stdout.trim().split('\n').at(-1) ?? '';
-    const exit = /^exit (-?\d+)( cancelled)?$/.exec(answer);
+    const exit = /^exit (-?\d+)( cancelled)?(?: logged (\d+))?$/.exec(answer);
     if (exit) {
       // Found rather than read to the end of the log, so its last lines may still be on their way.
-      if (settle) await new Promise((resolve) => setTimeout(resolve, settleMs));
+      // A follow that read an end marker asks with no settle, but the job may have printed that marker itself.
+      const size = exit[3] === undefined ? undefined : Number(exit[3]);
+      if (settle || size !== undefined) await readToEnd(rec, size);
       const cancelled = exit[2] !== undefined || rec.cancelling === true;
       const exitCode = Number(exit[1]);
       finish(rec, cancelled ? 'cancelled' : exitCode === 0 ? 'succeeded' : 'failed', exitCode);
