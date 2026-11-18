@@ -14,6 +14,7 @@
  * re-applies `scrub()` to the existing fixtures in place, without running the CLI.
  */
 import { spawn, execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from 'node:fs/promises';
 import http from 'node:http';
@@ -692,7 +693,9 @@ async function main(): Promise<void> {
 }
 
 // Only when run, so a test can import `scrub` without calling the CLI.
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Real paths, so a run through a symlink, such as macOS's /tmp, still counts.
+const entry = process.argv[1] ? realpathSync(process.argv[1]) : '';
+if (entry === realpathSync(fileURLToPath(import.meta.url))) {
   main().catch((e: unknown) => {
     console.error(e);
     process.exit(1);

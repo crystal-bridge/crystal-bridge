@@ -11,8 +11,9 @@ one entry.
   runs it, sends the hub what it found and pauses it after three failures in a row. The hub stores the items; their
   Boards come in a later release. See [Scouts and Boards](docs/SCOUTS.md).
 - A Scout with `synthesize` has the Kingdom's own `claude` rank its list, sum each item up in a line and suggest an
-  action, only when the list changed, with no tools and a budget cap. The Board orders items by rank, shows the
-  summary, and records each run's cost.
+  action, only when the list changed, with no tools and a budget cap (`synthesize.maxBudgetUsd`, $0.50 unless set). The
+  Board orders items by rank, shows the summary, and records each run's cost. When the step fails, the Board keeps the
+  plain list and says why.
 
 ### Changed
 

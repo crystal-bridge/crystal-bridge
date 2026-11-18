@@ -211,7 +211,11 @@ function ItemText({ item, marked }: { item: BoardItem; marked: boolean }) {
         </span>
       </span>
       {item.subtitle && <span className="block truncate text-xs text-neutral-500">{item.subtitle}</span>}
-      {item.summary && <span className="block text-xs text-neutral-600 dark:text-neutral-300">{item.summary}</span>}
+      {item.summary && (
+        <span className="line-clamp-2 block text-xs text-neutral-600 dark:text-neutral-300" title={item.summary}>
+          {item.summary}
+        </span>
+      )}
     </span>
   );
 }
@@ -249,7 +253,7 @@ function RunRow({ run, now }: { run: ScoutRun; now: number }) {
           {run.trigger} · {ago(run.startedAt, now)} ago
           {run.finishedAt !== undefined && ` · ${duration(run.finishedAt - run.startedAt)}`}
           {run.items !== undefined && ` · ${run.items} ${run.items === 1 ? 'item' : 'items'}`}
-          {run.reason && ` · ${run.reason}`}
+          {run.reason && run.outcome !== 'succeeded' && ` · ${run.reason}`}
         </span>
         {run.costUsd !== undefined && (
           <span className="ml-auto text-xs">
@@ -257,6 +261,10 @@ function RunRow({ run, now }: { run: ScoutRun; now: number }) {
           </span>
         )}
       </div>
+      {/* A run that brought its list but skipped a step, such as synthesis, says why where it can't be missed. */}
+      {run.reason && run.outcome === 'succeeded' && (
+        <p className="mt-0.5 pl-4 text-xs text-amber-700 dark:text-amber-400">{run.reason}</p>
+      )}
       {run.stderr && (
         <details className="mt-1 pl-4">
           <summary className="cursor-pointer text-xs text-neutral-500">stderr</summary>
@@ -426,7 +434,12 @@ export function BoardPage({
                   </span>
                   {item.subtitle && <span className="block text-xs text-neutral-500">{item.subtitle}</span>}
                   {item.summary && (
-                    <span className="block text-xs text-neutral-600 dark:text-neutral-300">{item.summary}</span>
+                    <span
+                      className="line-clamp-2 block text-xs text-neutral-600 dark:text-neutral-300"
+                      title={item.summary}
+                    >
+                      {item.summary}
+                    </span>
                   )}
                 </td>
                 {columns.map((column) => (

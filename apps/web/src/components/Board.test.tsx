@@ -238,7 +238,16 @@ describe('BoardPage', () => {
       scout: { id: 'quest-board', fresh: 0, manifest: { ...manifest, view } },
       items: [item({ state: 'seen', summary: 'CI fails on one runner; the fix looks small.' })],
     });
-    expect(screen.getByText('CI fails on one runner; the fix looks small.')).toBeTruthy();
+    const summary = screen.getByText('CI fails on one runner; the fix looks small.');
+    // Clamped to two lines, with the whole text on hover.
+    expect(summary.getAttribute('title')).toBe('CI fails on one runner; the fix looks small.');
+  });
+
+  it('sets a succeeded run-s note on a line of its own, as a warning', () => {
+    show({ runs: [run({ reason: 'not synthesized: it reached its budget cap (synthesize.maxBudgetUsd)' })] });
+    fireEvent.click(screen.getByText('Recent runs'));
+    const note = screen.getByText('not synthesized: it reached its budget cap (synthesize.maxBudgetUsd)');
+    expect(note.className).toMatch(/amber/);
   });
 
   it('runs the Scout now, and shows why the hub refused', async () => {

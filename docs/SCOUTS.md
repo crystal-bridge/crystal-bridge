@@ -178,8 +178,8 @@ screens only for now.
 
 ## Consult the oracle: the synthesis step
 
-A Scout with `synthesize` asks the Kingdom's own `claude` to judge the list. It runs only when the list changed since
-the last synthesis, so a quiet hour costs nothing. It uses the unmodified CLI under the Kingdom's login, in print mode,
+A Scout with `synthesize` asks the Kingdom's own `claude` to judge the list. It runs only when the list, `synthesize.md`
+or the Scout's actions changed since the last synthesis, and never for an empty list, so a quiet hour costs nothing. It uses the unmodified CLI under the Kingdom's login, in print mode,
 with structured output against a schema the Kingdom writes, with tools and MCP servers off and a budget cap:
 
 ```
@@ -194,16 +194,18 @@ when unset. The call may take three minutes. A recording of its real output is i
 What it may return is fixed:
 
 - for an item: a rank, a one-line summary, and one suggested action from that item's own list;
-- extra items of its own, such as "a filter would archive these 40 newsletters", whose actions also come from the
-  Scout's list.
+- extra items of its own, such as "a filter would archive these 40 newsletters". These may offer only the Scout's
+  `snooze`, `done` and `dismiss` actions: a script, a Quest or a link needs an item a collector vouched for, and the
+  model may have read text written to steer it.
 
 The Kingdom checks the answer against the schema and drops anything else, such as a suggestion the item doesn't offer.
 An extra item's id is `synthesis:` and a hash of its title, so dismissing one sticks for as long as it's worded the same.
 Each run records its cost in Gold beside the Board.
 
 When the step fails (the prompt file can't be read, `claude` isn't logged in, the budget runs out), the run still
-succeeds with the plain list and its record says why. It isn't tried again until the list changes, so a broken step
-doesn't spend every 15 minutes. The Kingdom keeps the last answer in memory, so after Crystal restarts, a Scout's next
+succeeds with the plain list, and the Board's Recent runs shows why on that run, in amber. A failed call isn't made
+again on schedule until something changes, so a broken step doesn't spend every 15 minutes; each run repeats the
+reason meanwhile. Once you've fixed the cause, Run now tries again. The Kingdom keeps the last answer in memory, so after Crystal restarts, a Scout's next
 run synthesizes once more.
 
 Cost is the reason synthesis is optional and runs only on change. Every `claude` call loads the Kingdom's full Claude

@@ -181,10 +181,10 @@ interface Entry {
   /** The latest run that brought a list, kept even once `recent` has moved past it. */
   listed?: NodeScoutRun;
   /**
-   * The list the last synthesis judged, by digest, and its answer, absent when it failed. Kept in memory only, so a
+   * The list and setup the last synthesis judged, by digest, and its answer, or why it failed. Kept in memory only, so a
    * restart costs one more call.
    */
-  synthesis?: { digest: string; answer?: SynthesisAnswer };
+  synthesis?: { digest: string; answer?: SynthesisAnswer; reason?: string };
 }
 
 const scheduleKey = (manifest: ScoutManifest) => `${manifest.schedule.cron}|${manifest.schedule.timezone}`;
@@ -476,8 +476,8 @@ export function createScouts(options: ScoutsOptions): Scouts {
         const judged = judge(result, timeoutMs);
         let { items } = judged;
         let synthesized: { reason?: string; costUsd?: number } = {};
-        if (items && manifest.synthesize && entries.get(entry.id) === entry) {
-          const step = await synthesize(entry, manifest, items, cwd, childEnv);
+        if (items && items.length > 0 && manifest.synthesize && entries.get(entry.id) === entry) {
+          const step = await synthesize(entry, manifest, items, cwd, childEnv, trigger);
           // Stopped by `close` while it thought.
           if (!step || closed) return;
           items = step.items;
@@ -505,10 +505,10 @@ export function createScouts(options: ScoutsOptions): Scouts {
   }
 
   /**
-   * The synthesis step, for a list the collector just brought. Runs `claude` only when the list changed since the last
-   * synthesis, applying the last answer again otherwise. While it thinks it holds the Scout's running slot, so `close`
-   * stops it and Run now records a skip. Resolves undefined when it was stopped; a failure keeps the plain list and
-   * says why, and isn't retried until the list changes.
+   * The synthesis step, for a list the collector just brought. Runs `claude` only when the list or the step's setup
+   * changed since the last synthesis, applying the last answer again otherwise. A failure keeps the plain list, and its
+   * reason is repeated on each run until something changes; Run now tries again regardless. While it thinks it holds
+   * the Scout's running slot, so `close` stops it and Run now records a skip. Resolves undefined when it was stopped.
    */
   async function synthesize(
     entry: Entry,
@@ -516,20 +516,28 @@ export function createScouts(options: ScoutsOptions): Scouts {
     items: ScoutItem[],
     cwd: string,
     childEnv: Record<string, string>,
+    trigger: string,
   ): Promise<{ items: ScoutItem[]; note: { reason?: string; costUsd?: number } } | undefined> {
     const step = manifest.synthesize!;
-    const digest = synthesisDigest(items);
-    if (entry.synthesis?.digest === digest) {
-      const { answer } = entry.synthesis;
-      return { items: answer ? applySynthesis(items, answer, manifest) : items, note: {} };
+    const why = (reason: string) => `not synthesized: ${reason}`.slice(0, MAX_REASON);
+    const instructions = scoutFile(entry.id, step.prompt);
+    // No call is made, so nothing is kept: the next run reads the file again.
+    if (typeof instructions !== 'string') return { items, note: { reason: why(instructions.reason) } };
+    const digest = synthesisDigest(items, {
+      instructions,
+      synthesize: step,
+      actions: manifest.actions,
+      defaults: manifest.defaults,
+    });
+    const last = entry.synthesis;
+    if (last?.digest === digest && (last.answer || trigger !== 'now')) {
+      if (last.answer) return { items: applySynthesis(items, last.answer, manifest), note: {} };
+      return { items, note: last.reason ? { reason: last.reason } : {} };
     }
     const failed = (reason: string, costUsd?: number) => {
-      entry.synthesis = { digest };
-      const reasonText = `the list wasn't synthesized: ${reason}`.slice(0, MAX_REASON);
-      return { items, note: { reason: reasonText, ...(costUsd !== undefined ? { costUsd } : {}) } };
+      entry.synthesis = { digest, reason: why(reason) };
+      return { items, note: { reason: why(reason), ...(costUsd !== undefined ? { costUsd } : {}) } };
     };
-    const instructions = scoutFile(entry.id, step.prompt);
-    if (typeof instructions !== 'string') return failed(instructions.reason);
     const call = collect({
       cwd,
       command: [
@@ -547,7 +555,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
       message: String(error),
     }));
     if (entry.running !== call || closed) return undefined;
-    const stderr = 'stderr' in result && result.stderr.trim() ? `: ${tail(result.stderr.trim(), 500)}` : '';
+    const stderr = 'stderr' in result && result.stderr.trim() ? `: ${tail(result.stderr.trim(), 200)}` : '';
     switch (result.kind) {
       case 'not-started':
         return failed(`could not start claude: ${result.message}`);

@@ -118,14 +118,34 @@ describe('readSynthesis', () => {
     });
     expect(readSynthesis(out)).toEqual({
       ok: false,
-      reason: 'the synthesis stopped: error_max_budget_usd',
+      reason: 'it reached its budget cap (synthesize.maxBudgetUsd)',
       costUsd: 0.5,
     });
+    const other = JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true });
+    expect(readSynthesis(other)).toEqual({ ok: false, reason: 'claude stopped: error_during_execution' });
   });
 
   it('says why when the output is not what the CLI prints', () => {
     expect(readSynthesis('not json').ok).toBe(false);
     expect(readSynthesis(JSON.stringify({ type: 'result', subtype: 'success', is_error: false })).ok).toBe(false);
+  });
+
+  it('clips a summary or title that runs long, rather than dropping the entry', () => {
+    const long = '\u{1F600}'.repeat(300);
+    const out = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      structured_output: {
+        items: [{ id: 'pr:12', rank: 1, summary: long }],
+        extra: [{ title: long + long, summary: long }],
+      },
+    });
+    const read = readSynthesis(out);
+    if (!read.ok) throw new Error(read.reason);
+    expect(read.answer.items[0]!.summary.length).toBeLessThanOrEqual(300);
+    expect(read.answer.items[0]!.summary.endsWith('\u{1F600}')).toBe(true);
+    expect(read.answer.extra[0]!.title.length).toBeLessThanOrEqual(500);
   });
 
   it('drops an entry it cannot use and keeps the rest', () => {
@@ -176,9 +196,10 @@ describe('applySynthesis', () => {
     expect(extra[0]).toMatchObject({
       title: 'Two pull requests touch the uploader',
       summary: 'Review them together.',
-      actions: ['open'],
-      suggested: 'open',
+      // `open` is a link, which an extra item may not offer.
+      actions: [],
     });
+    expect(extra[0]).not.toHaveProperty('suggested');
     expect(extra[0]!.id).toMatch(/^synthesis:[0-9a-f]{12}$/);
     expect(applySynthesis(items, answer, manifest)[3]!.id).toBe(extra[0]!.id);
   });
@@ -194,6 +215,22 @@ describe('applySynthesis', () => {
   it('never takes a full list past what a Board holds', () => {
     const full = Array.from({ length: MAX_SCOUT_ITEMS }, (_, at) => ({ id: `i${at}`, title: 't' }));
     expect(applySynthesis(full, answer, manifest)).toHaveLength(MAX_SCOUT_ITEMS);
+  });
+
+  it('lets an extra item offer only a change of state, never a script, a Quest or a link', () => {
+    const states = {
+      ...manifest,
+      actions: {
+        ...manifest.actions,
+        later: { kind: 'snooze', label: 'Later', for: '1d' },
+        done: { kind: 'done', label: 'Done' },
+      },
+    } as ScoutManifest;
+    const pick = (suggested: string) =>
+      applySynthesis(items, { items: [], extra: [{ title: 'Pattern', summary: 's', suggested }] }, states)[3];
+    expect(pick('later')).toMatchObject({ actions: ['later'], suggested: 'later' });
+    expect(pick('done')).toMatchObject({ actions: ['done'], suggested: 'done' });
+    for (const key of ['merge', 'fix', 'open']) expect(pick(key)).toMatchObject({ actions: [] });
   });
 
   it('gives an extra item no action the Scout does not have', () => {

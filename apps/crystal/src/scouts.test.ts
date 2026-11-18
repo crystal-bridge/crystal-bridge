@@ -698,7 +698,7 @@ describe('Scouts', () => {
       expect(sent[2]!.run.costUsd).toBeCloseTo(0.043272);
     });
 
-    it('keeps the plain list when the synthesis fails, says why, and waits for the list to change before trying again', async () => {
+    it('keeps the plain list when the synthesis fails, and says why', async () => {
       await ready();
       scouts!.runNow('quest-board');
       const over = JSON.stringify({
@@ -714,17 +714,15 @@ describe('Scouts', () => {
         reason: expect.stringMatching(/budget/),
       });
       expect(sent[0]!.items?.every((item) => item.rank === undefined)).toBe(true);
-
-      scouts!.runNow('quest-board');
-      await finish(ok(PRS));
-      expect(pending).toHaveLength(0);
-      expect(sent[1]!.run.reason).toBeUndefined();
     });
 
     it.each([
       [{ kind: 'not-started', message: 'spawn claude ENOENT' }, /could not start claude.*ENOENT/],
       [{ kind: 'timed-out', stderr: '' }, /stopped after/],
       [{ kind: 'exited', code: 1, stdout: '', stderr: 'Not logged in' }, /exited with code 1.*Not logged in/],
+      [{ kind: 'exited', code: null, signal: 'SIGKILL', stdout: '', stderr: '' }, /killed by SIGKILL/],
+      [{ kind: 'exited', code: 0, stdout: '', stderr: '' }, /printed no result/],
+      [{ kind: 'too-much', stderr: '' }, /more than 4 MB/],
     ] as [CollectResult, RegExp][])('says why when claude itself fails (%o)', async (result, why) => {
       await ready();
       scouts!.runNow('quest-board');
@@ -762,6 +760,53 @@ describe('Scouts', () => {
       expect(sent[0]!.run.outcome).toBe('skipped');
       await finish(answered());
       expect(sent[1]!.run.outcome).toBe('succeeded');
+    });
+
+    it('never calls claude for an empty list', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await finish(ok({ items: [] }));
+      expect(pending).toHaveLength(0);
+      expect(sent[0]!.run).toMatchObject({ outcome: 'succeeded', items: 0 });
+      expect(sent[0]!.run.reason).toBeUndefined();
+    });
+
+    it('runs again when synthesize.md changes, though the list did not', async () => {
+      await ready();
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      writeFileSync(join(dir, 'quest-board', 'synthesize.md'), 'Rank by age instead.\n');
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      expect(sent[1]!.run.costUsd).toBeCloseTo(0.043272);
+    });
+
+    it('says why on every run while a failure stands, and Run now tries again', async () => {
+      await ready();
+      now = slot(now);
+      await scouts!.tick();
+      const out = JSON.stringify({
+        type: 'result',
+        subtype: 'error_max_budget_usd',
+        is_error: true,
+        total_cost_usd: 0.5,
+      });
+      await collectThenSynthesize(PRS, answered(out, 1));
+      expect(sent[0]!.run.reason).toBe('not synthesized: it reached its budget cap (synthesize.maxBudgetUsd)');
+
+      // A scheduled run with the same list repeats the reason and makes no call.
+      now = slot(now);
+      await scouts!.tick();
+      await finish(ok(PRS));
+      expect(pending).toHaveLength(0);
+      expect(sent[1]!.run).toMatchObject({ trigger: 'schedule', reason: sent[0]!.run.reason });
+      expect(sent[1]!.run.costUsd).toBeUndefined();
+
+      // Run now, say after raising the cap, tries again.
+      scouts!.runNow('quest-board');
+      await collectThenSynthesize(PRS);
+      expect(sent[2]!.run.reason).toBeUndefined();
+      expect(sent[2]!.items?.[0]?.rank).toBe(1);
     });
 
     it('stops claude on close, and reports nothing', async () => {
