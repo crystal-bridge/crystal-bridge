@@ -21,6 +21,8 @@ one entry.
 
 - A Cast on a machine whose `tail` can't watch files, such as Ubuntu 26.04's when it has no inotify left, no
   longer finishes before its last lines are read.
+- A link or reload that opens a Board, a Castle, New Quest or the Airship stays there, instead of jumping to a saved
+  Split View's Quest.
 
 ## 0.6.0
 
