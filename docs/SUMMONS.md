@@ -72,8 +72,8 @@ and `ps`, which they have. A Windows target needs OpenSSH, and uses the PowerShe
 5. **Cancel.** A second short SSH command stops the job's process group.
 6. **Finish.** The wrapper writes the exit code to a temporary file, renames it into place and adds a last line to the
    log. That line wakes the Kingdom, and the `exit` file is the result, so a script can't fake one by printing it. When
-   a routine check finds the `exit` file first, the Kingdom waits up to 5 seconds for its follow to read the log to the
-   end, so a slow `tail` doesn't lose the last lines.
+   a routine check finds the `exit` file first, the Kingdom waits for its follow to read the log to the end, so a slow `tail` doesn't lose the last lines. It gives up
+   after 5 seconds with nothing new read, or a minute in all.
 
 The job folder is the record, and the target holds it:
 

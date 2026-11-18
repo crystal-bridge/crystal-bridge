@@ -680,6 +680,49 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     });
   });
 
+  describe('when the follow’s tail hands over the log in pieces', () => {
+    let shims: string;
+    /** A `tail -c +1 -f FILE` that waits, then sends the log's lines with \`gaps\` seconds between them. */
+    const pieces = (wait: number, gaps: number[]) => {
+      const lines = gaps
+        .map((gap, n) => `sleep ${gap}; sed -n '${n + 1}p' "$file"`)
+        .concat([`sed -n '${gaps.length + 1},$p' "$file"`]);
+      writeFileSync(
+        join(shims, 'tail'),
+        [
+          '#!/bin/sh',
+          `if [ "$1" != -c ] || [ "$3" != -f ]; then PATH=$(printf %s "$PATH" | cut -d: -f2-) exec tail "$@"; fi`,
+          `file=$4; sleep ${wait}`,
+          ...lines,
+          'sleep 30',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+    };
+    beforeEach(() => {
+      shims = mkdtempSync(join(tmpdir(), 'cb-pieces-tail-'));
+    });
+    afterEach(() => rmSync(shims, { recursive: true, force: true }));
+    const piecesShell = () =>
+      spawn('sh', ['-s'], { cwd: home, env: { PATH: `${shims}:${process.env.PATH}`, HOME: home, SHELL: '/bin/sh' } });
+
+    it('reads on past an end marker the job printed itself, when the job has already ended', async () => {
+      // The marker arrives first, after the job has ended; the rest of the log comes later.
+      pieces(0.3, [0, 0.5]);
+      const made = summons({ spawnOn: piecesShell, probeMs: 60_000 });
+      const cast = await start(made, "echo '::summon finished'; echo after; exit 0");
+      expect((await final(cast.id)).logTail).toContain('after\n');
+    });
+
+    it('keeps waiting while the follow is still reading, past the usual wait', async () => {
+      pieces(0.2, [0, 0.2, 0.2, 0.2, 0.2, 0.2]);
+      const made = summons({ spawnOn: piecesShell, probeMs: 50, drainMs: 400 });
+      const cast = await start(made, 'for n in 1 2 3 4 5; do echo "line $n"; done; exit 0');
+      expect((await final(cast.id)).logTail).toContain('line 5\n');
+    });
+  });
+
   it('finishes a Cast whose follow never reads the end, once the wait for it is up', async () => {
     let spawned = 0;
     const silentFollow = (target: Target) => {
