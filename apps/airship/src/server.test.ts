@@ -279,6 +279,123 @@ describe('airship server', () => {
     });
   });
 
+  describe('Scouts and Boards', () => {
+    const RUN = '33333333-3333-4333-8333-333333333333';
+    const manifest = {
+      name: 'Quest Board',
+      schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+      collect: { command: ['./collect.sh'] },
+      view: 'list',
+      actions: { done: { kind: 'done', label: 'Done' } },
+    };
+    const run = (id = RUN) => ({
+      id,
+      startedAt: 1,
+      finishedAt: 2,
+      trigger: 'schedule',
+      outcome: 'succeeded',
+      items: 1,
+    });
+    const items = [{ id: 'pr:1', rev: 'a', title: 'Fix the retry loop' }];
+
+    async function scoutingNode(scouts = true) {
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: 'node-a', scouts });
+      send(socket, { kind: 'scouts', scouts: [{ id: 'quest-board', manifest }] });
+      return { socket, frames };
+    }
+
+    async function withBoard() {
+      const client = await connectClient();
+      const node = await scoutingNode();
+      send(node.socket, { kind: 'scout-run', scout: 'quest-board', run: run(), items });
+      await client.frames.waitFor((frame) => frame.kind === 'board');
+      return { client, node };
+    }
+
+    const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
+    const post = (path: string, body?: unknown) =>
+      fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      });
+
+    it('stores and shows a Kingdom’s Scouts and the Board a run fills, live', async () => {
+      const client = await connectClient();
+      const node = await scoutingNode();
+      const listed = await client.frames.waitFor((frame) => frame.kind === 'scouts');
+      expect(listed).toMatchObject({ node: 'node-a', scouts: [{ id: 'quest-board', fresh: 0 }] });
+      send(node.socket, { kind: 'scout-run', scout: 'quest-board', run: run(), items });
+      const board = await client.frames.waitFor((frame) => frame.kind === 'board');
+      expect(board).toMatchObject({
+        node: 'node-a',
+        board: { scout: 'quest-board', items: [{ id: 'pr:1', state: 'new' }] },
+      });
+      // The list's counts move with each run too.
+      await client.frames.waitFor(
+        (frame) => frame.kind === 'scouts' && (frame.scouts as { fresh: number }[])[0]?.fresh === 1,
+      );
+
+      const scouts = await json(await fetch(`${baseUrl}/api/nodes/node-a/scouts`));
+      expect(scouts.body).toMatchObject({ scouts: [{ id: 'quest-board', fresh: 1, lastRun: { id: RUN } }] });
+      const shown = await json(await fetch(`${baseUrl}/api/nodes/node-a/scouts/quest-board`));
+      expect(shown.body).toMatchObject({ scout: 'quest-board', runs: [{ id: RUN }], items: [{ id: 'pr:1' }] });
+      expect((await fetch(`${baseUrl}/api/nodes/node-a/scouts/nope`)).status).toBe(404);
+    });
+
+    it('takes a resent run once, and drops a run for a Scout the Kingdom doesn’t list', async () => {
+      const { client, node } = await withBoard();
+      send(node.socket, { kind: 'scout-run', scout: 'quest-board', run: run(), items: [] });
+      send(node.socket, {
+        kind: 'scout-run',
+        scout: 'other',
+        run: run('44444444-4444-4444-8444-444444444444'),
+        items,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(client.frames.frames.filter((frame) => frame.kind === 'board')).toHaveLength(1);
+      expect(store.board('node-a', 'quest-board', Date.now())!.items[0]?.goneAt).toBeUndefined();
+      expect(store.board('node-a', 'other', Date.now())).toBeUndefined();
+    });
+
+    it('changes items’ state for every device, and refuses a change it can’t read', async () => {
+      const { client } = await withBoard();
+      const done = await json(
+        await post('/api/nodes/node-a/scouts/quest-board/items', { ids: ['pr:1'], state: 'done' }),
+      );
+      expect(done).toMatchObject({ status: 200, body: { items: [{ id: 'pr:1', state: 'done' }] } });
+      const frame = await client.frames.waitFor((frame) => frame.kind === 'board-items');
+      expect(frame).toMatchObject({ node: 'node-a', scout: 'quest-board', items: [{ id: 'pr:1', state: 'done' }] });
+      expect(
+        (await post('/api/nodes/node-a/scouts/quest-board/items', { ids: ['pr:1'], state: 'snoozed' })).status,
+      ).toBe(400);
+      expect((await post('/api/nodes/node-a/scouts/nope/items', { ids: ['pr:1'], state: 'done' })).status).toBe(404);
+    });
+
+    it('asks the Kingdom to run a Scout now, when it can', async () => {
+      const { node } = await withBoard();
+      expect((await post('/api/nodes/node-a/scouts/quest-board/run')).status).toBe(202);
+      await node.frames.waitFor((frame) => frame.kind === 'scout-run-now' && frame.scout === 'quest-board');
+      expect((await post('/api/nodes/node-a/scouts/nope/run')).status).toBe(404);
+      expect((await post('/api/nodes/node-b/scouts/quest-board/run')).status).toBe(404);
+    });
+
+    it('won’t ask a Kingdom too old for Scouts to run one', async () => {
+      const client = await connectClient();
+      await scoutingNode(false);
+      await client.frames.waitFor((frame) => frame.kind === 'scouts');
+      expect((await post('/api/nodes/node-a/scouts/quest-board/run')).status).toBe(409);
+    });
+
+    it('forgets a removed Kingdom’s Boards with its Quests', async () => {
+      await withBoard();
+      store.forgetNode('node-a');
+      expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/scouts`))).body).toEqual({ scouts: [] });
+    });
+  });
+
   it('answers a client-s ping, so a client can tell a live link from a half-open one', async () => {
     const client = await connectClient();
     send(client.socket, { kind: 'ping' });

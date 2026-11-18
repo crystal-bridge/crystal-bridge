@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
+import { type Boards, openBoards } from './boards.js';
 import { migrate } from './migrations.js';
 import { makePrivate } from './paths.js';
 import { z } from 'zod';
@@ -91,7 +92,10 @@ const SEARCH_STEP = 2000;
 /** How long one search goes on looking. Quests it hasn't reached by then go unsearched. */
 const SEARCH_BUDGET_MS = 5000;
 
-export interface Store {
+export { GONE_ITEMS_KEPT_MS, SCOUT_RUNS_KEPT, SCOUT_RUNS_SHOWN } from './boards.js';
+
+/** Everything the hub keeps, Scouts' Boards included (`boards.ts`). */
+export interface Store extends Boards {
   /** Stores an event; false for a duplicate. Throws `BadEvent` for one that can never be stored. */
   appendEvent(event: Envelope): boolean;
   eventsSince(session: string, seq: number): Envelope[];
@@ -315,8 +319,10 @@ export function openStore(path: string): Store {
   );
   const castDeliveredStmt = db.prepare(`UPDATE casts SET delivered = 1 WHERE id = ?`);
   const forgetCastsStmt = db.prepare(`DELETE FROM casts WHERE node = ?`);
+  const boards = openBoards(db);
   const forgetNodeTxn = db.transaction((node: string): string[] => {
     const ids = (nodeSessionsStmt.all(node) as { id: string }[]).map((row) => row.id);
+    boards.forgetBoards(node);
     forgetCastsStmt.run(node);
     forgetRelayStmt.run(node);
     forgetEventsStmt.run(node);
@@ -431,6 +437,7 @@ export function openStore(path: string): Store {
   }
 
   return {
+    ...boards,
     appendEvent(event) {
       try {
         return appendEventTxn(event);

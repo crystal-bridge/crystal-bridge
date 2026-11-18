@@ -1,4 +1,4 @@
-import type { Cast } from '@crystal-bridge/protocol';
+import type { Cast, Scout, ScoutItem, ScoutManifest, ScoutRun } from '@crystal-bridge/protocol';
 import { randomUUID } from 'node:crypto';
 import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
-import { openStore, type Store } from './store.js';
+import { GONE_ITEMS_KEPT_MS, openStore, SCOUT_RUNS_KEPT, SCOUT_RUNS_SHOWN, type Store } from './store.js';
 
 function makeEnvelope(overrides: Partial<Envelope> = {}): Envelope {
   return {
@@ -824,5 +824,205 @@ describe('casts', () => {
     expect(store.castDelivered(cast.id)).toBe(true);
     store.forgetNode('a');
     expect(store.casts('a', 10)).toEqual([]);
+  });
+});
+
+describe('Boards', () => {
+  const manifest: ScoutManifest = {
+    name: 'Quest Board',
+    schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+    collect: { command: ['./collect.sh'] },
+    view: 'list',
+    actions: { done: { kind: 'done', label: 'Done' } },
+  };
+  const scout: Scout = { id: 'quest-board', manifest };
+  let runs = 0;
+  const run = (extra: Partial<ScoutRun> = {}): ScoutRun => ({
+    id: `00000000-0000-4000-8000-${String(++runs).padStart(12, '0')}`,
+    startedAt: 1,
+    finishedAt: 2,
+    trigger: 'schedule',
+    outcome: 'succeeded',
+    ...extra,
+  });
+  const item = (id: string, rev = '1', extra: Partial<ScoutItem> = {}): ScoutItem => ({ id, rev, title: id, ...extra });
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    store.putScouts('a', [scout]);
+  });
+  afterEach(() => store.close());
+
+  const states = (now = 1000) =>
+    Object.fromEntries(store.board('a', 'quest-board', now)!.items.map((entry) => [entry.id, entry.state]));
+  const record = (items: ScoutItem[], now: number) => store.recordScoutRun('a', 'quest-board', run(), items, now);
+
+  it('keeps each Kingdom’s list of Scouts, replacing it on each report', () => {
+    store.putScouts('b', [{ id: 'mail', error: 'scout.json: bad' }]);
+    expect(store.scouts('a', 0).map((entry) => entry.id)).toEqual(['quest-board']);
+    store.putScouts('a', [{ id: 'other', manifest }]);
+    expect(store.scouts('a', 0).map((entry) => entry.id)).toEqual(['other']);
+    expect(store.scouts('b', 0)).toMatchObject([{ id: 'mail', error: 'scout.json: bad', fresh: 0 }]);
+  });
+
+  it('shows a first run’s items as new, with when they were first seen', () => {
+    const board = record([item('x'), item('y')], 100);
+    expect(board?.items).toMatchObject([
+      { id: 'x', state: 'new', firstSeen: 100, changedAt: 100 },
+      { id: 'y', state: 'new', firstSeen: 100, changedAt: 100 },
+    ]);
+    expect(board?.runs).toHaveLength(1);
+    expect(store.scouts('a', 100)).toMatchObject([{ id: 'quest-board', fresh: 2, lastRun: board!.runs[0] }]);
+  });
+
+  it('takes a resent run once', () => {
+    const same = run();
+    expect(store.recordScoutRun('a', 'quest-board', same, [item('x')], 100)).toBeDefined();
+    store.changeBoardItems('a', 'quest-board', { ids: ['x'], state: 'done' }, 150);
+    expect(store.recordScoutRun('a', 'quest-board', same, [item('x', '2')], 200)).toBeUndefined();
+    expect(states()).toEqual({ x: 'done' });
+    expect(store.board('a', 'quest-board', 200)!.runs).toHaveLength(1);
+  });
+
+  it('records a failed run and leaves the Board as it was', () => {
+    record([item('x')], 100);
+    const board = store.recordScoutRun(
+      'a',
+      'quest-board',
+      run({ outcome: 'failed', reason: 'exit 1' }),
+      undefined,
+      200,
+    );
+    expect(board?.items.map((entry) => entry.id)).toEqual(['x']);
+    expect(board?.runs.map((entry) => entry.outcome)).toEqual(['failed', 'succeeded']);
+    expect(store.scouts('a', 200)[0]!.lastRun?.outcome).toBe('failed');
+  });
+
+  it('brings an item back as new when its rev changes, whatever you did with it', () => {
+    record([item('seen'), item('done'), item('dismissed'), item('snoozed'), item('same')], 100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['seen', 'same'], state: 'seen' }, 110);
+    store.changeBoardItems('a', 'quest-board', { ids: ['done'], state: 'done' }, 110);
+    store.changeBoardItems('a', 'quest-board', { ids: ['dismissed'], state: 'dismissed' }, 110);
+    store.changeBoardItems('a', 'quest-board', { ids: ['snoozed'], state: 'snoozed', until: 99_999 }, 110);
+    const board = record(
+      [
+        item('seen', '2'),
+        item('done', '2'),
+        item('dismissed', '2'),
+        item('snoozed', '2'),
+        item('same', '1', { title: 'renamed' }),
+      ],
+      200,
+    );
+    expect(states()).toEqual({ seen: 'new', done: 'new', dismissed: 'new', snoozed: 'new', same: 'seen' });
+    const same = board!.items.find((entry) => entry.id === 'same')!;
+    expect(same).toMatchObject({ title: 'renamed', changedAt: 100 });
+    expect(board!.items.find((entry) => entry.id === 'done')).toMatchObject({ changedAt: 200, firstSeen: 100 });
+    expect(board!.items.find((entry) => entry.id === 'snoozed')?.until).toBeUndefined();
+  });
+
+  it('marks an item gone when the list leaves it out, and keeps what you did when it comes back unchanged', () => {
+    record([item('x'), item('y')], 100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['x'], state: 'done' }, 110);
+    const gone = record([item('y')], 200);
+    expect(gone!.items.find((entry) => entry.id === 'x')).toMatchObject({ state: 'done', goneAt: 200 });
+    const back = record([item('x'), item('y')], 300);
+    const x = back!.items.find((entry) => entry.id === 'x')!;
+    expect(x.state).toBe('done');
+    expect(x.goneAt).toBeUndefined();
+  });
+
+  it('counts only new items still in the list as fresh', () => {
+    record([item('x'), item('y'), item('z')], 100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['y'], state: 'seen' }, 110);
+    record([item('x'), item('y')], 200);
+    expect(store.scouts('a', 200)[0]!.fresh).toBe(1);
+  });
+
+  it('marks only new items seen, so looking never undoes done', () => {
+    record([item('x'), item('y')], 100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['y'], state: 'done' }, 110);
+    const changed = store.changeBoardItems('a', 'quest-board', { ids: ['x', 'y', 'nope'], state: 'seen' }, 120);
+    expect(changed.map((entry) => [entry.id, entry.state])).toEqual([['x', 'seen']]);
+    expect(states()).toEqual({ x: 'seen', y: 'done' });
+  });
+
+  it('can put any item back to new, and a snooze reads as new once it runs out', () => {
+    record([item('x'), item('y')], 100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['x'], state: 'done' }, 110);
+    store.changeBoardItems('a', 'quest-board', { ids: ['x'], state: 'new' }, 120);
+    store.changeBoardItems('a', 'quest-board', { ids: ['y'], state: 'snoozed', until: 500 }, 120);
+    expect(states(499)).toEqual({ x: 'new', y: 'snoozed' });
+    expect(store.board('a', 'quest-board', 499)!.items.find((entry) => entry.id === 'y')?.until).toBe(500);
+    expect(states(500)).toEqual({ x: 'new', y: 'new' });
+    expect(store.scouts('a', 500)[0]!.fresh).toBe(2);
+    expect(store.changeBoardItems('a', 'quest-board', { ids: ['y'], state: 'seen' }, 600)).toMatchObject([
+      { id: 'y', state: 'seen' },
+    ]);
+  });
+
+  it('keeps a Board’s recent runs and recently gone items, and lets older ones go', () => {
+    for (let n = 0; n < SCOUT_RUNS_KEPT + 5; n++) {
+      store.recordScoutRun('a', 'quest-board', run({ startedAt: n, outcome: 'skipped' }), undefined, n);
+    }
+    record([item('old')], 1000);
+    expect(record([], 2000)!.items).toMatchObject([{ id: 'old', goneAt: 2000 }]);
+    expect(record([], 2000 + GONE_ITEMS_KEPT_MS)!.items).toHaveLength(1);
+    const board = record([], 2001 + GONE_ITEMS_KEPT_MS);
+    expect(board!.items).toEqual([]);
+    expect(board!.runs).toHaveLength(SCOUT_RUNS_SHOWN);
+  });
+
+  it('leaves the Board alone for a run older than one it already took, such as a late resend', () => {
+    store.recordScoutRun('a', 'quest-board', run({ startedAt: 2000 }), [item('x', '2'), item('y')], 2100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['x'], state: 'done' }, 2200);
+    const late = store.recordScoutRun('a', 'quest-board', run({ startedAt: 1000 }), [item('x', '1')], 2300);
+    expect(late?.runs).toHaveLength(2);
+    expect(states()).toEqual({ x: 'done', y: 'new' });
+    expect(late!.items.find((entry) => entry.id === 'x')?.rev).toBe('2');
+  });
+
+  it('keeps runs apart per Kingdom, even with one id', () => {
+    store.putScouts('b', [scout]);
+    const same = run();
+    expect(store.recordScoutRun('a', 'quest-board', same, [item('x')], 100)).toBeDefined();
+    expect(store.recordScoutRun('b', 'quest-board', same, [item('y')], 100)?.items).toMatchObject([{ id: 'y' }]);
+  });
+
+  it('lets old gone items go on failed runs too, so a Scout that stopped working doesn’t keep them', () => {
+    record([item('old')], 1000);
+    record([], 2000);
+    const board = store.recordScoutRun(
+      'a',
+      'quest-board',
+      run({ outcome: 'failed' }),
+      undefined,
+      2001 + GONE_ITEMS_KEPT_MS,
+    );
+    expect(board!.items).toEqual([]);
+  });
+
+  it('has no Board for a Scout its Kingdom never listed', () => {
+    expect(store.board('a', 'nope', 0)).toBeUndefined();
+    expect(store.board('b', 'quest-board', 0)).toBeUndefined();
+  });
+
+  it('keeps items and runs of a Scout taken off the list, so a folder moved away for a moment loses nothing', () => {
+    record([item('x')], 100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['x'], state: 'done' }, 110);
+    store.putScouts('a', []);
+    expect(store.board('a', 'quest-board', 200)).toBeUndefined();
+    store.putScouts('a', [scout]);
+    expect(states()).toEqual({ x: 'done' });
+  });
+
+  it('forgets a Kingdom’s Scouts, runs and items with the Kingdom', () => {
+    record([item('x')], 100);
+    store.putScouts('b', [scout]);
+    store.recordScoutRun('b', 'quest-board', run(), [item('x')], 100);
+    store.forgetNode('a');
+    store.putScouts('a', [scout]);
+    expect(store.board('a', 'quest-board', 200)).toEqual({ scout: 'quest-board', runs: [], items: [] });
+    expect(store.board('b', 'quest-board', 200)!.items).toHaveLength(1);
   });
 });

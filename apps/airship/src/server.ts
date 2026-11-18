@@ -29,6 +29,10 @@ import {
   NodeProjects,
   NodeHello,
   NodeSummons,
+  BoardItemsChange,
+  type HubScoutRunNow,
+  NodeScoutRun,
+  NodeScouts,
   type Cast,
   type Resume,
   type Summon,
@@ -395,6 +399,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   >();
   // Nodes that can list an Inventory before a Quest, and the lists in flight: only the asked node's answer ends one.
   const inventoryListers = new Set<string>();
+  // Nodes that run Scouts, so can be asked to run one now.
+  const scoutNodes = new Set<string>();
   const inventoryLists = new Map<
     string,
     { node: string; finish: (events: NodeInventoryListed['events'], error?: string) => void }
@@ -589,6 +595,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!resuming) return;
     const send: NodeCommand = { type: 'session.send', session: id, text: REVIVE_TEXT, resume: resumeOf(quest) };
     sendJson(socket, send);
+  }
+
+  /** Sends every client a Kingdom's Scouts, with their counts as they now stand. */
+  function sendScouts(node: string): void {
+    const scouts = store.scouts(node, Date.now());
+    for (const client of clients) sendToClient(client, { kind: 'scouts', node, scouts });
   }
 
   /** Tells whoever should hear that a Cast ended, once. A cancel was someone's own doing, so it says nothing. */
@@ -946,6 +958,37 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const { node } = request.params as { node: string };
     return { summons: summons.get(node) ?? [], casts: store.casts(node, CASTS_SHOWN) };
   });
+  // Scouts and their Boards (docs/SCOUTS.md). The hub keeps them for a Kingdom that's offline too.
+  app.get('/api/nodes/:node/scouts', async (request) => {
+    const { node } = request.params as { node: string };
+    return { scouts: store.scouts(node, Date.now()) };
+  });
+  app.get('/api/nodes/:node/scouts/:scout', async (request, reply) => {
+    const { node, scout } = request.params as { node: string; scout: string };
+    return store.board(node, scout, Date.now()) ?? reply.code(404).send({ error: 'no such Scout on that Kingdom' });
+  });
+  app.post('/api/nodes/:node/scouts/:scout/items', async (request, reply) => {
+    const { node, scout } = request.params as { node: string; scout: string };
+    const change = BoardItemsChange.safeParse(request.body);
+    if (!change.success) return reply.code(400).send({ error: 'expected { ids, state, until? }' });
+    if (!store.hasScout(node, scout)) return reply.code(404).send({ error: 'no such Scout on that Kingdom' });
+    const items = store.changeBoardItems(node, scout, change.data, Date.now());
+    if (items.length > 0) {
+      for (const client of clients) sendToClient(client, { kind: 'board-items', node, scout, items });
+      sendScouts(node);
+    }
+    return { items };
+  });
+  app.post('/api/nodes/:node/scouts/:scout/run', async (request, reply) => {
+    const { node, scout } = request.params as { node: string; scout: string };
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!scoutNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    if (!store.hasScout(node, scout)) return reply.code(404).send({ error: 'no such Scout on that Kingdom' });
+    sendJson(socket, { kind: 'scout-run-now', scout } satisfies HubScoutRunNow);
+    return reply.code(202).send();
+  });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>
     [...engines]
@@ -1083,6 +1126,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else cliUpdaters.delete(helloNode);
           if (hello.data.inventory) inventoryListers.add(helloNode);
           else inventoryListers.delete(helloNode);
+          if (hello.data.scouts) scoutNodes.add(helloNode);
+          else scoutNodes.delete(helloNode);
           selfUpdates.delete(helloNode);
           selfUpdaters.delete(helloNode);
           if (hello.data.selfUpdate) {
@@ -1148,6 +1193,28 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         const summonList = NodeSummons.safeParse(parsed);
         if (summonList.success) {
           summons.set(helloNode, summonList.data.summons);
+          return;
+        }
+
+        const scoutList = NodeScouts.safeParse(parsed);
+        if (scoutList.success) {
+          store.putScouts(helloNode, scoutList.data.scouts);
+          sendScouts(helloNode);
+          return;
+        }
+
+        const scoutRun = NodeScoutRun.safeParse(parsed);
+        if (scoutRun.success) {
+          const { scout, run, items } = scoutRun.data;
+          if (!store.hasScout(helloNode, scout)) {
+            app.log.warn({ node: helloNode, scout }, 'dropped a run of a Scout this node does not list');
+            return;
+          }
+          const board = store.recordScoutRun(helloNode, scout, run, items, Date.now());
+          if (board) {
+            for (const client of clients) sendToClient(client, { kind: 'board', node: helloNode, board });
+            sendScouts(helloNode);
+          }
           return;
         }
 
@@ -1265,6 +1332,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           selfUpdaters.delete(helloNode);
           cliUpdates.get(helloNode)?.finish({ error: 'the Kingdom went offline during the update' });
           inventoryListers.delete(helloNode);
+          scoutNodes.delete(helloNode);
           for (const waiting of [...inventoryLists.values()]) {
             if (waiting.node === helloNode) waiting.finish(undefined, 'the Kingdom went offline');
           }

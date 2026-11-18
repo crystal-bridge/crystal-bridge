@@ -1,14 +1,10 @@
 import { z } from 'zod';
 import { Appearance } from './appearance.js';
 import { Envelope } from './envelope.js';
+import { PermissionMode } from './mode.js';
+import { BoardFrame, BoardItemsFrame, ScoutsFrame } from './scouts.js';
 
-/**
- * The CLI's permission modes a client may pick. `manual` asks for every action, `auto` lets the CLI's own
- * classifier decide and ask only when unsure. Modes that turn approvals off (bypassPermissions, dontAsk) are left
- * out on purpose: a click in the hub must never remove them.
- */
-export const PermissionMode = z.enum(['manual', 'acceptEdits', 'auto', 'plan']);
-export type PermissionMode = z.infer<typeof PermissionMode>;
+export { PermissionMode } from './mode.js';
 
 /**
  * How a node runs a session's engine. `stream` drives `claude -p` over stream-json (the default); `interactive` runs
@@ -240,6 +236,8 @@ export const NodeHello = z.object({
   selfUpdate: z.boolean().optional(),
   /** This node lists what a Quest could use before one starts (`HubListInventory`); older nodes leave it out. */
   inventory: z.boolean().optional(),
+  /** This node runs Scouts and takes `scout-run-now` and `scout-action` (docs/SCOUTS.md); older nodes leave it out. */
+  scouts: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
@@ -462,6 +460,12 @@ export const HubToClient = z.discriminatedUnion('kind', [
   FileReply,
   /** A Cast changed; clients that don't know this frame ignore it. */
   z.object({ kind: z.literal('cast'), node: z.string(), cast: Cast }),
+  /** A Kingdom's Scouts changed; clients that don't know this frame ignore it. */
+  ScoutsFrame,
+  /** A Scout's run ended, with its Board as it now stands; clients that don't know this frame ignore it. */
+  BoardFrame,
+  /** Items on a Board changed state; clients that don't know this frame ignore it. */
+  BoardItemsFrame,
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
 
