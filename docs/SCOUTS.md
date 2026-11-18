@@ -123,7 +123,7 @@ prints one JSON document to stdout:
 - **`actions`** name keys from `scout.json`. An item with none gets the Scout's defaults.
 
 A non-zero exit, a timeout or output that doesn't parse marks the run as failed and leaves the Board as it was. The end
-of stderr goes into the run's record. A collector has two minutes unless `collect.timeoutSeconds` says otherwise; at the
+of stderr goes into the run's record, which the hub stores and shows, so a collector must not print a secret there. A collector has two minutes unless `collect.timeoutSeconds` says otherwise; at the
 timeout Crystal stops it and everything it started. The collector gets `CRYSTAL_SCOUT`, its Scout's id, and
 `CRYSTAL_SCOUT_STATE`, the Scout's `state` folder, which Crystal creates and never reads. It never gets the Kingdom's
 node token.
@@ -207,8 +207,10 @@ instructions. The Quest's permission mode still applies, and a Scout's synthesis
   still works, and the first run that succeeds puts it back on its schedule. A token that needs signing in again shows
   up this way.
 
-Each Scout's next run and failure count are kept in `scouts-state.json` beside the scouts folder, so a pause and a
-missed run survive a restart. A run that ends while the hub is out of reach is sent when the Kingdom reconnects.
+Each Scout's next run and failure count are kept in a file beside the scouts folder, named after it
+(`scouts-state.json` by default), so a pause and a missed run survive a restart. While the hub is out of reach, the
+Kingdom holds each Scout's latest few runs and its latest list, and sends them when it reconnects. They're held in
+memory, so a restart in the meantime loses them, and the next run sends the whole list again.
 
 ## Where it runs
 
@@ -221,7 +223,8 @@ missed run survive a restart. A run that ends while the hub is out of reach is s
 ## Who holds what
 
 - **The Kingdom** holds the Scout folders, their scripts and state, every credential a script uses, and the scheduler.
-  Crystal never reads or relays a credential.
+  Crystal never reads or relays a credential, though a collector that prints one to stderr sends it to the hub with
+  its run.
 - **The hub** stores each Scout's definition as the Kingdom reported it, its items and their states, and a short
   history of runs with their outcome, timing and cost. It shows the Boards and sends notifications.
 - **The browser** draws a Board from a fixed set of views (a grouped list, a checklist and a table). No code from a

@@ -5,6 +5,12 @@ one entry.
 
 ## Unreleased
 
+### Added
+
+- A Kingdom runs Scouts: each folder under `~/.crystal-bridge/scouts/` names a collector and a schedule, and the Kingdom
+  runs it, sends the hub what it found and pauses it after three failures in a row. The hub stores the items; their
+  Boards come in a later release. See [Scouts and Boards](docs/SCOUTS.md).
+
 ### Changed
 
 - New Quest now has the same layout as a running Quest: the Inventory, Belt and side panel are there before you start,

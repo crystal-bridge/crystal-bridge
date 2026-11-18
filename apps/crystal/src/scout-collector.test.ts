@@ -103,6 +103,21 @@ describe('spawnCollector', () => {
     script('hang.mjs', `setInterval(() => {}, 1000);`);
     const collector = spawnCollector({ cwd, command: [NODE, 'hang.mjs'], env: env(), timeoutMs: 60_000 });
     collector.stop();
-    expect((await collector.result).kind).toBe('exited');
+    const result = await collector.result;
+    expect(result).toMatchObject({ kind: 'exited', code: null });
+    expect((result as { signal?: string }).signal).toBeTruthy();
+  });
+
+  it('finishes when the collector exits, even if something it left behind holds its output open', async () => {
+    script(
+      'leave.mjs',
+      `import { spawn } from 'node:child_process';
+       spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
+       process.stdout.write('{"items":[]}');`,
+    );
+    const started = Date.now();
+    const { result } = spawnCollector({ cwd, command: [NODE, 'leave.mjs'], env: env(), timeoutMs: 20_000 });
+    expect(await result).toMatchObject({ kind: 'exited', code: 0, stdout: '{"items":[]}' });
+    expect(Date.now() - started).toBeLessThan(10_000);
   });
 });

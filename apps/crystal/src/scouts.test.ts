@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Scout, ScoutItem, ScoutRun } from '@crystal-bridge/protocol';
@@ -367,18 +367,77 @@ describe('Scouts', () => {
       scoutFolder('quest-board');
       make();
       await scouts!.tick();
-      for (let i = 0; i < FAILURES_TO_PAUSE - 1; i++) {
-        now = listed()!.nextRunAt!;
-        await scouts!.tick();
-        await finish({ kind: 'exited', code: 2, stdout: '', stderr: '' });
-      }
+      now = listed()!.nextRunAt!;
+      await scouts!.tick();
+      await finish({ kind: 'exited', code: 2, stdout: '', stderr: '' });
       now = listed()!.nextRunAt!;
       await scouts!.tick();
       scouts!.runNow('quest-board');
       expect(sent.at(-1)?.run.outcome).toBe('skipped');
       await finish({ kind: 'exited', code: 2, stdout: '', stderr: '' });
+      // Two failures: a skip counted as one would have paused it here.
+      expect(listed()?.paused).toBeUndefined();
+      scouts!.runNow('quest-board');
+      await finish({ kind: 'exited', code: 2, stdout: '', stderr: '' });
+      // The third: a skip that cleared the count would have left it running.
       expect(listed()?.paused).toBeDefined();
     });
+
+    it('still counts failures from a state file someone edited badly', async () => {
+      scoutFolder('quest-board');
+      writeFileSync(
+        join(home, 'scouts-state.json'),
+        JSON.stringify({ 'quest-board': { schedule: '*/15 * * * *|UTC', failures: 'x', next: 'soon' } }),
+      );
+      make();
+      await scouts!.tick();
+      expect(listed()?.nextRunAt).toBe(slot(NOON));
+      for (let i = 0; i < FAILURES_TO_PAUSE; i++) {
+        scouts!.runNow('quest-board');
+        await finish({ kind: 'exited', code: 1, stdout: '', stderr: '' });
+      }
+      expect(listed()?.paused).toBeDefined();
+    });
+
+    it('keeps a pause through a restart while its scout.json does not load', async () => {
+      scoutFolder('quest-board');
+      make();
+      await scouts!.tick();
+      for (let i = 0; i < FAILURES_TO_PAUSE; i++) {
+        scouts!.runNow('quest-board');
+        await finish({ kind: 'exited', code: 1, stdout: '', stderr: '' });
+      }
+      scouts!.close();
+      scoutFolder('quest-board', '{ mid-edit');
+      make();
+      await scouts!.tick();
+      scoutFolder('quest-board');
+      await scouts!.tick();
+      expect(listed()?.paused).toBeDefined();
+    });
+
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'keeps every Scout and its state when the folder can’t be read for a moment',
+      async () => {
+        scoutFolder('quest-board');
+        make();
+        await scouts!.tick();
+        for (let i = 0; i < FAILURES_TO_PAUSE; i++) {
+          scouts!.runNow('quest-board');
+          await finish({ kind: 'exited', code: 1, stdout: '', stderr: '' });
+        }
+        const before = lists.length;
+        chmodSync(dir, 0o000);
+        try {
+          await scouts!.tick();
+        } finally {
+          chmodSync(dir, 0o755);
+        }
+        expect(lists).toHaveLength(before);
+        expect(listed()?.paused).toBeDefined();
+        expect(scouts!.recent()).toHaveLength(FAILURES_TO_PAUSE);
+      },
+    );
   });
 
   describe('Run now', () => {
@@ -477,15 +536,36 @@ describe('Scouts', () => {
       expect(sent[0]?.items).toBeUndefined();
     });
 
-    it('stops collectors that are still running when it closes, and sends nothing for them', async () => {
+    it('stops collectors that are still running when it closes, waits for them, and sends nothing for them', async () => {
       scoutFolder('quest-board');
       make();
       await scouts!.tick();
       scouts!.runNow('quest-board');
-      scouts!.close();
+      let closed = false;
+      const closing = scouts!.close().then(() => (closed = true));
       expect(pending[0]?.stopped).toBe(true);
+      await Promise.resolve();
+      expect(closed).toBe(false);
       await finish(ok());
+      await closing;
       expect(sent).toEqual([]);
+    });
+
+    it('keeps a reason short enough for the hub, however long the command', async () => {
+      scoutFolder('quest-board');
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      await finish({ kind: 'not-started', message: `spawn ${'x'.repeat(4000)} ENOENT` });
+      expect(sent[0]?.run.reason?.length).toBeLessThanOrEqual(2000);
+    });
+
+    it.skipIf(process.platform === 'win32')('makes the state folder private to the Kingdom’s user', async () => {
+      scoutFolder('quest-board');
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      expect(statSync(join(dir, 'quest-board', 'state')).mode & 0o777).toBe(0o700);
     });
   });
 
@@ -503,6 +583,23 @@ describe('Scouts', () => {
       expect(recent).toHaveLength(RUNS_KEPT);
       expect(recent.map((frame) => frame.run.id)).toEqual(sent.slice(-RUNS_KEPT).map((frame) => frame.run.id));
       expect(recent[0]).toMatchObject({ kind: 'scout-run', scout: 'quest-board', items: ITEMS.items });
+    });
+
+    it('keeps the latest list even after more failures and skips than it keeps runs', async () => {
+      scoutFolder('quest-board');
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      await finish(ok());
+      const listed = sent[0]!.run.id;
+      for (let i = 0; i < RUNS_KEPT + 1; i++) {
+        scouts!.runNow('quest-board');
+        scouts!.runNow('quest-board');
+        await finish({ kind: 'exited', code: 1, stdout: '', stderr: '' });
+      }
+      const recent = scouts!.recent();
+      expect(recent[0]).toMatchObject({ run: { id: listed }, items: ITEMS.items });
+      expect(recent).toHaveLength(RUNS_KEPT + 1);
     });
 
     it('forgets the runs of a Scout that is gone', async () => {

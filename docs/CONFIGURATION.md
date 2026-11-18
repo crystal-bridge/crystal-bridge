@@ -22,7 +22,7 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_CHROME` | unset | Crystal: `1` starts sessions with `--chrome` |
 | `CRYSTAL_ENGINES` | `stream` | Crystal: `stream,interactive` enables the interactive engine; `stream` is always on |
 | `CRYSTAL_SUMMONS` | unset | Crystal: machines its Quests may run jobs on, as SSH host names, comma-separated, each with an optional `name=` and `/limit` of Casts at once. Crystal rereads it from `crystal.env` with no restart; see [Summons](SUMMONS.md) |
-| `CRYSTAL_SCOUTS_DIR` | `~/.crystal-bridge/scouts` (`%USERPROFILE%\.crystal-bridge\scouts` on Windows) | Crystal: the folder holding one folder per Scout; each Scout's schedule state is kept beside it, in `scouts-state.json`. See [Scouts and Boards](SCOUTS.md) |
+| `CRYSTAL_SCOUTS_DIR` | `~/.crystal-bridge/scouts` (`%USERPROFILE%\.crystal-bridge\scouts` on Windows) | Crystal: the folder holding one folder per Scout; each Scout's schedule state is kept beside it, in `<folder name>-state.json` (`scouts-state.json` by default). See [Scouts and Boards](SCOUTS.md) |
 | `CRYSTAL_PID_FILE` | unset; Windows' `crystal.cmd` sets it | Crystal: where to record its process id, so `leave` can stop it |
 | `CRYSTAL_LOGIN_SHELL` | `$SHELL`, then `/bin/bash` | Crystal: the shell whose login environment sessions get; `join` writes it |
 | `CRYSTAL_SESSION` | set by Crystal | Not a setting: the session id on each `claude` process, so a hook can tell it runs under the bridge |

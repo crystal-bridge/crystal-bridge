@@ -236,9 +236,8 @@ async function main(): Promise<void> {
     console.log(`[crystal] ${reason}, shutting down`);
     updater?.close();
     summons.close();
-    scouts.close();
     // Wait for the claude processes to stop: with KillMode=process nothing else would end them.
-    await node.close();
+    await Promise.all([node.close(), scouts.close()]);
     await permissionServer.close();
     process.exit(code);
   };

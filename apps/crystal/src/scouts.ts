@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Cron } from 'croner';
+import { z } from 'zod';
 import {
   MAX_SCOUT_STDERR,
   ScoutId,
@@ -38,6 +39,10 @@ const MAX_JITTER_MS = 30_000;
 const MAX_STDOUT = 32 * 1024 * 1024;
 /** How long a stopped collector gets to end before it's killed outright. */
 const KILL_GRACE_MS = 5_000;
+/** How long the pipes may stay open after a collector exits, on Windows where what it left behind can't be ended. */
+const PIPE_GRACE_MS = 2_000;
+/** As `ScoutRun.reason` allows. */
+const MAX_REASON = 2000;
 
 export interface CollectRequest {
   cwd: string;
@@ -90,8 +95,8 @@ export interface Scouts {
   idle(): Promise<void>;
   /** Ticks on a timer until `close`. */
   start(): void;
-  /** Stops the timer and every running collector; their runs aren't reported. */
-  close(): void;
+  /** Stops the timer and every running collector, waiting for them a few seconds; their runs aren't reported. */
+  close(): Promise<void>;
 }
 
 /** A fixed offset per Scout, from its id, so it's the same on every tick and every restart. */
@@ -104,14 +109,18 @@ export function jitterOf(id: string): number {
   return (hash >>> 0) % MAX_JITTER_MS;
 }
 
-/** What's kept across restarts, per Scout. `schedule` is the cron and zone `next` was worked out for. */
-interface Saved {
-  schedule: string;
-  next?: number;
-  failures: number;
+/**
+ * What's kept across restarts, per Scout. `schedule` is the cron and zone `next` was worked out for. Read leniently: a
+ * value someone edited badly falls back to its default rather than breaking the count.
+ */
+const Saved = z.object({
+  schedule: z.string(),
+  next: z.number().int().optional().catch(undefined),
+  failures: z.number().int().nonnegative().catch(0),
   /** Why it paused, when it did. */
-  paused?: string;
-}
+  paused: z.string().optional().catch(undefined),
+});
+type Saved = z.infer<typeof Saved>;
 
 interface Entry {
   id: string;
@@ -124,6 +133,8 @@ interface Entry {
   saved?: Saved;
   running?: Collector;
   recent: NodeScoutRun[];
+  /** The latest run that brought a list, kept even once `recent` has moved past it. */
+  listed?: NodeScoutRun;
 }
 
 const scheduleKey = (manifest: ScoutManifest) => `${manifest.schedule.cron}|${manifest.schedule.timezone}`;
@@ -172,19 +183,31 @@ export function createScouts(options: ScoutsOptions): Scouts {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
   let ticking: Promise<void> | undefined;
+  let scanError: string | undefined;
 
   function readSaved(): Record<string, Saved> {
     try {
       const parsed = JSON.parse(readFileSync(statePath, 'utf8')) as unknown;
-      return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, Saved>) : {};
+      if (typeof parsed !== 'object' || parsed === null) return {};
+      return Object.fromEntries(
+        Object.entries(parsed).flatMap(([id, value]) => {
+          const one = Saved.safeParse(value);
+          return one.success ? [[id, one.data]] : [];
+        }),
+      );
     } catch {
       return {};
     }
   }
 
-  /** Writes what's kept across restarts, when it changed. */
+  /** Writes what's kept across restarts, when it changed. A Scout whose scout.json doesn't load yet keeps what it had. */
   function save(): void {
-    saved = Object.fromEntries([...entries].flatMap(([id, entry]) => (entry.saved ? [[id, entry.saved]] : [])));
+    saved = Object.fromEntries(
+      [...entries].flatMap(([id, entry]) => {
+        const kept = entry.saved ?? saved[id];
+        return kept ? [[id, kept]] : [];
+      }),
+    );
     const json = JSON.stringify(saved, null, 2);
     if (json === written) return;
     try {
@@ -260,7 +283,8 @@ export function createScouts(options: ScoutsOptions): Scouts {
     const key = scheduleKey(parsed.data);
     const kept = entry.saved ?? saved[entry.id];
     if (kept && kept.schedule === key) {
-      entry.saved = kept;
+      const next = kept.next ?? nextAfter(entry, now());
+      entry.saved = { ...kept, ...(next !== undefined ? { next } : {}) };
     } else {
       // A new Scout, or a new schedule: it waits for its first time rather than running at once.
       const next = nextAfter(entry, now());
@@ -280,7 +304,15 @@ export function createScouts(options: ScoutsOptions): Scouts {
         .filter((dirent) => dirent.isDirectory() && ScoutId.safeParse(dirent.name).success)
         .map((dirent) => dirent.name)
         .sort();
-    } catch {
+      scanError = undefined;
+    } catch (error) {
+      // Only a folder that isn't there means no Scouts. Anything else may pass, so nothing is dropped meanwhile.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message !== scanError) log(`could not read the Scouts folder, keeping the Scouts as they were: ${message}`);
+        scanError = message;
+        return;
+      }
       names = [];
     }
     if (names.length > MAX_SCOUTS) {
@@ -302,9 +334,15 @@ export function createScouts(options: ScoutsOptions): Scouts {
     for (const [id, entry] of fresh) entries.set(id, entry);
   }
 
-  function send(entry: Entry, run: ScoutRun, items?: ScoutItem[]): void {
-    entry.recent.push({ kind: 'scout-run', scout: entry.id, run, ...(items ? { items } : {}) } as NodeScoutRun);
+  function send(entry: Entry, whole: ScoutRun, items?: ScoutItem[]): void {
+    const run =
+      whole.reason && whole.reason.length > MAX_REASON
+        ? { ...whole, reason: whole.reason.slice(0, MAX_REASON) }
+        : whole;
+    const frame = { kind: 'scout-run', scout: entry.id, run, ...(items ? { items } : {}) } as NodeScoutRun;
+    entry.recent.push(frame);
     if (entry.recent.length > RUNS_KEPT) entry.recent.splice(0, entry.recent.length - RUNS_KEPT);
+    if (items) entry.listed = frame;
     onRun(entry.id, run, items);
   }
 
@@ -362,7 +400,8 @@ export function createScouts(options: ScoutsOptions): Scouts {
     const state = join(cwd, 'state');
     const timeoutMs = (manifest.collect.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
     try {
-      mkdirSync(state, { recursive: true });
+      // Private: a collector may keep a token of its own here.
+      mkdirSync(state, { recursive: true, mode: 0o700 });
     } catch (error) {
       log(`no state folder for ${entry.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -416,7 +455,8 @@ export function createScouts(options: ScoutsOptions): Scouts {
 
   function runNow(id: string): void {
     const entry = entries.get(id);
-    if (!entry || closed) return;
+    if (closed) return;
+    if (!entry) return log(`asked to run a Scout that isn't here: ${id}`);
     if (!entry.manifest) {
       const at = now();
       send(entry, {
@@ -465,7 +505,10 @@ export function createScouts(options: ScoutsOptions): Scouts {
 
   return {
     list,
-    recent: () => [...entries.values()].flatMap((entry) => entry.recent),
+    recent: () =>
+      [...entries.values()].flatMap((entry) =>
+        entry.listed && !entry.recent.includes(entry.listed) ? [entry.listed, ...entry.recent] : entry.recent,
+      ),
     runNow,
     tick,
     async idle() {
@@ -475,10 +518,15 @@ export function createScouts(options: ScoutsOptions): Scouts {
     start() {
       if (!timer && !ticking) loop();
     },
-    close() {
+    async close() {
       closed = true;
       if (timer) clearTimeout(timer);
       for (const entry of entries.values()) entry.running?.stop();
+      // Waits, so a collector that ignores the polite stop is killed before Crystal exits rather than outliving it.
+      let cap: NodeJS.Timeout | undefined;
+      const capped = new Promise<void>((resolve) => (cap = setTimeout(resolve, KILL_GRACE_MS + PIPE_GRACE_MS)));
+      await Promise.race([Promise.all([...running]), capped]);
+      clearTimeout(cap);
     },
   };
 }
@@ -571,8 +619,8 @@ export function spawnCollector(request: CollectRequest): Collector {
       stderr = tail(stderr + chunk);
     });
     child.on('error', (error) => finish({ kind: 'not-started', message: error.message }));
-    child.on('close', (code, sig) => {
-      // The leader is gone; anything it left behind in its group goes too.
+    // Whatever it left running would hold the pipes open and keep the run going until the timeout.
+    child.on('exit', (code, sig) => {
       if (posix && child.pid) {
         try {
           process.kill(-child.pid, 'SIGKILL');
@@ -580,8 +628,10 @@ export function spawnCollector(request: CollectRequest): Collector {
           // Nothing left.
         }
       }
-      finishEnded(code, sig);
+      const pipes = setTimeout(() => finishEnded(code, sig), PIPE_GRACE_MS);
+      pipes.unref?.();
     });
+    child.on('close', (code, sig) => finishEnded(code, sig));
   });
 
   return { result, stop: () => stop() };
