@@ -973,6 +973,35 @@ describe('Boards', () => {
     expect(board!.runs).toHaveLength(SCOUT_RUNS_SHOWN);
   });
 
+  it('leaves the Board alone for a run older than one it already took, such as a late resend', () => {
+    store.recordScoutRun('a', 'quest-board', run({ startedAt: 2000 }), [item('x', '2'), item('y')], 2100);
+    store.changeBoardItems('a', 'quest-board', { ids: ['x'], state: 'done' }, 2200);
+    const late = store.recordScoutRun('a', 'quest-board', run({ startedAt: 1000 }), [item('x', '1')], 2300);
+    expect(late?.runs).toHaveLength(2);
+    expect(states()).toEqual({ x: 'done', y: 'new' });
+    expect(late!.items.find((entry) => entry.id === 'x')?.rev).toBe('2');
+  });
+
+  it('keeps runs apart per Kingdom, even with one id', () => {
+    store.putScouts('b', [scout]);
+    const same = run();
+    expect(store.recordScoutRun('a', 'quest-board', same, [item('x')], 100)).toBeDefined();
+    expect(store.recordScoutRun('b', 'quest-board', same, [item('y')], 100)?.items).toMatchObject([{ id: 'y' }]);
+  });
+
+  it('lets old gone items go on failed runs too, so a Scout that stopped working doesn’t keep them', () => {
+    record([item('old')], 1000);
+    record([], 2000);
+    const board = store.recordScoutRun(
+      'a',
+      'quest-board',
+      run({ outcome: 'failed' }),
+      undefined,
+      2001 + GONE_ITEMS_KEPT_MS,
+    );
+    expect(board!.items).toEqual([]);
+  });
+
   it('has no Board for a Scout its Kingdom never listed', () => {
     expect(store.board('a', 'nope', 0)).toBeUndefined();
     expect(store.board('b', 'quest-board', 0)).toBeUndefined();

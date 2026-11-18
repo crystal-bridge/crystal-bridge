@@ -62,7 +62,9 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (node, id)
   ) WITHOUT ROWID;
   CREATE TABLE scout_runs (
-    id TEXT PRIMARY KEY, node TEXT NOT NULL, scout TEXT NOT NULL, started_at INTEGER NOT NULL, data TEXT NOT NULL
+    node TEXT NOT NULL, id TEXT NOT NULL, scout TEXT NOT NULL, started_at INTEGER NOT NULL, outcome TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (node, id)
   );
   CREATE INDEX scout_runs_board ON scout_runs (node, scout, started_at);
   CREATE TABLE scout_items (

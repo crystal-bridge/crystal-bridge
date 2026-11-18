@@ -109,7 +109,7 @@ describe('Scout frames', () => {
       ],
     };
     expect(NodeScouts.parse(frame)).toEqual(frame);
-    expect(NodeScouts.safeParse({ kind: 'scouts', scouts: [{ id: '../etc' }] }).success).toBe(false);
+    expect(NodeScouts.parse({ kind: 'scouts', scouts: [{ id: '../etc' }] }).scouts).toEqual([]);
   });
 
   it('reports a finished run with its full list, and a failed one without', () => {
@@ -120,6 +120,31 @@ describe('Scout frames', () => {
     expect(NodeScoutRun.safeParse({ kind: 'scout-run', scout: 'quest-board', run: failed, items: [] }).success).toBe(
       false,
     );
+  });
+
+  it('keeps a Kingdom’s other Scouts when one uses something this hub doesn’t know, and says why', () => {
+    const frame = NodeScouts.parse({
+      kind: 'scouts',
+      scouts: [
+        { id: 'quest-board', manifest },
+        { id: 'kanban', manifest: { ...manifest, view: 'kanban' } },
+        { id: 'hook', manifest: { ...manifest, actions: { send: { kind: 'webhook', label: 'Send' } } } },
+        { id: 'Not An Id' },
+      ],
+    });
+    expect(frame.scouts.map((scout) => scout.id)).toEqual(['quest-board', 'kanban', 'hook']);
+    expect(frame.scouts[0]).toEqual({ id: 'quest-board', manifest });
+    expect(frame.scouts[1]?.manifest).toBeUndefined();
+    expect(frame.scouts[1]?.error).toMatch(/newer/);
+  });
+
+  it('takes a run that started or ended in a way this hub doesn’t know yet', () => {
+    const run = { id: RUN, startedAt: 1, trigger: 'webhook', outcome: 'cancelled' };
+    expect(NodeScoutRun.safeParse({ kind: 'scout-run', scout: 'quest-board', run }).success).toBe(true);
+  });
+
+  it('refuses a list with one Scout twice', () => {
+    expect(NodeScouts.safeParse({ kind: 'scouts', scouts: [{ id: 'a' }, { id: 'a' }] }).success).toBe(false);
   });
 
   it('carries Run now and an action to the Kingdom, and the action’s answer back', () => {

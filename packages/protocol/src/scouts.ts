@@ -66,7 +66,10 @@ export type ScoutAction = z.infer<typeof ScoutAction>;
 export const ScoutView = z.enum(['list', 'checklist', 'table']);
 export type ScoutView = z.infer<typeof ScoutView>;
 
-/** `scout.json`. Fields a newer Kingdom adds are dropped, not refused, so an older hub still shows the Scout. */
+/**
+ * `scout.json`. Fields a newer Kingdom adds are dropped. A value this hub doesn't know, such as a new view or action kind,
+ * fails this Scout alone: `NodeScouts` keeps it as an error and keeps the Kingdom's other Scouts.
+ */
 export const ScoutManifest = z.object({
   name: z.string().min(1).max(80),
   schedule: ScoutSchedule,
@@ -132,16 +135,25 @@ const itemList = z
 export const ScoutItems = z.object({ items: itemList });
 export type ScoutItems = z.infer<typeof ScoutItems>;
 
+/** The outcomes a run has today. A run takes any short word, so a newer Kingdom's outcome still gets recorded. */
 export const ScoutRunOutcome = z.enum(['succeeded', 'failed', 'timed-out', 'skipped']);
 export type ScoutRunOutcome = z.infer<typeof ScoutRunOutcome>;
+
+/** What starts a run today; as with outcomes, a run takes any short word. */
+export const ScoutRunTrigger = z.enum(['schedule', 'catch-up', 'now']);
+export type ScoutRunTrigger = z.infer<typeof ScoutRunTrigger>;
+
+const runWord = z.string().regex(/^[a-z][a-z-]{0,31}$/);
 
 /** One execution of a Scout, or one it skipped because the last was still going. */
 export const ScoutRun = z.object({
   id: z.uuid(),
   startedAt: z.number().int(),
   finishedAt: z.number().int().optional(),
-  trigger: z.enum(['schedule', 'catch-up', 'now']),
-  outcome: ScoutRunOutcome,
+  /** One of `ScoutRunTrigger`'s, or a newer one. */
+  trigger: runWord,
+  /** One of `ScoutRunOutcome`'s, or a newer one. Only `succeeded` carries items. */
+  outcome: runWord,
   /** Why it failed or was skipped, in plain words. */
   reason: z.string().max(2000).optional(),
   /** The end of what the collector wrote to stderr. */
@@ -192,8 +204,32 @@ export type BoardItemsChange = z.infer<typeof BoardItemsChange>;
 
 // node -> hub
 
+/**
+ * Each Scout read on its own, so one a newer Kingdom describes in ways this hub doesn't know is kept with an error that
+ * says so, and the rest still show. An entry without a usable id is left out.
+ */
+function readScouts(entries: unknown[]): Scout[] {
+  return entries.flatMap((entry) => {
+    const scout = Scout.safeParse(entry);
+    if (scout.success) return [scout.data];
+    const id = ScoutId.safeParse((entry as { id?: unknown } | null)?.id);
+    if (!id.success) return [];
+    const where = scout.error.issues[0]?.path.join('.') || 'it';
+    return [{ id: id.data, error: `this Scout needs a newer hub: ${where} uses something this one doesn't know` }];
+  });
+}
+
 /** Node -> hub: the Kingdom's Scouts, replacing the previous list. Resent after each connect. */
-export const NodeScouts = z.object({ kind: z.literal('scouts'), scouts: z.array(Scout).max(100) });
+export const NodeScouts = z.object({
+  kind: z.literal('scouts'),
+  scouts: z
+    .array(z.unknown())
+    .max(100)
+    .transform(readScouts)
+    .refine((scouts) => new Set(scouts.map((scout) => scout.id)).size === scouts.length, {
+      message: 'two Scouts share an id',
+    }),
+});
 export type NodeScouts = z.infer<typeof NodeScouts>;
 
 /** Node -> hub: a run ended. A run that succeeded carries the collector's whole list; the hub compares it with the last. */

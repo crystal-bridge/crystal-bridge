@@ -81,8 +81,13 @@ export function openBoards(db: Database.Database): Boards {
     `SELECT count(*) AS n FROM scout_items WHERE node = @node AND scout = @scout AND gone_at IS NULL
        AND (state = 'new' OR (state = 'snoozed' AND until <= @now))`,
   );
-  const runExists = db.prepare(`SELECT 1 FROM scout_runs WHERE id = ?`);
-  const insertRun = db.prepare(`INSERT INTO scout_runs (id, node, scout, started_at, data) VALUES (?, ?, ?, ?, ?)`);
+  const runExists = db.prepare(`SELECT 1 FROM scout_runs WHERE node = ? AND id = ?`);
+  const insertRun = db.prepare(
+    `INSERT INTO scout_runs (node, id, scout, started_at, outcome, data) VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  const newerList = db.prepare(
+    `SELECT 1 FROM scout_runs WHERE node = ? AND scout = ? AND outcome = 'succeeded' AND started_at > ? LIMIT 1`,
+  );
   const latestRuns = db.prepare(
     `SELECT data FROM scout_runs WHERE node = ? AND scout = ? ORDER BY started_at DESC, rowid DESC LIMIT ?`,
   );
@@ -132,10 +137,12 @@ export function openBoards(db: Database.Database): Boards {
 
   const record = db.transaction(
     (node: string, scout: string, run: ScoutRun, list: readonly ScoutItem[] | undefined, now: number) => {
-      if (runExists.get(run.id)) return undefined;
-      insertRun.run(run.id, node, scout, run.startedAt, JSON.stringify(run));
+      if (runExists.get(node, run.id)) return undefined;
+      // A list older than one already taken, such as a late resend, would undo newer changes and what you did since.
+      const stale = list !== undefined && newerList.get(node, scout, run.startedAt) !== undefined;
+      insertRun.run(node, run.id, scout, run.startedAt, run.outcome, JSON.stringify(run));
       pruneRuns.run({ node, scout, keep: SCOUT_RUNS_KEPT });
-      if (list) {
+      if (list && !stale) {
         const known = new Map((items.all(node, scout) as ItemRow[]).map((row) => [row.id, row]));
         list.forEach((item, ord) => {
           const row = known.get(item.id);
@@ -146,8 +153,8 @@ export function openBoards(db: Database.Database): Boards {
           else sameItem.run(values);
         });
         for (const row of known.values()) if (row.gone_at === null) goneItem.run(now, node, scout, row.id);
-        pruneGone.run(node, scout, now - GONE_ITEMS_KEPT_MS);
       }
+      pruneGone.run(node, scout, now - GONE_ITEMS_KEPT_MS);
       return boardOf(node, scout, now);
     },
   );
