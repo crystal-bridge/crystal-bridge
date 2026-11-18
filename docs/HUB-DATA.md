@@ -8,6 +8,7 @@ into a chat, every reply, and every tool's input and output. Plan for it like yo
 | Where | What | Kept for |
 | --- | --- | --- |
 | Hub database (`AIRSHIP_DB`, SQLite) | `events`: every event of every Quest (prompts, replies, tool calls and results, approvals); `sessions`: each Quest's id, Kingdom, folder, title and status; `push_subscriptions`: each browser's push endpoint and notification levels; `appearance`: each user's Kingdom icons and colours, and each Kingdom's Belt, including any prompt text typed into a slot; `relay`: bytes sent to browsers per Quest; `casts`: each job on a Summon, with its command and the end of its log | Until deleted by hand. Nothing expires. |
+| Hub database: Scouts ([Scouts and Boards](./SCOUTS.md)) | `scouts`: each Kingdom's Scouts as it reports them, with each `scout.json`; `scout_runs`: each run's outcome, timing, cost and the end of its collector's stderr; `scout_items`: each item a collector printed (its title, link and fields, which can hold text from email or pull requests) and what you did with it | Runs: the newest 50 per Scout. Items: while the collector lists them, then 14 days. Forgetting a removed Kingdom deletes all three. |
 | Hub backups (`AIRSHIP_BACKUP_DIR`) | A full copy of the database, taken nightly and before each schema migration | The newest `AIRSHIP_BACKUP_KEEP` (default 14). |
 | Off-box backup mirror (optional, `AIRSHIP_BACKUP_SSH`) | The same backup folder, mirrored | The same count as the hub's folder. |
 | Hub keys | `nodes.json` (only SHA-256 hashes of node tokens), `access-tokens.json` (only SHA-256 hashes of login tokens, on token login), `vapid.json` (Web Push keys) | Until replaced. |
@@ -26,6 +27,8 @@ levels they carry no Quest titles or text.
 - **One Quest:** there's no delete button yet. With the hub stopped, delete that Quest's rows from `events`, `relay`
   and `casts` (by the `session` column) and `sessions` (by `id`) with any SQLite tool, then start the hub. Its copies in the backups expire as the
   backups rotate.
+- **One Scout:** with the hub stopped, delete its rows from `scouts`, `scout_runs` and `scout_items` (by the `node`
+  and `id` or `scout` columns), then start the hub. A Kingdom that still has the Scout reports it again.
 - **Everything:** stop the hub, then delete the database file (and its `-wal` and `-shm` files), the backup folder
   and the off-box mirror.
 - **A secret pasted into a chat:** rotate the secret. Deleting the Quest still leaves it in backups until they

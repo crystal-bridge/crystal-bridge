@@ -54,6 +54,24 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX casts_node_started ON casts (node, started_at);
   `,
+  // 8: Scouts and their Boards (docs/SCOUTS.md). Each Kingdom's Scouts in its order; runs, the newest few per Scout; and
+  // items keyed by the collector's own id, with the user's state apart from whether the latest list still has them.
+  `
+  CREATE TABLE scouts (
+    node TEXT NOT NULL, id TEXT NOT NULL, ord INTEGER NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (node, id)
+  ) WITHOUT ROWID;
+  CREATE TABLE scout_runs (
+    id TEXT PRIMARY KEY, node TEXT NOT NULL, scout TEXT NOT NULL, started_at INTEGER NOT NULL, data TEXT NOT NULL
+  );
+  CREATE INDEX scout_runs_board ON scout_runs (node, scout, started_at);
+  CREATE TABLE scout_items (
+    node TEXT NOT NULL, scout TEXT NOT NULL, id TEXT NOT NULL, ord INTEGER NOT NULL, rev TEXT NOT NULL,
+    state TEXT NOT NULL, until INTEGER, first_seen INTEGER NOT NULL, changed_at INTEGER NOT NULL, gone_at INTEGER,
+    data TEXT NOT NULL,
+    PRIMARY KEY (node, scout, id)
+  ) WITHOUT ROWID;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
