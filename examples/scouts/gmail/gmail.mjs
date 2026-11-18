@@ -174,7 +174,11 @@ export function redact(text, { codes = CODE_WORDS.test(text) } = {}) {
     })
     .replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b/g, '[account]')
     .replace(/(?<![\w.,-])\d(?:[ -]?\d){8,}(?![\w,]|\.\d)/g, '[number]');
-  if (codes) out = out.replace(/(?<![\w.,-])(?:[A-Z]{1,3}-)?(?:\d{3}[ -]\d{3}|\d{4,8})(?![\w,]|[.-]\d)/g, '[code]');
+  if (codes)
+    out = out.replace(
+      /(?<![\w.,-])(?:[A-Z]{1,3}-)?(?:\d{3}[ -]\d{3}|(?!(?:19|20)\d\d(?!\d))\d{4,8})(?![\w,]|[.-]\d)/g,
+      '[code]',
+    );
   return out;
 }
 

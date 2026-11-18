@@ -68,6 +68,11 @@ describe('redact', () => {
     assert.equal(redact('Total $1,250.00 due 2026-12-01'), 'Total $1,250.00 due 2026-12-01');
   });
 
+  it('keeps a year, which a mail about security or a PIN still writes plainly', () => {
+    assert.equal(redact('Security update, November 2026: code 482913'), 'Security update, November 2026: code [code]');
+    assert.equal(redact('Your PIN for 1999 is 4410'), 'Your PIN for 1999 is [code]');
+  });
+
   it('hides codes split in two, as sign-in mails often write them', () => {
     assert.equal(redact('Your verification code is 123-456.'), 'Your verification code is [code].');
     assert.equal(redact('Your security code: 123 456'), 'Your security code: [code]');

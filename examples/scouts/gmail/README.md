@@ -78,7 +78,7 @@ thread's Gmail link, which names your address. Before any of it leaves Gmail's a
   (`123 456`).
 
 The redaction is a pattern match, not a guarantee. A code made of letters and digits (`K7Q2XZ`), a temporary
-password, a link written without `https://`, or a code in mail that never says "code" gets through. The same text is
+password, a link written without `https://`, a four-digit code that reads as a year (1900 to 2099), or a code in mail that never says "code" gets through. The same text is
 what the hub stores and the Board shows.
 
 ## Buttons
