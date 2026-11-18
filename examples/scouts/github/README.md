@@ -36,10 +36,10 @@ failing checks change.
 - **Answer the review** starts a Quest in a worktree to work through the feedback; it shows you the diff and its draft
   replies, and commits, pushes and posts nothing until you say so.
 - **Triage** starts a Quest that reads the issue and the code and reports back, changing nothing.
+- **Open**, **Later** (a day) and **Done** need no Quest.
 
 Each Quest first checks that its folder is a clone of the item's repository (`git remote -v`) and stops if it isn't, so
 two repositories with the same name can't mix. A Kingdom set to auto mode runs them without asking for approvals.
-- **Open**, **Later** (a day) and **Done** need no Quest.
 
 The prompts are `fix.md`, `answer.md` and `triage.md`; edit them to suit.
 
