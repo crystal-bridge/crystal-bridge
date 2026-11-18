@@ -13,9 +13,9 @@ The Google sign-in is most of the setup. You make your own OAuth client, so no o
 2. **The app.** Open **Google Auth Platform** and press **Get started**: give the app a name, your email as support
    and contact, and choose **External** for a personal account or **Internal** for your own Workspace. Then under
    **Data Access**, press **Add or remove scopes** and add `gmail.modify` and `gmail.settings.basic`.
-3. **Publish it** (External only; an Internal app has no publishing status). Under **Audience**, press **Publish app**
-   so its status is **In production**, and leave it unverified: Google's verification is for apps others use. In
-   **Testing**, its sign-in expires every seven days, which breaks an unattended Scout each week.
+3. **Who may sign in** (External only; an Internal app is for your Workspace already). Under **Audience**, add your
+   Gmail address under **Test users**. The app stays in **Testing**, where a sign-in expires after seven days: the
+   Board then says "sign in again", and you run step 6 once more. To avoid that, see *Publishing* below.
 4. **A Desktop client.** Under **Clients**, press **Create client**, choose **Desktop app**, and download the JSON from
    the dialog that follows. Google shows the client's secret only then; if you lose it, add a new secret to the
    client.
@@ -30,6 +30,16 @@ The Google sign-in is most of the setup. You make your own OAuth client, so no o
 The sign-in address answers on the Kingdom's `127.0.0.1`. On a Kingdom you reach over SSH, give it a port and forward
 that port from your own machine: `ssh -L 8765:127.0.0.1:8765 <kingdom>`, then `node sign-in.mjs --port 8765` there, and
 open the address in your own browser.
+
+**Publishing.** **Publish app** moves an External app to **In production**, where a sign-in lasts until you revoke it.
+Google enables it only once the **Branding** page also has an app home page, a privacy policy link, a terms of service
+link and an **authorized domain** they sit on, though none of them is marked required; until then it says "complete
+your configuration on the Branding page". Pages on a domain you own work; leave the app unverified, since Google's
+verification is for apps others use.
+
+**Several Gmail accounts.** Give each its own Scout folder, such as `gmail-personal` and `gmail-work`, each with the same
+`client_secret.json`, and run `node sign-in.mjs` in each as that account. Add each address as a test user. Each gets
+its own Board.
 
 On a Workspace account, an admin may block apps the organization hasn't allowed, or these scopes. Google then shows why
 in the browser and never returns to the sign-in, which gives up after five minutes.
@@ -58,7 +68,7 @@ holds (after you mark a few thousand read at once, say), or when you sign in as 
 ## What the model sees
 
 The synthesis step and a Follow up Quest see, for each thread: the sender's name and address, the subject, the
-category, whether it's from a mailing list, the start of the latest message (600 characters by default), and the
+category, whether it's from a mailing list, the start of the latest message (300 characters by default), and the
 thread's Gmail link, which names your address. Before any of it leaves Gmail's answer:
 
 - attachments, quoted replies, signatures after `-- `, HTML styles and scripts, and invisible characters are dropped;
@@ -92,6 +102,12 @@ what the hub stores and the Board shows.
 Archive, Filter sender and Spam each get a batch button above a group, such as "Archive all 12", when several of its
 threads offer them. Filter sender and Spam ask before they go, and say how many.
 
+**Run now ranks the list.** Scheduled runs only collect, which costs no plan usage. Pressing Run now collects and asks
+the synthesis step to rank the threads, sum each up and suggest a button (`synthesize.when` is `now` in `scout.json`).
+One press over 100 threads cost about $0.57 of plan usage in testing, and took three minutes; the cap is $1
+(`synthesize.maxBudgetUsd`). Between presses, the Board keeps each thread's summary and suggestion until a new message
+arrives in it, and keeps the order only while no new thread has come in.
+
 The synthesis step suggests one of these per thread, and may add an item such as "A filter on news@example.com would
 archive these 6 promotions". That item offers only Later, Done and Dismiss; press Filter sender on the threads
 themselves.
@@ -104,7 +120,7 @@ Copy `settings.example.json` to `settings.json` beside `scout.json` to change:
 
 - `maxThreads` (100, at most 500): how many of the newest inbox threads the Board holds. Changing it reads the inbox
   again.
-- `bodyChars` (600, at most 2000): how much of the latest message the model sees. Changing it reads the inbox again.
+- `bodyChars` (300, at most 2000): how much of the latest message the model sees. Changing it reads the inbox again.
 
 A `settings.json` that isn't JSON fails the run, with the reason on the Board, rather than being ignored.
 

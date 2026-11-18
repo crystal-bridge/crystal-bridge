@@ -339,8 +339,13 @@ step by step: [`examples/scouts/gmail`](../examples/scouts/gmail/README.md).
 
 - You create your own Google Cloud project with a Desktop OAuth client, with the `gmail.modify` scope, plus
   `gmail.settings.basic` to create filters.
-- Leave the app's publishing status **In production**, unverified, under Google's personal-use exemption. In
-  **Testing** its tokens expire every seven days, which breaks an unattended Scout each week.
+- In **Testing**, with yourself as a test user, a sign-in expires every seven days. **In production** (unverified) it
+  lasts, but Google enables publishing only once the app's Branding page has a home page, privacy policy and terms
+  links on an authorized domain.
+- A new project allows 6,000 units of Gmail quota a minute per user, and reading 100 threads in full tripped it within
+  seconds: the collector waits and retries, and a first read of 100 threads took 75 seconds.
+- Synthesis runs only on Run now (`synthesize.when: "now"`): a mail list changes on nearly every run, and one call over
+  100 threads cost $0.57.
 - On a Workspace account, an admin may block the app or the scopes.
 - A collector reads changes with `history.list` from a saved position, which needs no public address. When Google says
   the position is too old, it reads the inbox in full again.

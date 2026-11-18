@@ -4,7 +4,7 @@
  * categories for a Board. The first run reads the inbox; later runs read only what changed since the saved position,
  * with `history.list`, which needs no public address. When Google says the position is too old, it reads in full again.
  *
- * Node only, no packages. `settings.json` beside it is optional: { "maxThreads": 100, "bodyChars": 600 }
+ * Node only, no packages. `settings.json` beside it is optional: { "maxThreads": 100, "bodyChars": 300 }
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -88,7 +88,7 @@ export async function collect({ fetch = globalThis.fetch, folder, state, setting
   const client = readClient(folder);
   const call = gmail({ fetch, token: await accessToken({ fetch, client, state }) });
   const maxThreads = number(settings.maxThreads, 100, 500);
-  const bodyChars = number(settings.bodyChars, 600, 2000);
+  const bodyChars = number(settings.bodyChars, 300, 2000);
   const file = join(state, 'inbox.json');
   let kept;
   try {

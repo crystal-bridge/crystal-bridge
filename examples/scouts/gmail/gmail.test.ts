@@ -393,6 +393,7 @@ describe('collect', () => {
     );
     assert.equal(kept().historyId, '100');
     assert.equal(kept().email, ME);
+    assert.equal(kept().bodyChars, 300);
     const paths = google.calls.map((call) => call.url.pathname.split('/users/me/')[1]).filter(Boolean);
     assert.ok(paths.indexOf('profile') < paths.indexOf('threads'));
   });
@@ -611,6 +612,11 @@ describe('scout.json', () => {
       if (action.kind === 'run') assert.deepEqual(action.command, ['node', 'act.mjs']);
     }
     readFileSync(join(HERE, manifest.synthesize!.prompt), 'utf8');
+    // A mail list changes on nearly every run: only a press spends plan usage, about $0.57 for 100 threads live.
+    assert.deepEqual(
+      { when: manifest.synthesize!.when, maxBudgetUsd: manifest.synthesize!.maxBudgetUsd },
+      { when: 'now', maxBudgetUsd: 1 },
+    );
   });
 });
 
