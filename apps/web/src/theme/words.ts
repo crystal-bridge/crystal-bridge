@@ -78,7 +78,8 @@ export type Concept =
   | 'scout'
   | 'scouts'
   | 'board'
-  | 'boards';
+  | 'boards'
+  | 'synthesis';
 
 export type Words = Record<Concept, Word>;
 
@@ -153,6 +154,7 @@ export const CRYSTAL: Words = {
   scouts: { themed: 'Scouts', plain: 'scheduled jobs that collect items' },
   board: { themed: 'Board', plain: 'the items a Scout found, to act on' },
   boards: { themed: 'Boards', plain: 'what each Scout found, to act on' },
+  synthesis: { themed: 'Augury', plain: 'the synthesis step' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -227,6 +229,7 @@ export const CLASSIC: Words = {
   scouts: { themed: 'Scheduled jobs', plain: 'Scheduled jobs' },
   board: { themed: 'Board', plain: 'Board' },
   boards: { themed: 'Boards', plain: 'Boards' },
+  synthesis: { themed: 'the synthesis step', plain: 'the synthesis step' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };
@@ -345,6 +348,40 @@ export function scoutReturnLine(count: number, theme: Words = words): Word {
       ? 'Your Scout returned empty-handed.'
       : `Your Scout returned with ${count} ${count === 1 ? 'finding' : 'findings'}.`;
   return { themed, plain };
+}
+
+/** Where an item's rank and summary came from: absent means its collector, `synthesis` the Kingdom's synthesis step. */
+export interface Sourced {
+  rank?: number;
+  rankSource?: string;
+  summary?: string;
+  summarySource?: string;
+  /** The synthesis step wrote the whole item: one of its extra rows. */
+  whole?: boolean;
+}
+
+/**
+ * Where a Board item's rank and summary came from, for its tooltip, e.g. "Rank 2 · summary from Augury (the synthesis
+ * step)", or "Written by ..." for an extra row the step wrote. Plain words in every theme apart from the step's name;
+ * undefined when the item has neither. An empty summary, which the Board doesn't show, counts as none.
+ */
+export function sourceLine(item: Sourced, theme: Words = words): string | undefined {
+  const from = (source: string | undefined) =>
+    source === undefined ? 'the collector' : source === 'synthesis' ? hint('synthesis', theme) : `"${source}"`;
+  const rank = item.rank === undefined ? undefined : `Rank ${item.rank}`;
+  if (item.whole) {
+    const written = `ritten by ${from(item.summarySource)}`;
+    return rank ? `${rank} · w${written}` : `W${written}`;
+  }
+  const summary = item.summary ? from(item.summarySource) : undefined;
+  if (rank && summary) {
+    const rankFrom = from(item.rankSource);
+    return rankFrom === summary
+      ? `${rank} · rank and summary from ${summary}`
+      : `${rank}, from ${rankFrom} · summary from ${summary}`;
+  }
+  if (rank) return `${rank}, from ${from(item.rankSource)}`;
+  return summary && `Summary from ${summary}`;
 }
 
 /** A Board's new items, e.g. "3 new postings on the Quest Board."; a name that doesn't end in Board gets the word. */

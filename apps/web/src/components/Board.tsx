@@ -10,7 +10,7 @@ import type {
 } from '@crystal-bridge/protocol';
 import { actionsFor, batchesFor, boardSections, linkFor, settled, snoozeUntil, tableColumns } from '../boards.js';
 import { duration } from '../format.js';
-import { hint, scoutReturnLine, w } from '../theme/words.js';
+import { hint, scoutReturnLine, sourceLine, w } from '../theme/words.js';
 import { Gold } from './Gold.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
 
@@ -54,6 +54,36 @@ function shown(value: string | number | boolean | null | undefined): string {
   if (value === true) return 'yes';
   if (value === false) return 'no';
   return value === null || value === undefined ? '' : String(value);
+}
+
+/** An extra row the synthesis step added: its id says so, and only the Kingdom sets the step's source word. */
+function stepWrote(item: BoardItem): boolean {
+  return item.id.startsWith('synthesis:') && item.summarySource !== undefined;
+}
+
+/** The tooltip for an item's row and title: where its rank and summary came from. */
+function itemNote(item: BoardItem): string | undefined {
+  return sourceLine({ ...item, whole: stepWrote(item) });
+}
+
+/** The mark's words, when the step wrote a summary the Board shows, or the whole item. */
+function markNote(item: BoardItem): string | undefined {
+  if (item.summarySource === undefined || !(item.summary || stepWrote(item))) return undefined;
+  return itemNote(item);
+}
+
+/**
+ * A faint mark on an item whose summary, or the whole item, the synthesis step wrote: its words come from a model that
+ * read untrusted items. The tooltip names the source.
+ */
+function SourceMark({ item }: { item: BoardItem }) {
+  const note = markNote(item);
+  if (note === undefined) return null;
+  return (
+    <span role="img" aria-label={note} title={note} className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
+      ✦
+    </span>
+  );
 }
 
 /** The new mark: shown for the whole visit, though opening the Board has already marked the item seen. */
@@ -201,14 +231,21 @@ function BatchActions({
   );
 }
 
+/** An item's title on hover, with where its rank and summary came from, which the row's own tooltip can't show there. */
+function titleNote(item: BoardItem): string {
+  const note = itemNote(item);
+  return note ? `${item.title}\n${note}` : item.title;
+}
+
 function ItemText({ item, marked }: { item: BoardItem; marked: boolean }) {
   return (
     <span className="min-w-0 flex-1">
       <span className="flex items-center gap-2">
         {marked && <NewMark />}
-        <span className="truncate font-medium" title={item.title}>
+        <span className="truncate font-medium" title={titleNote(item)}>
           {item.title}
         </span>
+        <SourceMark item={item} />
       </span>
       {item.subtitle && <span className="block truncate text-xs text-neutral-500">{item.subtitle}</span>}
       {item.summary && (
@@ -388,7 +425,7 @@ export function BoardPage({
   const openCount = sections.open.reduce((total, group) => total + group.items.length, 0);
 
   const row = (item: BoardItem) => (
-    <li key={item.id} className="flex items-center gap-3 py-1.5">
+    <li key={item.id} className="flex items-center gap-3 py-1.5" title={itemNote(item)}>
       {view === 'checklist' && (
         <input
           type="checkbox"
@@ -426,11 +463,14 @@ export function BoardPage({
         <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
           {sections.open.flatMap((group) =>
             group.items.map((item) => (
-              <tr key={item.id}>
+              <tr key={item.id} title={itemNote(item)}>
                 <td className="py-1.5 pr-3">
                   <span className="flex items-center gap-2">
                     {isMarked(item) && <NewMark />}
-                    <span className="font-medium">{item.title}</span>
+                    <span className="font-medium" title={titleNote(item)}>
+                      {item.title}
+                    </span>
+                    <SourceMark item={item} />
                   </span>
                   {item.subtitle && <span className="block text-xs text-neutral-500">{item.subtitle}</span>}
                   {item.summary && (

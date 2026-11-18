@@ -452,6 +452,16 @@ describe('Scouts', () => {
       expect(sent[0]?.run).toMatchObject({ trigger: 'now', outcome: 'succeeded', startedAt: NOON });
     });
 
+    it('drops a source word a collector printed, since only the Kingdom says what the synthesis step wrote', async () => {
+      scoutFolder('quest-board');
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      const claimed = { id: 'a', title: 'First', rank: 1, rankSource: 'synthesis', summarySource: 'triage' };
+      await finish(ok({ items: [claimed] }));
+      expect(sent[0]?.items).toEqual([{ id: 'a', title: 'First', rank: 1 }]);
+    });
+
     it('records a skip when the Scout is already running', async () => {
       scoutFolder('quest-board');
       make();

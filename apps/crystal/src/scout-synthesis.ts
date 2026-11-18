@@ -12,6 +12,8 @@ import { MAX_SCOUT_ITEMS, type ScoutItem, type ScoutManifest } from '@crystal-br
 export const DEFAULT_SYNTHESIS_BUDGET_USD = 0.5;
 /** How many items of its own the step may add, such as "a filter would archive these 40". */
 export const MAX_EXTRA_ITEMS = 5;
+/** The word an item's `rankSource` and `summarySource` carry for what this step set. */
+export const SYNTHESIS = 'synthesis';
 /** As `ScoutItem.summary` allows. */
 const MAX_SUMMARY = 300;
 
@@ -52,9 +54,25 @@ export interface SynthesisAnswer {
 export type SynthesisRead =
   { ok: true; answer: SynthesisAnswer; costUsd?: number } | { ok: false; reason: string; costUsd?: number };
 
+/**
+ * An item as its collector printed it, less any source word: only the Kingdom says what the synthesis step wrote, so a
+ * collector can't label the step's words as its own, or its own as the step's.
+ */
+export function withoutSources(item: ScoutItem): ScoutItem {
+  const { rankSource: _rankSource, summarySource: _summarySource, ...rest } = item;
+  return rest;
+}
+
 /** The fields a collector sets and the step reads; what the step itself sets is left out. */
 function asCollected(item: ScoutItem): ScoutItem {
-  const { rank: _rank, summary: _summary, suggested: _suggested, ...rest } = item;
+  const {
+    rank: _rank,
+    rankSource: _rankSource,
+    summary: _summary,
+    summarySource: _summarySource,
+    suggested: _suggested,
+    ...rest
+  } = item;
   return rest;
 }
 
@@ -213,14 +231,20 @@ export function readSynthesis(stdout: string): SynthesisRead {
  */
 export function applySynthesis(items: ScoutItem[], answer: SynthesisAnswer, manifest: ScoutManifest): ScoutItem[] {
   const byId = new Map(answer.items.map((one) => [one.id, one]));
-  const judged = items.map((item) => {
+  const judged = items.map(withoutSources).map((item) => {
     const one = byId.get(item.id);
     if (!one) return item;
     const suggested =
       one.suggested !== undefined && offered(item, manifest).includes(one.suggested)
         ? { suggested: one.suggested }
         : {};
-    return { ...suggested, rank: one.rank, summary: one.summary, ...item };
+    // What the collector set stays, and only what the step set is named as the step's.
+    return {
+      ...suggested,
+      ...(item.rank === undefined ? { rank: one.rank, rankSource: SYNTHESIS } : {}),
+      ...(item.summary === undefined ? { summary: one.summary, summarySource: SYNTHESIS } : {}),
+      ...item,
+    };
   });
   // An extra never takes an id the list uses, never repeats one, and never takes the list past what a Board holds.
   const ids = new Set(items.map((item) => item.id));
@@ -235,7 +259,8 @@ export function applySynthesis(items: ScoutItem[], answer: SynthesisAnswer, mani
       id,
       title: one.title,
       summary: one.summary,
-      ...(one.rank !== undefined ? { rank: one.rank } : {}),
+      summarySource: SYNTHESIS,
+      ...(one.rank !== undefined ? { rank: one.rank, rankSource: SYNTHESIS } : {}),
       actions: known ? [one.suggested!] : [],
       ...(known ? { suggested: one.suggested } : {}),
     });

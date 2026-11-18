@@ -134,6 +134,18 @@ export const ScoutItem = z.object({
   rank: z.number().int().min(1).optional(),
   /** One line on why it matters, from a collector or the synthesis step. */
   summary: z.string().max(300).optional(),
+  /**
+   * What set `rank` or `summary` when the collector didn't, as a short word: the Kingdom's synthesis step sets
+   * `synthesis`. Absent means the collector set it. The Board names it, since a model's words read untrusted items.
+   */
+  rankSource: z
+    .string()
+    .regex(/^[a-z][a-z-]{0,31}$/)
+    .optional(),
+  summarySource: z
+    .string()
+    .regex(/^[a-z][a-z-]{0,31}$/)
+    .optional(),
 });
 export type ScoutItem = z.infer<typeof ScoutItem>;
 

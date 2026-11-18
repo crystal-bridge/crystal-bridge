@@ -28,6 +28,7 @@ import {
   synthesisDigest,
   synthesisPrompt,
   synthesisSchema,
+  withoutSources,
   type SynthesisAnswer,
 } from './scout-synthesis.js';
 
@@ -441,7 +442,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
         if (!parsed.success) {
           return { outcome: 'failed', reason: `the collector's list: ${firstIssue(parsed.error)}`, ...stderr };
         }
-        return { outcome: 'succeeded', items: parsed.data.items, ...stderr };
+        return { outcome: 'succeeded', items: parsed.data.items.map(withoutSources), ...stderr };
       }
     }
   }

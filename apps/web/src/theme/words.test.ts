@@ -12,6 +12,7 @@ import {
   summonLine,
   postingsLine,
   scoutReturnLine,
+  sourceLine,
 } from './words.js';
 
 describe('theme words', () => {
@@ -176,6 +177,29 @@ describe('Scout and Board words', () => {
   it('keeps step words clear of Scout, which means a scheduled job', () => {
     const read = [0, 1, 2, 3].map((seed) => stepWord('read', seed, CRYSTAL).themed);
     expect(read.some((word) => /scout/i.test(word))).toBe(false);
+  });
+
+  it('says where an item-s rank and summary came from, naming the synthesis step by its word', () => {
+    const step = 'synthesis';
+    expect(sourceLine({ rank: 2, rankSource: step, summary: 's', summarySource: step }, CRYSTAL)).toBe(
+      'Rank 2 · rank and summary from Augury (the synthesis step)',
+    );
+    expect(sourceLine({ rank: 2, rankSource: step, summary: 's', summarySource: step }, CLASSIC)).toBe(
+      'Rank 2 · rank and summary from the synthesis step',
+    );
+    expect(sourceLine({ rank: 3, summary: 's', summarySource: step }, CLASSIC)).toBe(
+      'Rank 3, from the collector · summary from the synthesis step',
+    );
+    expect(sourceLine({ rank: 1 }, CRYSTAL)).toBe('Rank 1, from the collector');
+    expect(sourceLine({ summary: '', summarySource: step }, CLASSIC)).toBeUndefined();
+    expect(sourceLine({ summary: '', summarySource: step, whole: true }, CRYSTAL)).toBe(
+      'Written by Augury (the synthesis step)',
+    );
+    expect(sourceLine({ rank: 5, rankSource: step, summarySource: step, whole: true }, CLASSIC)).toBe(
+      'Rank 5 · written by the synthesis step',
+    );
+    expect(sourceLine({ summary: 's', summarySource: 'triage' }, CLASSIC)).toBe('Summary from "triage"');
+    expect(sourceLine({}, CRYSTAL)).toBeUndefined();
   });
 
   it('counts new postings on a Board', () => {
