@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { ScoutItems, ScoutManifest } from '../../../packages/protocol/src/index.ts';
 import { act } from './act.mjs';
 import { collect } from './collect.mjs';
-import { accessToken, cleanBody, readClient, redact, toItem } from './gmail.mjs';
+import { accessToken, cleanBody, gmail, readClient, redact, toItem } from './gmail.mjs';
 import { authUrl, signIn } from './sign-in.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -215,6 +215,52 @@ function fakeGoogle(
   };
   return { fetch, calls };
 }
+
+describe('gmail', () => {
+  const quota = () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: 403,
+          message: "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'",
+          errors: [{ reason: 'rateLimitExceeded' }],
+        },
+      }),
+      { status: 403 },
+    );
+
+  it('waits and tries again when Gmail says the per-user quota is spent, as on a new project with its lower quota', async () => {
+    let calls = 0;
+    const waits: number[] = [];
+    const call = gmail({
+      fetch: async () => (++calls < 3 ? quota() : new Response('{"ok":true}', { status: 200 })),
+      token: 't',
+      sleep: async (ms: number) => void waits.push(ms),
+    });
+    assert.deepEqual(await call('profile'), { ok: true });
+    assert.equal(calls, 3);
+    assert.equal(waits.length, 2);
+    assert.ok(waits[1]! > waits[0]!);
+  });
+
+  it('gives up after a minute of waiting, and says the quota is the reason', async () => {
+    const waits: number[] = [];
+    const call = gmail({ fetch: async () => quota(), token: 't', sleep: async (ms: number) => void waits.push(ms) });
+    await assert.rejects(call('profile'), /quota/i);
+    assert.ok(waits.reduce((a, b) => a + b, 0) <= 70_000);
+  });
+
+  it('does not retry a refusal that waiting cannot fix', async () => {
+    let calls = 0;
+    const call = gmail({
+      fetch: async () => (calls++, new Response('{"error":{"message":"Insufficient Permission"}}', { status: 403 })),
+      token: 't',
+      sleep: async () => {},
+    });
+    await assert.rejects(call('settings/filters'), /403/);
+    assert.equal(calls, 1);
+  });
+});
 
 describe('Google sign-in', () => {
   let folder: string;

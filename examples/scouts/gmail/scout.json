@@ -1,7 +1,7 @@
 {
   "name": "Gmail",
   "schedule": { "cron": "*/15 * * * *", "timezone": "UTC" },
-  "collect": { "command": ["node", "collect.mjs"], "timeoutSeconds": 120 },
+  "collect": { "command": ["node", "collect.mjs"], "timeoutSeconds": 600 },
   "synthesize": { "prompt": "synthesize.md" },
   "view": "list",
   "actions": {

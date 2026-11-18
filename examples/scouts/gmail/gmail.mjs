@@ -91,27 +91,53 @@ export async function accessToken({ fetch = globalThis.fetch, client, state }) {
   return body.access_token;
 }
 
-/** A caller for the Gmail API as the signed-in user: `call(path, { method, query, body })` returns the JSON answer. */
-export function gmail({ fetch = globalThis.fetch, token }) {
+/** Waits between tries when Gmail says the per-user quota is spent: about a minute in all, then the run fails. */
+const BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 30_000];
+
+/** Whether waiting can fix a refusal: a rate limit or a spent quota, which Gmail sends as 429 or as 403 with a reason. */
+function retryable(status, answer) {
+  if (status === 429) return true;
+  if (status !== 403) return false;
+  const reasons = (answer.error?.errors ?? []).map((one) => one.reason);
+  return (
+    reasons.some((reason) => /rateLimitExceeded|quotaExceeded/.test(String(reason))) ||
+    /quota exceeded|rate limit/i.test(answer.error?.message ?? '')
+  );
+}
+
+/**
+ * A caller for the Gmail API as the signed-in user: `call(path, { method, query, body })` returns the JSON answer. A
+ * spent quota (a new project allows 6,000 units a minute per user, counted over shorter windows too) is waited out.
+ */
+export function gmail({
+  fetch = globalThis.fetch,
+  token,
+  sleep = (ms) => new Promise((done) => setTimeout(done, ms)),
+}) {
   return async (path, { method = 'GET', query, body } = {}) => {
     const url = `${API}${path}${query ? `?${new URLSearchParams(query)}` : ''}`;
-    const response = await fetch(url, {
-      method,
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...(body ? { 'content-type': 'application/json' } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    const answer = await response.json().catch(() => ({}));
-    if (!response.ok) {
+    for (let attempt = 0; ; attempt++) {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(body ? { 'content-type': 'application/json' } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      const answer = await response.json().catch(() => ({}));
+      if (response.ok) return answer;
+      if (retryable(response.status, answer) && attempt < BACKOFF_MS.length) {
+        const after = Number(response.headers?.get?.('retry-after')) * 1000;
+        await sleep(Number.isFinite(after) && after > 0 ? Math.min(after, 30_000) : BACKOFF_MS[attempt]);
+        continue;
+      }
       const error = new Error(
         `Gmail ${method} ${path} answered ${response.status}: ${answer.error?.message ?? ''}`.trim(),
       );
       error.status = response.status;
       throw error;
     }
-    return answer;
   };
 }
 

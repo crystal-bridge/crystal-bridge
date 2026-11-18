@@ -104,7 +104,7 @@ export async function collect({ fetch = globalThis.fetch, folder, state, setting
   };
   /** The items for `ids`, in order, reusing a kept one where `reuse` gives it. */
   const read = async (ids, options, reuse = () => undefined) => {
-    const fresh = await mapLimit(ids, 8, (id) => reuse(id) ?? threadItem(call, id, options));
+    const fresh = await mapLimit(ids, 3, (id) => reuse(id) ?? threadItem(call, id, options));
     return Object.fromEntries(ids.flatMap((id, index) => (fresh[index] ? [[id, fresh[index]]] : [])));
   };
 

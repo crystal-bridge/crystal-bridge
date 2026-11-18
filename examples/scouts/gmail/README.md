@@ -48,7 +48,9 @@ Forums and Promotions. Your drafts, and messages in Trash or Spam, don't count. 
 back as new; reading it elsewhere doesn't. A thread you archive in Gmail leaves the Board on the next run, and the next
 one down takes its place.
 
-The Board holds the newest inbox threads (100 by default). The first run reads them all. Later runs ask Gmail's history
+The Board holds the newest inbox threads (100 by default). The first run reads them all, which takes a minute or more:
+a new Google project allows 6,000 units of Gmail quota a minute per user, and the Scout waits whenever Gmail says
+that's spent. In testing, 100 threads took 75 seconds. The collector may run for ten minutes, so even 500 threads fit. Later runs ask Gmail's history
 what changed since the last one, which is cheap and needs no public address, and fetch only those threads. The inbox is
 read in full again when Google says the saved position is too old, when history names more threads than the Board
 holds (after you mark a few thousand read at once, say), or when you sign in as another account.
