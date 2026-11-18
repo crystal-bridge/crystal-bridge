@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Cast } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { followScript } from './summon-scripts.js';
+import { FINISHED_LINE, followScript, probeScript } from './summon-scripts.js';
 import { windowsScripts } from './summon-scripts-windows.js';
 import {
   createSummons,
@@ -631,40 +631,86 @@ describe.skipIf(process.platform === 'win32')('a Cast on the Kingdom itself', ()
     expect(done.logTail).toBe('last\n');
   });
 
-  it('reads a job’s log to its end when the follow only polls, as a tail with no inotify does', async () => {
-    // `tail -c +N -f FILE` that looks once a second: a tail that has run out of inotify, or a network home folder.
-    const shims = mkdtempSync(join(tmpdir(), 'cb-polling-tail-'));
-    writeFileSync(
-      join(shims, 'tail'),
-      [
-        '#!/bin/sh',
-        'pos=$((${2#+} - 1)); file=$4',
-        'while :; do',
-        '  size=$(wc -c < "$file" | tr -d " ")',
-        '  if [ "$size" -gt "$pos" ]; then dd if="$file" bs=1 skip="$pos" count=$((size - pos)) 2>/dev/null; pos=$size; fi',
-        '  sleep 1',
-        'done',
-        '',
-      ].join('\n'),
-      { mode: 0o755 },
-    );
-    let spawned = 0;
-    const pollingFollow = (target: Target) => {
-      spawned += 1;
-      if (spawned !== 2) return spawnOn(target);
+  describe('when the follow’s tail only polls, as one with no inotify does', () => {
+    let shims: string;
+    let polled: string;
+    beforeEach(() => {
+      shims = mkdtempSync(join(tmpdir(), 'cb-polling-tail-'));
+      polled = join(shims, 'polled');
+      // A `tail -c +N -f FILE` that looks once a second, as one does with no inotify left or on a network home folder.
+      // Any other use is handed to the real tail.
+      writeFileSync(
+        join(shims, 'tail'),
+        [
+          '#!/bin/sh',
+          `if [ "$1" != -c ] || [ "$3" != -f ]; then PATH=$(printf %s "$PATH" | cut -d: -f2-) exec tail "$@"; fi`,
+          `: > '${polled}'`,
+          'pos=$((${2#+} - 1)); file=$4',
+          'while :; do',
+          '  size=$(wc -c < "$file" | tr -d " ")',
+          '  if [ "$size" -gt "$pos" ]; then dd if="$file" bs=1 skip="$pos" count=$((size - pos)) 2>/dev/null; pos=$size; fi',
+          '  sleep 1',
+          'done',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+    });
+    afterEach(() => rmSync(shims, { recursive: true, force: true }));
+
+    const pollingShell = (target: Target) => {
+      void target;
       return spawn('sh', ['-s'], {
         cwd: home,
         env: { PATH: `${shims}:${process.env.PATH}`, HOME: home, SHELL: '/bin/sh' },
       });
     };
-    try {
-      const made = summons({ spawnOn: pollingFollow, probeMs: 50 });
+
+    it('reads a job’s log to its end before calling it finished', async () => {
+      const made = summons({ spawnOn: pollingShell, probeMs: 50 });
       const cast = await start(made, 'sleep 0.3; echo last; exit 0');
-      const done = await final(cast.id);
-      expect(done).toMatchObject({ state: 'succeeded', logTail: 'last\n' });
-    } finally {
-      rmSync(shims, { recursive: true, force: true });
-    }
+      expect(await final(cast.id)).toMatchObject({ state: 'succeeded', logTail: 'last\n' });
+      expect(existsSync(polled)).toBe(true);
+    });
+
+    it('still waits for the end when the job printed the end marker itself along the way', async () => {
+      const made = summons({ spawnOn: pollingShell, probeMs: 50 });
+      const cast = await start(made, "echo '::summon finished'; sleep 1.5; echo after; exit 0");
+      expect((await final(cast.id)).logTail).toContain('after\n');
+    });
+  });
+
+  it('finishes a Cast whose follow never reads the end, once the wait for it is up', async () => {
+    let spawned = 0;
+    const silentFollow = (target: Target) => {
+      spawned += 1;
+      // The start is the first shell, so this is the follow: connected, and never printing a thing.
+      if (spawned !== 2) return spawnOn(target);
+      return spawn('sh', ['-c', 'cat > /dev/null'], { cwd: home });
+    };
+    const made = summons({ spawnOn: silentFollow, probeMs: 50, drainMs: 300 });
+    const cast = await start(made, 'echo last; exit 0');
+    expect(await final(cast.id)).toMatchObject({ state: 'succeeded' });
+  });
+
+  it('says in its probe when the log has been written to its end', async () => {
+    const id = randomUUID();
+    const dir = folder(id);
+    mkdirSync(dir, { recursive: true });
+    const probe = () =>
+      execFileSync('sh', ['-s'], { input: probeScript(id), env: { PATH: process.env.PATH, HOME: home } })
+        .toString()
+        .trim()
+        .split('\n')
+        .at(-1);
+    writeFileSync(join(dir, 'exit'), '0\n');
+    writeFileSync(join(dir, 'log'), 'work\n');
+    expect(probe()).toBe('exit 0');
+    const log = `work\n\n${FINISHED_LINE}\n`;
+    writeFileSync(join(dir, 'log'), log);
+    expect(probe()).toBe(`exit 0 logged ${log.length}`);
+    writeFileSync(join(dir, 'cancel'), '');
+    expect(probe()).toBe(`exit 0 cancelled logged ${log.length}`);
   });
 
   it('reads a negative exit code, as a Windows job or crash leaves', async () => {

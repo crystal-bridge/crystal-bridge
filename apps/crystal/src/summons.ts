@@ -227,10 +227,8 @@ interface Follower {
   reportTimer?: NodeJS.Timeout;
   /** The check in progress, for anyone who needs its answer. */
   checking?: Promise<void>;
-  /** Read the wrapper's last line, so the whole log is in. */
-  atEnd?: boolean;
-  /** Called once the log has been read to its end. */
-  onEnd?: () => void;
+  /** Called after each part of the log is read, for a wait on how far it has got. */
+  onRead?: () => void;
 }
 
 interface Result {
@@ -430,9 +428,8 @@ export function createSummons(options: SummonsOptions): Summons {
       return;
     }
     rec.offset += line.length + 1;
+    follower.onRead?.();
     if (text === FINISHED_LINE) {
-      follower.atEnd = true;
-      follower.onEnd?.();
       // The wrapper's own newline goes first, for a log that didn't end its last line.
       if (rec.logTail === '\n' || rec.logTail.endsWith('\n\n')) rec.logTail = rec.logTail.slice(0, -1);
       // Read to the end, so there's nothing left to wait for.
@@ -458,6 +455,7 @@ export function createSummons(options: SummonsOptions): Summons {
       const { inLog } = follower;
       if (inLog) rec.offset += pending.length;
       if (inLog) rec.logTail = `${rec.logTail}${pending.toString('utf8')}`.slice(-MAX_CAST_TAIL);
+      if (inLog) follower.onRead?.();
       pending = Buffer.alloc(0);
     }
     follower.pending = pending;
@@ -479,7 +477,6 @@ export function createSummons(options: SummonsOptions): Summons {
     followers.set(rec.id, follower);
     follower.pending = Buffer.alloc(0);
     follower.inLog = false;
-    follower.atEnd = false;
     if (!target) {
       // Taken off the list while Crystal was down: nothing here can reach it any more.
       void finish(rec, 'lost');
@@ -527,22 +524,31 @@ export function createSummons(options: SummonsOptions): Summons {
   }
 
   /**
-   * Waits for a connected follow to read a log that's complete (`logged`) to its end, however slowly its `tail` notices
-   * new lines. With no follow connected, or no end written yet, it waits a short while instead.
+   * Waits for a connected follow to read a complete log (`size` bytes, ending with the wrapper's last line) to its
+   * end, however slowly its `tail` notices new lines. By bytes, not by spotting the last line, since a job may print
+   * that itself. With no follow connected, or no end written yet, it waits a short while instead.
    */
-  function readToEnd(id: string, logged: boolean): Promise<void> {
-    const follower = followers.get(id);
-    if (follower?.atEnd) return Promise.resolve();
+  function readToEnd(rec: CastRecord, size: number | undefined): Promise<void> {
+    if (size !== undefined && rec.offset >= size) return Promise.resolve();
+    const follower = followers.get(rec.id);
     const live =
-      logged && follower?.child !== undefined && follower.child.exitCode === null && follower.child.signalCode === null;
+      size !== undefined &&
+      follower?.child !== undefined &&
+      follower.child.exitCode === null &&
+      follower.child.signalCode === null;
     return new Promise((resolve) => {
       const timer = setTimeout(done, live ? drainMs : settleMs);
+      // Shutting down needn't wait for it: nothing is reported once Summons has closed.
+      timer.unref?.();
       function done(): void {
         clearTimeout(timer);
-        if (follower && follower.onEnd === done) follower.onEnd = undefined;
+        if (follower && follower.onRead === read) follower.onRead = undefined;
         resolve();
       }
-      if (live && follower) follower.onEnd = done;
+      function read(): void {
+        if (rec.offset >= size!) done();
+      }
+      if (live && follower) follower.onRead = read;
     });
   }
 
@@ -550,10 +556,10 @@ export function createSummons(options: SummonsOptions): Summons {
     const { code, stdout } = await ask(target, (scripts) => scripts.probe(rec.id));
     if (code !== 0) return;
     const answer = stdout.trim().split('\n').at(-1) ?? '';
-    const exit = /^exit (-?\d+)( cancelled)?( logged)?$/.exec(answer);
+    const exit = /^exit (-?\d+)( cancelled)?(?: logged (\d+))?$/.exec(answer);
     if (exit) {
       // Found rather than read to the end of the log, so its last lines may still be on their way.
-      if (settle) await readToEnd(rec.id, exit[3] !== undefined);
+      if (settle) await readToEnd(rec, exit[3] === undefined ? undefined : Number(exit[3]));
       const cancelled = exit[2] !== undefined || rec.cancelling === true;
       const exitCode = Number(exit[1]);
       finish(rec, cancelled ? 'cancelled' : exitCode === 0 ? 'succeeded' : 'failed', exitCode);

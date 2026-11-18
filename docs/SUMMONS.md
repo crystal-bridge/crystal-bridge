@@ -66,11 +66,14 @@ and `ps`, which they have. A Windows target needs OpenSSH, and uses the PowerShe
    process group from `setsid`, or `perl` where there's no `setsid`, as on macOS. The command runs under the target user's login shell, so it finds what a
    terminal would, with the umask that login has. The job folder stays private to that user.
 3. **Follow.** The Kingdom holds one SSH connection open, running `tail -c +<offset> -f` on the log. New lines arrive as
-   they're written, so nothing polls. When that connection ends, the far side's `tail` ends with it.
+   they're written. A `tail` that can't watch files, such as one with no inotify left, checks about once a second
+   instead. When that connection ends, the far side's `tail` ends with it.
 4. **Reconnect.** If the connection drops, the job carries on. The Kingdom reconnects and reads from its last offset.
 5. **Cancel.** A second short SSH command stops the job's process group.
 6. **Finish.** The wrapper writes the exit code to a temporary file, renames it into place and adds a last line to the
-   log. That line wakes the Kingdom, and the `exit` file is the result, so a script can't fake one by printing it.
+   log. That line wakes the Kingdom, and the `exit` file is the result, so a script can't fake one by printing it. When
+   a routine check finds the `exit` file first, the Kingdom waits up to 5 seconds for its follow to read the log to the
+   end, so a slow `tail` doesn't lose the last lines.
 
 The job folder is the record, and the target holds it:
 
