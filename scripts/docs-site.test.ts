@@ -71,7 +71,10 @@ describe('docs site', () => {
   it('files Scouts under running it, and says plainly what of the design has not shipped', () => {
     const run = config.slice(config.indexOf("text: 'Run it'"), config.indexOf("text: 'Keep it safe'"));
     assert.ok(run.includes("link: '/scouts'"));
-    assert.match(readFileSync(join(DOCS, 'SCOUTS.md'), 'utf8'), /::: warning Partly built\n.*no Boards/s);
+    const scouts = readFileSync(join(DOCS, 'SCOUTS.md'), 'utf8');
+    const warning = scouts.slice(scouts.indexOf('::: warning Partly built'), scouts.indexOf(':::\n', 10));
+    assert.match(warning, /Quest and run actions\s+and\s+the synthesis step aren't built yet/);
+    assert.doesNotMatch(warning, /no Boards/);
   });
 
   it('marks nothing that has shipped as planned', () => {

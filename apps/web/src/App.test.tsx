@@ -37,6 +37,7 @@ function fakeHub(): HubClient {
     onChange: () => () => {},
     onError: () => () => {},
     onCast: () => () => undefined,
+    onBoards: () => () => undefined,
     onReconnect: () => () => undefined,
     onAttention: (listener: (attention: unknown) => void) => {
       attentionListener = listener;
@@ -311,6 +312,55 @@ describe('App Kingdom tabs', () => {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
     expect(screen.getByRole('region', { name: 'Tavern' })).toBeTruthy();
+  });
+
+  it('opens a Scout’s Board from the Castle, puts it in the address, and returns to the Castle', async () => {
+    const scout = {
+      id: 'quest-board',
+      fresh: 1,
+      manifest: {
+        name: 'Quest Board',
+        schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+        collect: { command: ['./collect.sh'] },
+        view: 'list',
+        actions: {},
+      },
+    };
+    const board = {
+      scout: 'quest-board',
+      runs: [],
+      items: [{ id: '1', title: 'Fix the retry loop', state: 'seen', firstSeen: 0, changedAt: 0 }],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/nodes/node-b/scouts'
+                ? { scouts: [scout] }
+                : url === '/api/nodes/node-b/scouts/quest-board'
+                  ? board
+                  : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    window.history.replaceState(null, '', '/#/k/node-b');
+    await renderApp();
+    const boards = await screen.findByRole('region', { name: 'Boards' });
+    fireEvent.click(within(boards).getByRole('button', { name: /Quest Board/ }));
+    expect(await screen.findByText('Fix the retry loop')).toBeTruthy();
+    expect(window.location.hash).toBe('#/k/node-b/b/quest-board');
+    fireEvent.click(screen.getByRole('button', { name: /Back to node-b/ }));
+    expect(window.location.hash).toBe('#/k/node-b');
+    expect(screen.getByRole('region', { name: 'Boards' })).toBeTruthy();
+
+    cleanup();
+    window.history.replaceState(null, '', '/#/k/node-b/b/quest-board');
+    await renderApp();
+    expect(await screen.findByText('Fix the retry loop')).toBeTruthy();
   });
 
   it('reopens New Quest on its Kingdom from the address, not the default one', async () => {

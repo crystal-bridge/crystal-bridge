@@ -3,13 +3,15 @@ export type Route =
   | { page: 'airship' }
   | { page: 'castle'; node: string }
   | { page: 'new'; node: string }
-  | { page: 'quest'; node: string; session: string };
+  | { page: 'quest'; node: string; session: string }
+  | { page: 'board'; node: string; scout: string };
 
 export function formatRoute(route: Route): string {
   if (route.page === 'airship') return '#/airship';
   const base = `#/k/${encodeURIComponent(route.node)}`;
   if (route.page === 'new') return `${base}/new`;
   if (route.page === 'quest') return `${base}/q/${encodeURIComponent(route.session)}`;
+  if (route.page === 'board') return `${base}/b/${encodeURIComponent(route.scout)}`;
   return base;
 }
 
@@ -23,6 +25,9 @@ export function parseRoute(hash: string): Route | null {
     if (parts.length === 3 && parts[2] === 'new') return { page: 'new', node };
     if (parts.length === 4 && parts[2] === 'q' && parts[3]) {
       return { page: 'quest', node, session: decodeURIComponent(parts[3]) };
+    }
+    if (parts.length === 4 && parts[2] === 'b' && parts[3]) {
+      return { page: 'board', node, scout: decodeURIComponent(parts[3]) };
     }
   } catch {
     // A malformed escape: treat it as no route.

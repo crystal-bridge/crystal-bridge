@@ -1,4 +1,4 @@
-import { useContext, type ReactNode } from 'react';
+import { useContext, useState, type ReactNode } from 'react';
 import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import type { TurnStats } from '../home.js';
 import { duration, tokens } from '../format.js';
@@ -123,5 +123,38 @@ export function QuestCard({
         )}
       </span>
     </button>
+  );
+}
+
+/** A section folded away until asked for: history and extras stay one click off the main view. */
+export function Folded({
+  title,
+  plain,
+  count,
+  children,
+}: {
+  title: string;
+  plain: string;
+  count?: number;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="border-t border-neutral-200 pt-2 dark:border-neutral-800">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        title={plain}
+        className="flex w-full items-baseline gap-2 px-3 py-1 text-left hover:text-neutral-950 dark:hover:text-white"
+      >
+        <span aria-hidden className="w-3 text-neutral-400">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="cb-display text-2xl leading-none">{title}</span>
+        {count !== undefined && <span className="text-xs text-neutral-500">{count}</span>}
+      </button>
+      {open && <div className="pt-1">{children}</div>}
+    </section>
   );
 }

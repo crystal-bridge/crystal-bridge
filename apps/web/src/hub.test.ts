@@ -49,6 +49,20 @@ describe('HubClient replay', () => {
     return { hub, socket: FakeSocket.last, changes };
   }
 
+  it('hands Board frames to their listeners and drops ones that don’t parse', () => {
+    const { hub, socket } = connected();
+    const heard = vi.fn();
+    const stop = hub.onBoards(heard);
+    socket.deliver({ kind: 'scouts', node: 'forge', scouts: [{ id: 'quest-board', fresh: 2 }] });
+    socket.deliver({ kind: 'board', node: 'forge', board: { scout: 'quest-board', runs: [], items: [] } });
+    socket.deliver({ kind: 'board-items', node: 'forge', scout: 'quest-board', items: [] });
+    socket.deliver({ kind: 'board-items', node: 'forge', scout: 'Not An Id', items: [] });
+    expect(heard.mock.calls.map(([frame]) => frame.kind)).toEqual(['scouts', 'board', 'board-items']);
+    stop();
+    socket.deliver({ kind: 'board-items', node: 'forge', scout: 'quest-board', items: [] });
+    expect(heard).toHaveBeenCalledTimes(3);
+  });
+
   it('says when the socket comes back, not when it first opens', () => {
     const { hub, socket } = connected();
     const back = vi.fn();

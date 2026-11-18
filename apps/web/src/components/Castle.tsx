@@ -1,8 +1,8 @@
 import { type CSSProperties, type ReactNode, useState } from 'react';
 import type { KingdomLook } from '../appearance.js';
 import { KingdomIcon } from './KingdomIcon.js';
-import { hint, w } from '../theme/words.js';
-import type { Engine, ExternalSession, SelfUpdate } from '@crystal-bridge/protocol';
+import { hint, postingsLine, w } from '../theme/words.js';
+import type { Engine, ExternalSession, ListedScout, SelfUpdate } from '@crystal-bridge/protocol';
 import type { Kingdom } from '../kingdoms.js';
 import { isActiveQuest } from '../quests.js';
 import type { Circle } from '../summons.js';
@@ -15,7 +15,7 @@ import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
 import { hasCircle, SummoningCircle } from './SummoningCircle.js';
-import { HOME_PAGE, HOME_PAIR, QUEST_GRID, QuestCard, StatTiles } from './HomeParts.js';
+import { Folded, HOME_PAGE, HOME_PAIR, QUEST_GRID, QuestCard, StatTiles } from './HomeParts.js';
 
 export interface CastleProps {
   kingdom: Kingdom;
@@ -54,6 +54,9 @@ export interface CastleProps {
   garrison?: GarrisonProps | undefined;
   /** This Kingdom's Summons and their Casts. */
   circle?: Circle;
+  /** This Kingdom's Scouts, each with a Board; without `onOpenBoard`, no Boards section. */
+  scouts?: ListedScout[];
+  onOpenBoard?: (scout: string) => void;
   /** This Kingdom has no token and no connection: it can no longer be removed, only forgotten. */
   removed?: boolean;
   /** Deletes the hub's copy of a removed Kingdom's Quests. */
@@ -80,36 +83,53 @@ function Section({ title, plain, children }: { title: string; plain?: string; ch
   );
 }
 
-/** A section folded away until asked for: history and extras stay one click off the main view. */
-function Folded({
-  title,
-  plain,
-  count,
-  children,
-}: {
-  title: string;
-  plain: string;
-  count?: number;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
+/** What a Board's card says under its name: what stops it first, else what's new on it. */
+function boardNote(scout: ListedScout): { text: string; plain?: string; warn: boolean } {
+  if (scout.error && !scout.manifest) return { text: "scout.json doesn't load", warn: true };
+  if (scout.paused) return { text: 'Paused', plain: scout.paused, warn: true };
+  if (scout.error) return { text: "scout.json doesn't load: its last good one runs", warn: true };
+  if (scout.fresh > 0) {
+    const line = postingsLine(scout.fresh, scout.manifest?.name ?? scout.id);
+    return { text: line.themed, plain: line.plain, warn: false };
+  }
+  if (!scout.lastRun) return { text: 'No runs yet', warn: false };
+  return { text: 'Nothing new', warn: false };
+}
+
+/** A card per Scout, opening its Board. */
+function Boards({ scouts, onOpen }: { scouts: ListedScout[]; onOpen: (scout: string) => void }) {
   return (
-    <section className="border-t border-neutral-200 pt-2 dark:border-neutral-800">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        title={plain}
-        className="flex w-full items-baseline gap-2 px-3 py-1 text-left hover:text-neutral-950 dark:hover:text-white"
-      >
-        <span aria-hidden className="w-3 text-neutral-400">
-          {open ? '▾' : '▸'}
-        </span>
-        <span className="cb-display text-2xl leading-none">{title}</span>
-        {count !== undefined && <span className="text-xs text-neutral-500">{count}</span>}
-      </button>
-      {open && <div className="pt-1">{children}</div>}
-    </section>
+    <Section title={w('boards')} plain={hint('boards')}>
+      <ul className={`${QUEST_GRID} px-3`}>
+        {scouts.map((scout) => {
+          const note = boardNote(scout);
+          return (
+            <li key={scout.id}>
+              <button
+                type="button"
+                onClick={() => onOpen(scout.id)}
+                className="flex w-full items-center gap-3 rounded border border-neutral-300 px-3 py-2 text-left hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{scout.manifest?.name ?? scout.id}</span>
+                  <span
+                    title={note.plain}
+                    className={`block truncate text-xs ${note.warn ? 'text-amber-700 dark:text-amber-400' : 'text-neutral-500'}`}
+                  >
+                    {note.text}
+                  </span>
+                </span>
+                {scout.fresh > 0 && (
+                  <span className="shrink-0 rounded-full bg-amber-400 px-2 text-xs font-bold text-neutral-950">
+                    {scout.fresh}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
   );
 }
 
@@ -312,6 +332,8 @@ function ForgetKingdom({ kingdom, onForget }: { kingdom: Kingdom; onForget: (id:
 export function Castle({
   kingdom,
   circle,
+  scouts = [],
+  onOpenBoard,
   sessions,
   waiting,
   usage,
@@ -516,6 +538,13 @@ export function Castle({
             </div>
           )}
         </div>
+
+        {onOpenBoard && scouts.length > 0 && (
+          // A desktop panel for now, like the Summoning Circle below.
+          <div className="hidden md:block">
+            <Boards scouts={scouts} onOpen={onOpenBoard} />
+          </div>
+        )}
 
         {circle && hasCircle(circle.summons, circle.casts) && (
           // A desktop panel for now: a phone's actions need their own design.
