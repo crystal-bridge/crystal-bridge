@@ -216,9 +216,9 @@ offers the action.
 the action's `project`, with its `mode` and, when `worktree` is set, in a worktree of its own. It then appears in the
 app like any other Quest, and its header shows "From" and the item's title, which opens the Board.
 
-- **`prompt`** names a file in the Scout's folder, read as it is. Its `{{...}}` placeholders are not filled: your
+- **`prompt`** names a file in the Scout's folder, read as it is. Its <code v-pre>{{...}}</code> placeholders are not filled: your
   instructions say "the item below", and the item follows them.
-- **`project`** is filled from the item, such as `{{fields.checkout}}`. Once filled, it must be a full path or start
+- **`project`** is filled from the item, such as <code v-pre>{{fields.checkout}}</code>. Once filled, it must be a full path or start
   with `~/`, must not contain `..`, and must be a folder that exists. Otherwise the Quest doesn't start, and the Board
   says why.
 
