@@ -90,6 +90,21 @@ describe('ScoutManifest', () => {
     for (const bad of ['Mail', 'pull_request', '<svg>', 'a'.repeat(33), 5]) expect(icon(bad)).toBeUndefined();
   });
 
+  it("takes counts for the Board's banner and the fields its rows show, and never fails a Scout over them", () => {
+    const parsed = ScoutManifest.parse({
+      ...manifest,
+      summary: [{ label: 'Unread', field: 'unread' }],
+      show: { who: 'from', when: 'date', unread: 'unread', preview: 'body' },
+    });
+    expect(parsed.summary).toEqual([{ label: 'Unread', field: 'unread' }]);
+    expect(parsed.show).toEqual({ who: 'from', when: 'date', unread: 'unread', preview: 'body' });
+    const bad = ScoutManifest.parse({ ...manifest, summary: [{ label: '' }], show: { who: 5 } });
+    expect(bad.summary).toBeUndefined();
+    expect(bad.show).toBeUndefined();
+    const tooMany = Array.from({ length: 7 }, (_, i) => ({ label: `L${i}`, field: 'f' }));
+    expect(ScoutManifest.parse({ ...manifest, summary: tooMany }).summary).toBeUndefined();
+  });
+
   it('keeps fields a newer Kingdom adds out of the way rather than refusing the Scout', () => {
     expect(ScoutManifest.safeParse({ ...manifest, triggers: [] }).success).toBe(true);
   });

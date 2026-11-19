@@ -4,6 +4,8 @@
   "schedule": { "cron": "*/15 * * * *", "timezone": "UTC" },
   "collect": { "command": ["node", "collect.mjs"], "timeoutSeconds": 120 },
   "view": "list",
+  "summary": [{ "label": "Failing checks", "field": "checks" }],
+  "show": { "who": "author" },
   "actions": {
     "open": { "kind": "link", "label": "Open", "url": "{{url}}" },
     "later": { "kind": "snooze", "label": "Later", "for": "1d" },

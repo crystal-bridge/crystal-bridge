@@ -87,6 +87,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Summoning Circle** | where a Kingdom's Summons are listed | A panel on the Castle. |
 | **Scout** | a scheduled job on a Kingdom that collects items | See [Scouts and Boards](./SCOUTS.md). "Your Scout returned with 4 findings." The Classic theme says Scheduled job, since it already calls a Cast a Job. |
 | **Board** | the page showing what a Scout found | Opened from its pinned tab or the Castle's Boards. "3 new postings on the Quest Board." |
+| **Counsel** | the Board's pane of suggested actions | Beside the list. The Classic theme says Recommended. |
 | **Config** | settings | The app-bar gear menu. |
 
 ### Inventory

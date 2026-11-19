@@ -25,6 +25,8 @@ export const ScoutSchedule = z.object({
 export type ScoutSchedule = z.infer<typeof ScoutSchedule>;
 
 const label = z.string().min(1).max(40);
+/** The name of a field in an item's `fields`. */
+const fieldName = z.string().min(1).max(64);
 /** A file in the Scout's folder, such as a prompt template. */
 const scoutFile = z.string().min(1).max(255);
 /** A text with `{{...}}` placeholders the Kingdom fills from an item. */
@@ -99,6 +101,29 @@ export const ScoutManifest = z.object({
     })
     .optional(),
   view: ScoutView,
+  /**
+   * Counts for the Board's banner beside the ones every Board has: each counts the open items whose `field` is set to
+   * anything but false, 0 or empty, such as `{ "label": "Unread", "field": "unread" }`. A malformed list is dropped,
+   * never failing the Scout.
+   */
+  summary: z
+    .array(z.object({ label: z.string().min(1).max(24), field: fieldName }))
+    .max(6)
+    .optional()
+    .catch(undefined),
+  /**
+   * Which of an item's `fields` fill a `list` row's slots, like a mail client's: who it's from, when, whether it's
+   * unread, and a line of preview. Without it, a row shows the title and subtitle. Dropped when malformed.
+   */
+  show: z
+    .object({
+      who: fieldName.optional(),
+      when: fieldName.optional(),
+      unread: fieldName.optional(),
+      preview: fieldName.optional(),
+    })
+    .optional()
+    .catch(undefined),
   actions: z.record(ActionKey, ScoutAction).refine((actions) => Object.keys(actions).length <= 32, {
     message: 'at most 32 actions',
   }),

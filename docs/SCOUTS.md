@@ -80,6 +80,8 @@ and the hub check the same thing:
   "collect": { "command": ["./collect.sh"], "timeoutSeconds": 120 },
   "synthesize": { "prompt": "synthesize.md", "when": "changed" },
   "view": "list",
+  "summary": [{ "label": "Failing checks", "field": "checks" }],
+  "show": { "who": "author", "when": "updated" },
   "actions": {
     "fix": {
       "kind": "quest",
@@ -95,6 +97,11 @@ and the hub check the same thing:
   }
 }
 ```
+
+`summary` and `show` only shape the Board. `summary` is up to six counts for its banner, each counting the open items
+whose `field` is set to anything but `false`, `0` or empty. `show` names the fields a `list` row draws as a mail list
+does: `who`, `when` (an ISO date or a count of seconds or milliseconds), `unread` and `preview`. A malformed `summary`,
+`show` or `icon` is dropped, never failing the Scout.
 
 ## Report back: what a collector prints
 
@@ -175,9 +182,18 @@ The Castle lists every Board too, pinned or not, each with how many items are ne
 `scout.json` doesn't load. A Board opens at its own address, `#/k/<kingdom>/b/<scout>`. Like the Summoning Circle,
 Boards and their tabs show on wide screens only for now.
 
+- **A summary banner** at the top: how many items are open, how many are new on this visit, how many have a suggested
+  action, the counts the Scout declares in `summary`, and when Augury last ranked the list and what that cost. Run now,
+  the schedule and what the last run brought back sit beside them.
 - **The items** to act on, drawn in the Scout's `view`: a `list` under each `group`, a `checklist` whose box marks an
   item done, or a `table` with a column per field. Opening the Board marks new items seen; their New mark stays until
   you leave.
+- **A list reads like a mail client** when `show` names the fields: an avatar and who it's from, the time, the title
+  with a line of preview, bold while unread, then the summary. With a `when` field, each group lists newest first, and
+  the ranking moves to Counsel. A row's buttons appear on hover or keyboard focus; at rest it tags the suggested action.
+- **Counsel**, beside the list on wide screens and above it on narrower ones: the items with a suggested action,
+  gathered under each action, best rank first, each with its summary and that action's button, and "Archive all 4"
+  where the action takes several items.
 - **The buttons** each item offers. A `link` opens its filled address in a new tab, and only a web address once
   filled. A `snooze`, `done` or `dismiss` changes the item's state on every open Board. A `quest` or `run` goes to the
   Kingdom, and its button stays disabled until the Kingdom answers. A Quest it starts opens, and a refusal shows why.
