@@ -1,5 +1,6 @@
 /**
- * Colours on a Board (docs/THEME.md): a stable colour per sender, one per kind of action, and an accent per banner tile.
+ * Colours on a Board (docs/THEME.md): a stable colour per sender and per project, one per kind of action, an accent per
+ * banner tile, and the tones a projects Board's marks and chips name.
  * Data, so a fork changes the palette here. Each class is written out whole, so the stylesheet build keeps it.
  */
 
@@ -70,7 +71,23 @@ export function senderTone(key: string): SenderTone {
   return SENDER_TONES[hash % SENDER_TONES.length]!;
 }
 
-export type ChipTone = 'slate' | 'red' | 'orange' | 'violet' | 'amber' | 'emerald' | 'rose' | 'sky' | 'blue';
+/** The tones a mark or chip can name (a `ScoutLook.tone`), and the ones an action chip uses. */
+export const MARK_TONES = [
+  'slate',
+  'red',
+  'orange',
+  'violet',
+  'amber',
+  'emerald',
+  'rose',
+  'sky',
+  'blue',
+  'teal',
+  'fuchsia',
+  'lime',
+  'neutral',
+] as const;
+export type ChipTone = (typeof MARK_TONES)[number];
 
 /** A chip in each tone. */
 export const CHIP_CLASSES: Record<ChipTone, string> = {
@@ -84,7 +101,45 @@ export const CHIP_CLASSES: Record<ChipTone, string> = {
   rose: 'bg-rose-100 text-rose-800 ring-rose-300 dark:bg-rose-950 dark:text-rose-200 dark:ring-rose-800',
   sky: 'bg-sky-100 text-sky-800 ring-sky-300 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800',
   blue: 'bg-blue-100 text-blue-800 ring-blue-300 dark:bg-blue-950 dark:text-blue-200 dark:ring-blue-800',
+  teal: 'bg-teal-100 text-teal-800 ring-teal-300 dark:bg-teal-950 dark:text-teal-200 dark:ring-teal-800',
+  fuchsia:
+    'bg-fuchsia-100 text-fuchsia-800 ring-fuchsia-300 dark:bg-fuchsia-950 dark:text-fuchsia-200 dark:ring-fuchsia-800',
+  lime: 'bg-lime-100 text-lime-900 ring-lime-300 dark:bg-lime-950 dark:text-lime-200 dark:ring-lime-800',
+  neutral:
+    'bg-neutral-100 text-neutral-800 ring-neutral-300 dark:bg-neutral-800 dark:text-neutral-100 dark:ring-neutral-600',
 };
+
+/** A chip's classes for a tone name, slate for one not listed. */
+export function toneChipClass(tone: string | undefined): string {
+  return tone !== undefined && Object.hasOwn(CHIP_CLASSES, tone) ? CHIP_CLASSES[tone as ChipTone] : CHIP_CLASSES.slate;
+}
+
+/** A mark's text colour in each tone. */
+export const MARK_CLASSES: Record<ChipTone, string> = {
+  slate: 'text-slate-600 dark:text-slate-400',
+  red: 'text-red-600 dark:text-red-400',
+  orange: 'text-orange-600 dark:text-orange-400',
+  violet: 'text-violet-600 dark:text-violet-400',
+  amber: 'text-amber-600 dark:text-amber-400',
+  emerald: 'text-emerald-600 dark:text-emerald-400',
+  rose: 'text-rose-600 dark:text-rose-400',
+  sky: 'text-sky-600 dark:text-sky-400',
+  blue: 'text-blue-600 dark:text-blue-400',
+  teal: 'text-teal-600 dark:text-teal-400',
+  fuchsia: 'text-fuchsia-600 dark:text-fuchsia-400',
+  lime: 'text-lime-600 dark:text-lime-400',
+  neutral: 'text-neutral-600 dark:text-neutral-400',
+};
+
+/** A mark's text colour for a tone name, slate for one not listed. */
+export function markToneClass(tone: string | undefined): string {
+  return tone !== undefined && Object.hasOwn(MARK_CLASSES, tone) ? MARK_CLASSES[tone as ChipTone] : MARK_CLASSES.slate;
+}
+
+/** A project's colour, stable from its name and shared with the sender colours. */
+export function projectTone(name: string): SenderTone {
+  return senderTone(name);
+}
 
 /** Action keys with a colour of their own, by what they usually mean. */
 const BY_KEY: Record<string, ChipTone> = { archive: 'slate', spam: 'red', filter: 'orange' };
