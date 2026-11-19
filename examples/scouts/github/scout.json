@@ -3,10 +3,63 @@
   "icon": "pull-request",
   "schedule": { "cron": "*/15 * * * *", "timezone": "UTC" },
   "collect": { "command": ["node", "collect.mjs"], "timeoutSeconds": 120 },
-  "view": "list",
-  "summary": [{ "label": "Failing checks", "field": "checks" }],
-  "show": { "who": "author" },
+  "view": "projects",
+  "summary": [
+    { "label": "Pull requests", "field": "isPr", "icon": "pull-request", "tone": "emerald" },
+    { "label": "Issues", "field": "isIssue", "icon": "issue", "tone": "sky" },
+    { "label": "Failing checks", "field": "failing", "icon": "x-circle", "tone": "red" }
+  ],
+  "projects": {
+    "kind": {
+      "field": "kind",
+      "values": {
+        "pr": { "icon": "pull-request", "tone": "emerald", "label": "Open pull request" },
+        "draft": { "icon": "draft", "tone": "neutral", "label": "Draft pull request" },
+        "bug": { "icon": "bug", "tone": "red", "label": "Bug" },
+        "issue": { "icon": "issue", "tone": "emerald", "label": "Open issue" },
+        "discussion": { "icon": "discussion", "tone": "violet", "label": "Discussion" }
+      }
+    },
+    "marks": [
+      {
+        "field": "checks",
+        "values": {
+          "pass": { "icon": "check-circle", "tone": "emerald", "label": "Checks pass" },
+          "fail": { "icon": "x-circle", "tone": "red", "label": "Checks failing" },
+          "running": { "icon": "running", "tone": "amber", "label": "Checks running" }
+        }
+      },
+      {
+        "field": "review",
+        "values": {
+          "approved": { "icon": "seal-check", "tone": "emerald", "label": "Approved" },
+          "changes": { "icon": "changes", "tone": "orange", "label": "Changes requested" },
+          "pending": { "icon": "hourglass", "tone": "amber", "label": "Review pending" }
+        }
+      }
+    ],
+    "reasons": {
+      "field": "reason",
+      "values": {
+        "review": { "icon": "eye", "tone": "violet", "label": "Review requested" },
+        "fail": { "icon": "x-circle", "tone": "red", "label": "Checks failing" },
+        "changes": { "icon": "changes", "tone": "orange", "label": "Changes requested" },
+        "reply": { "icon": "reply", "tone": "sky", "label": "Reply owed" },
+        "merge": { "icon": "merge", "tone": "emerald", "label": "Ready to merge" },
+        "assigned": { "icon": "user", "tone": "amber", "label": "Assigned to you" }
+      }
+    },
+    "who": "author",
+    "whoKey": "login",
+    "when": "updated",
+    "comments": "comments",
+    "added": "added",
+    "removed": "removed",
+    "mine": "mine"
+  },
   "actions": {
+    "review": { "kind": "link", "label": "Review", "url": "{{url}}" },
+    "merge": { "kind": "link", "label": "Merge", "url": "{{url}}" },
     "open": { "kind": "link", "label": "Open", "url": "{{url}}" },
     "later": { "kind": "snooze", "label": "Later", "for": "1d" },
     "done": { "kind": "done", "label": "Done" },

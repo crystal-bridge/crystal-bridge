@@ -1,4 +1,8 @@
 {
+  "include": [],
+  "exclude": [],
+  "activeDays": 90,
+  "perProject": 50,
   "discussions": false,
   "refreshMinutes": 60
 }

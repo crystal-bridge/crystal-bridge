@@ -1,56 +1,75 @@
 #!/usr/bin/env node
 /**
- * An example Scout collector (docs/SCOUTS.md): the pull requests, issues and, if asked, Discussions that want your
- * attention on GitHub, sorted into groups for a Board. It uses the Kingdom's own `gh` login and stores no token.
+ * An example Scout collector (docs/SCOUTS.md) for a `projects` Board: every open pull request and issue in the
+ * repositories you maintain, and your own in the ones you contribute to, each with the reason it needs you, if any. It
+ * uses the Kingdom's own `gh` login and stores no token.
  *
  * Node only, no packages, so it runs wherever Crystal does. `settings.json` beside it is optional:
- *   { "discussions": true, "refreshMinutes": 60 }
+ *   { "include": [], "exclude": [], "activeDays": 90, "perProject": 50, "discussions": false, "refreshMinutes": 60 }
  */
 import { execFile } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** The groups, in the order the Board shows them. */
-export const GROUPS = [
-  'Needs your review',
-  'Needs a fix',
-  'Ready to merge',
-  'Waiting on others',
-  'Your issues',
-  'Unanswered discussions',
-];
+/** The most items a Board takes from one run (`MAX_SCOUT_ITEMS` in the protocol). */
+const MAX_ITEMS = 1000;
+/** Repositories listed per GraphQL call: each costs about 5 points and well under GitHub's node limit. */
+const BATCH = 5;
+/** Pages of your repositories to read, 100 each, newest push first, before giving up on older ones. */
+const MAX_PAGES = 5;
 
-const PR_FIELDS = `
-  id number title url isDraft updatedAt
-  repository { nameWithOwner name }
+const LABELS = 'labels(first: 10) { nodes { name color } }';
+const COMMENTS = 'comments(last: 10) { totalCount nodes { author { login __typename } authorAssociation createdAt } }';
+const REPOSITORY = 'repository { nameWithOwner name url description }';
+
+const prFields = (contexts) => `
+  id number title url isDraft updatedAt additions deletions
+  ${REPOSITORY}
   author { login __typename }
   reviewDecision mergeStateStatus
+  ${LABELS}
   commits(last: 1) { nodes { commit {
     committedDate author { user { login } }
-    statusCheckRollup { state contexts(first: 50) { nodes {
+    statusCheckRollup { state contexts(first: ${contexts}) { nodes {
       __typename
       ... on CheckRun { name conclusion status }
       ... on StatusContext { context state }
     } } }
   } } }
-  comments(last: 10) { nodes { author { login __typename } authorAssociation createdAt } }
+  ${COMMENTS}
   reviews(last: 10) { nodes { author { login __typename } authorAssociation submittedAt state } }`;
 
 const ISSUE_FIELDS = `
   id number title url updatedAt
-  repository { nameWithOwner name }
+  ${REPOSITORY}
   author { login __typename }
-  comments(last: 10) { nodes { author { login __typename } authorAssociation createdAt } }`;
+  ${LABELS}
+  assignees(first: 10) { nodes { login } }
+  ${COMMENTS}`;
+
+const DISCUSSION_FIELDS = `
+  id number title url updatedAt
+  ${REPOSITORY}
+  author { login __typename }
+  ${LABELS}
+  ${COMMENTS}`;
 
 const search = (alias, query, type = 'ISSUE') =>
   `${alias}: search(query: ${JSON.stringify(query)}, type: ${type}, first: 50) { nodes { __typename
-    ... on PullRequest { ${PR_FIELDS} }
+    ... on PullRequest { ${prFields(50)} }
     ... on Issue { ${ISSUE_FIELDS} }
-    ${type === 'DISCUSSION' ? `... on Discussion { ${ISSUE_FIELDS} }` : ''}
+    ${type === 'DISCUSSION' ? `... on Discussion { ${DISCUSSION_FIELDS} }` : ''}
   } }`;
 
-/** One GraphQL call for every search: a few points of the hourly 5,000. */
+/** Your repositories and the orgs', newest push first, to pick the maintained ones from. */
+const repositories = (after) =>
+  `repositories(first: 100${after ? `, after: ${JSON.stringify(after)}` : ''}, ` +
+  'ownerAffiliations: [OWNER, ORGANIZATION_MEMBER], affiliations: [OWNER, ORGANIZATION_MEMBER, COLLABORATOR], ' +
+  'orderBy: { field: PUSHED_AT, direction: DESC }) { pageInfo { hasNextPage endCursor } ' +
+  'nodes { nameWithOwner viewerPermission isArchived isFork hasIssuesEnabled pushedAt } }';
+
+/** The first call: who you are, your repositories, and every search. A few points of the hourly 5,000. */
 export function query(settings = {}) {
   const searches = [
     search('mine', 'is:open is:pr author:@me archived:false'),
@@ -59,18 +78,61 @@ export function query(settings = {}) {
     search('authored', 'is:open is:issue author:@me archived:false'),
   ];
   if (settings.discussions) searches.push(search('discussions', 'is:open is:unanswered author:@me', 'DISCUSSION'));
-  return `query { viewer { login } ${searches.join('\n')} }`;
+  return `query { viewer { login ${repositories()} } ${searches.join('\n')} }`;
+}
+
+/** The next page of your repositories. */
+const repositoriesQuery = (after) => `query { viewer { ${repositories(after)} } }`;
+
+/**
+ * One call listing these repositories' open pull requests and issues, `perProject` of each, newest updated first, each
+ * repository under an alias (`r0`, `r1`, ...). Checks are named from the first 25 per pull request; your own pull
+ * requests come from the search too, which names 50.
+ */
+export function projectsQuery(names, perProject = 50) {
+  const order = 'orderBy: { field: UPDATED_AT, direction: DESC }';
+  const repos = names.map((nameWithOwner, at) => {
+    const [owner, name] = nameWithOwner.split('/');
+    return `r${at}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) {
+      nameWithOwner name url description
+      pullRequests(states: OPEN, first: ${perProject}, ${order}) { totalCount nodes { __typename ${prFields(25)} } }
+      issues(states: OPEN, first: ${perProject}, ${order}) { totalCount nodes { __typename ${ISSUE_FIELDS} } }
+    }`;
+  });
+  return `query { ${repos.join('\n')} }`;
+}
+
+const lower = (name) => name.toLowerCase();
+
+/**
+ * The repositories you maintain, sorted: admin or maintain permission, not archived, pushed within `activeDays` (90),
+ * and not a fork unless it takes issues of its own; plus `include`, less `exclude`.
+ */
+export function maintainedRepos(repos, settings = {}, now = Date.now()) {
+  const cutoff = now - (settings.activeDays ?? 90) * 24 * 60 * 60_000;
+  const excluded = new Set((settings.exclude ?? []).map(lower));
+  const kept = new Map();
+  for (const repo of repos) {
+    if (repo.viewerPermission !== 'ADMIN' && repo.viewerPermission !== 'MAINTAIN') continue;
+    if (repo.isArchived || (repo.isFork && !repo.hasIssuesEnabled)) continue;
+    if (!(Date.parse(repo.pushedAt) >= cutoff)) continue;
+    kept.set(lower(repo.nameWithOwner), repo.nameWithOwner);
+  }
+  for (const name of settings.include ?? []) if (!kept.has(lower(name))) kept.set(lower(name), name);
+  return [...kept.entries()]
+    .filter(([key]) => !excluded.has(key))
+    .map(([, name]) => name)
+    .sort();
 }
 
 const isBot = (author) => !author || author.__typename === 'Bot' || /\[bot\]$/.test(author.login ?? '');
 
 /**
- * The latest comment, review or push by a person, not a bot, as `{ login, at, association }`; `{}` when there is none.
- * A review not yet submitted has no time and is left out. `approvals` false leaves approvals out too: one asks nothing
- * of you.
+ * Comments, reviews and pushes by people, not bots, oldest first, as `{ login, at, association }`. A review not yet
+ * submitted has no time and is left out. `approvals` false leaves approvals out too: one asks nothing of you.
  */
-function lastWord(node, { approvals = true } = {}) {
-  const events = [
+function humanEvents(node, { approvals = true } = {}) {
+  return [
     ...(node.comments?.nodes ?? []).map((one) => ({
       author: one.author,
       at: one.createdAt,
@@ -83,10 +145,14 @@ function lastWord(node, { approvals = true } = {}) {
       author: commit.author?.user ? { login: commit.author.user.login, __typename: 'User' } : null,
       at: commit.committedDate,
     })),
-  ].filter((event) => !isBot(event.author) && typeof event.at === 'string' && event.at !== '');
-  const latest = events.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).at(-1);
-  return latest ? { login: latest.author.login, at: latest.at, association: latest.association } : {};
+  ]
+    .filter((event) => !isBot(event.author) && typeof event.at === 'string' && event.at !== '')
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+    .map((event) => ({ login: event.author.login, at: event.at, association: event.association }));
 }
+
+/** The latest comment, review or push by a person: `{ login, at, association }`, or `{}` when there is none. */
+const lastWord = (node, options) => humanEvents(node, options).at(-1) ?? {};
 
 /** The latest person, not a bot, who commented, reviewed or pushed: `{ login, at }`, or `{}` when there is none. */
 export function lastHuman(node) {
@@ -99,17 +165,18 @@ const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 const FAILED_RUNS = new Set(['FAILURE', 'TIMED_OUT', 'STARTUP_FAILURE', 'ACTION_REQUIRED']);
 
+const rollupOf = (node) => node.commits?.nodes?.[0]?.commit?.statusCheckRollup;
+
 /** Whether a pull request's checks failed on its latest commit, as GitHub sums them up. */
 function checksFailed(node) {
-  const state = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state;
+  const state = rollupOf(node)?.state;
   return state === 'FAILURE' || state === 'ERROR';
 }
 
 /** The names of a pull request's checks that failed on its latest commit, as far as they can be named. */
 export function failingChecks(node) {
-  const rollup = node.commits?.nodes?.[0]?.commit?.statusCheckRollup;
   if (!checksFailed(node)) return [];
-  return (rollup.contexts?.nodes ?? []).flatMap((check) =>
+  return (rollupOf(node).contexts?.nodes ?? []).flatMap((check) =>
     check.__typename === 'CheckRun'
       ? FAILED_RUNS.has(check.conclusion)
         ? [check.name]
@@ -120,98 +187,188 @@ export function failingChecks(node) {
   );
 }
 
-/** Where an item belongs, why, and what it offers. `me` is the `gh` login. */
-function classify(node, me, search) {
+const CHECKS = { SUCCESS: 'pass', FAILURE: 'fail', ERROR: 'fail', PENDING: 'running', EXPECTED: 'running' };
+const REVIEWS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes', REVIEW_REQUIRED: 'pending' };
+
+/**
+ * Why an item needs you, if it does: `{ why, reason?, action?, suggested? }`. `why` is for the subtitle; `reason` is
+ * the Board's chip; `action` is the Quest or link that fits, which `suggested` highlights. `found` names the searches
+ * that turned the item up.
+ */
+function classify(node, me, found) {
   const last = lastWord(node, { approvals: false });
   const theirs = last.login && last.login !== me ? `${last.login} replied` : undefined;
+  const author = node.author?.login;
   if (node.__typename === 'Discussion') {
-    return { group: 'Unanswered discussions', why: theirs ?? 'no answer yet', actions: ['open', 'later', 'done'] };
+    return theirs ? { why: theirs, reason: 'reply' } : { why: 'no answer yet' };
   }
   if (node.__typename === 'Issue') {
-    const why = theirs ?? (node.author?.login === me ? 'waiting on others' : 'assigned to you');
-    return { group: 'Your issues', why, actions: ['triage', 'open', 'later', 'done'], suggested: theirs && 'triage' };
+    const assigned = found.has('assigned') || (node.assignees?.nodes ?? []).some((one) => one?.login === me);
+    if (theirs && (assigned || author === me)) {
+      return { why: theirs, reason: 'reply', action: 'triage', suggested: 'triage' };
+    }
+    if (assigned) return { why: 'assigned to you', reason: 'assigned', action: 'triage', suggested: 'triage' };
+    return { why: author === me ? 'waiting on others' : `by ${author ?? 'ghost'}` };
   }
-  if (search === 'review' || node.author?.login !== me) {
-    return { group: 'Needs your review', why: 'review requested', actions: ['open', 'later', 'done'] };
+  if (found.has('review')) {
+    return { why: 'review requested', reason: 'review', action: 'review', suggested: 'review' };
   }
+  if (author !== me) return { why: `by ${author ?? 'ghost'}` };
   if (checksFailed(node)) {
     const failed = failingChecks(node);
-    return {
-      group: 'Needs a fix',
-      why: failed.length > 0 ? `checks failing: ${failed.join(', ')}` : 'checks failing',
-      actions: ['fix', 'open', 'later'],
-      suggested: 'fix',
-    };
+    const why = failed.length > 0 ? `checks failing: ${failed.join(', ')}` : 'checks failing';
+    return { why, reason: 'fail', action: 'fix', suggested: 'fix' };
   }
   if (node.reviewDecision === 'CHANGES_REQUESTED' && last.login !== me) {
-    return {
-      group: 'Needs a fix',
-      why: 'changes requested',
-      actions: ['answer', 'open', 'later'],
-      suggested: 'answer',
-    };
+    return { why: 'changes requested', reason: 'changes', action: 'answer', suggested: 'answer' };
   }
   if (theirs) {
     // Anyone may comment on a public pull request: only a reply from someone with write access suggests the Quest.
     const suggested = TRUSTED.has(last.association) ? { suggested: 'answer' } : {};
-    return { group: 'Needs a fix', why: theirs, actions: ['answer', 'open', 'later'], ...suggested };
+    return { why: theirs, reason: 'reply', action: 'answer', ...suggested };
   }
   if (!node.isDraft && node.mergeStateStatus === 'CLEAN') {
-    return { group: 'Ready to merge', why: 'ready to merge', actions: ['open', 'done'] };
+    return { why: 'ready to merge', reason: 'merge', action: 'merge', suggested: 'merge' };
   }
-  return {
-    group: 'Waiting on others',
-    why: node.isDraft ? 'draft' : 'waiting on others',
-    actions: ['open', 'later', 'done'],
-  };
+  return { why: node.isDraft ? 'draft' : 'waiting on others' };
 }
 
 const KINDS = { PullRequest: 'pr', Issue: 'issue', Discussion: 'discussion' };
-/** Searches a node can turn up in: review requests first, so someone else's pull request reads as one to review. */
-const ORDER = ['review', 'mine', 'assigned', 'authored', 'discussions'];
+/** Searches in the order they're read; a review request makes someone else's pull request one to review. */
+const SEARCHES = ['review', 'mine', 'assigned', 'authored', 'discussions'];
 
-/** The Board's items from the GraphQL answer's searches, each found once, grouped in `GROUPS` order. */
-export function toItems(searches, me) {
-  const seen = new Map();
-  for (const name of ORDER) {
-    for (const node of searches[name]?.nodes ?? []) {
-      const kind = KINDS[node?.__typename];
-      if (!kind) continue;
-      const id = `${kind}:${node.repository.nameWithOwner}#${node.number}`;
-      if (seen.has(id)) continue;
-      const last = lastHuman(node);
-      // An issue you opened shows once someone else has the last word: until then it isn't yours to act on.
-      if (name === 'authored' && (!last.login || last.login === me)) continue;
-      const { group, why, actions, suggested } = classify(node, me, name);
-      const failed = kind === 'pr' ? failingChecks(node) : [];
-      seen.set(id, {
-        id,
-        // Back to new when the group changes, someone (not a bot) acts, or the checks change.
-        rev: [group, last.at ?? node.updatedAt, failed.join(',')].join('|').slice(0, 200),
-        title: node.title.slice(0, 500),
-        subtitle: `${node.repository.nameWithOwner}#${node.number} · ${why}`.slice(0, 500),
-        url: node.url,
-        group,
-        fields: {
-          kind,
-          repo: node.repository.name,
-          repository: node.repository.nameWithOwner,
-          number: node.number,
-          author: node.author?.login ?? null,
-          ...(failed.length > 0 ? { checks: failed.join(', ').slice(0, 2000) } : {}),
-        },
-        actions,
-        ...(suggested ? { suggested } : {}),
-      });
-    }
+/** Label colours with the `#` GitHub leaves off; any other colour is dropped, and at most ten are kept. */
+function labelsOf(node) {
+  return (node.labels?.nodes ?? [])
+    .flatMap((label) => {
+      const color = `#${label?.color ?? ''}`;
+      const name = String(label?.name ?? '').slice(0, 50);
+      return name && /^#[0-9a-fA-F]{6}$/.test(color) ? [{ name, color }] : [];
+    })
+    .slice(0, 10);
+}
+
+function projectOf(repository, owned) {
+  const description = String(repository.description ?? '')
+    .trim()
+    .slice(0, 200)
+    .trim();
+  return {
+    name: repository.nameWithOwner,
+    ...(repository.url ? { url: repository.url } : {}),
+    ...(description ? { description } : {}),
+    owned,
+  };
+}
+
+/** One Board item from a node, the searches that found it, and whether its repository is one you maintain. */
+function toItem(node, me, found, repository, owned) {
+  const type = KINDS[node.__typename];
+  const isPr = type === 'pr';
+  const labels = labelsOf(node);
+  const bug = type === 'issue' && labels.some((label) => label.name.toLowerCase() === 'bug');
+  const kind = isPr && node.isDraft ? 'draft' : bug ? 'bug' : type;
+  const { why, reason, action, suggested } = classify(node, me, found);
+  const failed = isPr ? failingChecks(node) : [];
+  const author = node.author?.login ?? null;
+  const mine = author === me;
+  const checks = isPr ? CHECKS[rollupOf(node)?.state] : undefined;
+  const review = isPr ? REVIEWS[node.reviewDecision] : undefined;
+  // Back to new only when the reason changes, someone else (not a bot) acts, or your failing checks change: a busy
+  // repository's edits, labels and bot comments don't relight it.
+  const other = humanEvents(node)
+    .filter((event) => event.login !== me)
+    .at(-1);
+  const rev = [reason ?? '', other?.at ?? '', mine && reason === 'fail' ? failed.join(',') : ''];
+  return {
+    id: `${type}:${repository.nameWithOwner}#${node.number}`,
+    rev: rev.join('|').slice(0, 200),
+    title: node.title.slice(0, 500),
+    subtitle: `${repository.nameWithOwner}#${node.number} · ${why}`.slice(0, 500),
+    url: node.url,
+    group: repository.nameWithOwner.slice(0, 80),
+    project: projectOf(repository, owned),
+    ...(labels.length > 0 ? { labels } : {}),
+    fields: {
+      kind,
+      ...(checks ? { checks } : {}),
+      ...(review ? { review } : {}),
+      ...(reason ? { reason } : {}),
+      author,
+      login: author,
+      updated: node.updatedAt,
+      comments: node.comments?.totalCount ?? node.comments?.nodes?.length ?? 0,
+      ...(isPr ? { added: node.additions ?? 0, removed: node.deletions ?? 0 } : {}),
+      mine,
+      repo: repository.name,
+      repository: repository.nameWithOwner,
+      number: node.number,
+      isPr,
+      isIssue: type === 'issue',
+      ...(failed.length > 0 ? { failing: failed.join(', ').slice(0, 2000) } : {}),
+    },
+    actions: [...(action ? [action] : []), 'open', 'later', 'done'],
+    ...(suggested ? { suggested } : {}),
+    ...(reason ? { summary: why.slice(0, 300) } : {}),
+  };
+}
+
+/**
+ * The Board's items: every open pull request and issue in `listed` (the maintained repositories' lists), and your own
+ * from the searches, each found once. `exclude` leaves repositories out; past `max` items, those that need you stay
+ * and then the newest.
+ */
+export function toItems(searches, me, listed = [], { exclude = [], max = MAX_ITEMS } = {}) {
+  const excluded = new Set(exclude.map(lower));
+  const owned = new Map(listed.filter(Boolean).map((repo) => [lower(repo.nameWithOwner), repo]));
+  const found = new Map();
+  const add = (node, source) => {
+    const type = KINDS[node?.__typename];
+    if (!type || !node.repository) return;
+    const name = node.repository.nameWithOwner;
+    if (excluded.has(lower(name))) return;
+    const id = `${type}:${name}#${node.number}`;
+    const entry = found.get(id) ?? { node, sources: new Set() };
+    // A search's node names more failing checks than a repository list's, so it wins.
+    if (source !== 'repo') entry.node = node;
+    entry.sources.add(source);
+    found.set(id, entry);
+  };
+  for (const repo of owned.values()) {
+    for (const node of [...(repo.pullRequests?.nodes ?? []), ...(repo.issues?.nodes ?? [])]) add(node, 'repo');
   }
-  return [...seen.values()].sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group));
+  for (const name of SEARCHES) for (const node of searches[name]?.nodes ?? []) add(node, name);
+
+  const items = [];
+  for (const { node, sources } of found.values()) {
+    const repo = owned.get(lower(node.repository.nameWithOwner));
+    // An issue you opened, in a repository you don't maintain, shows once someone else has the last word.
+    if (!repo && sources.size === 1 && sources.has('authored')) {
+      const last = lastHuman(node);
+      if (!last.login || last.login === me) continue;
+    }
+    items.push(toItem(node, me, sources, repo ?? node.repository, Boolean(repo)));
+  }
+  const kept =
+    items.length <= max
+      ? items
+      : items
+          .map((item, at) => ({ item, at }))
+          .sort(
+            (a, b) =>
+              Number(!a.item.fields.reason) - Number(!b.item.fields.reason) ||
+              (b.item.fields.updated ?? '').localeCompare(a.item.fields.updated ?? '') ||
+              a.at - b.at,
+          )
+          .slice(0, max)
+          .map(({ item }) => item);
+  return kept.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /** Runs `gh` with these arguments: `{ code, stdout, stderr }`, with code -1 when it couldn't start. */
 export function runGh(args) {
   return new Promise((resolve) => {
-    execFile('gh', args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+    execFile('gh', args, { maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       const code = error ? (typeof error.code === 'number' ? error.code : -1) : 0;
       resolve({ code, stdout: String(stdout), stderr: String(stderr || (code === -1 ? error.message : '')) });
     });
@@ -222,6 +379,27 @@ function ghFailed(result) {
   if (result.code === -1) return new Error(`gh isn't installed or isn't on the PATH: ${result.stderr.trim()}`);
   if (/gh auth login/.test(result.stderr)) return new Error('gh is not logged in on this Kingdom: run gh auth login');
   return new Error(`gh failed (${result.code}): ${result.stderr.trim().slice(-500)}`);
+}
+
+/**
+ * One GraphQL call's `data`. `gh` exits non-zero when any part of an answer failed, such as a repository the login
+ * can't read: those parts are noted on stderr and left out. A rate limit, or an answer with no data, fails the run.
+ */
+async function graphql(gh, text, log) {
+  const result = await gh(['api', 'graphql', '-f', `query=${text}`]);
+  let body;
+  try {
+    body = JSON.parse(result.stdout);
+  } catch {
+    body = undefined;
+  }
+  const errors = Array.isArray(body?.errors) ? body.errors : [];
+  const limited = errors.find((error) => error?.type === 'RATE_LIMITED' || /rate limit/i.test(error?.message ?? ''));
+  if (limited) throw new Error(`GitHub's rate limit stopped this run: ${limited.message ?? 'rate limited'}`);
+  if (!body?.data) throw result.code !== 0 ? ghFailed(result) : new Error('GitHub answered with no data');
+  for (const error of errors)
+    log(`GitHub: ${error?.message ?? 'an error'}${error?.path ? ` (${error.path.join('.')})` : ''}`);
+  return body.data;
 }
 
 /**
@@ -236,11 +414,31 @@ async function notificationsCheck(gh, etag) {
   return { same: false, etag: /^etag:\s*(.+?)\s*$/im.exec(result.stdout)?.[1] };
 }
 
+/** Your repositories, reading more pages while the last one read was still pushed within the window. */
+async function yourRepositories(gh, first, settings, now, log) {
+  const cutoff = now - (settings.activeDays ?? 90) * 24 * 60 * 60_000;
+  const repos = [...(first?.nodes ?? [])];
+  let page = first?.pageInfo;
+  for (let pages = 1; page?.hasNextPage && pages < MAX_PAGES; pages++) {
+    if (!(Date.parse(repos.at(-1)?.pushedAt) >= cutoff)) break;
+    const data = await graphql(gh, repositoriesQuery(page.endCursor), log);
+    repos.push(...(data.viewer?.repositories?.nodes ?? []));
+    page = data.viewer?.repositories?.pageInfo;
+  }
+  return repos.filter(Boolean);
+}
+
 /**
  * The whole run: the kept list when nothing changed and it is newer than `refreshMinutes` (60 by default; a check
- * finishing makes no notification, so the list is searched again at least that often), a fresh search otherwise.
+ * finishing makes no notification, so the list is searched again at least that often), a fresh one otherwise.
  */
-export async function collect({ gh = runGh, state, now = Date.now(), settings = {} }) {
+export async function collect({
+  gh = runGh,
+  state,
+  now = Date.now(),
+  settings = {},
+  log = (line) => process.stderr.write(`${line}\n`),
+}) {
   const cacheFile = join(state, 'cache.json');
   let cache;
   try {
@@ -248,20 +446,58 @@ export async function collect({ gh = runGh, state, now = Date.now(), settings = 
   } catch {
     cache = undefined;
   }
-  const maxAge = (Number(settings.refreshMinutes) > 0 ? Number(settings.refreshMinutes) : 60) * 60_000;
+  const maxAge = (settings.refreshMinutes ?? 60) * 60_000;
   const check = await notificationsCheck(gh, cache?.etag);
   if (check.same && cache && Array.isArray(cache.items) && now - cache.at < maxAge) return { items: cache.items };
 
-  const result = await gh(['api', 'graphql', '-f', `query=${query(settings)}`]);
-  if (result.code !== 0) throw ghFailed(result);
-  const { data } = JSON.parse(result.stdout);
-  const items = toItems(data, data.viewer.login);
+  const data = await graphql(gh, query(settings), log);
+  const me = data.viewer.login;
+  const names = maintainedRepos(
+    await yourRepositories(gh, data.viewer.repositories, settings, now, log),
+    settings,
+    now,
+  );
+  const listed = [];
+  for (let at = 0; at < names.length; at += BATCH) {
+    const batch = names.slice(at, at + BATCH);
+    const answer = await graphql(gh, projectsQuery(batch, settings.perProject ?? 50), log);
+    batch.forEach((name, index) => {
+      const repo = answer[`r${index}`];
+      if (repo) listed.push(repo);
+      else log(`skipped ${name}: this login can't read it`);
+    });
+  }
+  const items = toItems(data, me, listed, { exclude: settings.exclude ?? [] });
+  if (items.length >= MAX_ITEMS) log(`kept ${MAX_ITEMS} items, those that need you first; lower perProject to see all`);
   mkdirSync(state, { recursive: true });
   writeFileSync(cacheFile, JSON.stringify({ etag: check.etag ?? cache?.etag, at: now, items }));
   return { items };
 }
 
-/** `settings.json` beside `scout.json`: none is fine, but one that isn't JSON fails the run rather than being ignored. */
+const REPO_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const SETTINGS = {
+  discussions: [(value) => typeof value === 'boolean', 'true or false'],
+  refreshMinutes: [(value) => typeof value === 'number' && value > 0, 'a number of minutes above 0'],
+  activeDays: [(value) => typeof value === 'number' && value > 0, 'a number of days above 0'],
+  perProject: [(value) => Number.isInteger(value) && value >= 1 && value <= 100, 'a whole number from 1 to 100'],
+  include: [(value) => Array.isArray(value) && value.every((one) => REPO_NAME.test(one)), 'a list of "owner/repo"'],
+  exclude: [(value) => Array.isArray(value) && value.every((one) => REPO_NAME.test(one)), 'a list of "owner/repo"'],
+};
+
+/** The settings, checked: a wrong type or an unknown name fails the run with a message that names it. */
+export function validateSettings(settings) {
+  if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
+    throw new Error('settings.json must be an object, such as { "activeDays": 90 }');
+  }
+  for (const [name, value] of Object.entries(settings)) {
+    const rule = SETTINGS[name];
+    if (!rule) throw new Error(`settings.json: unknown setting "${name}"; known: ${Object.keys(SETTINGS).join(', ')}`);
+    if (!rule[0](value)) throw new Error(`settings.json: ${name} must be ${rule[1]}`);
+  }
+  return settings;
+}
+
+/** `settings.json` beside `scout.json`: none is fine, but one that isn't JSON or is wrong fails the run. */
 export function readSettings(folder) {
   let text;
   try {
@@ -270,11 +506,13 @@ export function readSettings(folder) {
     if (error?.code === 'ENOENT') return {};
     throw error;
   }
+  let settings;
   try {
-    return JSON.parse(text);
+    settings = JSON.parse(text);
   } catch (error) {
     throw new Error(`settings.json isn't JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
+  return validateSettings(settings);
 }
 
 /** Whether this file is the command being run, through a symlink or not, rather than imported by a test. */
