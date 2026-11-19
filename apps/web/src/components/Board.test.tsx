@@ -52,6 +52,7 @@ function show(props: Partial<BoardPageProps> & { items?: BoardItem[]; runs?: Sco
   const onAct = vi.fn(async (_action: string, _ids: string[]): Promise<{ session?: string }> => ({}));
   const onOpenQuest = vi.fn();
   const onBack = vi.fn();
+  const onQuest = vi.fn(async () => ({}));
   const view = render(
     <BoardPage
       kingdom="Forge"
@@ -64,6 +65,7 @@ function show(props: Partial<BoardPageProps> & { items?: BoardItem[]; runs?: Sco
       onAct={onAct}
       onOpenQuest={onOpenQuest}
       onBack={onBack}
+      onQuest={onQuest}
       {...rest}
     />,
   );
@@ -436,6 +438,123 @@ describe('BoardPage', () => {
       const tools = within(list).getByRole('button', { name: 'Yes, Archive' }).closest('[data-row-tools]')!;
       expect(tools.querySelector('[data-asking]')).not.toBeNull();
       expect(tools.className).toMatch(/has-\[\[data-asking\]\]:opacity-100/);
+    });
+
+    describe('starting a Quest from Counsel', () => {
+      const suggested = [
+        item({ id: 'a', state: 'seen', title: 'Lunch?', rank: 1, actions: ['done'], suggested: 'done' }),
+        item({ id: 'b', state: 'seen', title: 'Invoice', rank: 2, actions: ['done'], suggested: 'done' }),
+      ];
+
+      it('opens a composer over every suggestion, with an editable prompt, and starts the Quest', async () => {
+        const onQuest = vi.fn(async () => ({ session: 'q1' }));
+        const shown = show({ scout: mailScout(), items: suggested, onQuest });
+        const pane = screen.getByRole('region', { name: 'Counsel' });
+        fireEvent.click(within(pane).getByRole('button', { name: 'Start a Quest on all 2' }));
+        const composer = screen.getByRole('form', { name: 'New Quest from this Board' });
+        const prompt = within(composer).getByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement;
+        expect(prompt.value).toMatch(/these 2 items/);
+        expect(within(composer).getByRole('textbox', { name: 'Folder' })).toHaveProperty('value', '~/code/repo');
+        // Take one out, and say it another way.
+        fireEvent.click(within(composer).getByRole('button', { name: 'Leave out Invoice' }));
+        fireEvent.change(prompt, { target: { value: 'Draft a reply for me.' } });
+        fireEvent.click(within(composer).getByRole('button', { name: 'Start Quest' }));
+        await act(async () => {});
+        expect(onQuest).toHaveBeenCalledWith({
+          ids: ['a'],
+          prompt: 'Draft a reply for me.',
+          project: '~/code/repo',
+          mode: 'auto',
+        });
+        expect(shown.onOpenQuest).toHaveBeenCalledWith('q1');
+      });
+
+      it('sends the mode and folder chosen, home for a blank folder, and starts in the Scout-s own quest mode', async () => {
+        const onQuest = vi.fn(async () => ({}));
+        const planned: ScoutManifest = {
+          ...mail,
+          actions: {
+            ...mail.actions,
+            fix: { kind: 'quest', label: 'Fix it', project: '~/code/repo', prompt: 'fix.md', mode: 'plan' },
+          },
+        };
+        show({ scout: mailScout({ manifest: planned }), items: suggested, onQuest });
+        fireEvent.click(screen.getByRole('button', { name: 'Start a Quest on Invoice' }));
+        const composer = screen.getByRole('form', { name: 'New Quest from this Board' });
+        expect(within(composer).getByRole('combobox', { name: 'Permission mode' })).toHaveProperty('value', 'plan');
+        fireEvent.change(within(composer).getByRole('combobox', { name: 'Permission mode' }), {
+          target: { value: 'manual' },
+        });
+        fireEvent.change(within(composer).getByRole('textbox', { name: 'Folder' }), { target: { value: '   ' } });
+        fireEvent.click(within(composer).getByRole('button', { name: 'Start Quest' }));
+        await act(async () => {});
+        expect(onQuest).toHaveBeenCalledWith(expect.objectContaining({ ids: ['b'], project: '~', mode: 'manual' }));
+      });
+
+      it('takes the best 50 when more are suggested, the most one Quest holds', () => {
+        const many = Array.from({ length: 60 }, (_, i) =>
+          item({ id: `m${i}`, state: 'seen', title: `Item ${i}`, rank: i + 1, actions: ['done'], suggested: 'done' }),
+        );
+        show({ scout: mailScout(), items: many });
+        fireEvent.click(screen.getByRole('button', { name: 'Start a Quest on the best 50' }));
+        const composer = screen.getByRole('form', { name: 'New Quest from this Board' });
+        expect(within(composer).getAllByRole('listitem')).toHaveLength(50);
+        expect(within(composer).getAllByRole('listitem')[0]!.textContent).toContain('Item 0');
+      });
+
+      it('takes focus, closes on Escape, keeps the draft from other Quest buttons, and drops items that left', () => {
+        const shown = show({ scout: mailScout(), items: suggested });
+        fireEvent.click(screen.getByRole('button', { name: 'Start a Quest on all 2' }));
+        const composer = screen.getByRole('form', { name: 'New Quest from this Board' });
+        expect(document.activeElement).toBe(within(composer).getByRole('textbox', { name: 'Prompt' }));
+        expect(screen.getByRole('button', { name: 'Start a Quest on Invoice' })).toHaveProperty('disabled', true);
+        // Invoice is done on another device: its chip goes.
+        shown.rerender(
+          <BoardPage
+            kingdom="Forge"
+            scout={mailScout()}
+            board={{ ...shown.board, items: [suggested[0]!, { ...suggested[1]!, state: 'done' }] }}
+            missing={false}
+            now={NOW}
+            onChange={shown.onChange}
+            onRunNow={shown.onRunNow}
+            onAct={shown.onAct}
+            onOpenQuest={shown.onOpenQuest}
+            onBack={shown.onBack}
+            onQuest={vi.fn(async () => ({}))}
+          />,
+        );
+        expect(
+          within(screen.getByRole('form', { name: 'New Quest from this Board' })).getAllByRole('listitem'),
+        ).toHaveLength(1);
+        fireEvent.keyDown(screen.getByRole('form', { name: 'New Quest from this Board' }), { key: 'Escape' });
+        expect(screen.queryByRole('form', { name: 'New Quest from this Board' })).toBeNull();
+      });
+
+      it('opens it for one item from that item-s own button, and shows why the Kingdom refused', async () => {
+        const onQuest = vi.fn(async () => {
+          throw new Error('update this Kingdom first: it is too old for this');
+        });
+        show({ scout: mailScout(), items: suggested, onQuest });
+        const pane = screen.getByRole('region', { name: 'Counsel' });
+        fireEvent.click(within(pane).getByRole('button', { name: 'Start a Quest on Invoice' }));
+        const composer = screen.getByRole('form', { name: 'New Quest from this Board' });
+        expect((within(composer).getByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement).value).toMatch(
+          /this item/,
+        );
+        expect(
+          within(composer)
+            .getAllByRole('listitem')
+            .map((li) => li.textContent),
+        ).toEqual([expect.stringContaining('Invoice')]);
+        fireEvent.click(within(composer).getByRole('button', { name: 'Start Quest' }));
+        expect(await within(composer).findByRole('alert')).toHaveProperty(
+          'textContent',
+          'update this Kingdom first: it is too old for this',
+        );
+        fireEvent.click(within(composer).getByRole('button', { name: 'Cancel' }));
+        expect(screen.queryByRole('form', { name: 'New Quest from this Board' })).toBeNull();
+      });
     });
 
     it('says what fills the pane when nothing is suggested yet', () => {

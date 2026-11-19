@@ -5,6 +5,7 @@ import {
   HubListInventory,
   HubKingdomVersion,
   HubScoutAction,
+  HubScoutQuest,
   HubScoutRunNow,
   type NodeScoutActed,
   MAX_CLI_UPDATE_REASON,
@@ -138,6 +139,7 @@ export interface StartNodeOptions {
     recent(): NodeScoutRun[];
     runNow(id: string): void;
     act(request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
+    quest(request: HubScoutQuest, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
   };
   /** How often to rescan `transcripts`; the hub only hears about a change. Default 60 s. */
   scanMs?: number;
@@ -487,12 +489,15 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   }
 
   /** Carries out a Board's `quest` or `run` action; the answer always goes back, so the Board never waits on it. */
-  async function handleScoutAction(request: HubScoutAction): Promise<void> {
+  async function handleScoutAction(request: HubScoutAction | HubScoutQuest): Promise<void> {
     let answer: ActResult;
     try {
-      answer = options.scouts
-        ? await options.scouts.act(request, startQuest)
-        : { ok: false, reason: 'this Kingdom runs no Scouts' };
+      const scouts = options.scouts;
+      answer = !scouts
+        ? { ok: false, reason: 'this Kingdom runs no Scouts' }
+        : request.kind === 'scout-quest'
+          ? await scouts.quest(request, startQuest)
+          : await scouts.act(request, startQuest);
     } catch (error) {
       answer = { ok: false, reason: `the action failed: ${error instanceof Error ? error.message : String(error)}` };
     }
@@ -881,6 +886,12 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const quest = HubScoutQuest.safeParse(parsed);
+    if (quest.success) {
+      void handleScoutAction(quest.data);
+      return;
+    }
+
     const kingdomVersion = HubKingdomVersion.safeParse(parsed);
     if (kingdomVersion.success) {
       options.onKingdomVersion?.(kingdomVersion.data.version);
@@ -924,7 +935,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.updateCli ? { cliUpdate: true } : {}),
           ...(options.listInventory ? { inventory: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
-          ...(options.scouts ? { scouts: true } : {}),
+          ...(options.scouts ? { scouts: true, scoutQuests: true } : {}),
         }),
       );
       resendUnacked();

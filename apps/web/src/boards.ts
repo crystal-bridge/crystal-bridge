@@ -4,6 +4,7 @@ import type {
   BoardAct,
   BoardItem,
   BoardItemsChange,
+  BoardQuest,
   BoardItemState,
   ListedScout,
   ScoutAction,
@@ -433,6 +434,22 @@ export async function runScoutNow(node: string, scout: string): Promise<void> {
     throw new Error(UNREACHABLE);
   }
   if (!response.ok) throw await refusal(response);
+}
+
+/** Starts one Quest over Board items with the user's own prompt; the Kingdom adds the items as untrusted data. */
+export async function startBoardQuest(node: string, scout: string, ask: BoardQuest): Promise<{ session?: string }> {
+  let response: Response;
+  try {
+    response = await fetch(`${boardPath(node, scout)}/quest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(ask),
+    });
+  } catch {
+    throw new Error(UNREACHABLE);
+  }
+  if (!response.ok) throw await refusal(response);
+  return (await response.json()) as { session?: string };
 }
 
 /** Has the Kingdom carry out a `quest` or `run` action on items. A Quest's id comes back, to open it. */

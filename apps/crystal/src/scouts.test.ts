@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Scout, ScoutItem, ScoutRun } from '@crystal-bridge/protocol';
+import type { HubScoutQuest, Scout, ScoutItem, ScoutRun } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CATCH_UP_AFTER_MS,
@@ -1009,6 +1009,54 @@ describe('Scouts', () => {
     it('passes on why a Quest could not start', async () => {
       const answer = await scouts!.act(action('fix'), async () => ({ ok: false, reason: 'no worktree' }));
       expect(answer).toEqual({ ok: false, reason: 'no worktree' });
+    });
+
+    describe('a Quest with the user-s own prompt', () => {
+      const ask = (extra: Partial<HubScoutQuest> = {}): HubScoutQuest => ({
+        kind: 'scout-quest',
+        requestId: REQUEST,
+        scout: 'quest-board',
+        items: [pr, other],
+        prompt: 'Work through these with me.',
+        ...extra,
+      });
+
+      it('starts one Quest over several items, in the folder asked for, linked to the first', async () => {
+        const answer = await scouts!.quest(ask({ project: '~/code/repo', mode: 'manual' }), startQuest);
+        expect(answer).toEqual({ ok: true, session: '33333333-3333-4333-8333-333333333333' });
+        expect(started[0]).toMatchObject({
+          cwd: join(home, 'code', 'repo'),
+          mode: 'manual',
+          from: { scout: 'quest-board', item: pr.id, title: 'Fix the retry loop and 1 more' },
+        });
+        expect(started[0]!.prompt.startsWith('Work through these with me.')).toBe(true);
+        expect(started[0]!.prompt).toContain('<untrusted-items>');
+        expect(started[0]).not.toHaveProperty('worktree');
+      });
+
+      it('starts in the home folder when no folder is asked for', async () => {
+        await scouts!.quest(ask({ items: [pr] }), startQuest);
+        expect(started[0]).toMatchObject({ cwd: home, from: { title: 'Fix the retry loop' } });
+      });
+
+      it('takes the folder as typed, never filled from item text', async () => {
+        const answer = await scouts!.quest(ask({ project: '~/code/{{title}}' }), startQuest);
+        expect(answer).toEqual({ ok: false, reason: 'no such project folder: ~/code/{{title}}' });
+        expect(started).toEqual([]);
+      });
+
+      it('keeps the link-s title within its limit when the first title is long', async () => {
+        await scouts!.quest(ask({ items: [{ ...pr, title: 'x'.repeat(500) }, other] }), startQuest);
+        expect(started[0]!.from.title).toHaveLength(480 + ' and 1 more'.length);
+        expect(started[0]!.from.title.length).toBeLessThanOrEqual(500);
+      });
+
+      it('refuses a folder that climbs or is missing, and a Scout that does not load', async () => {
+        expect(await scouts!.quest(ask({ project: '~/code/../..' }), startQuest)).toMatchObject({ ok: false });
+        expect(await scouts!.quest(ask({ project: '~/nowhere' }), startQuest)).toMatchObject({ ok: false });
+        expect(await scouts!.quest(ask({ scout: 'nope' }), startQuest)).toMatchObject({ ok: false });
+        expect(started).toEqual([]);
+      });
     });
 
     it('starts one Quest per press: never for several items at once', async () => {

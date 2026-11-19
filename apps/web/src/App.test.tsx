@@ -415,6 +415,58 @@ describe('App Kingdom tabs', () => {
     expect(screen.getByRole('tab', { name: /^Gmail/ })).toBeTruthy();
   });
 
+  it('starts a Quest the user wrote from Counsel, through the hub, and opens it', async () => {
+    const scout = {
+      id: 'gmail',
+      fresh: 0,
+      manifest: {
+        name: 'Gmail',
+        schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+        collect: { command: ['./collect.sh'] },
+        view: 'list',
+        actions: { done: { kind: 'done', label: 'Done' } },
+        defaults: ['done'],
+      },
+    };
+    const board = {
+      scout: 'gmail',
+      runs: [],
+      items: [
+        { id: '1', title: 'Lunch on Friday?', state: 'seen', firstSeen: 0, changedAt: 0, rank: 1, suggested: 'done' },
+      ],
+    };
+    const asked: { url: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') asked.push({ url, body: JSON.parse(String(init.body)) });
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/nodes/node-b/scouts'
+                ? { scouts: [scout] }
+                : url === '/api/nodes/node-b/scouts/gmail'
+                  ? board
+                  : url === '/api/nodes/node-b/scouts/gmail/quest'
+                    ? { session: 's1' }
+                    : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    window.history.replaceState(null, '', '/#/k/node-b/b/gmail');
+    await renderApp();
+    const pane = await screen.findByRole('region', { name: 'Counsel' });
+    fireEvent.click(within(pane).getByRole('button', { name: 'Start a Quest on all 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Quest' }));
+    await waitFor(() => expect(window.location.hash).toBe('#/k/node-b/q/s1'));
+    expect(asked.find((one) => one.url.endsWith('/quest'))).toEqual({
+      url: '/api/nodes/node-b/scouts/gmail/quest',
+      body: { ids: ['1'], prompt: expect.stringContaining('this item'), project: '~', mode: 'auto' },
+    });
+  });
+
   it('opens the Board a Quest came from, leaving the Quest', async () => {
     const quest = sessions[0]!.id;
     const started = [

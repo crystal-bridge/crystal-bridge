@@ -304,11 +304,11 @@ describe('airship server', () => {
     });
     const items = [{ id: 'pr:1', rev: 'a', title: 'Fix the retry loop', actions: ['fix', 'archive', 'tidy', 'done'] }];
 
-    async function scoutingNode(scouts = true) {
+    async function scoutingNode(scouts = true, scoutQuests = scouts) {
       const socket = await openSocket(`${wsUrl}/node`);
       sockets.push(socket);
       const frames = new FrameRecorder(socket);
-      send(socket, { kind: 'hello', node: 'node-a', scouts });
+      send(socket, { kind: 'hello', node: 'node-a', scouts, ...(scoutQuests ? { scoutQuests } : {}) });
       send(socket, { kind: 'scouts', scouts: [{ id: 'quest-board', manifest }] });
       return { socket, frames };
     }
@@ -442,6 +442,46 @@ describe('airship server', () => {
             { id: 'pr:1', state: 'done' },
             { id: 'pr:2', state: 'done' },
           ],
+        });
+      });
+
+      describe('a Quest with the user-s own prompt', () => {
+        const ask = { ids: ['pr:1', 'pr:2'], prompt: 'Work through these with me.', project: '~/code', mode: 'manual' };
+
+        it('sends the items as the hub stores them, with the prompt, and answers with the Quest', async () => {
+          const { node } = await withTwo();
+          const pressed = post('/api/nodes/node-a/scouts/quest-board/quest', ask);
+          const asked = await node.frames.waitFor((frame) => frame.kind === 'scout-quest');
+          expect(asked).toMatchObject({
+            scout: 'quest-board',
+            prompt: 'Work through these with me.',
+            project: '~/code',
+            mode: 'manual',
+          });
+          expect((asked.items as { id: string }[]).map((item) => item.id)).toEqual(['pr:1', 'pr:2']);
+          expect((asked.items as Record<string, unknown>[])[0]).not.toHaveProperty('state');
+          send(node.socket, { kind: 'scout-acted', requestId: asked.requestId, ok: true, session: SESSION_ID });
+          expect(await json(await pressed)).toEqual({ status: 200, body: { session: SESSION_ID } });
+        });
+
+        it('refuses a Kingdom too old for it', async () => {
+          const client = await connectClient();
+          await scoutingNode(true, false);
+          await client.frames.waitFor((frame) => frame.kind === 'scouts');
+          expect(await json(await post('/api/nodes/node-a/scouts/quest-board/quest', ask))).toEqual({
+            status: 409,
+            body: { error: 'update this Kingdom first: it is too old for this' },
+          });
+        });
+
+        it('refuses items no longer on the Board, a malformed ask and an unknown Scout', async () => {
+          const { node } = await withTwo();
+          expect((await post('/api/nodes/node-a/scouts/quest-board/quest', { ...ask, ids: ['gone'] })).status).toBe(
+            409,
+          );
+          expect((await post('/api/nodes/node-a/scouts/quest-board/quest', { ...ask, prompt: ' ' })).status).toBe(400);
+          expect((await post('/api/nodes/node-a/scouts/nope/quest', ask)).status).toBe(404);
+          expect(node.frames.frames.some((frame) => frame.kind === 'scout-quest')).toBe(false);
         });
       });
 

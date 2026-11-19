@@ -1,6 +1,9 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { MAX_QUEST_ITEMS, MAX_QUEST_PROMPT } from '@crystal-bridge/protocol';
 import type {
   Board,
+  BoardQuest,
+  PermissionMode,
   BoardItem,
   BoardItemState,
   ListedScout,
@@ -26,6 +29,8 @@ import { boardIcon } from '../theme/boardIcons.js';
 import { Icon } from '../theme/icons.js';
 import { hint, scoutReturnLine, sourceLine, w } from '../theme/words.js';
 import { Gold } from './Gold.js';
+import { ThemedSelect } from './ThemedSelect.js';
+import { loadDefaultMode, MODES } from '../modes.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
 
 export interface BoardPageProps {
@@ -45,6 +50,8 @@ export interface BoardPageProps {
   onRunNow: () => Promise<void>;
   /** Has the Kingdom carry out a `quest` or `run` action on items; rejects with the reason it didn't. */
   onAct: (action: string, ids: string[]) => Promise<{ session?: string }>;
+  /** Starts one Quest over Board items with the user's own prompt; rejects with the reason it didn't. */
+  onQuest?: (ask: BoardQuest) => Promise<{ session?: string }>;
   /** Opens the Quest an action started. */
   onOpenQuest: (session: string) => void;
   onBack: () => void;
@@ -457,6 +464,143 @@ function MailRow({
   );
 }
 
+/** The Scout's first `quest` action with a plain folder: a Quest written on the Board starts in its folder and mode. */
+function plainQuest(manifest: ScoutManifest): Extract<ScoutAction, { kind: 'quest' }> | undefined {
+  return Object.values(manifest.actions).find(
+    (action): action is Extract<ScoutAction, { kind: 'quest' }> =>
+      action.kind === 'quest' && !action.project.includes('{{'),
+  );
+}
+
+/** The opening words, which the user edits: what to do with the items, which follow as data. */
+function defaultPrompt(count: number): string {
+  return count === 1
+    ? "Help me with this item. Say what you'd do and why, then wait for my go-ahead before changing anything."
+    : `Work through these ${count} items with me, best first. For each, say what you'd do and why, then wait for my go-ahead before changing anything.`;
+}
+
+/**
+ * Writes a Quest over Board items: the user's own prompt, the items as removable chips, the folder and the permission
+ * mode. The Kingdom adds the items after the prompt as untrusted data, as a Scout's `quest` action does.
+ */
+function QuestComposer({
+  items,
+  open,
+  manifest,
+  start,
+  onClose,
+}: {
+  items: readonly BoardItem[];
+  /** The Board's open items now. */
+  open: readonly BoardItem[];
+  manifest: ScoutManifest;
+  start: (ask: BoardQuest) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [chosen, setChosen] = useState<readonly BoardItem[]>(items);
+  const [prompt, setPrompt] = useState(() => defaultPrompt(items.length));
+  const [project, setProject] = useState(() => plainQuest(manifest)?.project ?? '~');
+  const [mode, setMode] = useState<PermissionMode>(() => plainQuest(manifest)?.mode ?? loadDefaultMode());
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => promptRef.current?.focus(), []);
+  // An item that left the open list (done elsewhere, gone) leaves the Quest too, so Start never asks for it.
+  const openIds = new Set(open.map((item) => item.id));
+  const shown = chosen.filter((item) => openIds.has(item.id));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await start({ ids: shown.map((item) => item.id), prompt, project: project.trim() || '~', mode });
+      onClose();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      aria-label={`${w('newQuest')} from this ${w('board')}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void go();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose();
+      }}
+      className="space-y-2 rounded-md border border-blue-300 bg-blue-50/50 p-2.5 dark:border-blue-800 dark:bg-blue-950/30"
+    >
+      <ul aria-label="Items it works on" className="flex flex-wrap gap-1">
+        {shown.map((item) => (
+          <li
+            key={item.id}
+            className="flex max-w-full items-center gap-1 rounded-full bg-white py-0.5 pl-2 pr-1 text-xs ring-1 ring-neutral-200 dark:bg-neutral-900 dark:ring-neutral-700"
+          >
+            <span className="truncate">{item.title}</span>
+            <button
+              type="button"
+              aria-label={`Leave out ${item.title}`}
+              onClick={() => setChosen((all) => all.filter((one) => one.id !== item.id))}
+              className="rounded-full px-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900 dark:hover:bg-neutral-700 dark:hover:text-white"
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+      <label className="block text-xs text-neutral-500">
+        Prompt
+        <textarea
+          ref={promptRef}
+          value={prompt}
+          maxLength={MAX_QUEST_PROMPT}
+          onChange={(event) => setPrompt(event.target.value)}
+          rows={4}
+          className="mt-0.5 block w-full rounded border border-neutral-300 bg-white p-1.5 text-sm text-neutral-950 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
+        />
+      </label>
+      <p className="text-xs text-neutral-500">
+        The items follow your prompt as data, marked untrusted: the {w('quest')} treats their text as something to act
+        on, never as instructions.
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-0 flex-1 text-xs text-neutral-500">
+          Folder
+          <input
+            value={project}
+            onChange={(event) => setProject(event.target.value)}
+            className="mt-0.5 block w-full rounded border border-neutral-300 bg-white px-1.5 py-1 font-mono text-xs text-neutral-950 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
+          />
+        </label>
+        <ThemedSelect
+          label="Permission mode"
+          icon="mode"
+          size="sm"
+          title={`Permission mode: how much the ${w('quest')} may do without asking`}
+          value={mode}
+          options={MODES}
+          onChange={(value) => setMode(value as PermissionMode)}
+        />
+      </div>
+      {error && (
+        <p role="alert" className="whitespace-pre-wrap text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+      <div className="flex justify-end gap-1">
+        <button type="button" onClick={onClose} className={button}>
+          Cancel
+        </button>
+        <button type="submit" disabled={busy || shown.length === 0 || prompt.trim() === ''} className={suggestedButton}>
+          {busy ? 'Starting…' : `Start ${w('quest')}`}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 /**
  * Counsel: what the synthesis step (or the collector) suggests doing, gathered under each action, best first, with the
  * action's button on each item and one for the group where the action takes several.
@@ -467,22 +611,55 @@ function Counsel({
   perform,
   act,
   now,
+  start,
 }: {
   open: readonly BoardItem[];
   manifest: ScoutManifest;
   perform: (key: string, ids: string[]) => Promise<void>;
   act: (ids: string[], state: BoardItemState, until?: number) => void;
   now: number;
+  /** Starts a Quest the user wrote; without it, Counsel offers none. */
+  start?: (ask: BoardQuest) => Promise<void>;
 }) {
   const groups = recommendations(open, manifest);
+  const [composing, setComposing] = useState<BoardItem[] | null>(null);
+  // Best first, as many as one Quest holds.
+  const suggested = groups
+    .flatMap((group) => group.items)
+    .sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
+  const best = suggested.slice(0, MAX_QUEST_ITEMS);
+  const allLabel = suggested.length > MAX_QUEST_ITEMS ? `the best ${MAX_QUEST_ITEMS}` : `all ${suggested.length}`;
   return (
     <section
       aria-label={w('counsel')}
       className="space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"
     >
-      <h2 className="cb-display text-2xl leading-none" title={hint('counsel')}>
-        {w('counsel')}
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="cb-display text-2xl leading-none" title={hint('counsel')}>
+          {w('counsel')}
+        </h2>
+        {start && suggested.length > 0 && !composing && (
+          <button
+            type="button"
+            aria-label={`Start a ${w('quest')} on ${allLabel}`}
+            title={`Write a ${w('quest')} that works through the suggestions here, best first, up to ${MAX_QUEST_ITEMS}`}
+            onClick={() => setComposing(best)}
+            className={suggestedButton}
+          >
+            {`${w('quest')} on ${allLabel}`}
+          </button>
+        )}
+      </div>
+      {start && composing && (
+        <QuestComposer
+          key={composing.map((item) => item.id).join(' ')}
+          items={composing}
+          open={open}
+          manifest={manifest}
+          start={start}
+          onClose={() => setComposing(null)}
+        />
+      )}
       {groups.length === 0 ? (
         <p className="text-sm text-neutral-500">
           {manifest.synthesize
@@ -530,6 +707,19 @@ function Counsel({
                       </span>
                     )}
                   </span>
+                  {start && (
+                    <button
+                      type="button"
+                      aria-label={`Start a ${w('quest')} on ${item.title}`}
+                      title={`Write a ${w('quest')} about this item`}
+                      // A draft open above stays until it's started or cancelled.
+                      disabled={composing !== null}
+                      onClick={() => setComposing([item])}
+                      className={button}
+                    >
+                      {w('quest')}
+                    </button>
+                  )}
                   <ItemActions
                     item={{ ...item, actions: [key] }}
                     manifest={manifest}
@@ -565,6 +755,7 @@ export function BoardPage({
   onBack,
   pinned = false,
   onPin,
+  onQuest,
 }: BoardPageProps) {
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -960,7 +1151,23 @@ export function BoardPage({
           {counsel && (
             <aside>
               <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                {manifest && <Counsel open={openItems} manifest={manifest} perform={perform} act={act} now={now} />}
+                {manifest && (
+                  <Counsel
+                    open={openItems}
+                    manifest={manifest}
+                    perform={perform}
+                    act={act}
+                    now={now}
+                    {...(onQuest
+                      ? {
+                          start: async (ask: BoardQuest) => {
+                            const { session } = await onQuest(ask);
+                            if (session) onOpenQuest(session);
+                          },
+                        }
+                      : {})}
+                  />
+                )}
               </div>
             </aside>
           )}

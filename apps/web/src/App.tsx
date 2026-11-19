@@ -69,7 +69,15 @@ import { FileOpenContext } from './components/markdown.js';
 import { sessionInfo } from './info.js';
 import { beltFor, withBelt } from './belt.js';
 import { useCircle } from './summons.js';
-import { actOnItems, boardTabs, changeBoardItems, runScoutNow, useBoard, useScouts } from './boards.js';
+import {
+  actOnItems,
+  boardTabs,
+  changeBoardItems,
+  runScoutNow,
+  startBoardQuest,
+  useBoard,
+  useScouts,
+} from './boards.js';
 import { BoardPage } from './components/Board.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
@@ -1394,6 +1402,7 @@ export function App({ hub }: { hub: HubClient }) {
                 onChange={changeItems}
                 onRunNow={() => runScoutNow(kingdom.id, boardScout)}
                 onAct={(action, ids) => actOnItems(kingdom.id, boardScout, action, ids)}
+                onQuest={(ask) => startBoardQuest(kingdom.id, boardScout, ask)}
                 onOpenQuest={(session) => {
                   openQuest(session);
                   // The Kingdom stored the Quest before answering, so the list has it now.

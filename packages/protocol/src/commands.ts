@@ -238,6 +238,8 @@ export const NodeHello = z.object({
   inventory: z.boolean().optional(),
   /** This node runs Scouts and takes `scout-run-now` and `scout-action` (docs/SCOUTS.md); older nodes leave it out. */
   scouts: z.boolean().optional(),
+  /** This node starts a Quest from Board items with the user's prompt (`HubScoutQuest`); older nodes leave it out. */
+  scoutQuests: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
