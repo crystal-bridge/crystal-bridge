@@ -282,6 +282,8 @@ describe('the queue lane', () => {
     // CI runs in UTC, where both readings agree, so this pins a western zone for the one case that tells them apart.
     vi.stubEnv('TZ', 'America/Los_Angeles');
     try {
+      // The zone only takes in a process of its own (Vitest's forks pool): say so rather than pass without teeth.
+      expect(new Date(2026, 10, 19, 20).getTimezoneOffset()).toBe(480);
       const evening = new Date(2026, 10, 19, 20).getTime();
       expect(dueText(dayOf('2026-11-19')!, evening)).toBe('due today');
       expect(dueText(dayOf('2026-11-20')!, evening)).toBe('due in 1d');
