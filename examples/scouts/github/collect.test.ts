@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { ScoutItems, ScoutManifest } from '../../../packages/protocol/src/index.ts';
 import {
+  MAX_PAGES,
   collect,
   failingChecks,
   lastHuman,
@@ -178,6 +179,10 @@ describe('settings', () => {
     assert.throws(() => validateSettings({ perProject: 0 }), /perProject/);
     assert.throws(() => validateSettings({ perProject: 101 }), /perProject/);
     assert.throws(() => validateSettings({ perProject: 2.5 }), /perProject/);
+    assert.throws(() => validateSettings({ maxRepos: 0 }), /maxRepos/);
+    assert.throws(() => validateSettings({ maxRepos: 201 }), /maxRepos/);
+    assert.throws(() => validateSettings({ maxRepos: 1.5 }), /maxRepos/);
+    validateSettings({ maxRepos: 200 });
     assert.throws(() => validateSettings({ refreshMinutes: -1 }), /refreshMinutes/);
     assert.throws(() => validateSettings({ discussions: 'yes' }), /discussions/);
     assert.throws(() => validateSettings({ include: 'acme/lantern' }), /include/);
@@ -241,6 +246,32 @@ describe('maintainedRepos', () => {
     assert.deepEqual(maintainedRepos(repos, { include: ['mira/notes'], exclude: ['mira/notes'] }, NOW), [
       'acme/kettle',
       'acme/lantern',
+    ]);
+  });
+});
+
+describe('maintainedRepos cap', () => {
+  const at = (name: string, days: number) => ({
+    nameWithOwner: name,
+    viewerPermission: 'ADMIN',
+    isArchived: false,
+    isFork: false,
+    hasIssuesEnabled: true,
+    pushedAt: new Date(NOW - days * DAY).toISOString(),
+  });
+  const many = Array.from({ length: 40 }, (_, index) => at(`acme/r${String(index).padStart(2, '0')}`, index + 1));
+
+  it('lists 30 by default and `maxRepos` otherwise, newest push first', () => {
+    assert.equal(maintainedRepos(many, {}, NOW).length, 30);
+    assert.deepEqual(maintainedRepos(many, { maxRepos: 2 }, NOW), ['acme/r00', 'acme/r01']);
+    assert.ok(!maintainedRepos(many, { maxRepos: 2 }, NOW).includes('acme/r39'));
+  });
+
+  it('always lists `include`, ahead of the cap, and counts it in the cap', () => {
+    assert.deepEqual(maintainedRepos(many, { maxRepos: 2, include: ['acme/r39'] }, NOW), ['acme/r00', 'acme/r39']);
+    assert.deepEqual(maintainedRepos(many, { maxRepos: 1, include: ['acme/r39', 'mira/other'] }, NOW), [
+      'acme/r39',
+      'mira/other',
     ]);
   });
 });
@@ -385,6 +416,9 @@ describe('toItems', () => {
       pr({}, { state: 'FAILURE', nodes: [{ __typename: 'CheckRun', name: 'e2e', conclusion: 'CANCELLED' }] }),
     );
     assert.equal(unnamed.summary, 'checks failing');
+    // The banner counts `failing`, so a failure no check can be named for still sets it.
+    assert.equal(unnamed.fields!.failing, 'checks failing');
+    assert.equal(one(pr({}, { state: 'SUCCESS' })).fields!.failing, undefined);
   });
 
   it('offers the answer Quest for a review asking for changes', () => {
@@ -471,6 +505,8 @@ describe('toItems', () => {
     assert.equal(item.fields!.reason, undefined);
     assert.equal(item.suggested, undefined);
     assert.equal(one(own, 'assigned').fields!.reason, undefined);
+    assert.match(item.subtitle!, /· your issue$/);
+    assert.match(listed(issue({ author: user(ME) })).subtitle!, /· waiting on others$/);
     // Once someone else replies, it waits on you again.
     const answered = issue({
       author: user(ME),
@@ -551,6 +587,31 @@ describe('toItems', () => {
       'issue:acme/lantern#5',
       'pr:acme/widgets#7',
     ]);
+  });
+
+  it('keeps a project name within what a Board takes, so a long repository name still has its project', () => {
+    const long = `acme/${'x'.repeat(105)}`;
+    assert.equal(long.length, 110);
+    const node = pr({ repository: { ...WIDGETS, nameWithOwner: long, name: 'x'.repeat(105) } });
+    const items = toItems({ mine: { nodes: [node] } }, ME);
+    assert.ok(items[0]!.project!.name.length <= 100);
+    assert.match(items[0]!.project!.name, /^acme\/x+…$/);
+    assert.ok(ScoutItems.safeParse({ items }).success, JSON.stringify(ScoutItems.safeParse({ items }).error?.issues));
+  });
+
+  it('reports how many items it dropped past the most a Board takes, and none when all fit', () => {
+    const many = Array.from({ length: 5 }, (_, at) => issue({ ...inLantern(at + 1, 'issues'), id: `I_${at}` }));
+    const dropped: number[] = [];
+    toItems({}, ME, [repo('acme/lantern', { issues: many })], {
+      max: 5,
+      onDropped: (count: number) => dropped.push(count),
+    });
+    assert.deepEqual(dropped, []);
+    toItems({}, ME, [repo('acme/lantern', { issues: many })], {
+      max: 3,
+      onDropped: (count: number) => dropped.push(count),
+    });
+    assert.deepEqual(dropped, [2]);
   });
 
   it('prints only what a Board accepts', () => {
@@ -647,7 +708,17 @@ describe('collect', () => {
       repos = [owned('acme/lantern')],
       answers = { 'acme/lantern': repo('acme/lantern', { prs: [pr({ ...inLantern(1), author: user('mira') })] }) },
       errors = [],
-    }: { repos?: unknown[]; answers?: Record<string, unknown>; errors?: unknown[] } = {},
+      pages = [repos],
+      down = [],
+    }: {
+      repos?: unknown[];
+      answers?: Record<string, unknown>;
+      errors?: unknown[];
+      /** The viewer's repositories a page at a time; a page has a next one when another follows. */
+      pages?: unknown[][];
+      /** Repositories whose batch fails outright, with no data, as a 502 does. */
+      down?: string[];
+    } = {},
   ) {
     const calls: string[][] = [];
     const gh = async (args: string[]) => {
@@ -658,9 +729,17 @@ describe('collect', () => {
         return { code: 0, stdout: 'HTTP/2.0 200 OK\r\nEtag: W/"two"\r\n\r\n[]', stderr: '' };
       }
       const text = args.join(' ');
+      const pageAt = (index: number) => ({
+        pageInfo: { hasNextPage: index < pages.length - 1, endCursor: `c${index + 1}` },
+        nodes: pages[index],
+      });
+      if (!text.includes('search(') && text.includes('repositories(')) {
+        const index = Number(/after: "c(\d+)"/.exec(text)?.[1] ?? 'NaN');
+        return { code: 0, stdout: JSON.stringify({ data: { viewer: { repositories: pageAt(index) } } }), stderr: '' };
+      }
       if (text.includes('search(')) {
         const data = {
-          viewer: { login: ME, repositories: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: repos } },
+          viewer: { login: ME, repositories: pageAt(0) },
           mine: { nodes: [pr({}, failing)] },
           review: { nodes: [] },
           assigned: { nodes: [] },
@@ -671,6 +750,9 @@ describe('collect', () => {
       const data: Record<string, unknown> = {};
       for (const [, alias, owner, name] of text.matchAll(/(r\d+): repository\(owner: "([^"]+)", name: "([^"]+)"\)/g)) {
         data[alias!] = answers[`${owner}/${name}`] ?? null;
+      }
+      if (down.some((name) => text.includes(`name: "${name.split('/')[1]}"`))) {
+        return { code: 1, stdout: '', stderr: 'gh: HTTP 502: Bad Gateway' };
       }
       const failed = errors.length > 0 || Object.values(data).includes(null);
       const body = failed
@@ -695,6 +777,114 @@ describe('collect', () => {
     ]);
     assert.equal(graphqlCalls(calls).length, 2);
     assert.equal(JSON.parse(readFileSync(join(state, 'cache.json'), 'utf8')).etag, 'W/"two"');
+  });
+
+  const repoCalls = (calls: string[][]) =>
+    graphqlCalls(calls).filter((args) => args.join(' ').includes('repositories('));
+  const page = (prefix: string, count: number, daysAgo = 1) =>
+    Array.from({ length: count }, (_, index) => ({
+      ...owned(`acme/${prefix}${index}`),
+      pushedAt: new Date(NOW - daysAgo * DAY).toISOString(),
+    }));
+
+  it('reads the next page of your repositories with the cursor, and lists what it holds', async () => {
+    const { gh, calls } = fakeGh('changed', {
+      pages: [page('a', 1), page('b', 1)],
+      answers: { 'acme/a0': repo('acme/a0'), 'acme/b0': repo('acme/b0', { issues: [issue(inLantern(3, 'issues'))] }) },
+    });
+    const out = await collect({ gh, state, now: NOW, settings: {}, log: () => {} });
+    const second = repoCalls(calls)[1]!.join(' ');
+    assert.match(second, /after: "c1"/);
+    assert.equal(repoCalls(calls).length, 2);
+    assert.ok(graphqlCalls(calls).some((args) => args.join(' ').includes('name: "b0"')));
+    assert.ok(out.items.some((item: { id: string }) => item.id === 'issue:acme/lantern#3'));
+  });
+
+  it('reads no more pages once the last repository on one was pushed before the window', async () => {
+    const { gh, calls } = fakeGh('changed', {
+      pages: [page('a', 2, 200), page('b', 1)],
+      answers: {},
+    });
+    await collect({ gh, state, now: NOW, settings: { activeDays: 90 }, log: () => {} });
+    assert.equal(repoCalls(calls).length, 1);
+  });
+
+  it('reads at most MAX_PAGES pages, and says so when there were more', async () => {
+    const notes: string[] = [];
+    const pages = Array.from({ length: MAX_PAGES + 3 }, (_, index) => page(`p${index}-`, 1));
+    const { gh, calls } = fakeGh('changed', { pages, answers: {} });
+    await collect({ gh, state, now: NOW, settings: { maxRepos: 1 }, log: (line: string) => notes.push(line) });
+    assert.equal(repoCalls(calls).length, MAX_PAGES);
+    assert.match(notes.join('\n'), new RegExp(`read the newest ${MAX_PAGES * 100} repositories.*include`));
+    const few = fakeGh('changed', { pages: [page('q', 1)], answers: {} });
+    const quiet: string[] = [];
+    await collect({ gh: few.gh, state, now: NOW, settings: {}, log: (line: string) => quiet.push(line) });
+    assert.doesNotMatch(quiet.join('\n'), /newest/);
+  });
+
+  it('lists only `maxRepos` maintained repositories, newest push first, and says how many it left out', async () => {
+    const notes: string[] = [];
+    const repos = [3, 1, 2].map((days) => ({
+      ...owned(`acme/d${days}`),
+      pushedAt: new Date(NOW - days * DAY).toISOString(),
+    }));
+    const { gh, calls } = fakeGh('changed', { repos, answers: {} });
+    await collect({
+      gh,
+      state,
+      now: NOW,
+      settings: { maxRepos: 1, include: ['mira/pinned'] },
+      log: (line: string) => notes.push(line),
+    });
+    const listed = graphqlCalls(calls)
+      .filter((args) => args.join(' ').includes(': repository('))[0]!
+      .join(' ');
+    assert.match(listed, /name: "pinned"/);
+    assert.doesNotMatch(listed, /name: "d\d"/);
+    assert.match(notes.join('\n'), /left out 3.*maxRepos.*include/);
+    const room = fakeGh('changed', { repos, answers: {} });
+    await collect({ gh: room.gh, state, now: NOW, settings: { maxRepos: 2 }, log: () => {} });
+    const text = graphqlCalls(room.calls)
+      .filter((args) => args.join(' ').includes(': repository('))[0]!
+      .join(' ');
+    assert.match(text, /name: "d1"/);
+    assert.match(text, /name: "d2"/);
+    assert.doesNotMatch(text, /name: "d3"/);
+  });
+
+  it('skips the repositories of a batch that fails outright, with a note, and keeps the rest', async () => {
+    const notes: string[] = [];
+    const names = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => `acme/${name}`);
+    const { gh } = fakeGh('changed', {
+      repos: names.map(owned),
+      answers: Object.fromEntries(names.map((name) => [name, repo(name, { issues: [issue(inLantern(9, 'issues'))] })])),
+      down: ['acme/b'],
+    });
+    const out = await collect({
+      gh,
+      state,
+      now: NOW,
+      settings: { maxRepos: 10 },
+      log: (line: string) => notes.push(line),
+    });
+    assert.ok(out.items.some((item: { id: string }) => item.id === 'issue:acme/lantern#9'));
+    assert.match(notes.join('\n'), /skipped acme\/a, acme\/b, acme\/c, acme\/d, acme\/e.*502/s);
+  });
+
+  it('logs the cap on items only when it dropped some', async () => {
+    const lots = (count: number) =>
+      Array.from({ length: count }, (_, at) =>
+        issue({ ...inLantern(at + 1, 'issues'), id: `I_${at}`, number: at + 1 }),
+      );
+    const run = async (count: number) => {
+      const notes: string[] = [];
+      const { gh } = fakeGh('changed', { answers: { 'acme/lantern': repo('acme/lantern', { issues: lots(count) }) } });
+      await collect({ gh, state, now: NOW, settings: {}, log: (line: string) => notes.push(line) });
+      return notes.join('\n');
+    };
+    // The search's own pull request makes one more item than the repository lists.
+    assert.doesNotMatch(await run(999), /kept 1000/);
+    assert.match(await run(1000), /kept 1000 items/);
   });
 
   it('lists the maintained repositories five to a call, `perProject` of each', async () => {
