@@ -707,7 +707,7 @@ export function LayoutSwitch({ mode, onMode }: { mode: BoardMode; onMode: (mode:
         <label
           key={layout.mode}
           title={layout.hint}
-          className="cb-display flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-lg leading-6 text-(--prompt-muted) hover:text-(--prompt-ink) has-checked:bg-linear-to-b has-checked:from-window-top has-checked:to-window-bottom has-checked:text-window-ink has-focus-visible:ring-2 has-focus-visible:ring-sky-500"
+          className="cb-display flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-lg leading-6 text-(--prompt-muted) hover:text-(--prompt-ink) has-checked:bg-white has-checked:text-neutral-950 has-checked:shadow-sm has-checked:ring-1 has-checked:ring-neutral-300 dark:has-checked:bg-neutral-700 dark:has-checked:text-white dark:has-checked:ring-neutral-600 has-focus-visible:ring-2 has-focus-visible:ring-sky-500"
         >
           <input
             type="radio"
