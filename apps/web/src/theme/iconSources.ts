@@ -145,6 +145,9 @@ export const ICON_SOURCES = {
   markShield: { pack: 'ph', icon: 'shield-check-fill' },
   markGithub: { pack: 'ph', icon: 'github-logo-fill' },
   markGitlab: { pack: 'ph', icon: 'gitlab-logo-fill' },
+  // A projects Board's layouts
+  layoutProjects: { pack: 'ph', icon: 'rows-fill' },
+  layoutTiles: { pack: 'ph', icon: 'squares-four-fill' },
 } as const satisfies Record<string, IconSource>;
 
 export type IconName = keyof typeof ICON_SOURCES;

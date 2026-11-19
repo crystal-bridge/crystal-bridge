@@ -41,7 +41,8 @@ import {
 } from './BoardParts.js';
 import { Gold } from './Gold.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
-import { ProjectsView } from './ProjectsView.js';
+import { useBoardMode } from '../boardPrefs.js';
+import { LayoutSwitch, ProjectsView } from './ProjectsView.js';
 
 export interface BoardPageProps {
   /** The Kingdom's name, for the way back. */
@@ -448,6 +449,8 @@ export function BoardPage({
   // Each item marked seen once while it stays new, so a slow answer doesn't send it again; once it's anything else, it
   // may come back as new and be marked again.
   const asked = useRef(new Set<string>());
+  // A projects Board's layout on this device: its projects, or a tile each.
+  const [mode, setMode] = useBoardMode(node ?? kingdom, scout?.id ?? board?.scout ?? '');
 
   const act = (ids: string[], state: BoardItemState, until?: number) => {
     setError(null);
@@ -757,6 +760,7 @@ export function BoardPage({
               </div>
             </div>
             <span className="flex items-center gap-2">
+              {projectsLook && <LayoutSwitch mode={mode} onMode={setMode} />}
               {onPin && (
                 <button
                   type="button"
@@ -832,6 +836,8 @@ export function BoardPage({
             now={now}
             node={node ?? kingdom}
             scout={scout?.id ?? board.scout}
+            mode={mode}
+            onMode={setMode}
             isMarked={isMarked}
             act={act}
             perform={perform}

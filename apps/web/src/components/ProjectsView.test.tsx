@@ -267,4 +267,124 @@ describe('ProjectsView', () => {
     expect(screen.queryByRole('region', { name: 'Projects' })).toBeNull();
     expect(screen.getByText('Plain row').closest('li')).toBeTruthy();
   });
+  it('offers Projects and Tiles, Projects first', () => {
+    show({ items: [item('acme/lantern')] });
+    const layout = screen.getByRole('radiogroup', { name: 'Layout' });
+    const radios = within(layout).getAllByRole('radio');
+    expect(radios.map((radio) => radio.closest('label')?.textContent)).toEqual(['Projects', 'Tiles']);
+    expect((within(layout).getByRole('radio', { name: 'Projects' }) as HTMLInputElement).checked).toBe(true);
+    expect((within(layout).getByRole('radio', { name: 'Tiles' }) as HTMLInputElement).checked).toBe(false);
+    cleanup();
+    const { projects: _dropped, ...plain } = manifest;
+    show({ withManifest: plain, items: [item('acme/lantern')] });
+    expect(screen.queryByRole('radiogroup', { name: 'Layout' })).toBeNull();
+    cleanup();
+    show({ withManifest: { ...manifest, view: 'list' }, items: [item('acme/lantern')] });
+    expect(screen.queryByRole('radiogroup', { name: 'Layout' })).toBeNull();
+  });
+
+  it('Tiles draws a tile per project with its counts, activity and top four items, reasons first', () => {
+    const withSummary: ScoutManifest = {
+      ...manifest,
+      summary: [
+        { label: 'Open PRs', field: 'isPr', icon: 'pull-request', tone: 'emerald' },
+        { label: 'Failing', field: 'failing', icon: 'x-circle', tone: 'red' },
+      ],
+    };
+    show({
+      withManifest: withSummary,
+      items: [
+        item(
+          'acme/lantern',
+          { kind: 'pr', isPr: true, checks: 'pass' },
+          { title: 'Saved searches', project: { name: 'acme/lantern', url: 'https://code.test/acme/lantern' } },
+        ),
+        item('acme/lantern', { kind: 'pr', isPr: true }, { title: 'Bump the bundler' }),
+        item('acme/lantern', { kind: 'issue' }, { title: 'Dark mode' }),
+        item('acme/lantern', { kind: 'issue' }, { title: 'Retention docs' }),
+        item('acme/lantern', { kind: 'issue', reason: 'reply', checks: 'fail' }, { title: 'Crash on empty config' }),
+        item(
+          'acme/lantern',
+          { kind: 'pr', isPr: true, failing: true, reason: 'fail', checks: 'fail' },
+          { title: 'Stream logs over SSE' },
+        ),
+        item('acme/quill', { kind: 'pr', isPr: true }, { title: 'Windows paths' }),
+      ],
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+    expect(screen.queryByRole('region', { name: 'Projects' })).toBeNull();
+    const tiles = screen.getByRole('region', { name: 'Tiles' });
+    const lantern = within(tiles).getByRole('article', { name: 'acme/lantern' });
+    expect(within(tiles).getByRole('article', { name: 'acme/quill' })).toBeTruthy();
+    expect(within(lantern).getByRole('link', { name: 'acme/lantern' }).getAttribute('href')).toBe(
+      'https://code.test/acme/lantern',
+    );
+    expect([...lantern.querySelectorAll('[data-stat]')].map((stat) => stat.getAttribute('title'))).toEqual([
+      '2 Needs you',
+      '3 Open PRs',
+      '1 Failing',
+    ]);
+    const spark = within(lantern).getByRole('img', { name: /^Activity, last 14 days/ });
+    expect(spark.getAttribute('aria-label')).toContain('6 in all');
+    expect(spark.querySelectorAll('[data-bar]')).toHaveLength(14);
+    const lines = within(within(lantern).getByRole('list')).getAllByRole('listitem');
+    expect(lines.map((line) => line.textContent)).toEqual([
+      'Stream logs over SSE',
+      'Crash on empty config',
+      'Saved searches',
+      'Bump the bundler',
+    ]);
+    expect(within(lines[0]!).getByRole('img', { name: 'Checks failing' })).toBeTruthy();
+    expect(within(lines[0]!).getByRole('img', { name: 'Checks fail' })).toBeTruthy();
+    expect(within(lines[0]!).getByRole('img', { name: 'Open pull request' })).toBeTruthy();
+    expect(within(lines[2]!).getByRole('img', { name: 'Checks pass' })).toBeTruthy();
+    expect(within(lantern).getByRole('button', { name: 'Open all 6' })).toBeTruthy();
+  });
+
+  it('Tiles puts the Needs-you cards in a strip above', () => {
+    show({
+      items: [
+        item('acme/lantern', { kind: 'pr', reason: 'fail' }, { title: 'Stream logs over SSE' }),
+        item('acme/quill', {}, { title: 'Quiet one' }),
+      ],
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+    const strip = screen.getByRole('region', { name: 'Needs you' });
+    const tiles = screen.getByRole('region', { name: 'Tiles' });
+    expect(strip.compareDocumentPosition(tiles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(strip).getByText('Stream logs over SSE').closest('article')).toBeTruthy();
+    expect(within(strip).queryByText('Quiet one')).toBeNull();
+    expect(within(strip).getByRole('button', { name: /on all 1/ })).toBeTruthy();
+  });
+
+  it('a tile opens Projects mode at its section', () => {
+    const many = Array.from({ length: 10 }, (_, at) => item('acme/quill', {}, { title: `Quill ${at + 1}` }));
+    show({ items: [item('acme/lantern', { reason: 'fail' }), ...many] });
+    fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+    const quill = screen.getByRole('article', { name: 'acme/quill' });
+    fireEvent.click(within(quill).getByRole('button', { name: 'Open all 10' }));
+    expect((screen.getByRole('radio', { name: 'Projects' }) as HTMLInputElement).checked).toBe(true);
+    const section = screen.getByRole('region', { name: 'acme/quill' });
+    expect(document.activeElement).toBe(section);
+    // Open all means all: the section shows every row.
+    expect(within(section).getAllByRole('listitem')).toHaveLength(10);
+  });
+
+  it('remembers the mode for this Board on this device', () => {
+    const { unmount, props } = show({ items: [item('acme/lantern')], node: 'mode-node' });
+    fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+    unmount();
+    render(<BoardPage {...props} />);
+    expect((screen.getByRole('radio', { name: 'Tiles' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('region', { name: 'Tiles' })).toBeTruthy();
+  });
+
+  it('keeps the folded sections in Tiles mode', () => {
+    show({
+      items: [item('acme/lantern'), item('acme/lantern', {}, { title: 'Done one', state: 'done' })],
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+    fireEvent.click(screen.getByRole('button', { name: /Set aside/ }));
+    expect(screen.getByText('Done one')).toBeTruthy();
+  });
 });

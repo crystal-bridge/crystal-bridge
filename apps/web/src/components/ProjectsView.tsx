@@ -1,14 +1,16 @@
-import { type CSSProperties, type ReactNode, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { BoardItem, BoardItemState, BoardQuest, ScoutManifest } from '@crystal-bridge/protocol';
 import { actionsFor } from '../boards.js';
-import { useFolded } from '../boardPrefs.js';
+import { type BoardMode, useFolded } from '../boardPrefs.js';
 import {
+  activity,
   FOLD_AT,
   needsYou,
   type ProjectSection,
   projectSections,
   projectOf,
   rowLook,
+  tileCounts,
   visibleRows,
 } from '../projects.js';
 import { markIcon } from '../theme/boardIcons.js';
@@ -31,8 +33,10 @@ import {
 import { ago } from './HomeParts.js';
 
 /**
- * The `projects` Board view (docs/SCOUTS.md): a card per project, its rows drawn from the Scout's looks, beside the
- * Needs-you window, which takes Counsel's place. What the Scout's fields mean lives in `scout.json`; this draws slots.
+ * The `projects` Board view (docs/SCOUTS.md), in one of two layouts. Projects: a card per project, its rows drawn from the
+ * Scout's looks, beside the Needs-you window, which takes Counsel's place. Tiles: the Needs-you cards in a strip, then a
+ * tile per project with its counts, activity and top items. What the Scout's fields mean lives in `scout.json`; this
+ * draws slots.
  */
 
 type Look = NonNullable<ScoutManifest['projects']>;
@@ -47,6 +51,9 @@ export interface ProjectsViewProps {
   /** The Kingdom and Scout, which key this device's folds. */
   node: string;
   scout: string;
+  /** Which layout this device shows, and a way to change it (the banner's Layout switch shares it). */
+  mode: BoardMode;
+  onMode: (mode: BoardMode) => void;
   isMarked: (item: BoardItem) => boolean;
   act: (ids: string[], state: BoardItemState, until?: number) => void;
   perform: (key: string, ids: string[]) => Promise<void>;
@@ -267,6 +274,55 @@ function ProjectRow({
   );
 }
 
+/** A project's monogram on a square in its colour. */
+function ProjectGlyph({ section }: { section: ProjectSection }) {
+  const short = section.name.split('/').pop() || section.name;
+  return (
+    <span
+      aria-hidden
+      data-tone={section.tone}
+      className={`cb-display grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg text-lg ring-1 ring-black/10 dark:ring-white/15 ${SENDER_CLASSES[section.tone].avatar}`}
+    >
+      {monogram(short)}
+    </span>
+  );
+}
+
+/** A project's name in the display face, linked to the project when it has a page. */
+function ProjectName({ section }: { section: ProjectSection }) {
+  return section.url ? (
+    <a href={section.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+      {section.name}
+    </a>
+  ) : (
+    <>{section.name}</>
+  );
+}
+
+/** Whose project it is (a crown, or a handshake for one you contribute to), then its description. */
+function ProjectAbout({ section, contributes }: { section: ProjectSection; contributes: string }) {
+  if (section.owned === undefined && !section.description) return null;
+  return (
+    <p className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+      {section.owned === true && (
+        <span role="img" aria-label="Yours" title="Yours" className="text-gold">
+          <Icon name="markCrown" size={12} />
+        </span>
+      )}
+      {section.owned === false && (
+        <>
+          <span role="img" aria-label="You contribute" title="You contribute">
+            <Icon name="markHandshake" size={12} />
+          </span>
+          <span className="shrink-0">{contributes}</span>
+          {section.description && <span aria-hidden>·</span>}
+        </>
+      )}
+      {section.description && <span className="truncate">{section.description}</span>}
+    </p>
+  );
+}
+
 /** A project's card: a header in its colour with counts and health, then its rows, folded past eight. */
 function ProjectCard({
   section,
@@ -276,9 +332,12 @@ function ProjectCard({
   expanded,
   onExpand,
   row,
+  target,
 }: {
   section: ProjectSection;
   look: Look;
+  /** Takes the card's element, so a tile can bring it into view. */
+  target: (element: HTMLElement | null) => void;
   folded: boolean;
   onFold: () => void;
   expanded: boolean;
@@ -286,51 +345,22 @@ function ProjectCard({
   row: (item: BoardItem) => ReactNode;
 }) {
   const { shown, hidden } = visibleRows(section.items, expanded);
-  const short = section.name.split('/').pop() || section.name;
   return (
     <section
+      ref={target}
       aria-label={section.name}
-      className="overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+      tabIndex={-1}
+      className="scroll-mt-4 overflow-hidden rounded-xl border border-neutral-200 bg-white outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-neutral-800 dark:bg-neutral-900"
     >
       <div
         className={`flex items-center gap-2.5 border-b border-neutral-200 bg-linear-to-r to-transparent to-60% px-3.5 py-2.5 dark:border-neutral-800 ${PROJECT_CLASSES[section.tone].wash}`}
       >
-        <span
-          aria-hidden
-          data-tone={section.tone}
-          className={`cb-display grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg text-lg ring-1 ring-black/10 dark:ring-white/15 ${SENDER_CLASSES[section.tone].avatar}`}
-        >
-          {monogram(short)}
-        </span>
+        <ProjectGlyph section={section} />
         <div className="min-w-0">
           <h3 className="cb-display truncate text-[21px] leading-none">
-            {section.url ? (
-              <a href={section.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                {section.name}
-              </a>
-            ) : (
-              section.name
-            )}
+            <ProjectName section={section} />
           </h3>
-          {(section.owned !== undefined || section.description) && (
-            <p className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-neutral-500">
-              {section.owned === true && (
-                <span role="img" aria-label="Yours" title="Yours" className="text-gold">
-                  <Icon name="markCrown" size={12} />
-                </span>
-              )}
-              {section.owned === false && (
-                <>
-                  <span role="img" aria-label="You contribute" title="You contribute">
-                    <Icon name="markHandshake" size={12} />
-                  </span>
-                  <span className="shrink-0">showing your items</span>
-                  {section.description && <span aria-hidden>·</span>}
-                </>
-              )}
-              {section.description && <span className="truncate">{section.description}</span>}
-            </p>
-          )}
+          <ProjectAbout section={section} contributes="showing your items" />
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3 text-xs text-neutral-600 dark:text-neutral-400">
           {kindCounts(section.items, look).map((kind, at) => (
@@ -386,9 +416,12 @@ function NeedsYou({
   act,
   perform,
   start,
+  strip = false,
 }: {
   items: readonly BoardItem[];
   open: readonly BoardItem[];
+  /** Across the top of the page (Tiles), its cards side by side, rather than down a column. */
+  strip?: boolean;
   look: Look;
   manifest: ScoutManifest;
   now: number;
@@ -440,75 +473,259 @@ function NeedsYou({
           />
         </div>
       )}
-      {items.map((item) => {
-        const row = rowLook(item, look);
-        const tone = projectTone(projectOf(item));
-        const offered = actionsFor(item, manifest);
-        // The suggested action, then Open and Later where the item offers them, as the item's own buttons do.
-        const keys = [
-          ...offered.filter(({ key }) => key === item.suggested),
-          offered.find(({ key, action }) => action.kind === 'link' && key !== item.suggested),
-          offered.find(({ key, action }) => action.kind === 'snooze' && key !== item.suggested),
-        ].flatMap((found) => (found ? [found.key] : []));
-        const buttons: ButtonLook = {
-          suggested: `cb-display rounded px-2.5 text-base leading-6 ring-1 hover:brightness-105 disabled:opacity-50 ${toneChipClass(row.reason?.tone)}`,
-          plain: ghost,
-          row: 'mt-2 flex flex-wrap gap-1.5',
-        };
-        return (
-          <article key={item.id} className="rounded-lg border border-white/20 bg-black/25 p-2.5">
-            <div className="flex items-center justify-between gap-2">
-              {row.reason && <ReasonChip look={row.reason} />}
-              <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-white/75">
-                <span aria-hidden className={`h-2.5 w-2.5 shrink-0 rounded-[3px] ${PROJECT_CLASSES[tone].dot}`} />
-                <span className="truncate">{projectOf(item)}</span>
-              </span>
-            </div>
-            <div className="mt-1.5 flex items-start gap-2">
-              {row.kind && (
-                <span
-                  className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded ring-1 ${toneChipClass(row.kind.tone)}`}
-                >
-                  <LookIcon look={{ ...row.kind, tone: undefined }} size={14} />
+      <div className={strip ? 'grid gap-2 md:grid-cols-2 lg:grid-cols-3' : 'space-y-2'}>
+        {items.map((item) => {
+          const row = rowLook(item, look);
+          const tone = projectTone(projectOf(item));
+          const offered = actionsFor(item, manifest);
+          // The suggested action, then Open and Later where the item offers them, as the item's own buttons do.
+          const keys = [
+            ...offered.filter(({ key }) => key === item.suggested),
+            offered.find(({ key, action }) => action.kind === 'link' && key !== item.suggested),
+            offered.find(({ key, action }) => action.kind === 'snooze' && key !== item.suggested),
+          ].flatMap((found) => (found ? [found.key] : []));
+          const buttons: ButtonLook = {
+            suggested: `cb-display rounded px-2.5 text-base leading-6 ring-1 hover:brightness-105 disabled:opacity-50 ${toneChipClass(row.reason?.tone)}`,
+            plain: ghost,
+            row: 'mt-2 flex flex-wrap gap-1.5',
+          };
+          return (
+            <article key={item.id} className="rounded-lg border border-white/20 bg-black/25 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                {row.reason && <ReasonChip look={row.reason} />}
+                <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-white/75">
+                  <span aria-hidden className={`h-2.5 w-2.5 shrink-0 rounded-[3px] ${PROJECT_CLASSES[tone].dot}`} />
+                  <span className="truncate">{projectOf(item)}</span>
                 </span>
-              )}
-              <div className="min-w-0">
-                {item.url ? (
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={titleNote(item)}
-                    className="font-bold hover:underline"
+              </div>
+              <div className="mt-1.5 flex items-start gap-2">
+                {row.kind && (
+                  <span
+                    className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded ring-1 ${toneChipClass(row.kind.tone)}`}
                   >
-                    {item.title}
-                  </a>
-                ) : (
-                  <span className="font-bold" title={titleNote(item)}>
-                    {item.title}
+                    <LookIcon look={{ ...row.kind, tone: undefined }} size={14} />
                   </span>
                 )}
-                {item.summary && <p className="mt-0.5 text-[12.5px] text-white/80">{item.summary}</p>}
+                <div className="min-w-0">
+                  {item.url ? (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={titleNote(item)}
+                      className="font-bold hover:underline"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    <span className="font-bold" title={titleNote(item)}>
+                      {item.title}
+                    </span>
+                  )}
+                  {item.summary && <p className="mt-0.5 text-[12.5px] text-white/80">{item.summary}</p>}
+                </div>
               </div>
-            </div>
-            {keys.length > 0 && (
-              <ItemActions
-                item={{ ...item, actions: keys }}
-                manifest={manifest}
-                now={now}
-                act={act}
-                perform={perform}
-                look={buttons}
-              />
-            )}
-          </article>
-        );
-      })}
+              {keys.length > 0 && (
+                <ItemActions
+                  item={{ ...item, actions: keys }}
+                  manifest={manifest}
+                  now={now}
+                  act={act}
+                  perform={perform}
+                  look={buttons}
+                />
+              )}
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }
 
-/** The projects view: its sections in two thirds of the page, the Needs-you window in the last, sticky beside them. */
+/** A project's last two weeks: a bar a day, oldest first, in the project's colour, with the counts as its tooltip. */
+function ActivityStrip({ counts, tone }: { counts: readonly number[]; tone: ProjectSection['tone'] }) {
+  const most = Math.max(0, ...counts);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const label = `Activity, last 14 days: ${total} in all (a day each, oldest first: ${counts.join(' ')})`;
+  return (
+    <span role="img" aria-label={label} title={label} className="flex h-[22px] shrink-0 items-end gap-0.5">
+      {counts.map((count, at) => (
+        <span
+          key={at}
+          data-bar
+          className={`w-[5px] rounded-[1px] ${PROJECT_CLASSES[tone].dot} ${count === 0 ? 'opacity-25' : 'opacity-85'}`}
+          style={{ height: count === 0 || most === 0 ? 2 : 4 + Math.round((count / most) * 18) }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** One of a tile's counts: the number in the display face, its icon and label under it, in its tone. */
+function TileStat({ label, count, icon, tone }: ReturnType<typeof tileCounts>[number]) {
+  const drawn = markIcon(icon);
+  return (
+    <div
+      data-stat
+      title={`${count} ${label}`}
+      className="min-w-0 rounded-lg border border-neutral-200 bg-white/70 px-1.5 py-1 text-center dark:border-neutral-800 dark:bg-neutral-950/60"
+    >
+      <b
+        className={`cb-display block text-[22px] leading-none ${count > 0 ? markToneClass(tone) : 'text-neutral-400 dark:text-neutral-600'}`}
+      >
+        {count}
+      </b>
+      <span className="flex min-w-0 items-center justify-center gap-1 text-[10.5px] text-neutral-500 dark:text-neutral-400">
+        {drawn && (
+          <span aria-hidden className={markToneClass(tone)}>
+            <Icon name={drawn} size={12} />
+          </span>
+        )}
+        <span className="truncate">{label}</span>
+      </span>
+    </div>
+  );
+}
+
+/** A tile's rows: the first few items, what needs you first, as one line each. */
+const TILE_ROWS = 4;
+
+/** A project's tile: its colour, counts and activity at a glance, its top items, and a way into its section. */
+function ProjectTile({
+  section,
+  look,
+  manifest,
+  now,
+  isMarked,
+  onOpen,
+}: {
+  section: ProjectSection;
+  look: Look;
+  manifest: ScoutManifest;
+  now: number;
+  isMarked: (item: BoardItem) => boolean;
+  onOpen: () => void;
+}) {
+  const needs = needsYou(section.items, look);
+  const top = [...needs, ...section.items.filter((item) => !needs.includes(item))].slice(0, TILE_ROWS);
+  const stats = tileCounts(section, manifest.summary);
+  return (
+    <article
+      aria-label={section.name}
+      className="flex min-w-0 flex-col overflow-hidden rounded-[14px] border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+    >
+      <div
+        className={`bg-radial-[120%_140%_at_0%_0%] to-transparent to-70% px-3.5 pb-3 pt-3 ${PROJECT_CLASSES[section.tone].wash}`}
+      >
+        <div className="flex items-center gap-2">
+          <ProjectGlyph section={section} />
+          <h3 className="cb-display min-w-0 truncate text-2xl leading-none">
+            <ProjectName section={section} />
+          </h3>
+          <span className="ml-auto">
+            <ActivityStrip counts={activity(section.items, look.when, now)} tone={section.tone} />
+          </span>
+        </div>
+        <ProjectAbout section={section} contributes="you contribute" />
+        <div className="mt-2.5 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))` }}>
+          {stats.map((stat, at) => (
+            <TileStat key={at} {...stat} />
+          ))}
+        </div>
+      </div>
+      <ul className="flex-1 py-1">
+        {top.map((item) => {
+          const row = rowLook(item, look);
+          const mark = row.marks[0];
+          return (
+            <li
+              key={item.id}
+              title={itemNote(item)}
+              className="flex min-w-0 items-center gap-2 px-3.5 py-1.5 text-[13px]"
+            >
+              {row.kind ? <LookIcon look={row.kind} /> : <span aria-hidden className="w-4 shrink-0" />}
+              {item.url ? (
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={titleNote(item)}
+                  className="min-w-0 flex-1 truncate hover:underline"
+                >
+                  {item.title}
+                </a>
+              ) : (
+                <span title={titleNote(item)} className="min-w-0 flex-1 truncate">
+                  {item.title}
+                </span>
+              )}
+              {isMarked(item) && <NewMark />}
+              {row.reason && <LookIcon look={row.reason} size={15} />}
+              {mark && <LookIcon look={mark.look} size={15} />}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex items-center justify-between gap-2 border-t border-neutral-200 px-3.5 py-2 text-xs dark:border-neutral-800">
+        <button
+          type="button"
+          onClick={onOpen}
+          title={`Show every item in ${section.name}, in Projects`}
+          className="rounded text-sky-700 hover:underline dark:text-sky-400"
+        >
+          {`Open all ${section.items.length}`}
+        </button>
+        {section.latest !== undefined && (
+          <span className="text-neutral-500" title={new Date(section.latest).toLocaleString()}>
+            {`updated ${ago(section.latest, now)} ago`}
+          </span>
+        )}
+      </div>
+    </article>
+  );
+}
+
+const LAYOUTS: { mode: BoardMode; label: string; icon: IconName; hint: string }[] = [
+  { mode: 'projects', label: 'Projects', icon: 'layoutProjects', hint: 'A section per project with all its items' },
+  { mode: 'tiles', label: 'Tiles', icon: 'layoutTiles', hint: 'A tile per project, what needs you across the top' },
+];
+
+/** The banner's switch between a projects Board's layouts: native radios, so arrow keys move between them. */
+export function LayoutSwitch({ mode, onMode }: { mode: BoardMode; onMode: (mode: BoardMode) => void }) {
+  const name = useId();
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Layout"
+      className="inline-flex rounded-md border border-(--prompt-border) bg-(--prompt-bg) p-0.5"
+    >
+      {LAYOUTS.map((layout) => (
+        <label
+          key={layout.mode}
+          title={layout.hint}
+          className="cb-display flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-lg leading-6 text-(--prompt-muted) hover:text-(--prompt-ink) has-checked:bg-linear-to-b has-checked:from-window-top has-checked:to-window-bottom has-checked:text-window-ink has-focus-visible:ring-2 has-focus-visible:ring-sky-500"
+        >
+          <input
+            type="radio"
+            name={name}
+            value={layout.mode}
+            checked={mode === layout.mode}
+            onChange={() => onMode(layout.mode)}
+            className="sr-only"
+          />
+          <Icon name={layout.icon} size={16} />
+          {layout.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The projects view. Projects: its sections in two thirds of the page, the Needs-you window in the last, sticky beside
+ * them. Tiles: the Needs-you cards across the top, then a tile per project.
+ */
 export function ProjectsView({
   items,
   manifest,
@@ -516,6 +733,8 @@ export function ProjectsView({
   now,
   node,
   scout,
+  mode,
+  onMode,
   isMarked,
   act,
   perform,
@@ -525,8 +744,66 @@ export function ProjectsView({
 }: ProjectsViewProps) {
   const [folded, toggle] = useFolded(node, scout);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  // The section a tile opened, focused once Projects has drawn it.
+  const [opening, setOpening] = useState<string | null>(null);
+  const cards = useRef(new Map<string, HTMLElement>());
   const sections = projectSections(items, look);
   const needs = needsYou(items, look);
+
+  useEffect(() => {
+    if (opening === null || mode !== 'projects') return;
+    cards.current.get(opening)?.focus();
+    setOpening(null);
+  }, [opening, mode]);
+
+  /** A tile's way in: Projects, at its section, unfolded and showing every row. */
+  const openAt = (name: string): void => {
+    if (folded.has(name)) toggle(name);
+    setExpanded((all) => new Set([...all, name]));
+    setOpening(name);
+    onMode('projects');
+  };
+
+  const needsWindow = (strip: boolean) => (
+    <NeedsYou
+      items={needs}
+      open={items}
+      look={look}
+      manifest={manifest}
+      now={now}
+      act={act}
+      perform={perform}
+      strip={strip}
+      {...(start ? { start } : {})}
+    />
+  );
+
+  if (mode === 'tiles') {
+    return (
+      <div className="space-y-4 px-3">
+        {needsWindow(true)}
+        {sections.length === 0 ? (
+          empty
+        ) : (
+          <section aria-label="Tiles" className="grid gap-3.5 md:grid-cols-2 lg:grid-cols-3">
+            {sections.map((section) => (
+              <ProjectTile
+                key={section.name}
+                section={section}
+                look={look}
+                manifest={manifest}
+                now={now}
+                isMarked={isMarked}
+                onOpen={() => openAt(section.name)}
+              />
+            ))}
+          </section>
+        )}
+        {past}
+      </div>
+    );
+  }
+
   const row = (item: BoardItem) => (
     <ProjectRow
       key={item.id}
@@ -550,6 +827,10 @@ export function ProjectsView({
                   key={section.name}
                   section={section}
                   look={look}
+                  target={(element) => {
+                    if (element) cards.current.set(section.name, element);
+                    else cards.current.delete(section.name);
+                  }}
                   folded={folded.has(section.name)}
                   onFold={() => toggle(section.name)}
                   expanded={expanded.has(section.name)}
@@ -568,18 +849,7 @@ export function ProjectsView({
         {past}
       </div>
       <aside>
-        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-          <NeedsYou
-            items={needs}
-            open={items}
-            look={look}
-            manifest={manifest}
-            now={now}
-            act={act}
-            perform={perform}
-            {...(start ? { start } : {})}
-          />
-        </div>
+        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">{needsWindow(false)}</div>
       </aside>
     </div>
   );
