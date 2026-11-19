@@ -710,6 +710,7 @@ describe('collect', () => {
       errors = [],
       pages = [repos],
       down = [],
+      limited,
     }: {
       repos?: unknown[];
       answers?: Record<string, unknown>;
@@ -718,6 +719,8 @@ describe('collect', () => {
       pages?: unknown[][];
       /** Repositories whose batch fails outright, with no data, as a 502 does. */
       down?: string[];
+      /** Every repository batch hits GitHub's secondary rate limit, which answers in REST's shape or only on stderr. */
+      limited?: 'body' | 'stderr';
     } = {},
   ) {
     const calls: string[][] = [];
@@ -751,6 +754,15 @@ describe('collect', () => {
       for (const [, alias, owner, name] of text.matchAll(/(r\d+): repository\(owner: "([^"]+)", name: "([^"]+)"\)/g)) {
         data[alias!] = answers[`${owner}/${name}`] ?? null;
       }
+      if (limited === 'body') {
+        const body = { message: 'You have exceeded a secondary rate limit. Please wait a few minutes.' };
+        return {
+          code: 1,
+          stdout: JSON.stringify(body),
+          stderr: 'gh: You have exceeded a secondary rate limit (HTTP 403)',
+        };
+      }
+      if (limited === 'stderr') return { code: 1, stdout: '', stderr: 'gh: API rate limit exceeded (HTTP 429)' };
       if (down.some((name) => text.includes(`name: "${name.split('/')[1]}"`))) {
         return { code: 1, stdout: '', stderr: 'gh: HTTP 502: Bad Gateway' };
       }
@@ -869,6 +881,37 @@ describe('collect', () => {
     });
     assert.ok(out.items.some((item: { id: string }) => item.id === 'issue:acme/lantern#9'));
     assert.match(notes.join('\n'), /skipped acme\/a, acme\/b, acme\/c, acme\/d, acme\/e.*502/s);
+  });
+
+  it('fails the run on a secondary rate limit, whether GitHub says so in the body or only on stderr', async () => {
+    for (const limited of ['body', 'stderr'] as const) {
+      const { gh, calls } = fakeGh('changed', {
+        repos: ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => owned(`acme/${n}`)),
+        limited,
+      });
+      await assert.rejects(collect({ gh, state, now: NOW, settings: {}, log: () => {} }), /rate limit/);
+      // It stops at the first limited batch rather than spending more requests.
+      assert.equal(graphqlCalls(calls).filter((args) => !args.join(' ').includes('search(')).length, 1);
+    }
+  });
+
+  it('keeps no list after a skipped batch, so the next run reads everything again', async () => {
+    const names = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => `acme/${name}`);
+    const answers = Object.fromEntries(names.map((name) => [name, repo(name)]));
+    const flaky = fakeGh('changed', { repos: names.map(owned), answers, down: ['acme/b'] });
+    await collect({ gh: flaky.gh, state, now: NOW, settings: {}, log: () => {} });
+    const next = fakeGh('same', { repos: names.map(owned), answers });
+    await collect({ gh: next.gh, state, now: NOW + 60_000, settings: {}, log: () => {} });
+    assert.ok(graphqlCalls(next.calls).length > 0);
+  });
+
+  it('fails the run when every batch failed, so the Board keeps its last list', async () => {
+    const names = ['a', 'b'].map((name) => `acme/${name}`);
+    const { gh } = fakeGh('changed', { repos: names.map(owned), down: ['acme/a'] });
+    await assert.rejects(
+      collect({ gh, state, now: NOW, settings: {}, log: () => {} }),
+      /couldn't read any of your repositories/,
+    );
   });
 
   it('logs the cap on items only when it dropped some', async () => {

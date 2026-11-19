@@ -9,7 +9,7 @@
  *     "refreshMinutes": 60 }
  */
 import { execFile } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -263,12 +263,9 @@ function labelsOf(node) {
     .slice(0, 10);
 }
 
-/** A project's name is at most 100 characters: a longer one cuts the repository's name, keeping the owner. */
+/** A project's name is at most 100 characters, the protocol's limit: a longer one is cut, keeping its start. */
 function projectName(nameWithOwner) {
-  if (nameWithOwner.length <= 100) return nameWithOwner;
-  const slash = nameWithOwner.indexOf('/');
-  const owner = slash > 0 && slash < 50 ? nameWithOwner.slice(0, slash + 1) : '';
-  return `${owner}${nameWithOwner.slice(owner.length, 99)}…`;
+  return nameWithOwner.length <= 100 ? nameWithOwner : `${nameWithOwner.slice(0, 99)}…`;
 }
 
 function projectOf(repository, owned) {
@@ -415,6 +412,8 @@ function ghFailed(result) {
  * One GraphQL call's `data`. `gh` exits non-zero when any part of an answer failed, such as a repository the login
  * can't read: those parts are noted on stderr and left out. A rate limit, or an answer with no data, throws.
  */
+const RATE_LIMIT = /rate limit|HTTP 429/i;
+
 async function graphql(gh, text, log) {
   const result = await gh(['api', 'graphql', '-f', `query=${text}`]);
   let body;
@@ -424,11 +423,17 @@ async function graphql(gh, text, log) {
     body = undefined;
   }
   const errors = Array.isArray(body?.errors) ? body.errors : [];
-  const limited = errors.find((error) => error?.type === 'RATE_LIMITED' || /rate limit/i.test(error?.message ?? ''));
-  if (limited) {
-    throw Object.assign(new Error(`GitHub's rate limit stopped this run: ${limited.message ?? 'rate limited'}`), {
-      rateLimited: true,
-    });
+  // GraphQL's own limit comes as an error in the answer; the secondary limit as a REST message, or only on stderr.
+  const limited =
+    errors.find((error) => error?.type === 'RATE_LIMITED' || RATE_LIMIT.test(error?.message ?? ''))?.message ??
+    [body?.message, result.code !== 0 ? result.stderr : ''].find((text) => RATE_LIMIT.test(text ?? ''));
+  if (limited !== undefined) {
+    throw Object.assign(
+      new Error(`GitHub's rate limit stopped this run: ${String(limited).trim() || 'rate limited'}`),
+      {
+        rateLimited: true,
+      },
+    );
   }
   if (!body?.data) throw result.code !== 0 ? ghFailed(result) : new Error('GitHub answered with no data');
   for (const error of errors)
@@ -509,6 +514,7 @@ export async function collect({
     );
   }
   const listed = [];
+  let skipped = 0;
   for (let at = 0; at < names.length; at += BATCH) {
     const batch = names.slice(at, at + BATCH);
     let answer;
@@ -517,6 +523,7 @@ export async function collect({
     } catch (error) {
       if (error?.rateLimited) throw error;
       log(`skipped ${batch.join(', ')}: ${error instanceof Error ? error.message : String(error)}`);
+      skipped += 1;
       continue;
     }
     batch.forEach((name, index) => {
@@ -525,13 +532,19 @@ export async function collect({
       else log(`skipped ${name}: this login can't read it`);
     });
   }
+  // Nothing read at all is an outage, not an empty list: failing keeps the Board's last list.
+  if (skipped > 0 && skipped === Math.ceil(names.length / BATCH)) {
+    throw new Error("couldn't read any of your repositories this run; the Board keeps its last list");
+  }
   const items = toItems(data, me, listed, {
     exclude: settings.exclude ?? [],
     onDropped: (count) =>
       log(`kept ${MAX_ITEMS} items and left out ${count}, those that need you first; lower perProject to see all`),
   });
+  // A list with a skipped batch is short: keep none, so the next run reads everything again.
   mkdirSync(state, { recursive: true });
-  writeFileSync(cacheFile, JSON.stringify({ key, etag: check.etag ?? cache?.etag, at: now, items }));
+  if (skipped > 0) rmSync(cacheFile, { force: true });
+  else writeFileSync(cacheFile, JSON.stringify({ key, etag: check.etag ?? cache?.etag, at: now, items }));
   return { items };
 }
 
