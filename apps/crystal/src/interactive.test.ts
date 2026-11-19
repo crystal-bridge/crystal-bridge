@@ -516,7 +516,7 @@ describe('InteractiveSession', () => {
       const test = harness({ effort: 'high', ...overrides });
       test.session.start('hello');
       test.hook('SessionStart', {});
-      await tick(10);
+      await until(() => test.spawned[0]!.pty.written.length > 0);
       test.hook('UserPromptSubmit', { prompt: 'hello' });
       return test;
     }
@@ -700,7 +700,7 @@ describe('InteractiveSession', () => {
     const { session, spawned, events, hook } = harness({ terminalWaitMs: 5 });
     session.start('hello');
     hook('SessionStart', {});
-    await tick(5);
+    await until(() => spawned[0]!.pty.written.length > 0);
     hook('UserPromptSubmit', { prompt: 'hello' });
     spawned[0]!.pty.emitData('  Pick one\r\n');
     await tick(30);
@@ -996,7 +996,7 @@ describe('InteractiveSession on Windows (a faked platform and pty)', () => {
   async function afterATurn(test: ReturnType<typeof harness>) {
     test.session.start('hello');
     test.hook('SessionStart', {});
-    await tick(10);
+    await until(() => test.spawned[0]!.pty.written.length > 0);
     test.hook('UserPromptSubmit', { prompt: 'hello' });
     test.hook('Stop', { last_assistant_message: '' });
     await tick(5);
@@ -1119,7 +1119,8 @@ describe('InteractiveSession turn boundaries', () => {
     const test = harness(overrides);
     test.session.start('hello');
     test.hook('SessionStart', {});
-    await tick(10);
+    // Until the first prompt is typed, not a fixed pause: a slow runner can fire the ready timer late (#238).
+    await until(() => test.spawned[0]!.pty.written.length > 0);
     test.hook('UserPromptSubmit', { prompt: 'hello' });
     return test;
   }
