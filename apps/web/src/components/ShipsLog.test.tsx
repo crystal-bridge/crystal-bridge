@@ -47,6 +47,62 @@ describe('ShipsLog', () => {
     expect(log().textContent).not.toContain('Mirror');
   });
 
+  it('checks for updates on a press, and says when it last did', async () => {
+    const onCheck = vi.fn(async () => 'answered' as const);
+    render(
+      <ShipsLog
+        status={{ ...status, checks: true, checkedAt: NOW - 3 * 60_000 }}
+        fleet={fleet}
+        now={NOW}
+        onCheck={onCheck}
+      />,
+    );
+    expect(log().textContent).toContain('Checked 3m ago');
+    fireEvent.click(within(log()).getByRole('button', { name: 'Check for updates' }));
+    expect(onCheck).toHaveBeenCalledTimes(1);
+    expect(await within(log()).findByText('Up to date')).toBeTruthy();
+  });
+
+  it('says checking while it waits, and takes no second press', async () => {
+    let finish: (outcome: 'answered') => void = () => {};
+    const onCheck = vi.fn(() => new Promise<'answered'>((resolve) => (finish = resolve)));
+    render(<ShipsLog status={{ ...status, checks: true }} fleet={fleet} now={NOW} onCheck={onCheck} />);
+    fireEvent.click(within(log()).getByRole('button', { name: 'Check for updates' }));
+    const busy = await within(log()).findByRole('button', { name: 'Checking…' });
+    expect(busy.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(busy);
+    expect(onCheck).toHaveBeenCalledTimes(1);
+    finish('answered');
+    await within(log()).findByRole('button', { name: 'Check for updates' });
+  });
+
+  it('says when GitHub did not answer, or the hub checked a moment ago', async () => {
+    const onCheck = vi.fn<() => Promise<'failed' | 'recent'>>(async () => 'failed');
+    render(<ShipsLog status={{ ...status, checks: true }} fleet={fleet} now={NOW} onCheck={onCheck} />);
+    fireEvent.click(within(log()).getByRole('button', { name: 'Check for updates' }));
+    expect(await within(log()).findByText('Couldn’t reach GitHub')).toBeTruthy();
+    onCheck.mockImplementation(async () => 'recent');
+    fireEvent.click(within(log()).getByRole('button', { name: 'Check for updates' }));
+    expect(await within(log()).findByText('Checked moments ago')).toBeTruthy();
+  });
+
+  it('says just now for a check under a minute old', () => {
+    render(
+      <ShipsLog
+        status={{ ...status, checks: true, checkedAt: NOW - 5000 }}
+        fleet={fleet}
+        now={NOW}
+        onCheck={vi.fn()}
+      />,
+    );
+    expect(log().textContent).toContain('Checked just now');
+  });
+
+  it('offers no check on a hub that never checks', () => {
+    render(<ShipsLog status={status} fleet={fleet} now={NOW} />);
+    expect(within(log()).queryByRole('button', { name: 'Check for updates' })).toBeNull();
+  });
+
   it('grows when an update is out: its notes, a link to them, and how to take it', () => {
     render(<ShipsLog status={{ ...status, update }} fleet={fleet} now={NOW} />);
     expect(log().textContent).toContain('1.1.0 is out');

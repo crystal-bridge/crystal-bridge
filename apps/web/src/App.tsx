@@ -35,7 +35,7 @@ import {
   withLook,
   withTabStyle,
 } from './appearance.js';
-import { type HubStatus, logAttention } from './components/ShipsLog.js';
+import { type CheckOutcome, type HubStatus, logAttention } from './components/ShipsLog.js';
 import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
@@ -682,6 +682,21 @@ export function App({ hub }: { hub: HubClient }) {
       );
     }
   }, []);
+
+  /** Check for updates: the hub asks GitHub now and says how it went; a refusal says why, like any change. */
+  const checkUpdates = async (): Promise<CheckOutcome | undefined> => {
+    setHubError(undefined);
+    let outcome: CheckOutcome | undefined;
+    try {
+      const response = await fetch('/api/hub/check', { method: 'POST' });
+      if (response.ok) outcome = ((await response.json()) as { outcome?: CheckOutcome }).outcome;
+      else setHubError((await refusal(response)).message);
+    } catch {
+      setHubError(UNREACHABLE);
+    }
+    await refresh();
+    return outcome;
+  };
 
   /** A change asked of the hub from the Ship's Log; a refusal says why there. */
   const changeHub = async (method: string, url: string, body?: unknown): Promise<void> => {
@@ -1335,6 +1350,7 @@ export function App({ hub }: { hub: HubClient }) {
                 onReleaseChannel={(channel) => {
                   void changeHub('PUT', '/api/hub/channel', { channel });
                 }}
+                onCheckUpdates={checkUpdates}
                 onNewQuest={(node) => {
                   selectKingdom(node);
                   setSelected(null);

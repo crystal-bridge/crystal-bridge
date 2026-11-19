@@ -1,4 +1,5 @@
 import { hubImage } from '@crystal-bridge/protocol';
+import { useState } from 'react';
 import { bytes } from '../format.js';
 import { fleetLine, type FleetRow } from '../fleet.js';
 import { releaseLabel } from '../release.js';
@@ -15,6 +16,10 @@ export interface HubStatus {
   lastMirrorAt?: number;
   /** A newer release than this hub runs, when the hub checks. */
   update?: { version: string; url: string; notes: string };
+  /** Present when the hub checks for releases, so Check for updates works. */
+  checks?: boolean;
+  /** When the hub last heard from GitHub about releases. */
+  checkedAt?: number;
   /** Which releases the hub follows: full releases, or every build of `main` too. */
   channel?: ReleaseChannel;
   /** Present when an updater runs beside the hub, so Install updates works; with how the last install went. */
@@ -28,6 +33,9 @@ export interface HubStatus {
     offered?: string;
   };
 }
+
+/** How a press of Check for updates went (`POST /api/hub/check`). */
+export type CheckOutcome = 'answered' | 'recent' | 'failed';
 
 export type KingdomUpdateMode = 'auto' | 'approved';
 export type ReleaseChannel = 'stable' | 'edge';
@@ -165,6 +173,7 @@ export function ShipsLog({
   onApprove,
   onInstall,
   onChannel,
+  onCheck,
   error,
 }: {
   /** Absent until the hub has answered. */
@@ -176,10 +185,33 @@ export function ShipsLog({
   /** Asks the hub's updater for this release. */
   onInstall?: ((version: string) => void) | undefined;
   onChannel?: ((channel: ReleaseChannel) => void) | undefined;
+  /** Asks the hub to check for a release now rather than at its next period; says how it went, if the hub answered. */
+  onCheck?: (() => Promise<CheckOutcome | undefined> | void) | undefined;
   /** Why the hub refused the last press here, such as an offer that changed meanwhile. */
   error?: string | undefined;
 }) {
+  const [checking, setChecking] = useState(false);
+  const [outcome, setOutcome] = useState<CheckOutcome | undefined>(undefined);
   if (!status) return null;
+  const check = async () => {
+    if (checking) return;
+    setChecking(true);
+    setOutcome(undefined);
+    try {
+      setOutcome((await onCheck?.()) ?? undefined);
+    } finally {
+      setChecking(false);
+    }
+  };
+  // An answer with an update shows the update itself; one without says so.
+  const said =
+    outcome === 'failed'
+      ? 'Couldn’t reach GitHub'
+      : outcome === 'recent'
+        ? 'Checked moments ago'
+        : outcome === 'answered' && !status.update
+          ? 'Up to date'
+          : undefined;
   const done = status.install?.progress;
   const updated =
     done?.state === 'done' && done.version === status.release && now - done.at < UPDATED_SHOWN_MS ? done : undefined;
@@ -199,6 +231,27 @@ export function ShipsLog({
         <p className="text-sm text-neutral-500">
           {releaseLabel(status.release)} · {summary}
         </p>
+        {status.checks && onCheck && (
+          <p className="flex items-baseline gap-2 text-xs text-neutral-500">
+            {status.checkedAt !== undefined && (
+              <span>
+                {now - status.checkedAt < 60_000 ? 'Checked just now' : `Checked ${ago(status.checkedAt, now)} ago`}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void check()}
+              aria-disabled={checking}
+              title="Asks GitHub for the newest release on this hub's channel now, at most once every two minutes"
+              className="underline aria-disabled:no-underline aria-disabled:opacity-60"
+            >
+              {checking ? 'Checking…' : 'Check for updates'}
+            </button>
+            <span role="status" className={outcome === 'failed' ? 'text-amber-700 dark:text-amber-400' : ''}>
+              {said}
+            </span>
+          </p>
+        )}
       </div>
       {updated?.from && (
         <p role="status" className="text-xs text-neutral-500">

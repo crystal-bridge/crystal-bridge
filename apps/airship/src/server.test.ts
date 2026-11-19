@@ -2788,6 +2788,47 @@ describe('airship server reporting on itself', () => {
     expect(body).not.toHaveProperty('update');
   });
 
+  it('says when it last heard about releases', async () => {
+    const body = await status({
+      latestRelease: async () => notes,
+      checkReleaseNow: async () => 'answered',
+      releaseCheckedAt: () => 1234,
+    });
+    expect(body).toMatchObject({ checks: true, checkedAt: 1234 });
+    expect(await status({})).not.toHaveProperty('checks');
+  });
+
+  it('checks for a release at once when asked, and says how it went', async () => {
+    const store = openStore(':memory:');
+    const outcomes = ['answered', 'recent', 'failed'] as const;
+    let next = 0;
+    const app = await buildServer({
+      store,
+      release: '1.0.0',
+      latestRelease: async () => notes,
+      checkReleaseNow: async () => outcomes[next++]!,
+    });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    for (const outcome of outcomes) {
+      const response = await fetch(`${base}/api/hub/check`, { method: 'POST' });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ outcome });
+    }
+    await app.close();
+    store.close();
+  });
+
+  it('refuses a check on a hub that never checks', async () => {
+    const store = openStore(':memory:');
+    const app = await buildServer({ store, release: '1.0.0' });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    expect((await fetch(`${base}/api/hub/check`, { method: 'POST' })).status).toBe(409);
+    await app.close();
+    store.close();
+  });
+
   it('adds what the running hub reports about its files', async () => {
     const body = await status({ upkeep: () => ({ databaseBytes: 2048, lastBackupAt: 5, lastMirrorAt: 6 }) });
     expect(body).toMatchObject({ databaseBytes: 2048, lastBackupAt: 5, lastMirrorAt: 6 });

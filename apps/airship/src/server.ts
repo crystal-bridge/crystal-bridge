@@ -55,6 +55,7 @@ import {
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
+import type { CheckOutcome } from './cli-release.js';
 import type { LatestRelease } from './hub-release.js';
 import type { UpdateStatus } from './updater.js';
 import { cleanHubName, type HubSettings } from './hub-settings.js';
@@ -99,6 +100,10 @@ export interface BuildServerOptions {
   latestCli?: () => Promise<string | undefined>;
   /** Finds this project's latest release, for the Ship's Log. Unset: the hub doesn't check. */
   latestRelease?: () => Promise<LatestRelease | undefined>;
+  /** Check for updates: asks GitHub now, within the checker's limit, and says how it went. Unset: no button. */
+  checkReleaseNow?: () => Promise<CheckOutcome>;
+  /** When `latestRelease` last got an answer from GitHub, for the Ship's Log. */
+  releaseCheckedAt?: () => number | undefined;
   /**
    * The hub's updater, when one runs beside it (a packaged hub under systemd, docs/OPERATIONS.md): `request` names the
    * release to install, and `status` says how the last one went. Without it the Ship's Log says how to update by hand.
@@ -313,6 +318,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     release = 'dev',
     latestCli,
     latestRelease,
+    releaseCheckedAt,
+    checkReleaseNow,
     hubUpdates,
     upkeep,
     kingdomVersion,
@@ -977,6 +984,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       uptimeMs: Math.round(process.uptime() * 1000),
       ...upkeep?.(),
       ...(latest && isOlderVersion(release, latest.version) ? { update: latest } : {}),
+      ...(checkReleaseNow ? { checks: true } : {}),
+      ...(releaseCheckedAt?.() !== undefined ? { checkedAt: releaseCheckedAt() } : {}),
       ...(settings ? { channel: settings.channel() } : {}),
       ...(hubUpdates ? { install: { ...(installProgress() ? { progress: installProgress() } : {}) } } : {}),
       ...(named
@@ -989,6 +998,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           }
         : {}),
     };
+  });
+  // Check for updates: asks GitHub now rather than at the next period, which the checker still limits.
+  app.post('/api/hub/check', async (_request, reply) => {
+    if (!checkReleaseNow) return reply.code(409).send({ error: 'this hub doesn’t check for releases' });
+    return { outcome: await checkReleaseNow() };
   });
   // Anyone logged in may do these: a login already has the run of every Kingdom, so there's no lesser role to protect.
   app.put('/api/hub/channel', async (request, reply) => {

@@ -227,8 +227,7 @@ needs a look. It's left off phones for now.
 A packaged hub asks GitHub for this project's latest full release at most every six hours, or on the edge channel the
 newest of its recent releases, pre-releases included, every 15 minutes, sending nothing about you or your sessions, and keeps the last
 answer if GitHub can't be reached. When a newer one is out, the Ship's Log shows its notes and how to take it (or
-Install updates), and the logo that leads to the Airship gets a count badge. `AIRSHIP_RELEASE_CHECK=off` stops the
-check. A hub run from git has no version to compare, so it never asks.
+Install updates), and the logo that leads to the Airship gets a count badge. The Ship's Log also says when the hub last got an answer from GitHub, and **Check for updates** asks at once instead of waiting for the next check. It then says "Up to date", shows the update, or says it couldn't reach GitHub; presses within two minutes of the last check get "Checked moments ago", which keeps the hub well inside GitHub's 60 anonymous calls an hour. `AIRSHIP_RELEASE_CHECK=off` stops the check. A hub run from git has no version to compare, so it never asks.
 
 Each Kingdom's line shows when it's behind, when it has a release ready and is waiting for its Quests to finish, and why
 an update failed. The mirror's age turns amber after two days, which needs `push-backups.sh` from this release or newer:
