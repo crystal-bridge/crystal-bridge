@@ -112,6 +112,9 @@ importers:
       '@crystal-bridge/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@crystal-bridge/release':
+        specifier: workspace:*
+        version: link:../../packages/release
       '@sigstore/protobuf-specs':
         specifier: ^0.5.2
         version: 0.5.2
@@ -204,6 +207,25 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@types/node':
+        specifier: ^22.14.0
+        version: 22.20.5
+
+  packages/release:
+    dependencies:
+      '@crystal-bridge/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@sigstore/bundle':
+        specifier: ^5.0.0
+        version: 5.0.0
+      '@sigstore/verify':
+        specifier: ^4.1.2
+        version: 4.1.2
+    devDependencies:
+      '@sigstore/protobuf-specs':
+        specifier: ^0.5.2
+        version: 0.5.2
       '@types/node':
         specifier: ^22.14.0
         version: 22.20.5

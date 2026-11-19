@@ -5,7 +5,7 @@ dist
 *.db-shm
 *.db-wal
 nodes.json
-RELEASE
+/RELEASE
 vapid.json
 .claude/worktrees/
 .private/

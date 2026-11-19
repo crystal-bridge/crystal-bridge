@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { RELEASE_REPO, kingdomTarballName } from '@crystal-bridge/protocol';
-import { whyFailed } from './release.js';
+import { RELEASE_REPO, releaseTarballName, type ReleasePackage } from '@crystal-bridge/protocol';
+import { whyFailed } from './errors.js';
 
 /**
- * Proves a downloaded Kingdom release came from this project's own release workflow, at that version's tag. The hub
- * only says which version to run and takes no part in this: a hub that was taken over can't get its own code run on a
- * Kingdom, because the proof comes from Sigstore's keys and a statement only that workflow can get signed.
+ * Proves a downloaded release came from this project's own release workflow, at that version's tag. For a Kingdom, the
+ * hub only says which version to run and takes no part in this: a hub that was taken over can't get its own code run on
+ * a Kingdom, because the proof comes from Sigstore's keys and a statement only that workflow can get signed. The hub's
+ * updater checks the hub's package the same way.
  */
 const OIDC_ISSUER = 'https://token.actions.githubusercontent.com';
 const PROVENANCE = 'https://slsa.dev/provenance/v1';
@@ -28,10 +29,10 @@ export function attestationsName(version: string): string {
 }
 
 /** One statement can cover the release's every file, so it's the name beside the digest that says what this file is. */
-export function statementCovers(statement: unknown, version: string, digest: string): boolean {
+export function statementCovers(statement: unknown, file: string, digest: string): boolean {
   const { predicateType, subject } = (statement ?? {}) as Statement;
   if (predicateType !== PROVENANCE || !Array.isArray(subject)) return false;
-  return subject.some((item) => item.name === kingdomTarballName(version) && item.digest?.sha256 === digest);
+  return subject.some((item) => item.name === file && item.digest?.sha256 === digest);
 }
 
 /**
@@ -67,8 +68,17 @@ async function fetchAttestations(version: string, digest: string, deps: Provenan
     });
 }
 
-/** Throws unless a signed attestation names this exact file, built by the release workflow at this version's tag. */
-export async function verifyRelease(tarball: Uint8Array, version: string, deps: ProvenanceDeps): Promise<void> {
+/**
+ * Throws unless a signed attestation names this exact file as `pkg`'s tarball for this version, built by the release
+ * workflow at this version's tag. One statement covers both packages, so the name is what keeps one from passing as the
+ * other.
+ */
+export async function verifyRelease(
+  tarball: Uint8Array,
+  version: string,
+  deps: ProvenanceDeps,
+  pkg: ReleasePackage = 'kingdom',
+): Promise<void> {
   const digest = createHash('sha256').update(tarball).digest('hex');
   const response = await fetchAttestations(version, digest, deps);
   if (!response.ok) throw refused(version, `GitHub answered ${response.status}`);
@@ -93,7 +103,12 @@ export async function verifyRelease(tarball: Uint8Array, version: string, deps: 
       const parsed = bundleFromJSON(bundle);
       verifier.verify(toSignedEntity(parsed), policy);
       const envelope = parsed.content.$case === 'dsseEnvelope' ? parsed.content.dsseEnvelope : undefined;
-      if (envelope && statementCovers(JSON.parse(envelope.payload.toString()), version, digest)) return;
+      if (
+        envelope &&
+        statementCovers(JSON.parse(envelope.payload.toString()), releaseTarballName(pkg, version), digest)
+      ) {
+        return;
+      }
     } catch (error) {
       why = error instanceof Error ? error.message : String(error);
     }

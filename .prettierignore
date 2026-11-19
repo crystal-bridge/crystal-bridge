@@ -3,4 +3,5 @@ dist
 *.md
 # Recorded CLI output stays byte-for-byte as captured.
 apps/crystal/test/fixtures
+packages/release/test/fixtures
 apps/web/src/__fixtures__

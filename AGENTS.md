@@ -42,6 +42,7 @@ Other contributors won't have it: the issues and the docs in `docs/` cover the p
 ## Layout
 
 - `packages/protocol` holds the Zod message schemas shared by everything.
+- `packages/release` checks a release's build provenance before it runs; the Kingdom and the hub's updater share it.
 - `apps/crystal` is the node agent. It runs `claude` (`src/session.ts`, and `src/interactive.ts` for the interactive
   engine), the MCP permission tool (`src/permissions.ts`) and the link to the hub (`src/node.ts`). Recorded real CLI
   output and what it taught us are in `test/fixtures/` and its README.

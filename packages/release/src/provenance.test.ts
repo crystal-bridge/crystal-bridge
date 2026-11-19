@@ -80,6 +80,13 @@ describe('verifyRelease', () => {
     expect(workflow).toContain(attestationsName('$version'));
   });
 
+  it('checks a file against the package it says it is: the Kingdom-s tarball is no hub release', async () => {
+    const fetch = routes({ [ASSET]: json(attestations) });
+    await expect(verifyRelease(tarball, VERSION, { fetch, trustedRoot }, 'airship')).rejects.toThrow(
+      /no attestation covers this file/,
+    );
+  });
+
   it('refuses a changed tarball', async () => {
     const changed = Buffer.from(tarball);
     changed[100] = changed[100]! ^ 1;
@@ -136,6 +143,7 @@ describe('releaseIdentity', () => {
 
 describe('statementCovers', () => {
   const digest = 'ab'.repeat(32);
+  const KINGDOM = 'crystal-bridge-kingdom-1.0.0.tgz';
   const statement = {
     predicateType: 'https://slsa.dev/provenance/v1',
     subject: [
@@ -145,17 +153,22 @@ describe('statementCovers', () => {
   };
 
   it('finds the tarball among the release’s files', () => {
-    expect(statementCovers(statement, '1.0.0', digest)).toBe(true);
+    expect(statementCovers(statement, KINGDOM, digest)).toBe(true);
   });
 
   it('refuses the hub package, which the same statement also covers', () => {
-    expect(statementCovers(statement, '1.0.0', 'cd'.repeat(32))).toBe(false);
+    expect(statementCovers(statement, KINGDOM, 'cd'.repeat(32))).toBe(false);
+  });
+
+  it('finds the hub-s package by its own name', () => {
+    expect(statementCovers(statement, 'crystal-bridge-airship-1.0.0.tgz', 'cd'.repeat(32))).toBe(true);
+    expect(statementCovers(statement, 'crystal-bridge-airship-1.0.0.tgz', digest)).toBe(false);
   });
 
   it('refuses a name for another version, and anything that isn’t build provenance', () => {
-    expect(statementCovers(statement, '1.0.1', digest)).toBe(false);
-    expect(statementCovers({ ...statement, predicateType: 'https://example.com/other' }, '1.0.0', digest)).toBe(false);
-    expect(statementCovers({}, '1.0.0', digest)).toBe(false);
-    expect(statementCovers(null, '1.0.0', digest)).toBe(false);
+    expect(statementCovers(statement, 'crystal-bridge-kingdom-1.0.1.tgz', digest)).toBe(false);
+    expect(statementCovers({ ...statement, predicateType: 'https://example.com/other' }, KINGDOM, digest)).toBe(false);
+    expect(statementCovers({}, KINGDOM, digest)).toBe(false);
+    expect(statementCovers(null, KINGDOM, digest)).toBe(false);
   });
 });

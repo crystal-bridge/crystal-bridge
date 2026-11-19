@@ -14,7 +14,7 @@ import { findTranscript, listTranscripts, transcriptEvents } from './transcripts
 import { resolveClaudeBin } from './claude-bin.js';
 import { cachedCliVersion, execCliUpdate, execCliVersion } from './cli-version.js';
 import { portTaken, runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.js';
-import { verifyRelease } from './provenance.js';
+import { verifyRelease } from '@crystal-bridge/release';
 import {
   activateRelease,
   heldVersions,

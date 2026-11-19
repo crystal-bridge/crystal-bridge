@@ -474,14 +474,27 @@ export type HubToClient = z.infer<typeof HubToClient>;
 /** The repository whose releases Kingdoms run. A fork changes this. */
 export const RELEASE_REPO = 'crystal-bridge/crystal-bridge';
 
+/** The two packages a release carries: the Kingdom's and the hub's. */
+export type ReleasePackage = 'kingdom' | 'airship';
+
+/** A package's file name in a release. */
+export function releaseTarballName(pkg: ReleasePackage, version: string): string {
+  return `crystal-bridge-${pkg}-${version}.tgz`;
+}
+
+/** Where a release keeps a package. */
+export function releaseTarballUrl(pkg: ReleasePackage, version: string): string {
+  return `https://github.com/${RELEASE_REPO}/releases/download/v${version}/${releaseTarballName(pkg, version)}`;
+}
+
 /** The Kingdom package's file name in a release. */
 export function kingdomTarballName(version: string): string {
-  return `crystal-bridge-kingdom-${version}.tgz`;
+  return releaseTarballName('kingdom', version);
 }
 
 /** Where a release keeps the Kingdom package. */
 export function kingdomTarballUrl(version: string): string {
-  return `https://github.com/${RELEASE_REPO}/releases/download/v${version}/${kingdomTarballName(version)}`;
+  return releaseTarballUrl('kingdom', version);
 }
 
 /** The hub's container image at a release, under the same owner as the repository. */
