@@ -318,7 +318,8 @@ function toItem(node, me, found, repository, owned) {
   const checks = isPr ? CHECKS[rollupOf(node)?.state] : undefined;
   const review = isPr ? REVIEWS[node.reviewDecision] : undefined;
   const priority = priorityOf(node);
-  // A milestone's due date is a day, stored as a timestamp: keep the day.
+  // A milestone's due date is a day, stored as a timestamp: keep the day. GitHub's UI stores a time early on that day in
+  // UTC, so the UTC date part is the day; one set through the API with an offset east of UTC could read a day early.
   const due =
     typeof node.milestone?.dueOn === 'string' && node.milestone.dueOn !== ''
       ? node.milestone.dueOn.slice(0, 10)

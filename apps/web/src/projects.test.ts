@@ -4,6 +4,7 @@ import {
   FOLD_AT,
   activity,
   dueDays,
+  dayOf,
   dueText,
   needsYou,
   priorityTone,
@@ -275,6 +276,20 @@ describe('the queue lane', () => {
       tieA,
       bad,
     ]);
+  });
+
+  it('reads a date-only due as the local day west of Greenwich too, where UTC midnight is the evening before', () => {
+    // CI runs in UTC, where both readings agree, so this pins a western zone for the one case that tells them apart.
+    const zone = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    try {
+      const evening = new Date(2026, 10, 19, 20).getTime();
+      expect(dueText(dayOf('2026-11-19')!, evening)).toBe('due today');
+      expect(dueText(dayOf('2026-11-20')!, evening)).toBe('due in 1d');
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
   });
 
   it('reads an item’s priority and due', () => {

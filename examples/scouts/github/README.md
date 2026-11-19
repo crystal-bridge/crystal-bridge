@@ -62,7 +62,9 @@ without marking the issue new.
 Who has the last word counts people only: comments, reviews and pushes by bots are left out, and so is an approval,
 which asks nothing of you. A reply from someone without write access is listed, and Answer the review stays on the
 row, but it isn't suggested, since anyone can comment on a public pull request. An item comes back as new when its
-reason changes, or when someone else acts on it, or when your pull request's failing checks change. Edits, priority and other labels, a moved milestone and bot comments in a busy repository don't bring it back.
+reason changes, or when someone else acts on it, or when your pull request's failing checks change. Edits, priority
+and other labels, a moved milestone and bot comments in a busy repository don't bring it back, and neither does moving
+between Up next and no reason: your own work never relights itself.
 
 ## Buttons
 
