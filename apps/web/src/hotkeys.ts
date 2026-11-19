@@ -48,7 +48,7 @@ export const HOTKEYS: readonly Hotkey[] = [
 const isMac = (): boolean => /mac/i.test(navigator.platform);
 
 /** What open dialogs and pickers are made of: the keys stand down while one has the user's attention. */
-const OPEN_PICKER = '[role="dialog"], [role="listbox"]';
+const OPEN_PICKER = '[role="dialog"], [role="listbox"], [role="menu"]';
 
 export function pickerOpen(): boolean {
   return document.querySelector(OPEN_PICKER) !== null;

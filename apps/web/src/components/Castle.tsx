@@ -57,6 +57,9 @@ export interface CastleProps {
   /** This Kingdom's Scouts, each with a Board; without `onOpenBoard`, no Boards section. */
   scouts?: ListedScout[];
   onOpenBoard?: (scout: string) => void;
+  /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
+  pinnedBoards?: ReadonlySet<string>;
+  onPinBoard?: (scout: string) => void;
   /** This Kingdom has no token and no connection: it can no longer be removed, only forgotten. */
   removed?: boolean;
   /** Deletes the hub's copy of a removed Kingdom's Quests. */
@@ -97,21 +100,34 @@ function boardNote(scout: ListedScout): { text: string; plain?: string; warn: bo
 }
 
 /** A card per Scout, opening its Board. */
-function Boards({ scouts, onOpen }: { scouts: ListedScout[]; onOpen: (scout: string) => void }) {
+function Boards({
+  scouts,
+  onOpen,
+  pinned,
+  onPin,
+}: {
+  scouts: ListedScout[];
+  onOpen: (scout: string) => void;
+  /** Boards pinned on this device; with `onPin`, every other card offers Pin. */
+  pinned?: ReadonlySet<string> | undefined;
+  onPin?: ((scout: string) => void) | undefined;
+}) {
   return (
     <Section title={w('boards')} plain={hint('boards')}>
       <ul className={`${QUEST_GRID} px-3`}>
         {scouts.map((scout) => {
           const note = boardNote(scout);
+          const name = scout.manifest?.name ?? scout.id;
+          const pin = onPin && pinned && !pinned.has(scout.id) ? onPin : undefined;
           return (
-            <li key={scout.id}>
+            <li key={scout.id} className="flex items-stretch gap-1">
               <button
                 type="button"
                 onClick={() => onOpen(scout.id)}
                 className="flex w-full items-center gap-3 rounded border border-neutral-300 px-3 py-2 text-left hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{scout.manifest?.name ?? scout.id}</span>
+                  <span className="block truncate font-medium">{name}</span>
                   <span
                     title={note.plain}
                     className={`block truncate text-xs ${note.warn ? 'text-amber-700 dark:text-amber-400' : 'text-neutral-500'}`}
@@ -125,6 +141,17 @@ function Boards({ scouts, onOpen }: { scouts: ListedScout[]; onOpen: (scout: str
                   </span>
                 )}
               </button>
+              {pin && (
+                <button
+                  type="button"
+                  aria-label={`Pin ${name} to tab strip`}
+                  title="Give it a tab in the tab strip on this device"
+                  onClick={() => pin(scout.id)}
+                  className="shrink-0 rounded border border-neutral-300 px-2 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                >
+                  Pin
+                </button>
+              )}
             </li>
           );
         })}
@@ -334,6 +361,8 @@ export function Castle({
   circle,
   scouts = [],
   onOpenBoard,
+  pinnedBoards,
+  onPinBoard,
   sessions,
   waiting,
   usage,
@@ -542,7 +571,7 @@ export function Castle({
         {onOpenBoard && scouts.length > 0 && (
           // A desktop panel for now, like the Summoning Circle below.
           <div className="hidden md:block">
-            <Boards scouts={scouts} onOpen={onOpenBoard} />
+            <Boards scouts={scouts} onOpen={onOpenBoard} pinned={pinnedBoards} onPin={onPinBoard} />
           </div>
         )}
 

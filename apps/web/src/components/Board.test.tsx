@@ -320,6 +320,17 @@ describe('BoardPage', () => {
     expect(screen.getByRole('button', { name: 'Run now' }).getAttribute('title')).toMatch(/synthesis step.*usage/);
   });
 
+  it('pins or unpins its tab on this device', () => {
+    const onPin = vi.fn();
+    show({ pinned: true, onPin });
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin from tab strip' }));
+    expect(onPin).toHaveBeenCalledWith(false);
+    cleanup();
+    show({ pinned: false, onPin });
+    fireEvent.click(screen.getByRole('button', { name: 'Pin to tab strip' }));
+    expect(onPin).toHaveBeenCalledWith(true);
+  });
+
   it('runs the Scout now, and shows why the hub refused', async () => {
     const { onRunNow } = show();
     onRunNow.mockRejectedValueOnce(new Error('that Kingdom is offline'));

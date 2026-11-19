@@ -66,6 +66,22 @@ describe('Castle', () => {
       expect(props.onOpenBoard).toHaveBeenCalledWith('quest-board');
     });
 
+    it('offers Pin on a Board unpinned on this device', () => {
+      const onPinBoard = vi.fn();
+      renderCastle({
+        scouts: [
+          { id: 'quest-board', fresh: 0, manifest },
+          { id: 'mail', fresh: 0, manifest: { ...manifest, name: 'Mail' } },
+        ],
+        onOpenBoard: vi.fn(),
+        pinnedBoards: new Set(['quest-board']),
+        onPinBoard,
+      });
+      expect(screen.queryByRole('button', { name: 'Pin Quest Board to tab strip' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Pin Mail to tab strip' }));
+      expect(onPinBoard).toHaveBeenCalledWith('mail');
+    });
+
     it('stays away on a Kingdom with no Scouts', () => {
       renderCastle({ scouts: [], onOpenBoard: vi.fn() });
       expect(screen.queryByRole('region', { name: 'Boards' })).toBeNull();

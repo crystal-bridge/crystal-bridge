@@ -1,12 +1,16 @@
-import { useContext } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import type { BoardTab } from '../boards.js';
 import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import { projectName, questTitle } from '../quests.js';
 import { reorderHandlers } from '../tabOrder.js';
 import { keyHint } from '../hotkeys.js';
+import { boardIcon } from '../theme/boardIcons.js';
+import { Icon } from '../theme/icons.js';
 import { hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import type { SessionSummary } from './SessionList.js';
 import { STATUS_DOT } from './SessionList.js';
+import { Tip } from './Tip.js';
 
 export interface QuestStripProps {
   /** Shown on the first tab, the Kingdom's home. */
@@ -26,6 +30,15 @@ export interface QuestStripProps {
   onMove?: (id: string, index: number) => void;
   /** When the art pack is loaded: each Quest's party leader is drawn in its state instead of a status dot. */
   heroes?: { manifest: HeroManifest; states: Record<string, HeroState> };
+  /** Boards pinned on this device, drawn as icon-only tabs after the Castle (see `boardTabs`). */
+  boards?: readonly BoardTab[];
+  /** The Board shown now, whose tab is selected instead of the Castle's. */
+  currentBoard?: string | undefined;
+  onBoard?: (id: string) => void;
+  /** Unpins a Board on this device; it stays on the Castle. */
+  onUnpin?: (id: string) => void;
+  /** Moves a pinned Board among the pinned Boards. */
+  onMoveBoard?: (id: string, index: number) => void;
 }
 
 const TAB =
@@ -49,9 +62,16 @@ export function QuestStrip({
   onNew,
   onMove,
   heroes,
+  boards = [],
+  currentBoard,
+  onBoard,
+  onUnpin,
+  onMoveBoard,
 }: QuestStripProps) {
   const leaderOf = useContext(LeaderContext);
   const ids = quests.map((quest) => quest.id);
+  const boardIds = boards.map((board) => board.id);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number; tab: HTMLElement } | null>(null);
   return (
     <div
       role="tablist"
@@ -61,13 +81,41 @@ export function QuestStrip({
       <button
         type="button"
         role="tab"
-        aria-selected={current === 'castle'}
+        aria-selected={current === 'castle' && currentBoard === undefined}
         title={hint('castle')}
         onClick={onCastle}
-        className={`${TAB} cb-display text-lg leading-none ${current === 'castle' ? ON : OFF}`}
+        className={`${TAB} cb-display text-lg leading-none ${current === 'castle' && currentBoard === undefined ? ON : OFF}`}
       >
         {castleName}
       </button>
+      {/* A menu whose Board is no longer pinned, unpinned from its page meanwhile, has nothing to act on. */}
+      {onBoard && boards.length > 0 && (
+        // Pinned like a browser's pinned tabs: icon only, before the Quests, no close button.
+        <div data-pinned className="hidden items-end gap-1 md:flex">
+          {boards.map((board) => (
+            <BoardTabButton
+              key={board.id}
+              board={board}
+              selected={currentBoard === board.id}
+              onOpen={() => onBoard(board.id)}
+              onMenu={onUnpin ? (x, y, tab) => setMenu({ id: board.id, x, y, tab }) : undefined}
+              reorder={reorderHandlers(boardIds, board.id, onMoveBoard)}
+            />
+          ))}
+        </div>
+      )}
+      {menu && onUnpin && boardIds.includes(menu.id) && (
+        <TabMenu
+          x={menu.x}
+          y={menu.y}
+          tab={menu.tab}
+          onClose={() => setMenu(null)}
+          onUnpin={() => {
+            setMenu(null);
+            onUnpin(menu.id);
+          }}
+        />
+      )}
       {quests.map((quest) => {
         const selected = current === quest.id;
         const label = quest.label || quest.id;
@@ -138,6 +186,135 @@ export function QuestStrip({
           +
         </span>
         <span className="hidden sm:inline">{w('newQuest')}</span>
+      </button>
+    </div>
+  );
+}
+
+const PINNED =
+  'relative flex shrink-0 items-center justify-center rounded-t-md border-x border-t px-2.5 py-1.5 h-[2.375rem]';
+
+/** One pinned Board: its icon or first letter, a new-item count, and a warning dot when its Scout has stopped. */
+function BoardTabButton({
+  board,
+  selected,
+  onOpen,
+  onMenu,
+  reorder,
+}: {
+  board: BoardTab;
+  selected: boolean;
+  onOpen: () => void;
+  onMenu: ((x: number, y: number, tab: HTMLElement) => void) | undefined;
+  reorder: ReturnType<typeof reorderHandlers>;
+}) {
+  const icon = boardIcon(board.icon);
+  const state = board.warn ?? (board.fresh > 0 ? `${board.fresh} new` : undefined);
+  const tip = board.warn
+    ? `${board.name} · ${board.warn}${board.reason ? `: ${board.reason}` : ''}`
+    : state
+      ? `${board.name} · ${state}`
+      : board.name;
+  return (
+    // Beside the tab, fixed to the screen: the strip scrolls sideways and would clip a tooltip below it.
+    <Tip text={tip} beside>
+      <button
+        type="button"
+        role="tab"
+        data-board={board.id}
+        aria-selected={selected}
+        aria-label={state ? `${board.name}, ${state}` : board.name}
+        onClick={onOpen}
+        onContextMenu={
+          onMenu
+            ? (event) => {
+                event.preventDefault();
+                onMenu(event.clientX, event.clientY, event.currentTarget);
+              }
+            : undefined
+        }
+        {...reorder}
+        className={`${PINNED} ${selected ? ON : OFF}`}
+      >
+        {icon ? (
+          <Icon name={icon} size={18} />
+        ) : (
+          <span
+            aria-hidden
+            className="flex h-[18px] w-[18px] items-center justify-center rounded bg-neutral-600 text-[11px] font-bold leading-none text-white dark:bg-neutral-300 dark:text-neutral-950"
+          >
+            {(Array.from(board.name)[0] ?? '?').toUpperCase()}
+          </span>
+        )}
+        {board.warn ? (
+          <span data-warn aria-hidden className="absolute right-1 top-1 h-2 w-2 rounded-full bg-amber-500" />
+        ) : (
+          board.fresh > 0 && (
+            <span
+              data-fresh
+              aria-hidden
+              className="absolute -right-0.5 top-0 min-w-4 rounded-full bg-amber-400 px-1 text-center text-[10px] font-bold leading-4 text-neutral-950"
+            >
+              {board.fresh > 99 ? '99+' : board.fresh}
+            </span>
+          )
+        )}
+      </button>
+    </Tip>
+  );
+}
+
+/**
+ * A pinned tab's right-click menu, at the pointer. Escape closes it and returns focus to the tab; a click elsewhere or
+ * focus moving out closes it too.
+ */
+function TabMenu({
+  x,
+  y,
+  tab,
+  onClose,
+  onUnpin,
+}: {
+  x: number;
+  y: number;
+  tab: HTMLElement;
+  onClose: () => void;
+  onUnpin: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  // The caller passes a new function each draw; the listener and the first focus belong to the menu being open.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    ref.current?.querySelector('button')?.focus();
+    const away = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) close.current();
+    };
+    window.addEventListener('pointerdown', away);
+    return () => window.removeEventListener('pointerdown', away);
+  }, []);
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      style={{ left: x, top: y }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        close.current();
+        tab.focus();
+      }}
+      onBlur={(event) => {
+        if (!ref.current?.contains(event.relatedTarget as Node | null)) close.current();
+      }}
+      className="fixed z-50 min-w-44 rounded-md border border-neutral-300 bg-white py-1 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onUnpin}
+        className="block w-full px-3 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 focus:outline-none dark:hover:bg-neutral-800 dark:focus:bg-neutral-800"
+      >
+        Unpin from tab strip
       </button>
     </div>
   );

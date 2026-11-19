@@ -12,6 +12,7 @@ import type {
 } from '@crystal-bridge/protocol';
 import { refusal, UNREACHABLE } from './api.js';
 import type { BoardsFrame, HubClient } from './hub.js';
+import { applyOrder } from './tabOrder.js';
 
 /** Scouts and their Boards in the app (docs/SCOUTS.md). A Board is drawn from data alone: nothing from a Scout runs here. */
 
@@ -68,6 +69,39 @@ export function actionsFor(item: ScoutItem, manifest: ScoutManifest): { key: str
     const action = Object.hasOwn(manifest.actions, key) ? manifest.actions[key] : undefined;
     return action ? [{ key, action }] : [];
   });
+}
+
+/** A Board's pinned tab in the Kingdom's tab strip. */
+export interface BoardTab {
+  id: string;
+  name: string;
+  /** A name from the Board icon set; absent or unknown draws the name's first letter. */
+  icon?: string;
+  /** Items new since anyone looked. */
+  fresh: number;
+  /** A word or two on why the Scout isn't running as it should, when it isn't. */
+  warn?: string;
+  /** The Scout's own words on it. */
+  reason?: string;
+}
+
+/** The Boards pinned on this device: every Scout's, less those it unpinned, in its saved order, then the hub's. */
+export function boardTabs(
+  scouts: readonly ListedScout[],
+  unpinned: readonly string[],
+  order: readonly string[] | undefined,
+): BoardTab[] {
+  const off = new Set(unpinned);
+  const tabs = scouts
+    .filter((scout) => !off.has(scout.id))
+    .map((scout): BoardTab => {
+      const tab: BoardTab = { id: scout.id, name: scout.manifest?.name ?? scout.id, fresh: scout.fresh };
+      if (scout.manifest?.icon) tab.icon = scout.manifest.icon;
+      if (scout.paused) Object.assign(tab, { warn: 'paused', reason: scout.paused });
+      else if (scout.error) Object.assign(tab, { warn: "scout.json doesn't load", reason: scout.error });
+      return tab;
+    });
+  return applyOrder(tabs, order);
 }
 
 export type BatchAction = Extract<ScoutAction, { kind: 'run' }>;
