@@ -255,6 +255,23 @@ describe('ProjectsView', () => {
     expect(icon.parentElement!.className).toMatch(/text-emerald-/);
   });
 
+  it("draws a section's health bar: failing first, then each listed kind, then the rest", () => {
+    show({
+      items: [
+        item('acme/lantern', { kind: 'issue', checks: 'fail' }),
+        item('acme/lantern', { kind: 'pr' }),
+        item('acme/lantern', { kind: 'mystery' }),
+      ],
+    });
+    const bar = screen.getByRole('img', { name: '1 failing · 1 Open pull request · 1 other' });
+    expect(bar.getAttribute('title')).toBe('1 failing · 1 Open pull request · 1 other');
+    const segments = [...bar.children] as HTMLElement[];
+    expect(segments).toHaveLength(3);
+    expect(segments[0]!.className).toMatch(/text-red-/);
+    expect(segments[1]!.className).toMatch(/text-emerald-/);
+    expect(segments.map((segment) => segment.style.width)).toEqual(Array(3).fill('33.33333333333333%'));
+  });
+
   it('keeps the folded Snoozed, Set aside and Gone sections', () => {
     show({
       items: [
