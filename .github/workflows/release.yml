@@ -1,10 +1,12 @@
 # A `v*` tag builds the Kingdom and hub packages and publishes their tarballs to a GitHub Release, with build provenance a machine
-# can verify before running it.
+# can verify before running it. Publish dispatches it on the tag it gives each merge to main; a tag pushed by hand
+# starts it too.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,6 +20,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: This run is on a release tag
+        run: '[[ $GITHUB_REF == refs/tags/v* ]]'
       - name: The tag is on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -51,6 +55,13 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # A full release is what a release PR set. An edge build is the commit as merged, under the version Publish gave it.
+      - name: Stamp an edge build's version
+        if: ${{ contains(github.ref_name, '-edge.') }}
+        run: |
+          [[ $GITHUB_REF_NAME == v*-edge.* ]]
+          (cd apps/crystal && npm pkg set version="${GITHUB_REF_NAME#v}")
+          (cd apps/airship && npm pkg set version="${GITHUB_REF_NAME#v}")
       - name: The tag matches the package version
         run: test "v$(node -p "require('./apps/crystal/package.json').version")" = "$GITHUB_REF_NAME"
       - name: The hub carries the same version
@@ -84,8 +95,31 @@ jobs:
           prerelease=$([[ $GITHUB_REF_NAME == *-* ]] && echo --prerelease || true)
           gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/release/* --generate-notes --verify-tag $prerelease
 
-  # The hub image for both common architectures. `latest` is only for full releases, never a pre-release.
+  # Only the ten newest edge builds stay: a hub following main wants the latest, and the Releases page stays readable.
+  # A Kingdom keeps the release it runs, and the one before it, on disk.
+  prune:
+    needs: release
+    if: ${{ contains(github.ref_name, '-edge.') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Delete older edge releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: 10
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | test(\"^v[0-9]+\\\\.[0-9]+\\\\.[0-9]+-edge\\\\.[0-9]+$\"))] | sort_by(.createdAt) | reverse | .[$KEEP:][] | .tagName" |
+            while read -r tag; do
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            done
+
+  # The hub image for both common architectures, for full releases only: `latest` never names a pre-release, and an edge
+  # build would spend most of an hour on an image nobody pulls.
   image:
+    if: ${{ !contains(github.ref_name, '-edge.') }}
     needs: [verify, release]
     runs-on: ubuntu-latest
     timeout-minutes: 45

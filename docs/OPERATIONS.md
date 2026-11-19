@@ -211,7 +211,7 @@ when a newer release is out; the logo's badge counts it. One press:
    it's idle.
 
 **Releases** in the Ship's Log's details picks what counts as an update: full releases (the default), or every build
-of `main` (edge: a pre-release for each merge), for a hub that tracks development.
+of `main` (edge, see [Releases](#releases)), for a hub that tracks development.
 
 The updater swaps the hub's code, not its systemd units or `push-backups.sh`. A release that changes those says so in
 its notes, and goes on by `deploy-airship-package.sh` as before. A hub moved onto packages before the updater existed
@@ -577,6 +577,27 @@ identity. Old revisions and commit metadata stay behind.
    identities).
 3. Push it to a new private repository, check CI and the rendered README, then switch on branch rules, CodeQL, secret
    scanning and Discussions, and make it public.
+
+### Releases
+
+Every merge to `main` publishes an edge build, by `.github/workflows/publish.yml`. It tags the merge and has the
+release workflow build that tag, so each package is attested at its own tag, which is what a Kingdom checks.
+
+- **An edge build** is what most merges make: `0.6.1-edge.4`, the next patch after the newest release, numbered after
+  the last edge build of it. It's a GitHub pre-release with the Kingdom and hub tarballs and no image, for hubs that
+  follow `main`. Only the ten newest stay. A merge that only touches the guides (`docs/`, Markdown) makes none.
+- **A full release** starts with a release PR: one that raises `version` in `apps/crystal/package.json` and
+  `apps/airship/package.json` past the newest release, with its `CHANGELOG.md` section. Merging it publishes no edge
+  build; Publish leaves a notice on its run with the tag to push (`git tag v0.7.0 <merge commit> && git push origin
+  v0.7.0`), and pushing it publishes that version, its images, and `latest`. Edge builds then count on from the next
+  patch.
+
+`scripts/next-release.mjs` decides which, and prints what it would publish when run in a checkout with its tags. A tag
+pushed by hand still starts the release workflow, as before.
+
+Publish pushes edge tags with the GitHub Actions token, which a ruleset's bypass list can't name. So a ruleset that
+limits who may create `v*` tags excludes edge ones (`refs/tags/v*-edge.*`) and keeps full release tags to the people it
+names. The release workflow still refuses an edge tag that isn't on `main` or fails the tests.
 
 ## The docs site
 
