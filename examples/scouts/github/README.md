@@ -44,7 +44,7 @@ An item needs you for one of these reasons. Its card in the Needs-you window off
 | Changes requested | A review on your pull request asks for changes.                              | Answer the review |
 | Reply owed        | Someone else has the last word on your pull request, or on your issue.       | Answer, or Triage |
 | Ready to merge    | GitHub would merge your pull request now. Drafts never are.                  | Merge (a link)    |
-| Assigned to you   | An issue is assigned to you, and no reply is owed.                           | Triage            |
+| Assigned to you   | Someone else opened an issue and it is assigned to you; no reply is owed.     | Triage            |
 
 Other items in a repository you maintain have no reason. They show in their section but not in the window.
 

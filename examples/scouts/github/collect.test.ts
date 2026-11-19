@@ -13,6 +13,7 @@ import {
   maintainedRepos,
   projectsQuery,
   query,
+  cacheKey,
   readSettings,
   toItems,
   validateSettings,
@@ -464,6 +465,21 @@ describe('toItems', () => {
     assert.deepEqual(toItems({ authored: { nodes: [issue({ author: user(ME) })] } }, ME), []);
   });
 
+  it('gives no reason to an issue you opened and assigned to yourself, so your backlog stays out of Needs you', () => {
+    const own = issue({ author: user(ME), assignees: { nodes: [{ login: ME }] } });
+    const item = listed(own);
+    assert.equal(item.fields!.reason, undefined);
+    assert.equal(item.suggested, undefined);
+    assert.equal(one(own, 'assigned').fields!.reason, undefined);
+    // Once someone else replies, it waits on you again.
+    const answered = issue({
+      author: user(ME),
+      assignees: { nodes: [{ login: ME }] },
+      comments: { totalCount: 1, nodes: [{ author: user('ana'), createdAt: T(30) }] },
+    });
+    assert.equal(listed(answered).fields!.reason, 'reply');
+  });
+
   it('finds an issue assigned to you in a maintained repository without a search', () => {
     const item = listed(issue({ assignees: { nodes: [{ login: ME }] } }));
     assert.equal(item.fields!.reason, 'assigned');
@@ -722,10 +738,27 @@ describe('collect', () => {
     await assert.rejects(collect({ gh, state, now: NOW, settings: {}, log: () => {} }), /rate limit/);
   });
 
+  it('searches again when the kept list came from another version or other settings', async () => {
+    const kept = (key: unknown) =>
+      writeFileSync(join(state, 'cache.json'), JSON.stringify({ key, etag: 'W/"one"', at: 0, items: [] }));
+    kept(undefined);
+    const older = fakeGh('same');
+    await collect({ gh: older.gh, state, now: 60_000, settings: {} });
+    assert.equal(graphqlCalls(older.calls).length, 2);
+    kept(cacheKey({}));
+    const changed = fakeGh('same');
+    await collect({ gh: changed.gh, state, now: 60_000, settings: { exclude: ['acme/lantern'] } });
+    assert.ok(graphqlCalls(changed.calls).length > 0);
+    kept(cacheKey({ exclude: ['acme/lantern'] }));
+    const same = fakeGh('same');
+    await collect({ gh: same.gh, state, now: 60_000, settings: { exclude: ['acme/lantern'] } });
+    assert.equal(graphqlCalls(same.calls).length, 0);
+  });
+
   it('prints the kept list without searching when nothing changed, until it is an hour old', async () => {
     writeFileSync(
       join(state, 'cache.json'),
-      JSON.stringify({ etag: 'W/"one"', at: 0, items: [{ id: 'kept', title: 'Kept' }] }),
+      JSON.stringify({ key: cacheKey({}), etag: 'W/"one"', at: 0, items: [{ id: 'kept', title: 'Kept' }] }),
     );
     const quiet = fakeGh('same');
     const out = await collect({ gh: quiet.gh, state, now: 59 * 60_000, settings: {} });
@@ -735,7 +768,7 @@ describe('collect', () => {
     const stale = fakeGh('same');
     await collect({ gh: stale.gh, state, now: 61 * 60_000, settings: {} });
     assert.equal(graphqlCalls(stale.calls).length, 2);
-    writeFileSync(join(state, 'cache.json'), JSON.stringify({ etag: 'W/"one"', at: 0, items: [] }));
+    writeFileSync(join(state, 'cache.json'), JSON.stringify({ key: cacheKey({}), etag: 'W/"one"', at: 0, items: [] }));
     const shorter = fakeGh('same');
     await collect({ gh: shorter.gh, state, now: 11 * 60_000, settings: { refreshMinutes: 10 } });
     assert.ok(graphqlCalls(shorter.calls).length > 0);

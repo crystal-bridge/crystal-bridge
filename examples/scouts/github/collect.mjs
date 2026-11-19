@@ -207,7 +207,10 @@ function classify(node, me, found) {
     if (theirs && (assigned || author === me)) {
       return { why: theirs, reason: 'reply', action: 'triage', suggested: 'triage' };
     }
-    if (assigned) return { why: 'assigned to you', reason: 'assigned', action: 'triage', suggested: 'triage' };
+    // One you opened and assigned to yourself is your own backlog: it shows in its project, not in Needs you.
+    if (assigned && author !== me) {
+      return { why: 'assigned to you', reason: 'assigned', action: 'triage', suggested: 'triage' };
+    }
     return { why: author === me ? 'waiting on others' : `by ${author ?? 'ghost'}` };
   }
   if (found.has('review')) {
@@ -432,6 +435,14 @@ async function yourRepositories(gh, first, settings, now, log) {
  * The whole run: the kept list when nothing changed and it is newer than `refreshMinutes` (60 by default; a check
  * finishing makes no notification, so the list is searched again at least that often), a fresh one otherwise.
  */
+/** Bump when the items' shape or meaning changes, so a list kept by an older collector is searched again. */
+const CACHE_FORMAT = 2;
+
+/** What a kept list was made with: this collector's format and the settings, so changing either searches again. */
+export function cacheKey(settings) {
+  return JSON.stringify({ format: CACHE_FORMAT, settings });
+}
+
 export async function collect({
   gh = runGh,
   state,
@@ -448,7 +459,9 @@ export async function collect({
   }
   const maxAge = (settings.refreshMinutes ?? 60) * 60_000;
   const check = await notificationsCheck(gh, cache?.etag);
-  if (check.same && cache && Array.isArray(cache.items) && now - cache.at < maxAge) return { items: cache.items };
+  const key = cacheKey(settings);
+  const fresh = cache?.key === key && Array.isArray(cache.items) && now - cache.at < maxAge;
+  if (check.same && fresh) return { items: cache.items };
 
   const data = await graphql(gh, query(settings), log);
   const me = data.viewer.login;
@@ -470,7 +483,7 @@ export async function collect({
   const items = toItems(data, me, listed, { exclude: settings.exclude ?? [] });
   if (items.length >= MAX_ITEMS) log(`kept ${MAX_ITEMS} items, those that need you first; lower perProject to see all`);
   mkdirSync(state, { recursive: true });
-  writeFileSync(cacheFile, JSON.stringify({ etag: check.etag ?? cache?.etag, at: now, items }));
+  writeFileSync(cacheFile, JSON.stringify({ key, etag: check.etag ?? cache?.etag, at: now, items }));
   return { items };
 }
 
