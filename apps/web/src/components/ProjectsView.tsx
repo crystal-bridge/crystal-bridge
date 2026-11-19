@@ -65,15 +65,15 @@ export interface ProjectsViewProps {
   past: ReactNode;
 }
 
-/** A look's icon in its tone, named by its label; a look with no known icon draws a dot. */
-function LookIcon({ look, size = 16 }: { look: ScoutLook; size?: number }) {
+/** A look's icon in its tone (or the surrounding colour with `inherit`), named by its label; a look with no known icon draws a dot. */
+function LookIcon({ look, size = 16, inherit = false }: { look: ScoutLook; size?: number; inherit?: boolean }) {
   const icon = markIcon(look.icon);
   const named = look.label !== undefined ? { role: 'img', 'aria-label': look.label, title: look.label } : {};
   return (
     <span
       {...named}
       {...(look.label === undefined ? { 'aria-hidden': true } : {})}
-      className={`inline-flex shrink-0 items-center justify-center ${markToneClass(look.tone)}`}
+      className={`inline-flex shrink-0 items-center justify-center ${inherit ? '' : markToneClass(look.tone)}`}
     >
       {icon ? (
         <Icon name={icon} size={size} />
@@ -503,7 +503,7 @@ function NeedsYou({
                   <span
                     className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded ring-1 ${toneChipClass(row.kind.tone)}`}
                   >
-                    <LookIcon look={{ ...row.kind, tone: undefined }} size={14} />
+                    <LookIcon look={row.kind} size={14} inherit />
                   </span>
                 )}
                 <div className="min-w-0">

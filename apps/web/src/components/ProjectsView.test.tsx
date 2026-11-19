@@ -243,6 +243,18 @@ describe('ProjectsView', () => {
     expect(onChange).toHaveBeenLastCalledWith([failing.id], 'snoozed', NOW + 86_400_000);
   });
 
+  it("draws a Needs-you card's kind icon in its chip's colour, not slate", () => {
+    show({
+      items: [item('acme/lantern', { kind: 'pr', reason: 'fail' }, { title: 'Stream logs over SSE' })],
+    });
+    const card = within(screen.getByRole('region', { name: 'Needs you' }))
+      .getByText('Stream logs over SSE')
+      .closest('article')!;
+    const icon = within(card).getByRole('img', { name: 'Open pull request' });
+    expect(icon.className).not.toMatch(/text-slate-/);
+    expect(icon.parentElement!.className).toMatch(/text-emerald-/);
+  });
+
   it('keeps the folded Snoozed, Set aside and Gone sections', () => {
     show({
       items: [
