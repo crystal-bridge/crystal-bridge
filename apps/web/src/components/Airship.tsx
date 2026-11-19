@@ -11,7 +11,7 @@ import { isActiveQuest } from '../quests.js';
 import { KingdomIcon } from './KingdomIcon.js';
 import type { FleetRow } from '../fleet.js';
 import { Roster } from './Roster.js';
-import { type HubStatus, type KingdomUpdateMode, ShipsLog } from './ShipsLog.js';
+import { type HubStatus, type KingdomUpdateMode, type ReleaseChannel, ShipsLog } from './ShipsLog.js';
 import { NodeUsage, type NodeUsageRow } from './NodeUsage.js';
 import type { SessionSummary } from './SessionList.js';
 
@@ -44,6 +44,10 @@ export interface AirshipProps {
   fleet?: FleetRow[];
   onKingdomUpdates?: (mode: KingdomUpdateMode) => void;
   onApproveKingdomUpdate?: () => void;
+  onInstallUpdate?: (version: string) => void;
+  onReleaseChannel?: (channel: ReleaseChannel) => void;
+  /** Why the hub refused the last change asked of it in the Ship's Log. */
+  hubError?: string | undefined;
   now?: number;
 }
 
@@ -75,6 +79,9 @@ export function Airship({
   fleet = [],
   onKingdomUpdates,
   onApproveKingdomUpdate,
+  onInstallUpdate,
+  onReleaseChannel,
+  hubError,
   now = Date.now(),
 }: AirshipProps) {
   const [moreLog, setMoreLog] = useState(false);
@@ -140,6 +147,9 @@ export function Airship({
             now={now}
             onChoice={onKingdomUpdates}
             onApprove={onApproveKingdomUpdate}
+            onInstall={onInstallUpdate}
+            onChannel={onReleaseChannel}
+            error={hubError}
           />
         </div>
 

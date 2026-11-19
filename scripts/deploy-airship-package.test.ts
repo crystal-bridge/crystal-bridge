@@ -68,12 +68,19 @@ describe('the hub host side of deploy-airship-package.sh', () => {
     writeFileSync(join(live(), 'running'), 'the live hub');
     symlinkSync(live(), join(opt(), 'current'));
     writeFileSync(join(root, 'etc/airship.env'), 'AIRSHIP_PORT=7700\n');
-    for (const file of ['airship.service', 'airship-backup.service', 'airship-backup.timer', 'push-backups.sh']) {
+    for (const file of [
+      'airship.service',
+      'airship-backup.service',
+      'airship-backup.timer',
+      'airship-update.service',
+      'airship-update.path',
+      'push-backups.sh',
+    ]) {
       writeFileSync(join(stage, file), '');
     }
     for (const file of ['airship.service', 'airship-backup.service']) writeFileSync(join(root, 'units', file), '');
     tool('sudo', 'if [[ $1 == -u ]]; then shift 2; fi\nexec "$@"');
-    tool('systemctl', 'exit 0');
+    tool('systemctl', `echo "$@" >> ${join(root, 'systemctl.log')}`);
     tool('journalctl', 'exit 0');
     tool('curl', 'echo "{\\"release\\":\\"$HEALTH_VERSION\\"}"');
   });
@@ -114,6 +121,10 @@ describe('the hub host side of deploy-airship-package.sh', () => {
     assert.equal(readlinkSync(join(opt(), 'current')), join(opt(), 'releases/1.1.0'));
     assert.ok(existsSync(join(opt(), 'releases/1.1.0/push-backups.sh')));
     assert.ok(existsSync(join(opt(), 'releases/1.1.0/package.json')));
+    // The hub's updater, so the next update can come from the app.
+    assert.ok(existsSync(join(root, 'units/airship-update.service')));
+    assert.ok(existsSync(join(root, 'units/airship-update.path')));
+    assert.match(readFileSync(join(root, 'systemctl.log'), 'utf8'), /^enable --now airship-update\.path$/m);
   });
 
   it('replaces a release it goes back to', () => {

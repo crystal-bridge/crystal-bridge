@@ -1,0 +1,10 @@
+[Unit]
+Description=Crystal Bridge Airship: watch for a release the hub asks to install
+
+[Path]
+# The hub writes the release it wants here (Install updates in the Ship's Log); nothing else starts the updater.
+PathChanged=/var/lib/airship/update-request.json
+Unit=airship-update.service
+
+[Install]
+WantedBy=multi-user.target

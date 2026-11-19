@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { accessRefusals, authMode } from './access.js';
@@ -14,6 +14,7 @@ import { loadHubSettings } from './hub-settings.js';
 import { hubPaths } from './paths.js';
 import { createPusher, loadVapidKeys, webPushSender } from './push.js';
 import { buildServer } from './server.js';
+import { applyUpdate, systemSteps, type UpdateStatus } from './updater.js';
 import { openStore } from './store.js';
 import { runTokens } from './tokens.js';
 
@@ -41,6 +42,32 @@ const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
   .split(',')
   .map((login) => login.trim())
   .filter(Boolean);
+
+/**
+ * Where this hub asks its updater for a release (docs/OPERATIONS.md, Updating the hub from the app). The packaged units
+ * set it; unset, no updater runs beside the hub and the Ship's Log says how to update by hand.
+ */
+const UPDATE_REQUEST = process.env.AIRSHIP_UPDATE_REQUEST || undefined;
+/** Where the updater says how it's going: a folder only root writes (airship-update.service's StateDirectory). */
+const UPDATE_STATUS = process.env.AIRSHIP_UPDATE_STATUS || '/var/lib/airship-update/status.json';
+
+/** The hub's side of its updater: it writes the wanted release, and reads how the last one went. */
+function hubUpdates(requestPath: string, statusPath: string) {
+  return {
+    request(version: string) {
+      const temp = `${requestPath}.${process.pid}.tmp`;
+      writeFileSync(temp, `${JSON.stringify({ version, at: Date.now() })}\n`, { mode: 0o644 });
+      renameSync(temp, requestPath);
+    },
+    status(): UpdateStatus | undefined {
+      try {
+        return JSON.parse(readFileSync(statusPath, 'utf8')) as UpdateStatus;
+      } catch {
+        return undefined;
+      }
+    },
+  };
+}
 
 // `pnpm dev` passes --dev; AIRSHIP_DEV=1 does the same for other ways of starting a local hub.
 const DEV = process.argv.includes('--dev') || process.env.AIRSHIP_DEV === '1';
@@ -94,19 +121,23 @@ async function main(): Promise<void> {
     onError: (error) => console.warn('[airship] a Web Push was refused', error),
   });
   console.log(`[airship] Web Push keys from ${VAPID_PATH}`);
+  const settings = loadHubSettings(SETTINGS_PATH);
   const app = await buildServer({
     store,
     logger: true,
     nodes,
     ...(auth ? { auth } : {}),
     ...(firstRun ? { firstRun } : {}),
-    settings: loadHubSettings(SETTINGS_PATH),
+    settings,
     release: RELEASE,
     ...(KINGDOM_TARGET ? { kingdomVersion: KINGDOM_TARGET } : {}),
     ...(VERSION ? { webRoot: fileURLToPath(new URL('web', import.meta.url)) } : {}),
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
     // A hub run from git has no version to compare, and follows `main` anyway.
-    ...(VERSION && process.env.AIRSHIP_RELEASE_CHECK !== 'off' ? { latestRelease: latestReleaseChecker() } : {}),
+    ...(VERSION && process.env.AIRSHIP_RELEASE_CHECK !== 'off'
+      ? { latestRelease: latestReleaseChecker({ channel: () => settings.channel() }) }
+      : {}),
+    ...(VERSION && UPDATE_REQUEST ? { hubUpdates: hubUpdates(UPDATE_REQUEST, UPDATE_STATUS) } : {}),
     upkeep: () => ({
       ...(existsSync(DB_PATH) ? { databaseBytes: statSync(DB_PATH).size } : {}),
       ...backupRecord(BACKUP_DIR),
@@ -142,6 +173,27 @@ if (command === '--version') {
     console.error('[airship] backup failed', error);
     process.exit(1);
   });
+} else if (command === 'apply-update') {
+  // Run by airship-update.service, as root, when the hub asks for a release: never by the hub itself.
+  if (!UPDATE_REQUEST) {
+    console.error('[airship] apply-update needs AIRSHIP_UPDATE_REQUEST, the file the hub writes its request to');
+    process.exit(1);
+  }
+  const steps = systemSteps({
+    requestPath: UPDATE_REQUEST,
+    statusPath: UPDATE_STATUS,
+    root: process.env.AIRSHIP_INSTALL_ROOT ?? '/opt/crystal-bridge',
+    port: PORT,
+    user: process.env.AIRSHIP_USER ?? 'airship',
+    service: 'airship.service',
+  });
+  applyUpdate({
+    ...steps,
+    report: (status) => (steps.report(status), console.log(`[airship-update] ${JSON.stringify(status)}`)),
+  }).catch((error: unknown) => {
+    console.error('[airship-update] failed', error);
+    process.exit(1);
+  });
 } else if (command === undefined || command === '--dev') {
   main().catch((error: unknown) => {
     console.error('[airship] fatal error during startup', error);
@@ -149,6 +201,8 @@ if (command === '--version') {
   });
 } else {
   console.error(`[airship] unknown command "${command}"`);
-  console.error('usage: crystal-bridge-airship [--dev | --version | backup | token add <name> | token list | ...]');
+  console.error(
+    'usage: crystal-bridge-airship [--dev | --version | backup | apply-update | token add <name> | token list | ...]',
+  );
   process.exit(1);
 }

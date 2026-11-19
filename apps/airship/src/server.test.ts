@@ -11,6 +11,8 @@ import type { Attention, Cast, Envelope, HubAck, HubToClient, NodeCommand } from
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
 import type { HubSettings, KingdomUpdates } from './hub-settings.js';
+import { loadHubSettings } from './hub-settings.js';
+import type { UpdateStatus } from './updater.js';
 import { buildServer, REVIVE_TEXT, wakeText } from './server.js';
 import type { NodeRegistry } from './nodes.js';
 import { openStore, type SessionRow, type Store } from './store.js';
@@ -2638,6 +2640,10 @@ describe('airship server choosing what Kingdoms run', () => {
     setKingdomUpdates: (next) => {
       choice = next;
     },
+    channel: () => 'stable',
+    setChannel: () => undefined,
+    setKingdomApprovalAfter: () => undefined,
+    takeKingdomApproval: () => false,
   };
 
   async function start(kingdomVersion: string | undefined = '1.1.0') {
@@ -2782,6 +2788,121 @@ describe('airship server reporting on itself', () => {
   it('adds what the running hub reports about its files', async () => {
     const body = await status({ upkeep: () => ({ databaseBytes: 2048, lastBackupAt: 5, lastMirrorAt: 6 }) });
     expect(body).toMatchObject({ databaseBytes: 2048, lastBackupAt: 5, lastMirrorAt: 6 });
+  });
+});
+
+describe('airship server updating itself', () => {
+  let dir: string;
+  let store: Store;
+  let app: Awaited<ReturnType<typeof buildServer>>;
+  let base: string;
+  let requested: string[];
+  let progress: UpdateStatus | undefined;
+  const newer = { version: '1.1.0', url: 'https://example.invalid/r', notes: '' };
+
+  async function start(options: Partial<Parameters<typeof buildServer>[0]> = {}) {
+    store = openStore(':memory:');
+    app = await buildServer({
+      store,
+      release: '1.0.0',
+      kingdomVersion: '1.0.0',
+      settings: loadHubSettings(path.join(dir, 'hub.json')),
+      latestRelease: async () => newer,
+      hubUpdates: { request: (version) => requested.push(version), status: () => progress },
+      ...options,
+    });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  }
+  const status = async () => (await (await fetch(`${base}/api/hub/status`)).json()) as Record<string, unknown>;
+  const send = (method: string, path: string, body: unknown) =>
+    fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), 'airship-update-'));
+    requested = [];
+    progress = undefined;
+  });
+  afterEach(async () => {
+    await app.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('says it can install updates itself, on which channel, and how the last one went', async () => {
+    await start();
+    expect(await status()).toMatchObject({ channel: 'stable', update: newer, install: {} });
+    progress = { version: '1.1.0', state: 'installing', at: Date.now() };
+    expect((await status()).install).toEqual({ progress });
+  });
+
+  it('reads an install that went quiet for twenty minutes as stopped, so it can be tried again', async () => {
+    await start();
+    progress = { version: '1.1.0', state: 'installing', at: Date.now() - 21 * 60_000 };
+    expect((await status()).install).toEqual({
+      progress: {
+        ...progress,
+        state: 'failed',
+        reason: 'the updater stopped partway, with no word for 20 minutes; try again',
+      },
+    });
+    expect((await send('POST', '/api/hub/update', { version: '1.1.0' })).status).toBe(202);
+  });
+
+  it('refuses a second press while an install runs', async () => {
+    await start();
+    progress = { version: '1.1.0', state: 'restarting', at: Date.now() };
+    expect(await (await send('POST', '/api/hub/update', { version: '1.1.0' })).json()).toEqual({
+      error: 'an update is already being installed',
+    });
+    expect(requested).toEqual([]);
+  });
+
+  it('forgets to approve Kingdoms to a release that failed to install', async () => {
+    const settings = loadHubSettings(path.join(dir, 'hub.json'));
+    settings.setKingdomUpdates({ mode: 'approved', approved: '1.0.0' });
+    await start();
+    await send('POST', '/api/hub/update', { version: '1.1.0' });
+    progress = { version: '1.1.0', state: 'failed', reason: 'no', at: Date.now() };
+    await status();
+    expect(loadHubSettings(path.join(dir, 'hub.json')).takeKingdomApproval('1.1.0')).toBe(false);
+  });
+
+  it('switches channel', async () => {
+    await start();
+    expect((await send('PUT', '/api/hub/channel', { channel: 'edge' })).status).toBe(204);
+    expect((await status()).channel).toBe('edge');
+    expect((await send('PUT', '/api/hub/channel', { channel: 'nightly' })).status).toBe(400);
+  });
+
+  it('asks its updater for the offered release, and only that one', async () => {
+    await start();
+    expect((await send('POST', '/api/hub/update', { version: '9.9.9' })).status).toBe(409);
+    expect(requested).toEqual([]);
+    expect((await send('POST', '/api/hub/update', { version: '1.1.0' })).status).toBe(202);
+    expect(requested).toEqual(['1.1.0']);
+  });
+
+  it('refuses when no updater runs beside it, as for a hub in a container or from git', async () => {
+    await start({ hubUpdates: undefined });
+    expect(await status()).not.toHaveProperty('install');
+    expect((await send('POST', '/api/hub/update', { version: '1.1.0' })).status).toBe(409);
+  });
+
+  it('approves Kingdoms to its new release once it runs it, when they wait for approval', async () => {
+    const settings = loadHubSettings(path.join(dir, 'hub.json'));
+    settings.setKingdomUpdates({ mode: 'approved', approved: '1.0.0' });
+    await start();
+    await send('POST', '/api/hub/update', { version: '1.1.0' });
+    await app.close();
+    store.close();
+    // The updater restarted it on 1.1.0.
+    await start({ release: '1.1.0', kingdomVersion: '1.1.0', latestRelease: async () => undefined });
+    expect(loadHubSettings(path.join(dir, 'hub.json')).kingdomUpdates()).toEqual({
+      mode: 'approved',
+      approved: '1.1.0',
+    });
+    expect((await status()).kingdomUpdates).toEqual({ mode: 'approved', named: '1.1.0' });
   });
 });
 
@@ -3029,6 +3150,10 @@ describe('airship server hub name', () => {
       },
       kingdomUpdates: () => ({ mode: 'auto' as const }),
       setKingdomUpdates: () => undefined,
+      channel: () => 'stable' as const,
+      setChannel: () => undefined,
+      setKingdomApprovalAfter: () => undefined,
+      takeKingdomApproval: () => false,
     };
     app = await buildServer({ store, settings });
     await app.listen({ port: 0, host: '127.0.0.1' });

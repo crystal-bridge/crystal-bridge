@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +34,34 @@ describe('the hub command', () => {
     expect(stderr).toContain('usage: crystal-bridge-airship');
     expect(status).toBe(1);
   }, 20_000);
+
+  it('applies an update only when asked by file, and refuses one that is not newer, with no download', () => {
+    const run = (extra: Record<string, string>) =>
+      spawnSync(process.execPath, [...args, 'apply-update'], {
+        cwd: app,
+        env: { ...env(), ...extra },
+        encoding: 'utf8',
+        timeout: 15_000,
+      });
+    expect(run({}).status).toBe(1);
+    const root = join(data, 'opt');
+    mkdirSync(join(root, 'releases', '0.6.0'), { recursive: true });
+    symlinkSync(join(root, 'releases', '0.6.0'), join(root, 'current'));
+    const request = join(data, 'update-request.json');
+    writeFileSync(request, JSON.stringify({ version: '0.5.0' }));
+    const statusFile = join(data, 'status.json');
+    const { status } = run({
+      AIRSHIP_UPDATE_REQUEST: request,
+      AIRSHIP_UPDATE_STATUS: statusFile,
+      AIRSHIP_INSTALL_ROOT: root,
+    });
+    expect(status).toBe(0);
+    expect(JSON.parse(readFileSync(statusFile, 'utf8'))).toMatchObject({
+      version: '0.5.0',
+      state: 'failed',
+      reason: '0.5.0 is not newer than 0.6.0',
+    });
+  }, 40_000);
 
   it('still starts on its own and with --dev, as `pnpm dev` runs it', async () => {
     const hub = spawn(process.execPath, [...args, '--dev'], { cwd: app, env: env() });

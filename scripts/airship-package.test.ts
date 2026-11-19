@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 const unit = (file: string): string =>
@@ -14,6 +15,34 @@ describe('the units of a packaged hub', () => {
     assert.match(text, /^WorkingDirectory=\/var\/lib\/airship$/m);
     assert.match(text, /^ProtectSystem=strict$/m);
     assert.doesNotMatch(text, /tsx|apps\/airship/);
+  });
+
+  it('tells the hub where to ask its updater for a release, once, and only the hub', () => {
+    const text = unit('deploy/airship/airship.service');
+    assert.equal(
+      text.match(/^Environment=AIRSHIP_UPDATE_REQUEST=\/var\/lib\/airship\/update-request\.json$/gm)?.length,
+      1,
+    );
+    assert.doesNotMatch(unit('deploy/airship/airship-backup.service'), /AIRSHIP_UPDATE_REQUEST/);
+  });
+
+  it('has an updater that runs the package as root, writing only the releases and its own status folder', () => {
+    const service = readFileSync('deploy/airship/airship-update.service', 'utf8');
+    assert.match(
+      service,
+      /^ExecStart=\/opt\/crystal-bridge\/current\/node_modules\/\.bin\/crystal-bridge-airship apply-update$/m,
+    );
+    assert.match(service, /^Environment=AIRSHIP_UPDATE_REQUEST=\/var\/lib\/airship\/update-request\.json$/m);
+    assert.match(service, /^Type=oneshot$/m);
+    assert.match(service, /^ProtectSystem=strict$/m);
+    assert.match(service, /^ReadWritePaths=\/opt\/crystal-bridge$/m);
+    // Its status goes in a folder only root writes, never the hub's own.
+    assert.match(service, /^StateDirectory=airship-update$/m);
+    assert.match(service, /^StateDirectoryMode=0755$/m);
+    assert.doesNotMatch(service, /^User=/m);
+    const path = readFileSync('deploy/airship/airship-update.path', 'utf8');
+    assert.match(path, /^PathChanged=\/var\/lib\/airship\/update-request\.json$/m);
+    assert.match(path, /^Unit=airship-update\.service$/m);
   });
 
   it('backs up with the package, and still mirrors off the box', () => {

@@ -76,6 +76,87 @@ describe('ShipsLog', () => {
   });
 });
 
+describe('ShipsLog installing updates', () => {
+  afterEach(() => cleanup());
+
+  it('installs an update with one press when an updater runs beside the hub', () => {
+    const onInstall = vi.fn();
+    render(<ShipsLog status={{ ...status, update, install: {} }} fleet={fleet} now={NOW} onInstall={onInstall} />);
+    expect(log().textContent).not.toContain('deploy-airship-package.sh');
+    fireEvent.click(within(log()).getByRole('button', { name: 'Install updates' }));
+    expect(onInstall).toHaveBeenCalledWith('1.1.0');
+  });
+
+  it('says how an install is going, and holds the button meanwhile', () => {
+    const installing = { version: '1.1.0', state: 'installing' as const, at: NOW };
+    render(
+      <ShipsLog
+        status={{ ...status, update, install: { progress: installing } }}
+        fleet={fleet}
+        now={NOW}
+        onInstall={vi.fn()}
+      />,
+    );
+    expect(log().textContent).toContain('Installing 1.1.0');
+    expect(within(log()).getByRole('button', { name: 'Install updates' })).toHaveProperty('disabled', true);
+  });
+
+  it('says why an install failed, and offers it again', () => {
+    const failed = { version: '1.1.0', state: 'failed' as const, reason: 'it failed its provenance check', at: NOW };
+    render(
+      <ShipsLog
+        status={{ ...status, update, install: { progress: failed } }}
+        fleet={fleet}
+        now={NOW}
+        onInstall={vi.fn()}
+      />,
+    );
+    expect(within(log()).getByRole('alert').textContent).toContain('it failed its provenance check');
+    expect(within(log()).getByRole('button', { name: 'Install updates' })).toHaveProperty('disabled', false);
+  });
+
+  it('says it was updated, for a day after', () => {
+    const done = { version: '1.0.0', state: 'done' as const, from: '0.9.0', at: NOW - 60_000 };
+    render(<ShipsLog status={{ ...status, install: { progress: done } }} fleet={fleet} now={NOW} />);
+    expect(log().textContent).toContain('Updated from 0.9.0');
+    cleanup();
+    render(
+      <ShipsLog
+        status={{ ...status, install: { progress: { ...done, at: NOW - 2 * DAY } } }}
+        fleet={fleet}
+        now={NOW}
+      />,
+    );
+    expect(log().textContent).not.toContain('Updated from');
+  });
+
+  it('says why the hub refused a press', () => {
+    render(
+      <ShipsLog
+        status={{ ...status, update, install: {} }}
+        fleet={fleet}
+        now={NOW}
+        onInstall={vi.fn()}
+        error="that is not the update on offer"
+      />,
+    );
+    expect(within(log()).getByRole('alert').textContent).toBe('that is not the update on offer');
+  });
+
+  it('announces that it was updated', () => {
+    const done = { version: '1.0.0', state: 'done' as const, from: '0.9.0', at: NOW - 60_000 };
+    render(<ShipsLog status={{ ...status, install: { progress: done } }} fleet={fleet} now={NOW} />);
+    expect(within(log()).getByRole('status').textContent).toContain('Updated from 0.9.0');
+  });
+
+  it('chooses between full releases and every build of main', () => {
+    const onChannel = vi.fn();
+    render(<ShipsLog status={{ ...status, channel: 'stable' }} fleet={fleet} now={NOW} onChannel={onChannel} />);
+    fireEvent.change(within(log()).getByRole('combobox', { name: 'Releases' }), { target: { value: 'edge' } });
+    expect(onChannel).toHaveBeenCalledWith('edge');
+  });
+});
+
 describe('ShipsLog Kingdom updates', () => {
   afterEach(() => cleanup());
   const auto = { mode: 'auto' as const, named: '1.0.0' };

@@ -83,7 +83,7 @@ import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { HotkeyList } from './components/HotkeyList.js';
 import { SplitPicker } from './components/SplitPicker.js';
-import { checkLogin, createJoinCode, fetchInventory, refusal, saveHubName } from './api.js';
+import { checkLogin, createJoinCode, fetchInventory, refusal, saveHubName, UNREACHABLE } from './api.js';
 import { loadDraft, saveDraft } from './drafts.js';
 import { type KingdomPrefs, listKingdoms, loadPrefs, notifyLevel, pickActive, savePrefs } from './kingdoms.js';
 import { sessionMode } from './model.js';
@@ -172,6 +172,7 @@ export function App({ hub }: { hub: HubClient }) {
   const [projectLists, setProjectLists] = useState<{ node: string; projects: Project[] }[]>([]);
   const [latestCli, setLatestCli] = useState<string | undefined>(undefined);
   const [hubStatus, setHubStatus] = useState<HubStatus | undefined>(undefined);
+  const [hubError, setHubError] = useState<string | undefined>(undefined);
   const [removed, setRemoved] = useState<string | null>(null);
   const [canLogOut, setCanLogOut] = useState(false);
   const [hubName, setHubName] = useState<string | null>(null);
@@ -682,11 +683,18 @@ export function App({ hub }: { hub: HubClient }) {
     }
   }, []);
 
-  const changeKingdomUpdates = async (method: string, url: string, body?: unknown): Promise<void> => {
-    await fetch(url, {
-      method,
-      ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
-    });
+  /** A change asked of the hub from the Ship's Log; a refusal says why there. */
+  const changeHub = async (method: string, url: string, body?: unknown): Promise<void> => {
+    setHubError(undefined);
+    try {
+      const response = await fetch(url, {
+        method,
+        ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
+      });
+      if (!response.ok) setHubError((await refusal(response)).message);
+    } catch {
+      setHubError(UNREACHABLE);
+    }
     await refresh();
   };
 
@@ -1129,10 +1137,12 @@ export function App({ hub }: { hub: HubClient }) {
               <span className="sr-only sm:hidden">{title}</span>
               {logAttention(hubStatus) > 0 && (
                 <span
+                  data-update-badge
                   title={`An update is out: see the ${w('shipsLog')}`}
-                  className="hidden rounded-full bg-amber-500 px-1.5 font-sans text-xs font-bold leading-4 text-white md:inline"
+                  className="rounded-full bg-amber-500 px-1.5 font-sans text-xs font-bold leading-4 text-white"
                 >
                   {logAttention(hubStatus)}
+                  <span className="sr-only">{`, an update waits in the ${w('shipsLog')}`}</span>
                 </span>
               )}
             </button>
@@ -1308,15 +1318,22 @@ export function App({ hub }: { hub: HubClient }) {
                 heroStates={heroStates}
                 levels={levels}
                 hubStatus={hubStatus}
+                hubError={hubError}
                 fleet={visible.map(({ id, name, connected }) => {
                   const row = engineLists.find((engines) => engines.node === id);
                   return { id, name, connected, release: row?.release, selfUpdate: row?.selfUpdate };
                 })}
                 onKingdomUpdates={(mode) => {
-                  void changeKingdomUpdates('PUT', '/api/hub/kingdom-updates', { mode });
+                  void changeHub('PUT', '/api/hub/kingdom-updates', { mode });
                 }}
                 onApproveKingdomUpdate={() => {
-                  void changeKingdomUpdates('POST', '/api/hub/kingdom-updates/approve');
+                  void changeHub('POST', '/api/hub/kingdom-updates/approve');
+                }}
+                onInstallUpdate={(version) => {
+                  void changeHub('POST', '/api/hub/update', { version });
+                }}
+                onReleaseChannel={(channel) => {
+                  void changeHub('PUT', '/api/hub/channel', { channel });
                 }}
                 onNewQuest={(node) => {
                   selectKingdom(node);
