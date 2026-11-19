@@ -21,7 +21,7 @@ import {
 } from '../boards.js';
 import { duration, goldText, shortWhen } from '../format.js';
 import { boardIcon, markIcon } from '../theme/boardIcons.js';
-import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, tileTone } from '../theme/boardTones.js';
+import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, tileTones } from '../theme/boardTones.js';
 import { Icon } from '../theme/icons.js';
 import { hint, scoutReturnLine, w } from '../theme/words.js';
 import {
@@ -588,6 +588,7 @@ export function BoardPage({
         ]
       : []),
   ];
+  const tones = tileTones(tiles.map((tile) => tile.tone));
 
   const mailRow = (item: BoardItem) => (
     <MailRow
@@ -815,7 +816,7 @@ export function BoardPage({
           </div>
           <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
             {tiles.map((tile, index) => {
-              const tone = tileTone(index, tile.tone);
+              const tone = tones[index]!;
               const mark = markIcon(tile.icon);
               return (
                 <div

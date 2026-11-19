@@ -7,6 +7,7 @@ import {
   projectTone,
   SENDER_TONES,
   senderTone,
+  tileTones,
   toneChipClass,
 } from './boardTones.js';
 
@@ -52,5 +53,17 @@ describe('mark tones', () => {
     for (const tone of MARK_TONES) expect(toneChipClass(tone), tone).toBeTruthy();
     expect(new Set(MARK_TONES).size).toBe(MARK_TONES.length);
     expect(CHIP_CLASSES.slate).toBe(toneChipClass('slate'));
+  });
+});
+
+describe('tileTones', () => {
+  it('keeps a named tone, and gives the rest the cycle in turn, skipping the tones others name', () => {
+    expect(tileTones(['sky', undefined, 'teal', undefined, 'chartreuse'])).toEqual([
+      'sky',
+      'lime',
+      'teal',
+      'rose',
+      'indigo',
+    ]);
   });
 });

@@ -623,6 +623,18 @@ describe('BoardPage', () => {
       expect(tones.slice(0, 3)).toEqual(['sky', 'amber', 'violet']);
     });
 
+    it('never repeats a tone among the banner tiles while the palette lasts', () => {
+      const summary = ['One', 'Two', 'Three', 'Four', 'Five', 'Six'].map((label) => ({ label, field: 'unread' }));
+      show({
+        scout: mailScout({ manifest: { ...mail, summary } }),
+        items: [item({ state: 'seen', suggested: 'done', fields: { unread: true } })],
+      });
+      const banner = screen.getByRole('region', { name: 'Summary' });
+      const tones = [...banner.querySelectorAll('[data-tile]')].map((tile) => tile.getAttribute('data-tone'));
+      expect(tones.length).toBeGreaterThanOrEqual(10);
+      expect(new Set(tones).size).toBe(tones.length);
+    });
+
     describe('banner tiles', () => {
       const tilesFor = (summary: ScoutManifest['summary']) => {
         show({
@@ -643,13 +655,13 @@ describe('BoardPage', () => {
       it('keeps the cycling tone and no icon for an entry without them', () => {
         const tile = tilesFor([{ label: 'Failing', field: 'checks' }]);
         expect(tile('Failing').querySelector('svg')).toBeNull();
-        expect(tile('Failing').getAttribute('data-tone')).toBe('indigo');
+        expect(tile('Failing').getAttribute('data-tone')).toBe('teal');
       });
 
       it('draws no icon for an unknown name and cycles for an unknown tone', () => {
         const tile = tilesFor([{ label: 'Failing', field: 'checks', icon: 'nope', tone: 'chartreuse' }]);
         expect(tile('Failing').querySelector('svg')).toBeNull();
-        expect(tile('Failing').getAttribute('data-tone')).toBe('indigo');
+        expect(tile('Failing').getAttribute('data-tone')).toBe('teal');
       });
     });
 

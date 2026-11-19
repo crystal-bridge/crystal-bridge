@@ -174,10 +174,22 @@ export function actionTone(key: string, kind: string): ChipTone {
 }
 
 /**
- * Banner tile accents, in tile order, for a tile that names no tone. The built-in tiles name theirs (sky, amber, violet,
- * fuchsia), so the cycle starts with the others.
+ * Banner tile accents, in the order a tile that names no tone takes them. A tile skips the tones other tiles in its banner
+ * name (the built-in ones name sky, amber, violet and fuchsia), so the cycle starts with the others.
  */
-export const TILE_TONES = ['teal', 'lime', 'rose', 'indigo', 'blue', 'amber', 'violet', 'sky', 'fuchsia'] as const;
+export const TILE_TONES = [
+  'teal',
+  'lime',
+  'rose',
+  'indigo',
+  'blue',
+  'emerald',
+  'orange',
+  'amber',
+  'violet',
+  'sky',
+  'fuchsia',
+] as const;
 export type TileTone = (typeof TILE_TONES)[number];
 
 export const TILE_CLASSES: Record<TileTone | ChipTone, { border: string; value: string }> = {
@@ -206,9 +218,16 @@ export const TILE_CLASSES: Record<TileTone | ChipTone, { border: string; value: 
   indigo: { border: 'border-l-indigo-500 dark:border-l-indigo-400', value: 'text-indigo-700 dark:text-indigo-300' },
 };
 
-/** A banner tile's tone: the Scout's own when it names one we know, else the cycle by position. */
-export function tileTone(index: number, tone?: string): TileTone | ChipTone {
-  return tone !== undefined && Object.hasOwn(TILE_CLASSES, tone)
-    ? (tone as TileTone | ChipTone)
-    : TILE_TONES[index % TILE_TONES.length]!;
+/**
+ * The tones of a banner's tiles, in order: a tile's own when it names one we know, else the next of the cycle that no tile
+ * names and no earlier tile took, so every tile differs while the palette lasts (then the cycle starts over).
+ */
+export function tileTones(named: readonly (string | undefined)[]): (TileTone | ChipTone)[] {
+  const known = (tone: string | undefined): tone is TileTone | ChipTone =>
+    tone !== undefined && Object.hasOwn(TILE_CLASSES, tone);
+  const taken = new Set(named.filter(known));
+  const free = TILE_TONES.filter((tone) => !taken.has(tone));
+  const pool = free.length > 0 ? free : TILE_TONES;
+  let next = 0;
+  return named.map((tone) => (known(tone) ? tone : pool[next++ % pool.length]!));
 }
