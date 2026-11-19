@@ -13,11 +13,11 @@ Prebuilt binary packages for a single platform are installed per machine and car
 
 | Licence | Packages |
 | --- | --- |
-| MIT | 252 |
+| MIT | 251 |
 | ISC | 12 |
+| BlueOak-1.0.0 | 6 |
 | Apache-2.0 | 6 |
 | BSD-3-Clause | 5 |
-| BlueOak-1.0.0 | 5 |
 | OFL-1.1 | 3 |
 | BSD-2-Clause | 1 |
 | MPL-2.0 | 1 |
@@ -32,26 +32,27 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - @fastify/forwarded 3.1.2: MIT
 - @fastify/merge-json-schemas 0.2.2: MIT
 - @fastify/proxy-addr 5.1.2: MIT
-- @fastify/rate-limit 11.2.1: MIT
+- @fastify/rate-limit 11.2.2: MIT
 - @fastify/send 4.2.0: MIT
-- @fastify/static 10.1.8: MIT
-- @fastify/websocket 11.3.4: MIT
+- @fastify/static 10.1.12: MIT
+- @fastify/websocket 11.3.7: MIT
 - @fontsource/atkinson-hyperlegible 5.3.0: OFL-1.1
 - @fontsource/jersey-15 5.3.0: OFL-1.1
 - @fontsource/jetbrains-mono 5.3.0: OFL-1.1
 - @gar/promise-retry 1.0.3: MIT
-- @hono/node-server 2.1.5: MIT
+- @hono/node-server 2.1.9: MIT
+- @isaacs/nonrecursive-glob-match 1.1.0: BlueOak-1.0.0
 - @lukeed/ms 2.0.2: MIT
 - @lydell/node-pty 1.2.0-beta.18: MIT
 - @modelcontextprotocol/sdk 1.32.2: MIT
 - @pinojs/redact 0.4.0: MIT
-- @sigstore/bundle 5.0.0: Apache-2.0
+- @sigstore/bundle 5.0.1: Apache-2.0
 - @sigstore/core 4.0.1: Apache-2.0
 - @sigstore/protobuf-specs 0.5.2: Apache-2.0
-- @sigstore/tuf 5.0.0: Apache-2.0
-- @sigstore/verify 4.1.2: Apache-2.0
+- @sigstore/tuf 5.0.1: Apache-2.0
+- @sigstore/verify 4.1.3: Apache-2.0
 - @tufjs/canonical-json 2.0.0: MIT
-- @tufjs/models 5.0.1: MIT
+- @tufjs/models 5.0.3: MIT
 - @types/debug 4.1.13: MIT
 - @types/estree 1.0.9: MIT
 - @types/estree-jsx 1.0.5: MIT
@@ -72,7 +73,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - avvio 9.3.1: MIT
 - bail 2.0.2: MIT
 - balanced-match 4.0.4: MIT
-- better-sqlite3 13.0.3: MIT
+- better-sqlite3 13.2.0: MIT
 - bn.js 4.12.5: MIT
 - body-parser 2.4.0: MIT
 - brace-expansion 5.0.12: MIT
@@ -122,7 +123,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - fast-json-stringify 7.2.0: MIT
 - fast-querystring 1.1.2: MIT
 - fast-uri 3.1.9, 4.2.3: BSD-3-Clause
-- fastify 5.12.7: MIT
+- fastify 5.12.8: MIT
 - fastify-plugin 6.0.1: MIT
 - fastq 1.20.3: ISC
 - finalhandler 2.1.1: MIT
@@ -132,13 +133,13 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - function-bind 1.1.2: MIT
 - get-intrinsic 1.3.0: MIT
 - get-proto 1.0.1: MIT
-- glob 13.0.6: BlueOak-1.0.0
+- glob 14.0.6: BlueOak-1.0.0
 - gopd 1.2.0: MIT
 - has-symbols 1.1.0: MIT
 - hasown 2.0.4: MIT
 - hast-util-to-jsx-runtime 2.3.6: MIT
 - hast-util-whitespace 3.0.0: MIT
-- hono 4.13.14: MIT
+- hono 4.13.19: MIT
 - html-url-attributes 3.0.1: MIT
 - http_ece 1.2.0: MIT
 - http-errors 2.0.1: MIT
@@ -216,7 +217,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - mime-db 1.54.0: MIT
 - mime-types 3.0.2: MIT
 - minimalistic-assert 1.0.1: ISC
-- minimatch 10.2.6: BlueOak-1.0.0
+- minimatch 11.0.9: BlueOak-1.0.0
 - minimist 1.2.8: MIT
 - minipass 7.1.3: BlueOak-1.0.0
 - ms 2.1.3: MIT
@@ -230,7 +231,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - parse-entities 4.0.2: MIT
 - parseurl 1.3.3: MIT
 - path-key 3.1.1: MIT
-- path-scurry 2.0.2: BlueOak-1.0.0
+- path-scurry 3.0.0: BlueOak-1.0.0
 - path-to-regexp 8.4.2: MIT
 - pino 10.4.0: MIT
 - pino-abstract-transport 3.0.0: MIT
@@ -283,13 +284,12 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - stringify-entities 4.0.4: MIT
 - style-to-js 1.1.21: MIT
 - style-to-object 1.0.14: MIT
-- supports-color 10.2.2: MIT
 - thread-stream 4.2.0: MIT
 - toad-cache 3.7.4: MIT
 - toidentifier 1.0.1: MIT
 - trim-lines 3.0.1: MIT
 - trough 2.2.0: MIT
-- tuf-js 6.0.1: MIT
+- tuf-js 6.0.3: MIT
 - type-is 2.1.0: MIT
 - unified 11.0.5: MIT
 - unist-util-is 6.0.1: MIT
@@ -305,7 +305,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - web-push 3.6.7: MPL-2.0
 - which 2.0.2: ISC
 - wrappy 1.0.2: ISC
-- ws 8.22.0: MIT
+- ws 8.23.0: MIT
 - zod 4.6.7: MIT
 - zod-to-json-schema 3.25.2: ISC
 - zwitch 2.0.4: MIT
@@ -971,6 +971,66 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### @isaacs/nonrecursive-glob-match
+
+```text
+# Blue Oak Model License
+
+Version 1.0.0
+
+## Purpose
+
+This license gives everyone as much permission to work with
+this software as possible, while protecting contributors
+from liability.
+
+## Acceptance
+
+In order to receive this license, you must agree to its
+rules.  The rules of this license are both obligations
+under that agreement and conditions to your license.
+You must not do anything with this software that triggers
+a rule that you cannot or will not follow.
+
+## Copyright
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe that contributor's
+copyright in it.
+
+## Notices
+
+You must ensure that everyone who gets a copy of
+any part of this software from you, with or without
+changes, also gets the text of this license or a link to
+<https://blueoakcouncil.org/license/1.0.0>.
+
+## Excuse
+
+If anyone notifies you in writing that you have not
+complied with [Notices](#notices), you can keep your
+license by taking all practical steps to comply within 30
+days after the notice.  If you do not do so, your license
+ends immediately.
+
+## Patent
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe any patent claims
+they can license or become able to license.
+
+## Reliability
+
+No contributor can revoke this license.
+
+## No Liability
+
+***As far as the law allows, this software comes as is,
+without any warranty or condition, and no contributor
+will be liable to anyone for any damages related to this
+software or this license, under any kind of legal claim.***
 ```
 
 ### @lukeed/ms
@@ -8282,20 +8342,6 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### supports-color
-
-```text
-MIT License
-
-Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### thread-stream
