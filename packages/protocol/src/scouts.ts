@@ -225,7 +225,7 @@ export const ScoutItem = z.object({
         .max(4096)
         .optional(),
       description: z.string().max(200).optional(),
-      /** Whether the user owns the project, for the view to sort it first. */
+      /** Whether the user owns the project: the view draws a crown, or a handshake and "showing your items" when false. */
       owned: z.boolean().optional(),
     })
     .optional()
