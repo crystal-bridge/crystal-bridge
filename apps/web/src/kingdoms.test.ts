@@ -75,6 +75,8 @@ describe('prefs storage', () => {
       active: 'node-b',
       order: ['node-b', 'node-a'],
       questOrder: { 'node-b': ['s2', 's1'] },
+      unpinned: { 'node-b': ['gmail'] },
+      boardOrder: { 'node-b': ['github', 'gmail'] },
     };
     savePrefs(prefs, storage);
     expect(loadPrefs(storage)).toEqual(prefs);
@@ -94,6 +96,8 @@ describe('prefs storage', () => {
     expect(() => savePrefs(EMPTY_PREFS, throwing)).not.toThrow();
     const junk = memoryStorage();
     junk.setItem('crystal-bridge.kingdoms', '{"names": 5}');
+    expect(loadPrefs(junk)).toEqual(EMPTY_PREFS);
+    junk.setItem('crystal-bridge.kingdoms', '{"names": {}, "hidden": [], "unpinned": {"k": "gmail"}}');
     expect(loadPrefs(junk)).toEqual(EMPTY_PREFS);
   });
 });

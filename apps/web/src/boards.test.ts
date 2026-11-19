@@ -5,6 +5,7 @@ import type { BoardsFrame, HubClient } from './hub.js';
 import {
   actionsFor,
   batchesFor,
+  boardTabs,
   boardSections,
   linkFor,
   snoozeUntil,
@@ -220,6 +221,30 @@ function fakeFetch() {
 }
 
 const listed = (extra: Partial<ListedScout> = {}): ListedScout => ({ id: 'qb', fresh: 0, manifest, ...extra });
+
+describe('boardTabs', () => {
+  const gmail = listed({ id: 'gmail', fresh: 3, manifest: { ...manifest, name: 'Gmail', icon: 'mail' } });
+  const github = listed({ id: 'github', manifest: { ...manifest, name: 'GitHub' } });
+
+  it("pins every Board by default, in the hub's order, with its name, icon and new count", () => {
+    expect(boardTabs([gmail, github], [], undefined)).toEqual([
+      { id: 'gmail', name: 'Gmail', icon: 'mail', fresh: 3 },
+      { id: 'github', name: 'GitHub', fresh: 0 },
+    ]);
+  });
+
+  it('leaves out what this device unpinned, and follows its saved order', () => {
+    expect(boardTabs([gmail, github], ['gmail'], undefined).map((tab) => tab.id)).toEqual(['github']);
+    expect(boardTabs([gmail, github], [], ['github', 'gmail']).map((tab) => tab.id)).toEqual(['github', 'gmail']);
+  });
+
+  it('says why a Scout has stopped, and names one whose scout.json never loaded by its folder', () => {
+    const [paused] = boardTabs([listed({ id: 'p', paused: 'three failed runs', error: 'x' })], [], undefined);
+    expect(paused).toMatchObject({ name: 'Quest Board', warn: 'paused', reason: 'three failed runs' });
+    const [broken] = boardTabs([{ id: 'broken', fresh: 0, error: 'bad json' }], [], undefined);
+    expect(broken).toMatchObject({ name: 'broken', warn: "scout.json doesn't load", reason: 'bad json' });
+  });
+});
 
 describe('useScouts', () => {
   let pending: ReturnType<typeof fakeFetch>;

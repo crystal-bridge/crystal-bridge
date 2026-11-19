@@ -72,6 +72,15 @@ export type ScoutView = z.infer<typeof ScoutView>;
  */
 export const ScoutManifest = z.object({
   name: z.string().min(1).max(80),
+  /**
+   * The icon on the Board's pinned tab, by name from the app's Board icon set (docs/SCOUTS.md). A name the app doesn't
+   * have, or one written wrong, draws the Scout's first letter: an icon never fails a Scout.
+   */
+  icon: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{0,31}$/)
+    .optional()
+    .catch(undefined),
   schedule: ScoutSchedule,
   collect: z.object({
     command: z.array(z.string().max(4096)).min(1).max(64),

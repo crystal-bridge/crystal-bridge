@@ -1,5 +1,6 @@
 {
   "name": "Gmail",
+  "icon": "mail",
   "schedule": {
     "cron": "*/15 * * * *",
     "timezone": "UTC"

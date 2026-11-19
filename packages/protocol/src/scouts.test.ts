@@ -82,6 +82,14 @@ describe('ScoutManifest', () => {
     expect(withActions({ later: { kind: 'snooze', label: 'Later', for: 'tomorrow' } })).toBe(false);
   });
 
+  it("takes an icon for the Board's tab as a short lower-case name", () => {
+    const icon = (value: unknown) => ScoutManifest.parse({ ...manifest, icon: value }).icon;
+    expect(icon('mail')).toBe('mail');
+    expect(icon('pull-request')).toBe('pull-request');
+    // A badly written icon costs only the icon: the Scout still loads, and its tab shows its first letter.
+    for (const bad of ['Mail', 'pull_request', '<svg>', 'a'.repeat(33), 5]) expect(icon(bad)).toBeUndefined();
+  });
+
   it('keeps fields a newer Kingdom adds out of the way rather than refusing the Scout', () => {
     expect(ScoutManifest.safeParse({ ...manifest, triggers: [] }).success).toBe(true);
   });

@@ -34,6 +34,9 @@ export interface BoardPageProps {
   /** Opens the Quest an action started. */
   onOpenQuest: (session: string) => void;
   onBack: () => void;
+  /** Whether this Board has a pinned tab on this device; without `onPin`, no pin button. */
+  pinned?: boolean;
+  onPin?: (pinned: boolean) => void;
 }
 
 const button =
@@ -330,6 +333,8 @@ export function BoardPage({
   onAct,
   onOpenQuest,
   onBack,
+  pinned = false,
+  onPin,
 }: BoardPageProps) {
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -526,21 +531,37 @@ export function BoardPage({
                 </p>
               )}
             </div>
-            {manifest && (
-              <button
-                type="button"
-                disabled={running}
-                title={
-                  manifest.synthesize?.when === 'now'
-                    ? `Collects now, then asks ${hint('synthesis')} to rank the list if it changed since the last press, which may spend plan usage`
-                    : undefined
-                }
-                onClick={() => void runNow()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {running ? 'Asking…' : 'Run now'}
-              </button>
-            )}
+            <span className="flex items-center gap-2">
+              {onPin && (
+                <button
+                  type="button"
+                  onClick={() => onPin(!pinned)}
+                  title={
+                    pinned
+                      ? 'Take its tab out of the tab strip on this device'
+                      : 'Give it a tab in the tab strip on this device'
+                  }
+                  className="rounded-md border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                >
+                  {pinned ? 'Unpin from tab strip' : 'Pin to tab strip'}
+                </button>
+              )}
+              {manifest && (
+                <button
+                  type="button"
+                  disabled={running}
+                  title={
+                    manifest.synthesize?.when === 'now'
+                      ? `Collects now, then asks ${hint('synthesis')} to rank the list if it changed since the last press, which may spend plan usage`
+                      : undefined
+                  }
+                  onClick={() => void runNow()}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {running ? 'Asking…' : 'Run now'}
+                </button>
+              )}
+            </span>
           </div>
           {scout?.paused && (
             <p role="alert" className="whitespace-pre-wrap text-sm text-amber-700 dark:text-amber-400">

@@ -1,5 +1,6 @@
 {
   "name": "GitHub",
+  "icon": "pull-request",
   "schedule": { "cron": "*/15 * * * *", "timezone": "UTC" },
   "collect": { "command": ["node", "collect.mjs"], "timeoutSeconds": 120 },
   "view": "list",

@@ -86,7 +86,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Cast** | a job on a Summon | "Shiva is casting Video Upscaler!" It **landed**, **fizzled** or **was dispelled**. The Classic theme says Job. |
 | **Summoning Circle** | where a Kingdom's Summons are listed | A panel on the Castle. |
 | **Scout** | a scheduled job on a Kingdom that collects items | See [Scouts and Boards](./SCOUTS.md). "Your Scout returned with 4 findings." The Classic theme says Scheduled job, since it already calls a Cast a Job. |
-| **Board** | the page showing what a Scout found | Opened from the Castle's Boards. "3 new postings on the Quest Board." |
+| **Board** | the page showing what a Scout found | Opened from its pinned tab or the Castle's Boards. "3 new postings on the Quest Board." |
 | **Config** | settings | The app-bar gear menu. |
 
 ### Inventory
@@ -133,6 +133,10 @@ zeros. A Kingdom on an older release lists nothing here until it's updated.
 nobody has to find an icon per item. Keyword rules give any name a default, so `deploy` gets a rocket, and rows use
 the same rules with the category's icon as the fallback. Both are data in `apps/web/src/theme/armory.ts`, like Hero
 Class keywords. In the rules, a specific one goes before a broader one.
+
+**Board icons**, for a Board's pinned tab, are a second small set: plain Phosphor icons, since a tab draws them at 18
+pixels, named by `scout.json`'s `icon` ([Scouts](./SCOUTS.md#read-the-board-what-it-shows)). The names are data in
+`apps/web/src/theme/boardIcons.ts`; a fork adds one there and in `iconSources.ts`.
 
 When a Hero uses something from the Inventory, the chat says so in one line, with a verb per category: "Paladin
 **casts** deploy!" (Spells), "**uses**" (Items), "**invokes**" (Runes). The skill's own text stays folded under

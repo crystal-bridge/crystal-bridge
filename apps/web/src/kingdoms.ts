@@ -25,6 +25,10 @@ export interface KingdomPrefs {
   order?: string[];
   /** Quest tab order on this device, per Kingdom; Quests not listed follow, oldest first. */
   questOrder?: Record<string, string[]>;
+  /** Boards unpinned from the tab strip on this device, per Kingdom; every other Board is pinned. */
+  unpinned?: Record<string, string[]>;
+  /** Pinned Board order on this device, per Kingdom; Boards not listed follow in the hub's order. */
+  boardOrder?: Record<string, string[]>;
 }
 
 export const EMPTY_PREFS: KingdomPrefs = { names: {}, hidden: [] };
@@ -65,6 +69,13 @@ function isIds(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((id) => typeof id === 'string');
 }
 
+function isIdsByKingdom(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every(isIds))
+  );
+}
+
 function isPrefs(value: unknown): value is KingdomPrefs {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
@@ -81,11 +92,9 @@ function isPrefs(value: unknown): value is KingdomPrefs {
         v.notify !== null &&
         Object.values(v.notify).every((level) => level === 'full' || level === 'discreet' || level === 'off'))) &&
     (v.order === undefined || isIds(v.order)) &&
-    (v.questOrder === undefined ||
-      (typeof v.questOrder === 'object' &&
-        v.questOrder !== null &&
-        !Array.isArray(v.questOrder) &&
-        Object.values(v.questOrder).every(isIds)))
+    isIdsByKingdom(v.questOrder) &&
+    isIdsByKingdom(v.unpinned) &&
+    isIdsByKingdom(v.boardOrder)
   );
 }
 

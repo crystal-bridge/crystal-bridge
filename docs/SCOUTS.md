@@ -42,7 +42,7 @@ A Scout never acts by itself. A suggestion is a highlighted button, and you pres
 | Part | What it is | Where it lives |
 |---|---|---|
 | **Scout** | a schedule, a collector script, an optional synthesis prompt and a list of actions | a folder on the Kingdom |
-| **Board** | the tab that shows a Scout's items | the web app, on that Kingdom's Castle |
+| **Board** | the tab that shows a Scout's items | the web app: a pinned tab in that Kingdom's tab strip, and its Castle |
 | **Item** | one thing the Scout found, with a stable id | sent by the Kingdom, stored by the hub |
 | **Run** | one execution of a Scout, with its outcome and cost | the hub, a short history per Scout |
 
@@ -75,6 +75,7 @@ and the hub check the same thing:
 ```json
 {
   "name": "Quest Board",
+  "icon": "pull-request",
   "schedule": { "cron": "*/15 8-20 * * 1-5", "timezone": "America/Chicago" },
   "collect": { "command": ["./collect.sh"], "timeoutSeconds": 120 },
   "synthesize": { "prompt": "synthesize.md", "when": "changed" },
@@ -162,9 +163,17 @@ needs nothing from you.
 
 ## Read the Board: what it shows
 
-The Castle lists a Kingdom's Boards, each with how many items are new, or why its Scout is paused or its `scout.json`
-doesn't load. A Board opens at its own address, `#/k/<kingdom>/b/<scout>`. Like the Summoning Circle, Boards show on wide
-screens only for now.
+Each Board has a pinned tab in its Kingdom's tab strip, between the Castle and the Quests, like a browser's pinned tab:
+an icon with the Board's name in a tooltip, a count of new items, or an amber dot instead of the count when its Scout is
+paused or its `scout.json` doesn't load. The icon is the manifest's `icon`, one of `mail`, `pull-request`, `issue`,
+`forum`, `calendar`, `bell`, `news`, `checklist`, `ticket`, `chart`, `release` and `package`; any other name, a
+misspelt one or none shows the Board's first letter, and never stops the Scout loading. Drag a pinned tab or use
+Alt+Arrow to reorder them. Right-click one, or press Unpin from tab strip on the Board, to take it off the strip on this
+device; Pin on its Castle card, or Pin to tab strip on the Board, brings it back.
+
+The Castle lists every Board too, pinned or not, each with how many items are new, or why its Scout is paused or its
+`scout.json` doesn't load. A Board opens at its own address, `#/k/<kingdom>/b/<scout>`. Like the Summoning Circle,
+Boards and their tabs show on wide screens only for now.
 
 - **The items** to act on, drawn in the Scout's `view`: a `list` under each `group`, a `checklist` whose box marks an
   item done, or a `table` with a column per field. Opening the Board marks new items seen; their New mark stays until

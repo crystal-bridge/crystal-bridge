@@ -363,6 +363,58 @@ describe('App Kingdom tabs', () => {
     expect(await screen.findByText('Fix the retry loop')).toBeTruthy();
   });
 
+  it('gives each Board a pinned tab that opens it, and unpins it on this device', async () => {
+    const scout = {
+      id: 'gmail',
+      fresh: 2,
+      manifest: {
+        name: 'Gmail',
+        icon: 'mail',
+        schedule: { cron: '*/15 * * * *', timezone: 'UTC' },
+        collect: { command: ['./collect.sh'] },
+        view: 'list',
+        actions: {},
+      },
+    };
+    const board = {
+      scout: 'gmail',
+      runs: [],
+      items: [{ id: '1', title: 'Lunch on Friday?', state: 'seen', firstSeen: 0, changedAt: 0 }],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/nodes/node-b/scouts'
+                ? { scouts: [scout] }
+                : url === '/api/nodes/node-b/scouts/gmail'
+                  ? board
+                  : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    window.history.replaceState(null, '', '/#/k/node-b');
+    await renderApp();
+    const tab = await screen.findByRole('tab', { name: 'Gmail, 2 new' });
+    fireEvent.click(tab);
+    expect(await screen.findByText('Lunch on Friday?')).toBeTruthy();
+    expect(window.location.hash).toBe('#/k/node-b/b/gmail');
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin from tab strip' }));
+    expect(screen.queryByRole('tab', { name: /^Gmail/ })).toBeNull();
+    // Still open, so the Castle's tab stands for it again.
+    const strip = screen.getByRole('tablist', { name: 'Quests' });
+    expect(within(strip).getAllByRole('tab')[0]!.getAttribute('aria-selected')).toBe('true');
+    expect(JSON.parse(localStorage.getItem('crystal-bridge.kingdoms')!).unpinned).toEqual({ 'node-b': ['gmail'] });
+    fireEvent.click(screen.getByRole('button', { name: 'Pin to tab strip' }));
+    expect(screen.getByRole('tab', { name: /^Gmail/ })).toBeTruthy();
+  });
+
   it('opens the Board a Quest came from, leaving the Quest', async () => {
     const quest = sessions[0]!.id;
     const started = [

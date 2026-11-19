@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOTKEYS, hotkeyFor, hotkeyText, needsYouNext, step, typingOption } from './hotkeys.js';
+import { HOTKEYS, hotkeyFor, hotkeyText, needsYouNext, pickerOpen, step, typingOption } from './hotkeys.js';
 
 const press = (code: string, extra: Partial<KeyboardEvent> = {}) =>
   new KeyboardEvent('keydown', { code, altKey: true, ...extra });
@@ -21,6 +21,17 @@ describe('the key table', () => {
     expect(HOTKEYS.map((key) => key.code)).not.toEqual(expect.arrayContaining(['KeyD']));
     expect(HOTKEYS.map((key) => key.code)).not.toEqual(expect.arrayContaining(['KeyE']));
     expect(HOTKEYS.map((key) => key.code)).not.toEqual(expect.arrayContaining(['KeyF']));
+  });
+});
+
+describe('pickerOpen', () => {
+  it('stands the keys down while a menu is open, as for a dialog or a list', () => {
+    expect(pickerOpen()).toBe(false);
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    document.body.append(menu);
+    expect(pickerOpen()).toBe(true);
+    menu.remove();
   });
 });
 

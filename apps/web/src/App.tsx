@@ -69,7 +69,7 @@ import { FileOpenContext } from './components/markdown.js';
 import { sessionInfo } from './info.js';
 import { beltFor, withBelt } from './belt.js';
 import { useCircle } from './summons.js';
-import { actOnItems, changeBoardItems, runScoutNow, useBoard, useScouts } from './boards.js';
+import { actOnItems, boardTabs, changeBoardItems, runScoutNow, useBoard, useScouts } from './boards.js';
 import { BoardPage } from './components/Board.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
@@ -500,6 +500,14 @@ export function App({ hub }: { hub: HubClient }) {
   function openQuest(id: string) {
     setPage('castle');
     setSelected(id);
+  }
+
+  /** Gives a Board a tab in the strip on this device, or takes it away; the Castle lists it either way. */
+  function pinBoard(node: string, scout: string, pin: boolean) {
+    updatePrefs((prev) => {
+      const off = (prev.unpinned?.[node] ?? []).filter((id) => id !== scout);
+      return { ...prev, unpinned: { ...prev.unpinned, [node]: pin ? off : [...off, scout] } };
+    });
   }
 
   /** Shows a Scout's Board on its Kingdom, leaving any open Quest, which would otherwise stay in front of it. */
@@ -971,6 +979,7 @@ export function App({ hub }: { hub: HubClient }) {
       )
     : [];
   const view = page === 'airship' ? 'airship' : shown ? 'quest' : page;
+  const pinnedBoards = active ? boardTabs(scouts, prefs.unpinned?.[active] ?? [], prefs.boardOrder?.[active]) : [];
 
   // One listener; the keys call the same navigation as the tabs, so Back returns from each move.
   const [keysOpen, setKeysOpen] = useState(false);
@@ -1217,6 +1226,28 @@ export function App({ hub }: { hub: HubClient }) {
               }}
               onSelect={openQuest}
               onPutAway={putAwayQuest}
+              boards={pinnedBoards}
+              // An open Board without a pinned tab leaves the Castle's tab standing for it, as before pinning.
+              currentBoard={
+                view === 'board' && pinnedBoards.some((tab) => tab.id === boardScout)
+                  ? (boardScout ?? undefined)
+                  : undefined
+              }
+              onBoard={(scout) => showBoard(kingdom.id, scout)}
+              onUnpin={(scout) => pinBoard(kingdom.id, scout, false)}
+              onMoveBoard={(id, index) =>
+                updatePrefs((prev) => ({
+                  ...prev,
+                  boardOrder: {
+                    ...prev.boardOrder,
+                    [kingdom.id]: moveTo(
+                      pinnedBoards.map((tab) => tab.id),
+                      id,
+                      index,
+                    ),
+                  },
+                }))
+              }
               onMove={(id, index) =>
                 updatePrefs((prev) => ({
                   ...prev,
@@ -1369,6 +1400,8 @@ export function App({ hub }: { hub: HubClient }) {
                   void refresh();
                 }}
                 onBack={() => setPage('castle')}
+                pinned={pinnedBoards.some((tab) => tab.id === boardScout)}
+                onPin={(pin) => pinBoard(kingdom.id, boardScout, pin)}
               />
             ) : view === 'new' ? (
               <NewSession
@@ -1406,6 +1439,8 @@ export function App({ hub }: { hub: HubClient }) {
                 hubRelease={servedRelease}
                 circle={circle}
                 scouts={scouts}
+                pinnedBoards={new Set(pinnedBoards.map((tab) => tab.id))}
+                onPinBoard={(scout) => pinBoard(kingdom.id, scout, true)}
                 onOpenBoard={(scout) => {
                   setBoardScout(scout);
                   setPage('board');

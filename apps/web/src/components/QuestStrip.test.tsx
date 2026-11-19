@@ -143,4 +143,115 @@ describe('QuestStrip', () => {
       'rogue',
     ]);
   });
+  describe('pinned Boards', () => {
+    const boards = [
+      { id: 'gmail', name: 'Gmail', icon: 'mail', fresh: 3 },
+      { id: 'github', name: 'GitHub', fresh: 4, warn: 'paused', reason: 'three failed runs' },
+    ];
+
+    it('sit between the Castle and the Quests, icon only, named for screen readers', () => {
+      renderStrip({ boards, onBoard: vi.fn() });
+      const tabs = screen.getAllByRole('tab');
+      expect(tabs.slice(0, 3).map((t) => t.getAttribute('aria-label') ?? t.textContent)).toEqual([
+        expect.stringContaining('Castle'),
+        'Gmail, 3 new',
+        'GitHub, paused',
+      ]);
+      const gmail = screen.getByRole('tab', { name: 'Gmail, 3 new' });
+      expect(gmail.querySelector('svg.cb-icon')).not.toBeNull();
+      expect(gmail.querySelector('[data-fresh]')?.textContent).toBe('3');
+      // No icon named: the name's first letter stands in.
+      expect(screen.getByRole('tab', { name: /^GitHub/ }).textContent).toContain('G');
+      // A stopped Scout's dot stands in for its count.
+      const github = screen.getByRole('tab', { name: /^GitHub/ });
+      expect(github.querySelector('[data-warn]')).not.toBeNull();
+      expect(github.querySelector('[data-fresh]')).toBeNull();
+      // Wide screens only, like the Board page.
+      expect(document.querySelector('[data-pinned]')!.className).toMatch(/\bhidden\b.*\bmd:flex\b/);
+    });
+
+    it('caps a long count, and has no group without a way to open a Board', () => {
+      renderStrip({ boards: [{ id: 'gmail', name: 'Gmail', fresh: 250 }], onBoard: vi.fn() });
+      expect(document.querySelector('[data-fresh]')?.textContent).toBe('99+');
+      cleanup();
+      renderStrip({ boards });
+      expect(document.querySelector('[data-pinned]')).toBeNull();
+    });
+
+    it("names a Board's tab in a themed tooltip, with why its Scout stopped", () => {
+      renderStrip({ boards, onBoard: vi.fn() });
+      const github = screen.getByRole('tab', { name: /^GitHub/ });
+      expect(github.getAttribute('title')).toBeNull();
+      const tip = document.getElementById(github.getAttribute('aria-describedby')!);
+      expect(tip?.textContent).toBe('GitHub · paused: three failed runs');
+    });
+
+    it("opens a Board and marks its tab while it's open, not the Castle's", () => {
+      const props = renderStrip({ boards, onBoard: vi.fn(), currentBoard: 'gmail' });
+      expect(screen.getByRole('tab', { name: /^Gmail/ }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByRole('tab', { name: /Castle/ }).getAttribute('aria-selected')).toBe('false');
+      fireEvent.click(screen.getByRole('tab', { name: /^GitHub/ }));
+      expect(props.onBoard).toHaveBeenCalledWith('github');
+    });
+
+    it('has no close button, and unpins from its right-click menu', () => {
+      const onUnpin = vi.fn();
+      renderStrip({ boards, onBoard: vi.fn(), onUnpin });
+      expect(screen.queryByRole('button', { name: /Put away Gmail/ })).toBeNull();
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /^Gmail/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Unpin from tab strip' }));
+      expect(onUnpin).toHaveBeenCalledWith('gmail');
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('closes the menu on Escape without unpinning', () => {
+      const onUnpin = vi.fn();
+      renderStrip({ boards, onBoard: vi.fn(), onUnpin });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /^Gmail/ }));
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(onUnpin).not.toHaveBeenCalled();
+      // Focus goes back to the tab it was opened from.
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Gmail/ }));
+    });
+
+    it('closes the menu on a click elsewhere, or when focus leaves it', () => {
+      renderStrip({ boards, onBoard: vi.fn(), onUnpin: vi.fn() });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /^Gmail/ }));
+      fireEvent.pointerDown(document.body);
+      expect(screen.queryByRole('menu')).toBeNull();
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /^Gmail/ }));
+      fireEvent.blur(screen.getByRole('menuitem'), { relatedTarget: document.body });
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it("doesn't take focus back when the strip draws again with the menu open", () => {
+      const props = {
+        castleName: 'Castle',
+        quests,
+        current: 'castle',
+        waiting: new Set<string>(),
+        onCastle: vi.fn(),
+        onSelect: vi.fn(),
+        onPutAway: vi.fn(),
+        onNew: vi.fn(),
+        boards,
+        onBoard: vi.fn(),
+      };
+      // A new arrow each draw, as App passes it.
+      const { rerender } = render(<QuestStrip {...props} onUnpin={() => {}} />);
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /^Gmail/ }));
+      const castle = screen.getByRole('tab', { name: /Castle/ });
+      castle.focus();
+      rerender(<QuestStrip {...props} waiting={new Set(['a'])} onUnpin={() => {}} />);
+      expect(document.activeElement).toBe(castle);
+    });
+
+    it('reorder among themselves with Alt+Arrow', () => {
+      const onMoveBoard = vi.fn();
+      renderStrip({ boards, onBoard: vi.fn(), onMoveBoard });
+      fireEvent.keyDown(screen.getByRole('tab', { name: /^Gmail/ }), { key: 'ArrowRight', altKey: true });
+      expect(onMoveBoard).toHaveBeenCalledWith('gmail', 1);
+    });
+  });
 });
