@@ -116,8 +116,11 @@ export interface RowView {
 
 /** A field as a time: an ISO date, or a count of seconds or milliseconds since 1970. */
 function asTime(value: unknown): number | undefined {
+  if (typeof value === 'string' && /^\d{9,}$/.test(value)) return asTime(Number(value));
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value < 1e11 ? value * 1000 : value;
-  if (typeof value !== 'string') return undefined;
+  // Only what reads as a date: an ISO date, or one with a month name, as mail headers write them. `Date.parse` alone
+  // takes "5" for a day in 2001.
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}|[A-Za-z]{3}/.test(value)) return undefined;
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? undefined : parsed;
 }
@@ -146,9 +149,11 @@ export function rowView(item: ScoutItem, show: ScoutManifest['show']): RowView {
 
 /** The suggested action an item offers, if its suggestion names one. */
 function suggestionFor(item: ScoutItem, manifest: ScoutManifest): { key: string; action: ScoutAction } | undefined {
-  return item.suggested === undefined
-    ? undefined
-    : actionsFor(item, manifest).find(({ key }) => key === item.suggested);
+  if (item.suggested === undefined) return undefined;
+  const found = actionsFor(item, manifest).find(({ key }) => key === item.suggested);
+  // A link with no web address to open draws no button, so it suggests nothing either.
+  if (found?.action.kind === 'link' && linkFor(found.action.url, item) === undefined) return undefined;
+  return found;
 }
 
 /** The banner's counts over the open items: how many, how many with a suggestion, and each count the Scout declares. */
@@ -184,10 +189,20 @@ export function recommendations<T extends ScoutItem>(
   return [...groups.values()];
 }
 
-/** When the synthesis step last ran and what it cost: the newest run that reports a cost. */
-export function lastSynthesis(runs: readonly ScoutRun[]): { at: number; costUsd: number } | undefined {
-  const run = runs.find((one) => one.costUsd !== undefined);
-  return run ? { at: run.finishedAt ?? run.startedAt, costUsd: run.costUsd! } : undefined;
+/**
+ * When the synthesis step last ranked the list and what it cost: the newest run that paid for it without a reason
+ * against it (a press that paid but failed says why). When the ranking is older than the runs the hub keeps, the
+ * items still carry it, and it's `earlier`.
+ */
+export function lastSynthesis(
+  runs: readonly ScoutRun[],
+  items: readonly ScoutItem[],
+): { at: number; costUsd: number } | { earlier: true } | undefined {
+  const run = runs.find((one) => one.costUsd !== undefined && one.reason === undefined);
+  if (run) return { at: run.finishedAt ?? run.startedAt, costUsd: run.costUsd! };
+  return items.some((item) => item.rankSource === 'synthesis' || item.summarySource === 'synthesis')
+    ? { earlier: true }
+    : undefined;
 }
 
 export type BatchAction = Extract<ScoutAction, { kind: 'run' }>;
@@ -248,8 +263,13 @@ export function boardSections(items: readonly BoardItem[], now: number, when?: s
   // An inbox reads newest first: within each group, by the time field the Scout names; undated items keep their place
   // after the dated ones. The groups stay where their best-ranked item put them.
   if (when !== undefined) {
-    const time = (item: BoardItem) => asTime(field(item, when)) ?? Number.NEGATIVE_INFINITY;
-    for (const list of grouped.values()) list.sort((a, b) => time(b) - time(a));
+    const time = (item: BoardItem) => asTime(field(item, when));
+    const newestFirst = (a: BoardItem, b: BoardItem) => {
+      const [at, bt] = [time(a), time(b)];
+      if (at === undefined || bt === undefined) return at === bt ? 0 : at === undefined ? 1 : -1;
+      return bt - at;
+    };
+    for (const list of grouped.values()) list.sort(newestFirst);
   }
   const ungrouped = grouped.get(undefined);
   grouped.delete(undefined);

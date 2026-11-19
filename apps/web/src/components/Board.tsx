@@ -21,13 +21,12 @@ import {
   snoozeUntil,
   tableColumns,
 } from '../boards.js';
-import { duration, shortWhen } from '../format.js';
+import { duration, goldText, shortWhen } from '../format.js';
 import { boardIcon } from '../theme/boardIcons.js';
 import { Icon } from '../theme/icons.js';
 import { hint, scoutReturnLine, sourceLine, w } from '../theme/words.js';
 import { Gold } from './Gold.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
-import { goldText } from '../format.js';
 
 export interface BoardPageProps {
   /** The Kingdom's name, for the way back. */
@@ -135,7 +134,8 @@ function KingdomButton({
   };
   if (asking) {
     return (
-      <span className="flex gap-1">
+      // Marked, so a row's tools stay shown while a confirm waits, though the pointer has left.
+      <span data-asking className="flex gap-1">
         <button type="button" onClick={go} className={suggestedButton}>
           {`Yes, ${label}`}
         </button>
@@ -355,8 +355,8 @@ function avatarClass(name: string): string {
 
 /**
  * A `list` row drawn like a mail client's: who it's from, when, the title with a line of preview, bold while unread. The
- * buttons show on hover or focus, except the suggested one, so the list isn't a wall of buttons. Without `show`, the
- * title and subtitle fill the lines.
+ * buttons show on hover, keyboard focus or touch, and while a confirm waits; at rest a tag names the suggested action,
+ * so the list isn't a wall of buttons. Without `show`, the title and subtitle fill the lines.
  */
 function MailRow({
   item,
@@ -394,7 +394,14 @@ function MailRow({
       )}
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          {marked && <NewMark />}
+          {/* Where the Scout says what unread is, a dot says it (and words, for a screen reader); else the New mark. */}
+          {show?.unread !== undefined
+            ? view.unread && (
+                <span className="h-2 w-2 shrink-0 self-center rounded-full bg-blue-500">
+                  <span className="sr-only">Unread</span>
+                </span>
+              )
+            : marked && <NewMark />}
           <span className={`truncate ${strong ? 'font-semibold' : ''}`} title={view.who ?? titleNote(item)}>
             {view.who ?? item.title}
           </span>
@@ -424,7 +431,9 @@ function MailRow({
             >
               {item.title}
             </span>
-            {view.preview && <span className="text-neutral-500">{` · ${view.preview}`}</span>}
+            {(view.preview ?? item.subtitle) && (
+              <span className="text-neutral-500">{` · ${view.preview ?? item.subtitle}`}</span>
+            )}
           </span>
         ) : (
           item.subtitle && <span className="block truncate text-xs text-neutral-500">{item.subtitle}</span>
@@ -437,7 +446,11 @@ function MailRow({
       </span>
       {/* Out of the way until hover or keyboard focus, as a mail client's row tools: the date and the suggestion show at
           rest, and the Counsel pane keeps a button for each suggestion. Hidden buttons take no clicks. */}
-      <span className="pointer-events-none absolute inset-y-1 right-0 flex items-center rounded-md bg-white px-1.5 opacity-0 shadow-md ring-1 ring-neutral-200 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 dark:bg-neutral-900 dark:ring-neutral-700">
+      {/* A touch screen has no hover: there the buttons sit at the row's end, always shown. */}
+      <span
+        data-row-tools
+        className="has-[[data-asking]]:pointer-events-auto has-[[data-asking]]:opacity-100 pointer-events-none absolute inset-y-1 right-0 flex items-center rounded-md bg-white px-1.5 opacity-0 shadow-md ring-1 ring-neutral-200 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 dark:bg-neutral-900 dark:ring-neutral-700 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:static [@media(hover:none)]:self-center [@media(hover:none)]:opacity-100 [@media(hover:none)]:shadow-none [@media(hover:none)]:ring-0"
+      >
         {actions}
       </span>
     </li>
@@ -503,6 +516,11 @@ function Counsel({
                     <span className="block truncate text-sm font-medium" title={titleNote(item)}>
                       {item.title}
                     </span>
+                    {rowView(item, manifest.show).who !== undefined && (
+                      <span className="block truncate text-xs text-neutral-500">
+                        {rowView(item, manifest.show).who}
+                      </span>
+                    )}
                     {item.summary && (
                       <span
                         className="line-clamp-2 text-xs text-neutral-600 dark:text-neutral-300"
@@ -643,8 +661,10 @@ export function BoardPage({
   const openCount = sections.open.reduce((total, group) => total + group.items.length, 0);
   const openItems = sections.open.flatMap((group) => group.items);
   const counts = boardCounts(openItems, manifest);
-  const augury = lastSynthesis(board.runs);
+  const augury = lastSynthesis(board.runs, openItems);
   const icon = boardIcon(manifest?.icon);
+  // Counsel has a place when something suggests: the synthesis step, or a collector that already has.
+  const counsel = Boolean(manifest && (manifest.synthesize || counts.suggested > 0));
   const tiles: { label: string; value: string; hint?: string }[] = [
     { label: 'Open', value: String(counts.open) },
     { label: 'New', value: String(openItems.filter(isMarked).length), hint: 'new since anyone last looked' },
@@ -655,8 +675,12 @@ export function BoardPage({
     ...(manifest?.synthesize
       ? [
           {
-            label: w('synthesis'),
-            value: augury ? `${ago(augury.at, now)} ago · ${goldText(augury.costUsd)}` : 'not yet',
+            label: w('synthesis').replace(/^\w/, (first) => first.toUpperCase()),
+            value: !augury
+              ? 'not yet'
+              : 'earlier' in augury
+                ? 'earlier'
+                : `${ago(augury.at, now)} ago · ${goldText(augury.costUsd)}`,
             hint: `when ${hint('synthesis')} last ranked the list, and what it cost`,
           },
         ]
@@ -826,9 +850,10 @@ export function BoardPage({
             </span>
           </div>
           <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
-            {tiles.map((tile) => (
+            {tiles.map((tile, index) => (
               <div
-                key={tile.label}
+                // A Scout's own label may match a built-in one.
+                key={index}
                 className="rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950"
                 {...(tile.hint ? { title: tile.hint } : {})}
               >
@@ -854,8 +879,8 @@ export function BoardPage({
           )}
         </header>
 
-        <div className="grid gap-4 px-3 lg:grid-cols-3">
-          <section aria-label="Items" className="min-w-0 space-y-4 lg:col-span-2">
+        <div className={`grid gap-4 px-3 ${counsel ? 'lg:grid-cols-3' : ''}`}>
+          <section aria-label="Items" className={`min-w-0 space-y-4 ${counsel ? 'lg:col-span-2' : ''}`}>
             {openCount === 0 && ticked.length === 0 ? (
               <p className="text-sm text-neutral-500">
                 {board && board.runs.length > 0
@@ -932,11 +957,13 @@ export function BoardPage({
             )}
           </section>
           {/* The plan beside the inbox: sticky, so it stays in view down a long list. Above the list on narrower screens. */}
-          <aside className="-order-1 lg:order-none">
-            <div className="lg:sticky lg:top-4">
-              {manifest && <Counsel open={openItems} manifest={manifest} perform={perform} act={act} now={now} />}
-            </div>
-          </aside>
+          {counsel && (
+            <aside>
+              <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+                {manifest && <Counsel open={openItems} manifest={manifest} perform={perform} act={act} now={now} />}
+              </div>
+            </aside>
+          )}
         </div>
       </div>
     </div>

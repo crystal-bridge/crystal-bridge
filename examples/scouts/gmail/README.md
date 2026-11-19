@@ -58,6 +58,10 @@ Forums and Promotions. Your drafts, and messages in Trash or Spam, don't count. 
 back as new; reading it elsewhere doesn't. A thread you archive in Gmail leaves the Board on the next run, and the next
 one down takes its place.
 
+The Board reads like a mail list, from `show` in `scout.json`: the sender, the time, the subject with the start of the
+message, newest first in each category, and a dot on unread threads. Its banner counts what's unread (`summary`), and
+Counsel beside the list gathers the suggestions from the last Run now under each button.
+
 The Board holds the newest inbox threads (100 by default). The first run reads them all, which takes a minute or more:
 a new Google project allows 6,000 units of Gmail quota a minute per user, and the Scout waits whenever Gmail says
 that's spent. In testing, 100 threads took 75 seconds. The collector may run for ten minutes, so even 500 threads fit. Later runs ask Gmail's history

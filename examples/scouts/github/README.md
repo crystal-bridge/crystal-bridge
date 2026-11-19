@@ -30,6 +30,9 @@ which asks nothing of you. A reply from someone without write access is listed b
 comment on a public pull request. An item comes back as new when it changes group, when someone acts on it, or when its
 failing checks change.
 
+On the Board, each row starts with its author (`show` in `scout.json`), and the banner counts the items with failing
+checks (`summary`). Counsel beside the list gathers the suggested Quests under each button.
+
 ## Buttons
 
 - **Fix the checks** starts a Quest in a worktree with the failing checks' names, to fix and push.

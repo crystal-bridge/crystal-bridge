@@ -122,9 +122,10 @@ describe('boardSections', () => {
       item({ id: 'promo', rank: 2, group: 'Promotions', fields: { date: '2026-11-18T00:00:00Z' } }),
       item({ id: 'new', rank: 3, group: 'Primary', fields: { date: '2026-11-17T00:00:00Z' } }),
       item({ id: 'undated', rank: 4, group: 'Primary' }),
+      item({ id: 'undated-too', rank: 5, group: 'Primary' }),
     ];
     expect(boardSections(items, 0, 'date').open.map((g) => [g.group, g.items.map((i) => i.id)])).toEqual([
-      ['Primary', ['new', 'old', 'undated']],
+      ['Primary', ['new', 'old', 'undated', 'undated-too']],
       ['Promotions', ['promo']],
     ]);
   });
@@ -259,6 +260,12 @@ describe('rowView', () => {
     expect(rowView(item({ fields: { date: 1_795_000_000 } }), show).when).toBe(1_795_000_000_000);
     expect(rowView(item({ fields: { date: 1_795_000_000_000 } }), show).when).toBe(1_795_000_000_000);
     expect(rowView(item({ fields: { date: 'soon', from: 7, unread: 'yes' } }), show)).toEqual({ unread: true });
+    // A short string or a bare number in text isn't taken for a date.
+    expect(rowView(item({ fields: { date: '5' } }), show).when).toBeUndefined();
+    expect(rowView(item({ fields: { date: '1795000000' } }), show).when).toBe(1_795_000_000_000);
+    expect(rowView(item({ fields: { date: 'Tue, 18 Nov 2026 10:00:00 GMT' } }), show).when).toBe(
+      Date.parse('2026-11-18T10:00:00Z'),
+    );
     expect(rowView(item({ fields: { from: 'Ada' } }), undefined)).toEqual({ unread: false });
   });
 });
@@ -280,7 +287,7 @@ describe('recommendations', () => {
   it('gathers suggested items under their action, best first, the best group first', () => {
     const items = [
       item({ id: 'a', rank: 3, suggested: 'done' }),
-      item({ id: 'b', rank: 1, suggested: 'open', actions: ['open', 'done'] }),
+      item({ id: 'b', rank: 1, suggested: 'open', actions: ['open', 'done'], url: 'https://example.com/b' }),
       item({ id: 'c', rank: 2, suggested: 'done' }),
       item({ id: 'd', rank: 4 }),
       item({ id: 'e', rank: 5, suggested: 'archive' }),
@@ -291,6 +298,12 @@ describe('recommendations', () => {
       ['done', ['c', 'a']],
     ]);
     expect(groups[1]!.action).toEqual(manifest.actions.done);
+  });
+
+  it('leaves out a suggested link that has no address to open', () => {
+    const items = [item({ id: 'a', suggested: 'open', actions: ['open'] })];
+    expect(recommendations(items, manifest)).toEqual([]);
+    expect(boardCounts(items, manifest).suggested).toBe(0);
   });
 });
 
@@ -304,11 +317,18 @@ describe('lastSynthesis', () => {
       outcome: 'succeeded',
       ...extra,
     });
-    expect(lastSynthesis([at(30), at(20, { costUsd: 0.62 }), at(10, { costUsd: 0.5 })])).toEqual({
+    expect(lastSynthesis([at(30), at(20, { costUsd: 0.62 }), at(10, { costUsd: 0.5 })], [])).toEqual({
       at: 25,
       costUsd: 0.62,
     });
-    expect(lastSynthesis([at(30)])).toBeUndefined();
+    // A press that paid but didn't rank says why on its run, and doesn't count as the last ranking.
+    expect(lastSynthesis([at(30, { costUsd: 0.1, reason: 'not JSON' }), at(20, { costUsd: 0.62 })], [])).toEqual({
+      at: 25,
+      costUsd: 0.62,
+    });
+    expect(lastSynthesis([at(30)], [])).toBeUndefined();
+    // Older than the runs the hub keeps, but the list still carries its ranking.
+    expect(lastSynthesis([at(30)], [item({ rank: 1, rankSource: 'synthesis' })])).toEqual({ earlier: true });
   });
 });
 
