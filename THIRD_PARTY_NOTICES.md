@@ -13,7 +13,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 
 | Licence | Packages |
 | --- | --- |
-| MIT | 251 |
+| MIT | 252 |
 | ISC | 12 |
 | BlueOak-1.0.0 | 6 |
 | Apache-2.0 | 6 |
@@ -34,7 +34,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - @fastify/proxy-addr 5.1.2: MIT
 - @fastify/rate-limit 11.2.2: MIT
 - @fastify/send 4.2.0: MIT
-- @fastify/static 10.1.12: MIT
+- @fastify/static 10.1.11: MIT
 - @fastify/websocket 11.3.7: MIT
 - @fontsource/atkinson-hyperlegible 5.3.0: OFL-1.1
 - @fontsource/jersey-15 5.3.0: OFL-1.1
@@ -52,7 +52,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - @sigstore/tuf 5.0.1: Apache-2.0
 - @sigstore/verify 4.1.3: Apache-2.0
 - @tufjs/canonical-json 2.0.0: MIT
-- @tufjs/models 5.0.3: MIT
+- @tufjs/models 5.0.2: MIT
 - @types/debug 4.1.13: MIT
 - @types/estree 1.0.9: MIT
 - @types/estree-jsx 1.0.5: MIT
@@ -217,7 +217,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - mime-db 1.54.0: MIT
 - mime-types 3.0.2: MIT
 - minimalistic-assert 1.0.1: ISC
-- minimatch 11.0.9: BlueOak-1.0.0
+- minimatch 10.2.6, 11.0.9: BlueOak-1.0.0
 - minimist 1.2.8: MIT
 - minipass 7.1.3: BlueOak-1.0.0
 - ms 2.1.3: MIT
@@ -284,12 +284,13 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - stringify-entities 4.0.4: MIT
 - style-to-js 1.1.21: MIT
 - style-to-object 1.0.14: MIT
+- supports-color 10.2.2: MIT
 - thread-stream 4.2.0: MIT
 - toad-cache 3.7.4: MIT
 - toidentifier 1.0.1: MIT
 - trim-lines 3.0.1: MIT
 - trough 2.2.0: MIT
-- tuf-js 6.0.3: MIT
+- tuf-js 6.0.2: MIT
 - type-is 2.1.0: MIT
 - unified 11.0.5: MIT
 - unist-util-is 6.0.1: MIT
@@ -8342,6 +8343,20 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### supports-color
+
+```text
+MIT License
+
+Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### thread-stream
