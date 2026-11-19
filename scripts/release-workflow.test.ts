@@ -73,10 +73,18 @@ describe('the publish workflow', () => {
     assert.match(publish, /concurrency:\n {2}group: publish\n {2}cancel-in-progress: false/);
   });
 
-  it('tags the merge as next-release.mjs says, then has Release build that tag', () => {
+  it('tags an edge build as next-release.mjs says, then has Release build that tag', () => {
     assert.match(publish, /node scripts\/next-release\.mjs >> "\$GITHUB_OUTPUT"/);
     assert.match(publish, /git push origin "refs\/tags\/\$TAG"/);
     assert.match(publish, /gh workflow run release\.yml --ref "\$TAG"/);
+    assert.equal(publish.match(/if: steps\.next\.outputs\.channel == 'edge'/g)?.length, 2);
+  });
+
+  // Full release tags stay with a person: the release tags rule lets the workflow push edge tags only.
+  it('leaves a full release-s tag to a person, saying how', () => {
+    assert.match(publish, /if: steps\.next\.outputs\.channel == 'stable'/);
+    assert.match(publish, /::notice/);
+    assert.match(publish, /git push origin \$TAG"$/m);
   });
 
   it('may tag and dispatch, nothing more', () => {

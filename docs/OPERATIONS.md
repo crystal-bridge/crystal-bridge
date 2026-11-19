@@ -580,22 +580,24 @@ identity. Old revisions and commit metadata stay behind.
 
 ### Releases
 
-Every merge to `main` publishes a release, by `.github/workflows/publish.yml`. It tags the merge and has the release
-workflow build that tag, so each package is attested at its own tag, which is what a Kingdom checks.
+Every merge to `main` publishes an edge build, by `.github/workflows/publish.yml`. It tags the merge and has the
+release workflow build that tag, so each package is attested at its own tag, which is what a Kingdom checks.
 
 - **An edge build** is what most merges make: `0.6.1-edge.4`, the next patch after the newest release, numbered after
   the last edge build of it. It's a GitHub pre-release with the Kingdom and hub tarballs and no image, for hubs that
   follow `main`. Only the ten newest stay. A merge that only touches the guides (`docs/`, Markdown) makes none.
-- **A full release** comes from a release PR: one that raises `version` in `apps/crystal/package.json` and
-  `apps/airship/package.json` past the newest release, with its `CHANGELOG.md` section. Merging it publishes that
-  version, its images, and `latest`. Edge builds then count on from the next patch.
+- **A full release** starts with a release PR: one that raises `version` in `apps/crystal/package.json` and
+  `apps/airship/package.json` past the newest release, with its `CHANGELOG.md` section. Merging it publishes no edge
+  build; Publish leaves a notice on its run with the tag to push (`git tag v0.7.0 <merge commit> && git push origin
+  v0.7.0`), and pushing it publishes that version, its images, and `latest`. Edge builds then count on from the next
+  patch.
 
 `scripts/next-release.mjs` decides which, and prints what it would publish when run in a checkout with its tags. A tag
 pushed by hand still starts the release workflow, as before.
 
-The workflow pushes `v*` tags with the GitHub Actions token, so a ruleset that limits who may create them needs GitHub
-Actions on its bypass list. Only Publish pushes them, and it runs only on a merge to `main`, which branch rules already
-guard.
+Publish pushes edge tags with the GitHub Actions token, which a ruleset's bypass list can't name. So a ruleset that
+limits who may create `v*` tags excludes edge ones (`refs/tags/v*-edge.*`) and keeps full release tags to the people it
+names. The release workflow still refuses an edge tag that isn't on `main` or fails the tests.
 
 ## The docs site
 

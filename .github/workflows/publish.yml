@@ -1,6 +1,7 @@
-# Each merge to main becomes a release (docs/OPERATIONS.md, Publishing): a full one when a release PR raised the package
-# version, else an edge build for hubs that follow main. This only tags the merge and has Release build that tag, so
-# every package is attested by the release workflow at its own tag, which is what a Kingdom checks.
+# Each merge to main becomes an edge build for hubs that follow main (docs/OPERATIONS.md, Releases). This only tags the
+# merge and has Release build that tag, so every package is attested by the release workflow at its own tag, which is
+# what a Kingdom checks. A merge that raised the package version is a release PR: its tag is a person's to push, since
+# the release tags rule lets workflows push edge tags only, and this says how.
 name: Publish
 
 on:
@@ -31,13 +32,21 @@ jobs:
       - name: Next release
         id: next
         run: node scripts/next-release.mjs >> "$GITHUB_OUTPUT"
+      - name: A release PR's tag is a person's to push
+        if: steps.next.outputs.channel == 'stable'
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          echo "::notice::This merge raised the version to ${TAG#v}. To publish it: git fetch origin && git tag $TAG $GITHUB_SHA && git push origin $TAG"
       - name: Tag this merge
+        if: steps.next.outputs.channel == 'edge'
         env:
           TAG: ${{ steps.next.outputs.tag }}
         run: |
           git tag "$TAG" "$GITHUB_SHA"
           git push origin "refs/tags/$TAG"
       - name: Build and publish it
+        if: steps.next.outputs.channel == 'edge'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.next.outputs.tag }}
