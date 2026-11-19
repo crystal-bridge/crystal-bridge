@@ -51,7 +51,7 @@ describe('projectSections', () => {
       item({}, { project: { name: 'acme/lantern', url: 'https://x.test/l', description: 'd', owned: true } }),
       item({}, { project: { name: 'acme/tidepool', url: 'https://x.test/t' } }),
     ];
-    const sections = projectSections(items, look, 0);
+    const sections = projectSections(items, look);
     expect(sections.map((s) => s.name)).toEqual(['acme/lantern', 'acme/tidepool']);
     expect(sections[0]).toMatchObject({
       url: 'https://x.test/l',
@@ -70,7 +70,7 @@ describe('projectSections', () => {
       item({}, { project: { name: 'd' } }),
       item({}, { project: { name: 'e' } }),
     ];
-    const sections = projectSections(items, look, 0);
+    const sections = projectSections(items, look);
     expect(sections.map((s) => s.name)).toEqual(['c', 'b', 'a', 'd', 'e']);
     expect(sections[0]).toMatchObject({ needs: 1, latest: 1_000_000 });
     expect(sections[3]!.latest).toBeUndefined();
@@ -83,12 +83,12 @@ describe('projectSections', () => {
     const d = item({ kind: 'draft' }, { project: { name: 'p' } });
     const e = item({ kind: 'other' }, { project: { name: 'p' } });
     const f = item({ kind: 'other' }, { project: { name: 'p' } });
-    const [section] = projectSections([a, b, c, d, e, f], look, 0);
+    const [section] = projectSections([a, b, c, d, e, f], look);
     expect(section!.items).toEqual([c, b, d, a, e, f]);
   });
 
   it('still groups with no look, and files the unplaced under Other', () => {
-    const sections = projectSections([item({}, { group: 'orbit/ui' }), item({})], undefined, 0);
+    const sections = projectSections([item({}, { group: 'orbit/ui' }), item({})], undefined);
     expect(sections.map((s) => s.name)).toEqual(['orbit/ui', 'Other']);
     expect(sections[0]!.needs).toBe(0);
   });
@@ -195,7 +195,6 @@ describe('tileCounts', () => {
         item({ draft: 1 }, { project: { name: 'p' } }),
       ],
       look,
-      0,
     );
     const summary = [
       { label: 'Drafts', field: 'draft', icon: 'draft', tone: 'blue' },
@@ -203,13 +202,13 @@ describe('tileCounts', () => {
       { label: 'C', field: 'c' },
       { label: 'D', field: 'draft' },
     ] as NonNullable<ScoutManifest['summary']>;
-    expect(tileCounts(section!, summary, look)).toEqual([
+    expect(tileCounts(section!, summary)).toEqual([
       { label: 'Needs you', count: 1, icon: 'hand', tone: 'amber' },
       { label: 'Drafts', count: 2, icon: 'draft', tone: 'blue' },
       { label: 'Bugs', count: 0 },
       { label: 'C', count: 0 },
     ]);
-    expect(tileCounts(section!, undefined, undefined)).toHaveLength(1);
+    expect(tileCounts(section!, undefined)).toHaveLength(1);
   });
 });
 

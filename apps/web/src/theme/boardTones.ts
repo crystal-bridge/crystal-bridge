@@ -141,6 +141,20 @@ export function projectTone(name: string): SenderTone {
   return senderTone(name);
 }
 
+/** A project's header wash, fading from its colour, and its small square dot (as in the Needs-you window). */
+export const PROJECT_CLASSES: Record<SenderTone, { wash: string; dot: string }> = {
+  rose: { wash: 'from-rose-100 dark:from-rose-900/45', dot: 'bg-rose-500 dark:bg-rose-400' },
+  orange: { wash: 'from-orange-100 dark:from-orange-900/45', dot: 'bg-orange-500 dark:bg-orange-400' },
+  amber: { wash: 'from-amber-100 dark:from-amber-900/45', dot: 'bg-amber-500 dark:bg-amber-400' },
+  lime: { wash: 'from-lime-100 dark:from-lime-900/45', dot: 'bg-lime-500 dark:bg-lime-400' },
+  emerald: { wash: 'from-emerald-100 dark:from-emerald-900/45', dot: 'bg-emerald-500 dark:bg-emerald-400' },
+  teal: { wash: 'from-teal-100 dark:from-teal-900/45', dot: 'bg-teal-500 dark:bg-teal-400' },
+  sky: { wash: 'from-sky-100 dark:from-sky-900/45', dot: 'bg-sky-500 dark:bg-sky-400' },
+  blue: { wash: 'from-blue-100 dark:from-blue-900/45', dot: 'bg-blue-500 dark:bg-blue-400' },
+  violet: { wash: 'from-violet-100 dark:from-violet-900/45', dot: 'bg-violet-500 dark:bg-violet-400' },
+  fuchsia: { wash: 'from-fuchsia-100 dark:from-fuchsia-900/45', dot: 'bg-fuchsia-500 dark:bg-fuchsia-400' },
+};
+
 /** Action keys with a colour of their own, by what they usually mean. */
 const BY_KEY: Record<string, ChipTone> = { archive: 'slate', spam: 'red', filter: 'orange' };
 /** Else, by the kind of action. */

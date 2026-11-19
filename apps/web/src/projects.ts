@@ -80,11 +80,7 @@ function newestFirst(a: number | undefined, b: number | undefined): number {
 const hasReason = (item: ScoutItem, look: Look): boolean => lookup(item, look?.reasons) !== undefined;
 
 /** Items grouped by project: Needs-you projects first, then the newest, then first seen; rows by kind, then newest. */
-export function projectSections<T extends ScoutItem>(
-  items: readonly T[],
-  look: Look,
-  _now: number,
-): ProjectSection<T>[] {
+export function projectSections<T extends ScoutItem>(items: readonly T[], look: Look): ProjectSection<T>[] {
   const groups = new Map<string, T[]>();
   for (const item of items) {
     const name = projectOf(item);
@@ -195,7 +191,6 @@ export function activity(items: readonly ScoutItem[], whenField: string | undefi
 export function tileCounts(
   section: ProjectSection,
   summary: Summary,
-  _look: Look,
 ): { label: string; count: number; icon?: string; tone?: string }[] {
   const tiles: { label: string; count: number; icon?: string; tone?: string }[] = [
     { label: 'Needs you', count: section.needs, icon: 'hand', tone: 'amber' },

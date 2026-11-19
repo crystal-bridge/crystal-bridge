@@ -1411,6 +1411,7 @@ export function App({ hub }: { hub: HubClient }) {
               <BoardPage
                 key={`${kingdom.id}:${boardScout}`}
                 kingdom={kingdom.name}
+                node={kingdom.id}
                 scout={scouts.find((scout) => scout.id === boardScout)}
                 board={openBoard.board}
                 missing={openBoard.missing}
