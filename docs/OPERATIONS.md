@@ -211,7 +211,7 @@ when a newer release is out; the logo's badge counts it. One press:
    it's idle.
 
 **Releases** in the Ship's Log's details picks what counts as an update: full releases (the default), or every build
-of `main` (edge: a pre-release for each merge), for a hub that tracks development.
+of `main` (edge, see [Releases](#releases)), for a hub that tracks development.
 
 The updater swaps the hub's code, not its systemd units or `push-backups.sh`. A release that changes those says so in
 its notes, and goes on by `deploy-airship-package.sh` as before. A hub moved onto packages before the updater existed
