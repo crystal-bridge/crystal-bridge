@@ -4,14 +4,18 @@ import { actionsFor } from '../boards.js';
 import { type BoardMode, useFolded } from '../boardPrefs.js';
 import {
   activity,
+  dueText,
   FOLD_AT,
   needsYou,
+  priorityTone,
   type ProjectSection,
   projectSections,
   projectOf,
+  queueSlots,
   rowLook,
   tileCounts,
   visibleRows,
+  yourQueue,
 } from '../projects.js';
 import { markIcon } from '../theme/boardIcons.js';
 import { markToneClass, PROJECT_CLASSES, projectTone, SENDER_CLASSES, toneChipClass } from '../theme/boardTones.js';
@@ -35,8 +39,8 @@ import { ago } from './HomeParts.js';
 
 /**
  * The `projects` Board view (docs/SCOUTS.md), in one of two layouts. Projects: a card per project, its rows drawn from the
- * Scout's looks, beside the Needs-you window, which takes Counsel's place. Tiles: the Needs-you cards in a strip, then a
- * tile per project with its counts, activity and top items. What the Scout's fields mean lives in `scout.json`; this
+ * Scout's looks, beside the Needs-you window, which takes Counsel's place, and the queue window under it. Tiles: the
+ * Needs-you cards and the queue in strips, then a tile per project with its counts, activity and top items. What the Scout's fields mean lives in `scout.json`; this
  * draws slots.
  */
 
@@ -405,6 +409,16 @@ function ProjectCard({
   );
 }
 
+/** A card's buttons: the suggested action, then Open and Later where the item offers them, as its own buttons do. */
+function cardKeys(item: BoardItem, manifest: ScoutManifest): string[] {
+  const offered = actionsFor(item, manifest);
+  return [
+    ...offered.filter(({ key }) => key === item.suggested),
+    offered.find(({ key, action }) => action.kind === 'link' && key !== item.suggested),
+    offered.find(({ key, action }) => action.kind === 'snooze' && key !== item.suggested),
+  ].flatMap((found) => (found ? [found.key] : []));
+}
+
 /** Classes for buttons inside the blue window: the suggested one in the reason's tone, the rest ghosts. */
 const ghost =
   'cb-display rounded border border-white/30 px-2.5 text-base leading-6 text-white/85 hover:bg-white/10 disabled:opacity-50';
@@ -480,13 +494,7 @@ function NeedsYou({
         {items.map((item) => {
           const row = rowLook(item, look);
           const tone = projectTone(projectOf(item));
-          const offered = actionsFor(item, manifest);
-          // The suggested action, then Open and Later where the item offers them, as the item's own buttons do.
-          const keys = [
-            ...offered.filter(({ key }) => key === item.suggested),
-            offered.find(({ key, action }) => action.kind === 'link' && key !== item.suggested),
-            offered.find(({ key, action }) => action.kind === 'snooze' && key !== item.suggested),
-          ].flatMap((found) => (found ? [found.key] : []));
+          const keys = cardKeys(item, manifest);
           const buttons: ButtonLook = {
             suggested: `cb-display rounded px-2.5 text-base leading-6 ring-1 hover:brightness-105 disabled:opacity-50 ${toneChipClass(row.reason?.tone)}`,
             plain: ghost,
@@ -546,6 +554,150 @@ function NeedsYou({
   );
 }
 
+/** The plain buttons in the queue window, which keeps the page's own colours. */
+const queueGhost =
+  'cb-display rounded border border-(--prompt-border) px-2.5 text-base leading-6 text-(--prompt-muted) hover:bg-black/5 hover:text-(--prompt-ink) disabled:opacity-50 dark:hover:bg-white/10';
+
+/** The queue window's cards before "Show N more". */
+const QUEUE_SHOWN = 8;
+
+/**
+ * The user's own work, next in order (items whose reason is in the queue lane), under the Needs-you window. A neutral
+ * panel on purpose: nobody is waiting, and window blue means someone is (docs/THEME.md). Absent when nothing is queued.
+ */
+function YourQueue({
+  items,
+  look,
+  manifest,
+  now,
+  act,
+  perform,
+  strip = false,
+}: {
+  items: readonly BoardItem[];
+  look: Look;
+  manifest: ScoutManifest;
+  now: number;
+  act: ProjectsViewProps['act'];
+  perform: ProjectsViewProps['perform'];
+  /** Across the page (Tiles), its cards side by side, rather than down a column. */
+  strip?: boolean;
+}) {
+  const [all, setAll] = useState(false);
+  if (items.length === 0) return null;
+  const title = look.queue?.title ?? 'Your queue';
+  const shown = all ? items : items.slice(0, QUEUE_SHOWN);
+  const hidden = items.length - shown.length;
+  return (
+    <section
+      aria-label={title}
+      className="space-y-2 rounded-[10px] border border-(--prompt-border) bg-(--prompt-bg) p-3 text-(--prompt-ink)"
+    >
+      <div className="flex items-center gap-2">
+        <h2 className="cb-display flex items-center gap-2 text-[22px] leading-none">
+          <span className="text-(--prompt-muted)">
+            <Icon name="boardChecklist" size={20} />
+          </span>
+          {title}
+        </h2>
+        <span className="cb-display text-base text-(--prompt-muted)">{items.length}</span>
+      </div>
+      <div className={strip ? 'grid gap-2 md:grid-cols-2 lg:grid-cols-3' : 'space-y-2'}>
+        {shown.map((item) => {
+          const row = rowLook(item, look);
+          const { priority, due } = queueSlots(item, look);
+          const tone = projectTone(projectOf(item));
+          const keys = cardKeys(item, manifest);
+          const buttons: ButtonLook = {
+            suggested: `cb-display rounded px-2.5 text-base leading-6 ring-1 hover:brightness-105 disabled:opacity-50 ${toneChipClass(row.reason?.tone)}`,
+            plain: queueGhost,
+            row: 'mt-2 flex flex-wrap gap-1.5',
+          };
+          return (
+            <article
+              key={item.id}
+              className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 dark:border-neutral-800 dark:bg-neutral-950/60"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {row.reason && <ReasonChip look={row.reason} />}
+                  {priority !== undefined && (
+                    <span
+                      title={`Priority ${priority}`}
+                      className={`cb-display rounded px-1.5 text-sm leading-5 ring-1 ${toneChipClass(priorityTone(priority))}`}
+                    >
+                      {`P${priority}`}
+                    </span>
+                  )}
+                  {due !== undefined && (
+                    <span
+                      title={new Date(due).toLocaleDateString()}
+                      className={`whitespace-nowrap text-[11.5px] ${due < now ? 'font-bold text-red-700 dark:text-red-400' : 'text-(--prompt-muted)'}`}
+                    >
+                      {dueText(due, now)}
+                    </span>
+                  )}
+                </span>
+                <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-(--prompt-muted)">
+                  <span aria-hidden className={`h-2.5 w-2.5 shrink-0 rounded-[3px] ${PROJECT_CLASSES[tone].dot}`} />
+                  <span className="truncate">{projectOf(item)}</span>
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-start gap-2">
+                {row.kind && (
+                  <span
+                    className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded ring-1 ${toneChipClass(row.kind.tone)}`}
+                  >
+                    <LookIcon look={row.kind} size={14} inherit />
+                  </span>
+                )}
+                <div className="min-w-0">
+                  {item.url ? (
+                    <a
+                      data-title
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={titleNote(item)}
+                      className="font-bold hover:underline"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    <span data-title className="font-bold" title={titleNote(item)}>
+                      {item.title}
+                    </span>
+                  )}
+                  {item.summary && <p className="mt-0.5 text-[12.5px] text-(--prompt-muted)">{item.summary}</p>}
+                </div>
+              </div>
+              {keys.length > 0 && (
+                <ItemActions
+                  item={{ ...item, actions: keys }}
+                  manifest={manifest}
+                  now={now}
+                  act={act}
+                  perform={perform}
+                  look={buttons}
+                />
+              )}
+            </article>
+          );
+        })}
+      </div>
+      {items.length > QUEUE_SHOWN && (
+        <button
+          type="button"
+          onClick={() => setAll(hidden > 0)}
+          className="rounded text-xs text-sky-700 hover:underline dark:text-sky-400"
+        >
+          {hidden > 0 ? `Show ${hidden} more` : 'Show fewer'}
+        </button>
+      )}
+    </section>
+  );
+}
+
 /** A project's last two weeks: a bar a day, oldest first, in the project's colour, with the counts as its tooltip. */
 function ActivityStrip({ counts, tone }: { counts: readonly number[]; tone: ProjectSection['tone'] }) {
   const most = Math.max(0, ...counts);
@@ -591,7 +743,7 @@ function TileStat({ label, count, icon, tone }: ReturnType<typeof tileCounts>[nu
   );
 }
 
-/** A tile's rows: the first few items, what needs you first, as one line each. */
+/** A tile's rows: the first few items, what needs you first, then your queue, as one line each. */
 const TILE_ROWS = 4;
 
 /** A project's tile: its colour, counts and activity at a glance, its top items, and a way into its section. */
@@ -610,8 +762,8 @@ function ProjectTile({
   isMarked: (item: BoardItem) => boolean;
   onOpen: () => void;
 }) {
-  const needs = needsYou(section.items, look);
-  const top = [...needs, ...section.items.filter((item) => !needs.includes(item))].slice(0, TILE_ROWS);
+  const first = [...needsYou(section.items, look), ...yourQueue(section.items, look)];
+  const top = [...first, ...section.items.filter((item) => !first.includes(item))].slice(0, TILE_ROWS);
   const stats = tileCounts(section, manifest.summary);
   return (
     <article
@@ -726,8 +878,8 @@ export function LayoutSwitch({ mode, onMode }: { mode: BoardMode; onMode: (mode:
 }
 
 /**
- * The projects view. Projects: its sections in two thirds of the page, the Needs-you window in the last, sticky beside
- * them. Tiles: the Needs-you cards across the top, then a tile per project.
+ * The projects view. Projects: its sections in two thirds of the page, the Needs-you and queue windows in the last,
+ * sticky beside them. Tiles: the Needs-you cards and the queue across the top, then a tile per project.
  */
 export function ProjectsView({
   items,
@@ -752,6 +904,7 @@ export function ProjectsView({
   const cards = useRef(new Map<string, HTMLElement>());
   const sections = projectSections(items, look);
   const needs = needsYou(items, look);
+  const queue = yourQueue(items, look);
 
   useEffect(() => {
     if (opening === null || mode !== 'projects') return;
@@ -780,11 +933,15 @@ export function ProjectsView({
       {...(start ? { start } : {})}
     />
   );
+  const queueWindow = (strip: boolean) => (
+    <YourQueue items={queue} look={look} manifest={manifest} now={now} act={act} perform={perform} strip={strip} />
+  );
 
   if (mode === 'tiles') {
     return (
       <div className="space-y-4 px-3">
         {needsWindow(true)}
+        {queueWindow(true)}
         {sections.length === 0 ? (
           empty
         ) : (
@@ -852,7 +1009,10 @@ export function ProjectsView({
         {past}
       </div>
       <aside>
-        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">{needsWindow(false)}</div>
+        <div className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+          {needsWindow(false)}
+          {queueWindow(false)}
+        </div>
       </aside>
     </div>
   );
