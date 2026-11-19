@@ -177,7 +177,7 @@ export function actionTone(key: string, kind: string): ChipTone {
 export const TILE_TONES = ['blue', 'amber', 'violet', 'sky', 'teal', 'fuchsia', 'lime', 'rose', 'indigo'] as const;
 export type TileTone = (typeof TILE_TONES)[number];
 
-export const TILE_CLASSES: Record<TileTone, { border: string; value: string }> = {
+export const TILE_CLASSES: Record<TileTone | ChipTone, { border: string; value: string }> = {
   blue: { border: 'border-l-blue-500 dark:border-l-blue-400', value: 'text-blue-700 dark:text-blue-300' },
   amber: { border: 'border-l-amber-500 dark:border-l-amber-400', value: 'text-amber-700 dark:text-amber-300' },
   violet: { border: 'border-l-violet-500 dark:border-l-violet-400', value: 'text-violet-700 dark:text-violet-300' },
@@ -189,5 +189,23 @@ export const TILE_CLASSES: Record<TileTone, { border: string; value: string }> =
   },
   lime: { border: 'border-l-lime-500 dark:border-l-lime-400', value: 'text-lime-700 dark:text-lime-300' },
   rose: { border: 'border-l-rose-500 dark:border-l-rose-400', value: 'text-rose-700 dark:text-rose-300' },
+  slate: { border: 'border-l-slate-500 dark:border-l-slate-400', value: 'text-slate-700 dark:text-slate-300' },
+  red: { border: 'border-l-red-500 dark:border-l-red-400', value: 'text-red-700 dark:text-red-300' },
+  orange: { border: 'border-l-orange-500 dark:border-l-orange-400', value: 'text-orange-700 dark:text-orange-300' },
+  emerald: {
+    border: 'border-l-emerald-500 dark:border-l-emerald-400',
+    value: 'text-emerald-700 dark:text-emerald-300',
+  },
+  neutral: {
+    border: 'border-l-neutral-500 dark:border-l-neutral-400',
+    value: 'text-neutral-700 dark:text-neutral-300',
+  },
   indigo: { border: 'border-l-indigo-500 dark:border-l-indigo-400', value: 'text-indigo-700 dark:text-indigo-300' },
 };
+
+/** A banner tile's tone: the Scout's own when it names one we know, else the cycle by position. */
+export function tileTone(index: number, tone?: string): TileTone | ChipTone {
+  return tone !== undefined && Object.hasOwn(TILE_CLASSES, tone)
+    ? (tone as TileTone | ChipTone)
+    : TILE_TONES[index % TILE_TONES.length]!;
+}

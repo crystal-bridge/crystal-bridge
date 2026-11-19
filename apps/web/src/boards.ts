@@ -166,13 +166,15 @@ function suggestionFor(item: ScoutItem, manifest: ScoutManifest): { key: string;
 export function boardCounts(
   open: readonly ScoutItem[],
   manifest: ScoutManifest | undefined,
-): { open: number; suggested: number; declared: { label: string; count: number }[] } {
+): { open: number; suggested: number; declared: { label: string; count: number; icon?: string; tone?: string }[] } {
   return {
     open: open.length,
     suggested: manifest ? open.filter((item) => suggestionFor(item, manifest)).length : 0,
-    declared: (manifest?.summary ?? []).map(({ label, field: name }) => ({
+    declared: (manifest?.summary ?? []).map(({ label, field: name, icon, tone }) => ({
       label,
       count: open.filter((item) => isSet(field(item, name))).length,
+      ...(icon !== undefined ? { icon } : {}),
+      ...(tone !== undefined ? { tone } : {}),
     })),
   };
 }

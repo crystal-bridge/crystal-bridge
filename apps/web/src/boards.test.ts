@@ -462,3 +462,18 @@ describe('useBoard', () => {
     await waitFor(() => expect(result.current.missing).toBe(true));
   });
 });
+
+describe('boardCounts icons and tones', () => {
+  it('keeps icon and tone on declared entries', () => {
+    const m = {
+      summary: [
+        { label: 'Failing', field: 'x', icon: 'x-circle', tone: 'red' },
+        { label: 'Plain', field: 'x' },
+      ],
+    } as unknown as Parameters<typeof boardCounts>[1];
+    expect(boardCounts([], m).declared).toEqual([
+      { label: 'Failing', count: 0, icon: 'x-circle', tone: 'red' },
+      { label: 'Plain', count: 0 },
+    ]);
+  });
+});

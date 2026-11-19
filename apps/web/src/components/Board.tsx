@@ -20,8 +20,8 @@ import {
   tableColumns,
 } from '../boards.js';
 import { duration, goldText, shortWhen } from '../format.js';
-import { boardIcon } from '../theme/boardIcons.js';
-import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, TILE_TONES } from '../theme/boardTones.js';
+import { boardIcon, markIcon } from '../theme/boardIcons.js';
+import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, tileTone } from '../theme/boardTones.js';
 import { Icon } from '../theme/icons.js';
 import { hint, scoutReturnLine, w } from '../theme/words.js';
 import {
@@ -546,13 +546,18 @@ export function BoardPage({
   const icon = boardIcon(manifest?.icon);
   // Counsel has a place when something suggests: the synthesis step, or a collector that already has.
   const counsel = Boolean(manifest && (manifest.synthesize || counts.suggested > 0));
-  const tiles: { label: string; value: string; hint?: string }[] = [
+  const tiles: { label: string; value: string; hint?: string; icon?: string; tone?: string }[] = [
     { label: 'Open', value: String(counts.open) },
     { label: 'New', value: String(openItems.filter(isMarked).length), hint: 'new since anyone last looked' },
     ...(manifest?.synthesize || counts.suggested > 0
       ? [{ label: 'Suggested', value: String(counts.suggested), hint: 'items with a suggested action' }]
       : []),
-    ...counts.declared.map(({ label, count }) => ({ label, value: String(count) })),
+    ...counts.declared.map(({ label, count, icon, tone }) => ({
+      label,
+      value: String(count),
+      ...(icon !== undefined ? { icon } : {}),
+      ...(tone !== undefined ? { tone } : {}),
+    })),
     ...(manifest?.synthesize
       ? [
           {
@@ -793,23 +798,32 @@ export function BoardPage({
             </span>
           </div>
           <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
-            {tiles.map((tile, index) => (
-              <div
-                // A Scout's own label may match a built-in one.
-                key={index}
-                data-tile
-                data-tone={TILE_TONES[index % TILE_TONES.length]}
-                className={`rounded-md border border-l-4 border-neutral-200 bg-white/80 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950/80 ${TILE_CLASSES[TILE_TONES[index % TILE_TONES.length]!].border}`}
-                {...(tile.hint ? { title: tile.hint } : {})}
-              >
-                <dt className="text-xs text-neutral-500">{tile.label}</dt>
-                <dd
-                  className={`whitespace-nowrap text-lg font-semibold tabular-nums ${TILE_CLASSES[TILE_TONES[index % TILE_TONES.length]!].value}`}
+            {tiles.map((tile, index) => {
+              const tone = tileTone(index, tile.tone);
+              const mark = markIcon(tile.icon);
+              return (
+                <div
+                  // A Scout's own label may match a built-in one.
+                  key={index}
+                  data-tile
+                  data-tone={tone}
+                  className={`flex items-center gap-2 rounded-md border border-l-4 border-neutral-200 bg-white/80 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950/80 ${TILE_CLASSES[tone].border}`}
+                  {...(tile.hint ? { title: tile.hint } : {})}
                 >
-                  {tile.value}
-                </dd>
-              </div>
-            ))}
+                  {mark && (
+                    <span className={`shrink-0 ${TILE_CLASSES[tone].value}`}>
+                      <Icon name={mark} size={22} />
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <dt className="text-xs text-neutral-500">{tile.label}</dt>
+                    <dd className={`whitespace-nowrap text-lg font-semibold tabular-nums ${TILE_CLASSES[tone].value}`}>
+                      {tile.value}
+                    </dd>
+                  </div>
+                </div>
+              );
+            })}
           </dl>
           {scout?.paused && (
             <p role="alert" className="whitespace-pre-wrap text-sm text-amber-700 dark:text-amber-400">

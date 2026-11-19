@@ -611,6 +611,36 @@ describe('BoardPage', () => {
       expect(tones[0]).toBe('blue');
     });
 
+    describe('banner tiles', () => {
+      const tilesFor = (summary: ScoutManifest['summary']) => {
+        show({
+          scout: mailScout({ manifest: { ...mail, summary } }),
+          items: [item({ state: 'seen', fields: { checks: true } })],
+        });
+        const banner = screen.getByRole('region', { name: 'Summary' });
+        return (label: string) => within(banner).getByText(label, { selector: 'dt' }).closest('[data-tile]')!;
+      };
+
+      it("draws a summary entry's icon and tone", () => {
+        const tile = tilesFor([{ label: 'Failing', field: 'checks', icon: 'x-circle', tone: 'red' }]);
+        expect(tile('Failing').querySelector('svg')).not.toBeNull();
+        expect(tile('Failing').getAttribute('data-tone')).toBe('red');
+        expect(tile('Open').querySelector('svg')).toBeNull();
+      });
+
+      it('keeps the cycling tone and no icon for an entry without them', () => {
+        const tile = tilesFor([{ label: 'Failing', field: 'checks' }]);
+        expect(tile('Failing').querySelector('svg')).toBeNull();
+        expect(tile('Failing').getAttribute('data-tone')).toBe('sky');
+      });
+
+      it('draws no icon for an unknown name and cycles for an unknown tone', () => {
+        const tile = tilesFor([{ label: 'Failing', field: 'checks', icon: 'nope', tone: 'chartreuse' }]);
+        expect(tile('Failing').querySelector('svg')).toBeNull();
+        expect(tile('Failing').getAttribute('data-tone')).toBe('sky');
+      });
+    });
+
     it('says what fills the pane when nothing is suggested yet', () => {
       show({ scout: mailScout(), items: [item({ state: 'seen' })] });
       expect(within(screen.getByRole('region', { name: 'Counsel' })).getByText(/Run now asks Augury/)).toBeTruthy();
