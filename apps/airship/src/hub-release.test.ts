@@ -50,4 +50,31 @@ describe('latestReleaseChecker', () => {
     });
     expect((await check())?.url).toBe('https://github.com/crystal-bridge/crystal-bridge/releases/tag/v1.2.0');
   });
+
+  it('on edge, takes the newest release of all, pre-releases included, and skips drafts and non-versions', async () => {
+    const list = [
+      { tag_name: 'v0.6.0', html_url: 'https://example.invalid/0.6.0', body: '' },
+      { tag_name: 'v0.6.1-edge.3', html_url: 'https://example.invalid/e3', body: 'third', prerelease: true },
+      { tag_name: 'v0.6.1-edge.10', html_url: 'https://example.invalid/e10', body: 'tenth', prerelease: true },
+      { tag_name: 'v0.6.1-edge.11', draft: true },
+      { tag_name: 'nightly' },
+    ];
+    const fetchList = vi.fn(async (_url: string) => answer(list));
+    const check = latestReleaseChecker({ fetch: fetchList, now: () => 0, channel: () => 'edge' });
+    expect(await check()).toEqual({ version: '0.6.1-edge.10', url: 'https://example.invalid/e10', notes: 'tenth' });
+    expect(vi.mocked(fetchList).mock.calls[0]![0]).toBe(
+      'https://api.github.com/repos/crystal-bridge/crystal-bridge/releases?per_page=30',
+    );
+  });
+
+  it('asks again at once when the channel changes', async () => {
+    let channel: 'stable' | 'edge' = 'stable';
+    const fetchAny = vi.fn(async (url: string) =>
+      url.endsWith('/latest') ? answer(release) : answer([{ ...release, tag_name: 'v1.2.1-edge.1' }]),
+    );
+    const check = latestReleaseChecker({ fetch: fetchAny, now: () => 0, ttlMs: 60_000, channel: () => channel });
+    expect((await check())?.version).toBe('1.2.0');
+    channel = 'edge';
+    expect((await check())?.version).toBe('1.2.1-edge.1');
+  });
 });

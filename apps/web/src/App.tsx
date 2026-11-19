@@ -682,7 +682,7 @@ export function App({ hub }: { hub: HubClient }) {
     }
   }, []);
 
-  const changeKingdomUpdates = async (method: string, url: string, body?: unknown): Promise<void> => {
+  const changeHub = async (method: string, url: string, body?: unknown): Promise<void> => {
     await fetch(url, {
       method,
       ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
@@ -1313,10 +1313,16 @@ export function App({ hub }: { hub: HubClient }) {
                   return { id, name, connected, release: row?.release, selfUpdate: row?.selfUpdate };
                 })}
                 onKingdomUpdates={(mode) => {
-                  void changeKingdomUpdates('PUT', '/api/hub/kingdom-updates', { mode });
+                  void changeHub('PUT', '/api/hub/kingdom-updates', { mode });
                 }}
                 onApproveKingdomUpdate={() => {
-                  void changeKingdomUpdates('POST', '/api/hub/kingdom-updates/approve');
+                  void changeHub('POST', '/api/hub/kingdom-updates/approve');
+                }}
+                onInstallUpdate={(version) => {
+                  void changeHub('POST', '/api/hub/update', { version });
+                }}
+                onReleaseChannel={(channel) => {
+                  void changeHub('PUT', '/api/hub/channel', { channel });
                 }}
                 onNewQuest={(node) => {
                   selectKingdom(node);

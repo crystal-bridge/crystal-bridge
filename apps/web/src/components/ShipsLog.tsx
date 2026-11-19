@@ -15,6 +15,10 @@ export interface HubStatus {
   lastMirrorAt?: number;
   /** A newer release than this hub runs, when the hub checks. */
   update?: { version: string; url: string; notes: string };
+  /** Which releases the hub follows: full releases, or every build of `main` too. */
+  channel?: ReleaseChannel;
+  /** Present when an updater runs beside the hub, so Install updates works; with how the last install went. */
+  install?: { progress?: InstallProgress };
   /** How Kingdoms follow this hub; absent on one that names no version. */
   kingdomUpdates?: {
     mode: KingdomUpdateMode;
@@ -26,6 +30,19 @@ export interface HubStatus {
 }
 
 export type KingdomUpdateMode = 'auto' | 'approved';
+export type ReleaseChannel = 'stable' | 'edge';
+
+/** The updater's report on its last install (apps/airship/src/updater.ts). */
+export interface InstallProgress {
+  version: string;
+  state: 'installing' | 'restarting' | 'done' | 'failed';
+  from?: string;
+  reason?: string;
+  at: number;
+}
+
+/** How long "Updated from" stays after an install. */
+const UPDATED_SHOWN_MS = 86_400_000;
 
 /** The mirror runs nightly, so this long without one means it stopped. */
 const MIRROR_STALE_MS = 2 * 86_400_000;
@@ -73,8 +90,21 @@ function KingdomUpdates({
   );
 }
 
-/** How to take an update: a hub can't replace itself, because something outside it runs it (`docs/OPERATIONS.md`). */
-function TakeUpdate({ update }: { update: NonNullable<HubStatus['update']> }) {
+/**
+ * How to take an update. With an updater beside the hub, one press: it installs the hub, then Kingdoms that wait for
+ * approval follow it. Without one, something outside the hub runs it, so the Log says how (`docs/OPERATIONS.md`).
+ */
+function TakeUpdate({
+  update,
+  install,
+  onInstall,
+}: {
+  update: NonNullable<HubStatus['update']>;
+  install: HubStatus['install'];
+  onInstall: ((version: string) => void) | undefined;
+}) {
+  const progress = install?.progress?.version === update.version ? install.progress : undefined;
+  const busy = progress?.state === 'installing' || progress?.state === 'restarting';
   return (
     <div className="space-y-1">
       <p className="font-medium">
@@ -86,15 +116,39 @@ function TakeUpdate({ update }: { update: NonNullable<HubStatus['update']> }) {
       {update.notes && (
         <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-neutral-500">{update.notes}</p>
       )}
-      <p className="text-xs">A hub is updated from outside it, and its Kingdoms follow:</p>
-      <ul className="space-y-0.5 text-xs">
-        <li>
-          Container: pull <code className="font-mono">{hubImage(update.version)}</code> and recreate it.
-        </li>
-        <li>
-          Deploy script: <code className="font-mono">scripts/deploy-airship-package.sh hub-host {update.version}</code>
-        </li>
-      </ul>
+      {install && onInstall ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onInstall(update.version)}
+            title={`Installs ${update.version} on the hub, which restarts; ${w('kingdoms')} waiting for approval follow it, each once it's idle`}
+            className="rounded bg-blue-600 px-2 py-1 font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            Install updates
+          </button>
+          {progress?.state === 'installing' && <span>{`Installing ${update.version}…`}</span>}
+          {progress?.state === 'restarting' && <span>{`Restarting on ${update.version}…`}</span>}
+          {progress?.state === 'failed' && (
+            <span role="alert" className="text-amber-700 dark:text-amber-400">
+              {`${update.version} didn't install: ${progress.reason ?? 'no reason given'}`}
+            </span>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="text-xs">A hub is updated from outside it, and its Kingdoms follow:</p>
+          <ul className="space-y-0.5 text-xs">
+            <li>
+              Container: pull <code className="font-mono">{hubImage(update.version)}</code> and recreate it.
+            </li>
+            <li>
+              Deploy script:{' '}
+              <code className="font-mono">scripts/deploy-airship-package.sh hub-host {update.version}</code>
+            </li>
+          </ul>
+        </>
+      )}
     </div>
   );
 }
@@ -109,6 +163,8 @@ export function ShipsLog({
   now = Date.now(),
   onChoice,
   onApprove,
+  onInstall,
+  onChannel,
 }: {
   /** Absent until the hub has answered. */
   status?: HubStatus | undefined;
@@ -116,8 +172,14 @@ export function ShipsLog({
   now?: number;
   onChoice?: ((mode: KingdomUpdateMode) => void) | undefined;
   onApprove?: (() => void) | undefined;
+  /** Asks the hub's updater for this release. */
+  onInstall?: ((version: string) => void) | undefined;
+  onChannel?: ((channel: ReleaseChannel) => void) | undefined;
 }) {
   if (!status) return null;
+  const done = status.install?.progress;
+  const updated =
+    done?.state === 'done' && done.version === status.release && now - done.at < UPDATED_SHOWN_MS ? done : undefined;
   const lines = fleet.map((row) => ({ row, line: fleetLine(row, status.release) }));
   const flagged = lines.filter(({ line }) => line.attention).length;
   const mirrorStale = status.lastMirrorAt !== undefined && now - status.lastMirrorAt > MIRROR_STALE_MS;
@@ -135,7 +197,10 @@ export function ShipsLog({
           {releaseLabel(status.release)} · {summary}
         </p>
       </div>
-      {status.update && <TakeUpdate update={status.update} />}
+      {updated?.from && (
+        <p className="text-xs text-neutral-500">{`Updated from ${updated.from} ${ago(updated.at, now)} ago`}</p>
+      )}
+      {status.update && <TakeUpdate update={status.update} install={status.install} onInstall={onInstall} />}
       {status.kingdomUpdates?.offered && onApprove && (
         <KingdomUpdates updates={status.kingdomUpdates} onApprove={onApprove} />
       )}
@@ -153,6 +218,21 @@ export function ShipsLog({
               </span>
             )}
           </p>
+          {status.channel && onChannel && (
+            <label className="flex items-center gap-1">
+              Releases
+              <select
+                aria-label="Releases"
+                value={status.channel}
+                onChange={(event) => onChannel(event.target.value as ReleaseChannel)}
+                title="Edge follows main: every merge, as soon as it's built and attested"
+                className="cb-field py-0.5"
+              >
+                <option value="stable">Full releases</option>
+                <option value="edge">Every build of main (edge)</option>
+              </select>
+            </label>
+          )}
           {status.kingdomUpdates && onChoice && <KingdomUpdates updates={status.kingdomUpdates} onChoice={onChoice} />}
           {lines.length > 0 && (
             <ul>

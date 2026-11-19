@@ -38,6 +38,15 @@ importers:
       '@fastify/websocket':
         specifier: ^11.3.4
         version: 11.3.4
+      '@sigstore/bundle':
+        specifier: ^5.0.0
+        version: 5.0.0
+      '@sigstore/tuf':
+        specifier: ^5.0.0
+        version: 5.0.0(supports-color@10.2.2)
+      '@sigstore/verify':
+        specifier: ^4.1.2
+        version: 4.1.2
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3
@@ -54,6 +63,9 @@ importers:
       '@crystal-bridge/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@crystal-bridge/release':
+        specifier: workspace:*
+        version: link:../../packages/release
       '@types/better-sqlite3':
         specifier: ^9.6.0
         version: 9.6.0

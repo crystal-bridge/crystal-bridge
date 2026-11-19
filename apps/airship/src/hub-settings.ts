@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { ReleaseVersion } from '@crystal-bridge/protocol';
 import { z } from 'zod';
+import type { ReleaseChannel } from './hub-release.js';
 
 const MAX_NAME = 40;
 
@@ -11,6 +12,13 @@ export interface HubSettings {
   setName(name: string | undefined): void;
   kingdomUpdates(): KingdomUpdates;
   setKingdomUpdates(choice: KingdomUpdates): void;
+  /** Full releases only (`stable`), or every edge build of `main` too. */
+  channel(): ReleaseChannel;
+  setChannel(channel: ReleaseChannel): void;
+  /** Install updates asked to approve Kingdoms to this version once the hub runs it (`takeKingdomApproval`). */
+  setKingdomApprovalAfter(version: string): void;
+  /** Whether that's due now that the hub runs `version`; true once, then forgotten. */
+  takeKingdomApproval(version: string): boolean;
 }
 
 /**
@@ -23,7 +31,12 @@ export const KingdomUpdates = z.object({
 });
 export type KingdomUpdates = z.infer<typeof KingdomUpdates>;
 
-const SettingsFile = z.object({ name: z.string().optional(), kingdomUpdates: KingdomUpdates.optional() });
+const SettingsFile = z.object({
+  name: z.string().optional(),
+  kingdomUpdates: KingdomUpdates.optional(),
+  channel: z.enum(['stable', 'edge']).optional(),
+  approveKingdomsAfter: ReleaseVersion.optional(),
+});
 type SettingsFile = z.infer<typeof SettingsFile>;
 
 /** A name ready to store, '' for none, or undefined for one that can't be shown. */
@@ -49,6 +62,19 @@ export function loadHubSettings(path: string): HubSettings {
     kingdomUpdates: () => read().kingdomUpdates ?? { mode: 'auto' },
     setKingdomUpdates(kingdomUpdates) {
       write({ ...read(), kingdomUpdates });
+    },
+    channel: () => read().channel ?? 'stable',
+    setChannel(channel) {
+      write({ ...read(), channel });
+    },
+    setKingdomApprovalAfter(approveKingdomsAfter) {
+      write({ ...read(), approveKingdomsAfter });
+    },
+    takeKingdomApproval(version) {
+      const { approveKingdomsAfter, ...rest } = read();
+      if (approveKingdomsAfter !== version) return false;
+      write(rest);
+      return true;
     },
   };
 }

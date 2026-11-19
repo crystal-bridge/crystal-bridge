@@ -56,6 +56,7 @@ import {
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
 import type { LatestRelease } from './hub-release.js';
+import type { UpdateStatus } from './updater.js';
 import { cleanHubName, type HubSettings } from './hub-settings.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
@@ -98,6 +99,11 @@ export interface BuildServerOptions {
   latestCli?: () => Promise<string | undefined>;
   /** Finds this project's latest release, for the Ship's Log. Unset: the hub doesn't check. */
   latestRelease?: () => Promise<LatestRelease | undefined>;
+  /**
+   * The hub's updater, when one runs beside it (a packaged hub under systemd, docs/OPERATIONS.md): `request` names the
+   * release to install, and `status` says how the last one went. Without it the Ship's Log says how to update by hand.
+   */
+  hubUpdates?: { request: (version: string) => void; status: () => UpdateStatus | undefined };
   /** What this hub can say about its database and backups, for the Ship's Log. */
   upkeep?: () => { databaseBytes?: number; lastBackupAt?: number; lastMirrorAt?: number };
   /** How often relayed-byte counts are written to the store (default 30 s); they're also written on close. */
@@ -304,6 +310,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     release = 'dev',
     latestCli,
     latestRelease,
+    hubUpdates,
     upkeep,
     kingdomVersion,
     webRoot,
@@ -335,6 +342,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!kingdomVersion || choice?.mode !== 'approved' || !choice.approved) return kingdomVersion;
     return isOlderVersion(choice.approved, kingdomVersion) ? choice.approved : kingdomVersion;
   };
+  // Install updates asked for this release with Kingdoms waiting for approval: now it runs, approve them to it.
+  if (settings && kingdomVersion && settings.takeKingdomApproval(release)) {
+    if (settings.kingdomUpdates().mode === 'approved') {
+      settings.setKingdomUpdates({ mode: 'approved', approved: kingdomVersion });
+    }
+  }
   // Only on the doors anyone can knock at, by route. Not on the whole API: behind a proxy every request shares an address,
   // so a global limit would throttle the app's own polling.
   await app.register(rateLimit, { global: false });
@@ -941,6 +954,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       uptimeMs: Math.round(process.uptime() * 1000),
       ...upkeep?.(),
       ...(latest && isOlderVersion(release, latest.version) ? { update: latest } : {}),
+      ...(settings ? { channel: settings.channel() } : {}),
+      ...(hubUpdates ? { install: { ...(hubUpdates.status() ? { progress: hubUpdates.status() } : {}) } } : {}),
       ...(named
         ? {
             kingdomUpdates: {
@@ -953,6 +968,30 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     };
   });
   // Anyone logged in may do these: a login already has the run of every Kingdom, so there's no lesser role to protect.
+  app.put('/api/hub/channel', async (request, reply) => {
+    const { channel } = (request.body ?? {}) as { channel?: unknown };
+    if (!settings) return reply.code(409).send({ error: 'this hub keeps no settings' });
+    if (channel !== 'stable' && channel !== 'edge') {
+      return reply.code(400).send({ error: 'channel must be stable or edge' });
+    }
+    settings.setChannel(channel);
+    return reply.code(204).send();
+  });
+  // Install updates: the updater checks and installs the release itself, so the hub only passes on which one.
+  app.post('/api/hub/update', async (request, reply) => {
+    if (!hubUpdates) return reply.code(409).send({ error: 'this hub is updated from outside it' });
+    const { version } = (request.body ?? {}) as { version?: unknown };
+    const latest = await latestRelease?.();
+    if (!latest || version !== latest.version || !isOlderVersion(release, latest.version)) {
+      return reply.code(409).send({ error: 'that is not the update on offer' });
+    }
+    // Kingdoms waiting for approval move too, once the hub is up on the new release.
+    if (settings && kingdomVersion && settings.kingdomUpdates().mode === 'approved') {
+      settings.setKingdomApprovalAfter(latest.version);
+    }
+    hubUpdates.request(latest.version);
+    return reply.code(202).send();
+  });
   app.put('/api/hub/kingdom-updates', async (request, reply) => {
     if (!kingdomVersion || !settings) return reply.code(409).send({ error: 'this hub names no Kingdom version' });
     const { mode } = (request.body ?? {}) as { mode?: unknown };

@@ -37,6 +37,21 @@ describe('hub settings', () => {
     expect(loadHubSettings(path).kingdomUpdates()).toEqual({ mode: 'approved', approved: '1.2.0' });
   });
 
+  it('follows full releases until told to follow main, and keeps the choice', () => {
+    expect(loadHubSettings(path).channel()).toBe('stable');
+    loadHubSettings(path).setChannel('edge');
+    expect(loadHubSettings(path).channel()).toBe('edge');
+  });
+
+  it('remembers to approve Kingdoms once it runs the version it was updated to, once', () => {
+    const settings = loadHubSettings(path);
+    expect(settings.takeKingdomApproval('1.2.0')).toBe(false);
+    settings.setKingdomApprovalAfter('1.2.0');
+    expect(loadHubSettings(path).takeKingdomApproval('1.1.0')).toBe(false);
+    expect(loadHubSettings(path).takeKingdomApproval('1.2.0')).toBe(true);
+    expect(loadHubSettings(path).takeKingdomApproval('1.2.0')).toBe(false);
+  });
+
   it('keeps each setting when the other changes', () => {
     const settings = loadHubSettings(path);
     settings.setName('Home fleet');

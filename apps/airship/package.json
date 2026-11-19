@@ -35,6 +35,9 @@
     "@fastify/rate-limit": "^11.2.1",
     "@fastify/static": "^10.1.8",
     "@fastify/websocket": "^11.3.4",
+    "@sigstore/bundle": "^5.0.0",
+    "@sigstore/tuf": "^5.0.0",
+    "@sigstore/verify": "^4.1.2",
     "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.7",
     "web-push": "^3.6.7",
@@ -42,6 +45,7 @@
   },
   "devDependencies": {
     "@crystal-bridge/protocol": "workspace:*",
+    "@crystal-bridge/release": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.14.0",
     "@types/web-push": "^3.6.4",

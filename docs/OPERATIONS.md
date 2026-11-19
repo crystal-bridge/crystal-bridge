@@ -185,9 +185,34 @@ folder safely while the hub runs, keeping the newest `AIRSHIP_BACKUP_KEEP` (and 
 database and each backup are readable by their owner only (0600), whatever the umask, so a tool that reads them as another
 user needs to run as the hub's.
 
-Updating a packaged hub is a step outside the app, because a hub can't replace what's running it: pull the newer image
-and recreate the container, or start the newer tarball. A browser tab then offers to reload, and Kingdoms made by `join`
-follow on their own.
+Updating a container, or a tarball you start yourself, is a step outside the app: pull the newer image and recreate the
+container, or start the newer tarball. A browser tab then offers to reload, and Kingdoms made by `join` follow on their
+own. A hub put on a host by `deploy-airship-package.sh` can update from the app instead.
+
+### Updating the hub from the app
+
+A hub installed by `deploy-airship-package.sh` gets an updater beside it, and the Ship's Log offers **Install updates**
+when a newer release is out; the logo's badge counts it. One press:
+
+1. The hub writes the release it wants to `/var/lib/airship/update-request.json`. That's all it can do: it runs as its
+   own user and can't write the code it runs.
+2. `airship-update.path` sees the file change and starts `airship-update.service`, which runs as root and may write only
+   `/opt/crystal-bridge` and `/var/lib/airship`. It refuses a release that isn't newer, downloads the hub's tarball,
+   checks its build provenance as a Kingdom does ([the security model](./SECURITY-MODEL.md)), installs it beside the
+   running one, checks it starts as the `airship` user and says it's that version, then swaps `current` and restarts
+   the hub.
+3. If the hub doesn't come back saying it runs the new release within a minute, the updater swaps back and restarts the
+   old one. The Ship's Log shows each step and why one failed.
+4. Once the hub runs the new release, Kingdoms set to **When approved** are approved to it, so they follow, each once
+   it's idle.
+
+**Releases** in the Ship's Log's details picks what counts as an update: full releases (the default), or every build
+of `main` (edge, see [Releases](#releases)), for a hub that tracks development.
+
+The updater swaps the hub's code, not its systemd units or `push-backups.sh`. A release that changes those says so in
+its notes, and goes on by `deploy-airship-package.sh` as before. A hub moved onto packages before the updater existed
+gets it with its next `deploy-airship-package.sh`. Going back is still `deploy-airship-package.sh` with the older
+version, since the updater only moves forward.
 
 ## The Ship's Log
 

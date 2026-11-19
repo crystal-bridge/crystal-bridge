@@ -25,7 +25,8 @@ echo "deploy: $name is this project's build of v$version"
 
 cb_package_unit deploy/airship/airship.service >"$work/airship.service"
 cb_package_unit deploy/airship/airship-backup.service >"$work/airship-backup.service"
-cp deploy/airship/airship-backup.timer deploy/airship/push-backups.sh "$work/"
+cp deploy/airship/airship-backup.timer deploy/airship/airship-update.service deploy/airship/airship-update.path \
+  deploy/airship/push-backups.sh "$work/"
 
 stage=$(ssh "$host" mktemp -d)
 tar -C "$work" -cf - . | ssh "$host" tar -xf - -C "$stage"
@@ -78,6 +79,10 @@ for _ in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${port:-7700}/api/health" 2>/dev/null | grep -q "\"release\":\"$version\""; then
     # Keep the three newest releases.
     ls -1dt /opt/crystal-bridge/releases/* | tail -n +4 | xargs -r sudo rm -rf
+    # The hub's updater, once this hub is up, so the next update can come from the app (docs/OPERATIONS.md).
+    sudo install -m 0644 "$stage/airship-update.service" "$stage/airship-update.path" "$units/"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now airship-update.path
     echo "deploy: $version is live"
     exit 0
   fi

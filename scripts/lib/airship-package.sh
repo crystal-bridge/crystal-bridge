@@ -9,5 +9,11 @@ cb_package_unit() {
     -e "s|^ExecStart=.*backup-cli.*|ExecStart=$bin backup|" \
     -e "s|^ExecStart=.*main\.ts.*|ExecStart=$bin|" \
     -e 's|^ExecStartPost=.*|ExecStartPost=/opt/crystal-bridge/current/push-backups.sh|' \
-    "$1"
+    "$1" |
+    # The hub itself, not its backup: where it asks airship-update.service for a release.
+    awk -v unit="$(basename "$1")" '
+      { print }
+      unit == "airship.service" && /^EnvironmentFile=/ {
+        print "Environment=AIRSHIP_UPDATE_REQUEST=/var/lib/airship/update-request.json"
+      }'
 }
