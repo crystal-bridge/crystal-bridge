@@ -46,21 +46,23 @@ An item gets one of these reasons. Its card in the Needs-you window, or in Your 
 | Reply owed        | Someone else has the last word on your pull request, or on your issue.       | Answer, or Triage |
 | Ready to merge    | GitHub would merge your pull request now. Drafts never are.                  | Merge (a link)    |
 | Assigned to you   | Someone else opened an issue and it is assigned to you; no reply is owed.     | Triage            |
-| Up next           | You opened an issue and assigned it to yourself; no reply is owed.           | none (Your queue) |
+| Up next           | You opened an issue and assigned it to yourself; no reply is owed.           | Triage (Your queue, not suggested) |
 
 Other items in a repository you maintain have no reason. They show in their section but not in either window.
 
-**Your queue** holds the Up next issues: your own work, which nobody is waiting on, so it stays out of Needs you and
-offers Triage without suggesting it. It lists them by priority, then by due date, then oldest first. The priority
-comes from a label `P0` to `P3` (`P0` first; `priority: 1` and `priority/2` work too) and the due date from the
-issue's milestone, whose title also shows on the card. Relabelling an issue's priority brings it back as new; moving
-its milestone doesn't.
+**Your queue** holds the Up next issues: issues you opened and assigned to yourself. That is your own work, which nobody
+is waiting on, so it stays out of Needs you. An issue someone else opened and assigned to you is "Assigned to you" and
+goes in Needs you. A queue card offers Triage as its first button, Open and Later; Triage isn't suggested, since nothing
+is waiting. The queue lists the cards by priority, then by due date, then oldest first. The priority comes from a `P0`
+to `P3` style label (any `P<digit>` works, and the lowest number comes first; `priority: 1` and `priority/2` work too).
+The due date is the issue's milestone due day, shown as "due today", "due in 3d" or "overdue 2d" by calendar day, and
+the milestone's title shows on the card. Changing an issue's priority or moving its milestone reorders the queue
+without marking the issue new.
 
 Who has the last word counts people only: comments, reviews and pushes by bots are left out, and so is an approval,
 which asks nothing of you. A reply from someone without write access is listed, and Answer the review stays on the
 row, but it isn't suggested, since anyone can comment on a public pull request. An item comes back as new when its
-reason changes, when someone else acts on it, when your pull request's failing checks change, or when its priority
-label changes. Edits, other labels and bot comments in a busy repository don't bring it back.
+reason changes, or when someone else acts on it, or when your pull request's failing checks change. Edits, priority and other labels, a moved milestone and bot comments in a busy repository don't bring it back.
 
 ## Buttons
 
