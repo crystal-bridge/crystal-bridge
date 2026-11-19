@@ -463,6 +463,21 @@ describe('startNode', () => {
       expect(scouts.quest.mock.calls[0]![0]).toMatchObject({ kind: 'scout-quest', prompt: 'Work through these.' });
     });
 
+    it('answers a Quest from Board items that failed, with why', async () => {
+      const scouts = { ...fakeScouts(), quest: vi.fn(async () => Promise.reject(new Error('disk full'))) };
+      createNode({ scouts });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const requestId = randomUUID();
+      conn.socket.send(JSON.stringify({ kind: 'scout-quest', requestId, scout: 'quest-board', items, prompt: 'Go.' }));
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toEqual({
+        kind: 'scout-acted',
+        requestId,
+        ok: false,
+        reason: 'the action failed: disk full',
+      });
+    });
+
     it('tells the hub its Scouts and their latest runs on each connect, so a run finished offline arrives', async () => {
       createNode({ scouts: fakeScouts() });
       const conn = await nextConnection(harness, 0);

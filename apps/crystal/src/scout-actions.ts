@@ -76,6 +76,11 @@ export function questPromptForItems(instructions: string, scoutName: string, ite
 export function projectFor(template: string, item: ScoutItem, home: string): { cwd: string } | { reason: string } {
   const filled = fill(template, item);
   if (filled === undefined || filled.trim() === '') return { reason: 'the item has no value for the project folder' };
+  return checkedFolder(filled, home);
+}
+
+/** A folder path as written, or why it can't be used: a full path or `~/`, no climbing, and a folder that exists. */
+export function checkedFolder(filled: string, home: string): { cwd: string } | { reason: string } {
   // Checked on the text as filled: `join` would quietly resolve a `..` away.
   if (filled.includes('\0') || filled.split(/[\\/]/).includes('..')) {
     return { reason: `the project folder may not climb with ..: ${filled}` };

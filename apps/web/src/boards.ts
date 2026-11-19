@@ -436,7 +436,6 @@ export async function runScoutNow(node: string, scout: string): Promise<void> {
   if (!response.ok) throw await refusal(response);
 }
 
-/** Has the Kingdom carry out a `quest` or `run` action on items. A Quest's id comes back, to open it. */
 /** Starts one Quest over Board items with the user's own prompt; the Kingdom adds the items as untrusted data. */
 export async function startBoardQuest(node: string, scout: string, ask: BoardQuest): Promise<{ session?: string }> {
   let response: Response;
@@ -453,6 +452,7 @@ export async function startBoardQuest(node: string, scout: string, ask: BoardQue
   return (await response.json()) as { session?: string };
 }
 
+/** Has the Kingdom carry out a `quest` or `run` action on items. A Quest's id comes back, to open it. */
 export async function actOnItems(
   node: string,
   scout: string,

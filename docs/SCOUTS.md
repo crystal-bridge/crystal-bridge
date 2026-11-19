@@ -194,11 +194,13 @@ Boards and their tabs show on wide screens only for now.
 - **Counsel**, beside the list on wide screens and above it on narrower ones: the items with a suggested action,
   gathered under each action, best rank first, each with its summary and that action's button, and "Archive all 4"
   where the action takes several items.
-- **A Quest you write**, from Counsel: "Quest on all 7" at its top, or Quest beside one suggestion, opens a composer
-  with the items as chips you can leave out, a prompt to edit, the folder (the Scout's first `quest` action's when it's
-  a plain path, else `~`) and the permission mode. Start asks the Kingdom, which starts one Quest the way a `quest`
-  action does: your prompt first, then every item as data in an `<untrusted-items>` block. A Kingdom older than this
-  is refused with "update this Kingdom first".
+- **A Quest you write**, from Counsel: "Quest on all 7" at its top (the best 50 when there are more, the most one
+  Quest takes), or Quest beside one suggestion, opens a composer with the items as chips you can leave out, a prompt to
+  edit, the folder and the permission mode. Both start from the Scout's first `quest` action with a plain folder, else
+  `~` and this device's mode. The folder is used as typed, never filled from an item. Start asks the Kingdom, which
+  starts one Quest the way a `quest` action does: your prompt first, then every item as data in an `<untrusted-items>`
+  block. An item that leaves the Board meanwhile drops out. A Kingdom older than this is refused with "update this
+  Kingdom first".
 - **The buttons** each item offers. A `link` opens its filled address in a new tab, and only a web address once
   filled. A `snooze`, `done` or `dismiss` changes the item's state on every open Board. A `quest` or `run` goes to the
   Kingdom, and its button stays disabled until the Kingdom answers. A Quest it starts opens, and a refusal shows why.

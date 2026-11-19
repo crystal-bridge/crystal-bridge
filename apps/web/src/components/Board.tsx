@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { MAX_QUEST_ITEMS, MAX_QUEST_PROMPT } from '@crystal-bridge/protocol';
 import type {
   Board,
   BoardQuest,
@@ -463,13 +464,12 @@ function MailRow({
   );
 }
 
-/** The folder a Quest from the Board starts in: the Scout's first `quest` action's, when it's a plain path, else home. */
-function defaultProject(manifest: ScoutManifest): string {
-  const quest = Object.values(manifest.actions).find(
+/** The Scout's first `quest` action with a plain folder: a Quest written on the Board starts in its folder and mode. */
+function plainQuest(manifest: ScoutManifest): Extract<ScoutAction, { kind: 'quest' }> | undefined {
+  return Object.values(manifest.actions).find(
     (action): action is Extract<ScoutAction, { kind: 'quest' }> =>
       action.kind === 'quest' && !action.project.includes('{{'),
   );
-  return quest?.project ?? '~';
 }
 
 /** The opening words, which the user edits: what to do with the items, which follow as data. */
@@ -485,26 +485,34 @@ function defaultPrompt(count: number): string {
  */
 function QuestComposer({
   items,
+  open,
   manifest,
   start,
   onClose,
 }: {
   items: readonly BoardItem[];
+  /** The Board's open items now. */
+  open: readonly BoardItem[];
   manifest: ScoutManifest;
   start: (ask: BoardQuest) => Promise<void>;
   onClose: () => void;
 }) {
   const [chosen, setChosen] = useState<readonly BoardItem[]>(items);
   const [prompt, setPrompt] = useState(() => defaultPrompt(items.length));
-  const [project, setProject] = useState(() => defaultProject(manifest));
-  const [mode, setMode] = useState<PermissionMode>(() => loadDefaultMode());
+  const [project, setProject] = useState(() => plainQuest(manifest)?.project ?? '~');
+  const [mode, setMode] = useState<PermissionMode>(() => plainQuest(manifest)?.mode ?? loadDefaultMode());
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => promptRef.current?.focus(), []);
+  // An item that left the open list (done elsewhere, gone) leaves the Quest too, so Start never asks for it.
+  const openIds = new Set(open.map((item) => item.id));
+  const shown = chosen.filter((item) => openIds.has(item.id));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const go = async () => {
     setBusy(true);
     setError(null);
     try {
-      await start({ ids: chosen.map((item) => item.id), prompt, project: project.trim() || '~', mode });
+      await start({ ids: shown.map((item) => item.id), prompt, project: project.trim() || '~', mode });
       onClose();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -519,10 +527,13 @@ function QuestComposer({
         event.preventDefault();
         void go();
       }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose();
+      }}
       className="space-y-2 rounded-md border border-blue-300 bg-blue-50/50 p-2.5 dark:border-blue-800 dark:bg-blue-950/30"
     >
       <ul aria-label="Items it works on" className="flex flex-wrap gap-1">
-        {chosen.map((item) => (
+        {shown.map((item) => (
           <li
             key={item.id}
             className="flex max-w-full items-center gap-1 rounded-full bg-white py-0.5 pl-2 pr-1 text-xs ring-1 ring-neutral-200 dark:bg-neutral-900 dark:ring-neutral-700"
@@ -542,7 +553,9 @@ function QuestComposer({
       <label className="block text-xs text-neutral-500">
         Prompt
         <textarea
+          ref={promptRef}
           value={prompt}
+          maxLength={MAX_QUEST_PROMPT}
           onChange={(event) => setPrompt(event.target.value)}
           rows={4}
           className="mt-0.5 block w-full rounded border border-neutral-300 bg-white p-1.5 text-sm text-neutral-950 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
@@ -580,11 +593,7 @@ function QuestComposer({
         <button type="button" onClick={onClose} className={button}>
           Cancel
         </button>
-        <button
-          type="submit"
-          disabled={busy || chosen.length === 0 || prompt.trim() === ''}
-          className={suggestedButton}
-        >
+        <button type="submit" disabled={busy || shown.length === 0 || prompt.trim() === ''} className={suggestedButton}>
           {busy ? 'Starting…' : `Start ${w('quest')}`}
         </button>
       </div>
@@ -614,7 +623,12 @@ function Counsel({
 }) {
   const groups = recommendations(open, manifest);
   const [composing, setComposing] = useState<BoardItem[] | null>(null);
-  const suggested = groups.flatMap((group) => group.items);
+  // Best first, as many as one Quest holds.
+  const suggested = groups
+    .flatMap((group) => group.items)
+    .sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
+  const best = suggested.slice(0, MAX_QUEST_ITEMS);
+  const allLabel = suggested.length > MAX_QUEST_ITEMS ? `the best ${MAX_QUEST_ITEMS}` : `all ${suggested.length}`;
   return (
     <section
       aria-label={w('counsel')}
@@ -627,12 +641,12 @@ function Counsel({
         {start && suggested.length > 0 && !composing && (
           <button
             type="button"
-            aria-label={`Start a ${w('quest')} on all ${suggested.length}`}
-            title={`Write a ${w('quest')} that works through every suggestion here`}
-            onClick={() => setComposing(suggested)}
+            aria-label={`Start a ${w('quest')} on ${allLabel}`}
+            title={`Write a ${w('quest')} that works through the suggestions here, best first, up to ${MAX_QUEST_ITEMS}`}
+            onClick={() => setComposing(best)}
             className={suggestedButton}
           >
-            {`${w('quest')} on all ${suggested.length}`}
+            {`${w('quest')} on ${allLabel}`}
           </button>
         )}
       </div>
@@ -640,6 +654,7 @@ function Counsel({
         <QuestComposer
           key={composing.map((item) => item.id).join(' ')}
           items={composing}
+          open={open}
           manifest={manifest}
           start={start}
           onClose={() => setComposing(null)}
@@ -697,6 +712,8 @@ function Counsel({
                       type="button"
                       aria-label={`Start a ${w('quest')} on ${item.title}`}
                       title={`Write a ${w('quest')} about this item`}
+                      // A draft open above stays until it's started or cancelled.
+                      disabled={composing !== null}
                       onClick={() => setComposing([item])}
                       className={button}
                     >

@@ -1039,6 +1039,18 @@ describe('Scouts', () => {
         expect(started[0]).toMatchObject({ cwd: home, from: { title: 'Fix the retry loop' } });
       });
 
+      it('takes the folder as typed, never filled from item text', async () => {
+        const answer = await scouts!.quest(ask({ project: '~/code/{{title}}' }), startQuest);
+        expect(answer).toEqual({ ok: false, reason: 'no such project folder: ~/code/{{title}}' });
+        expect(started).toEqual([]);
+      });
+
+      it('keeps the link-s title within its limit when the first title is long', async () => {
+        await scouts!.quest(ask({ items: [{ ...pr, title: 'x'.repeat(500) }, other] }), startQuest);
+        expect(started[0]!.from.title).toHaveLength(480 + ' and 1 more'.length);
+        expect(started[0]!.from.title.length).toBeLessThanOrEqual(500);
+      });
+
       it('refuses a folder that climbs or is missing, and a Scout that does not load', async () => {
         expect(await scouts!.quest(ask({ project: '~/code/../..' }), startQuest)).toMatchObject({ ok: false });
         expect(await scouts!.quest(ask({ project: '~/nowhere' }), startQuest)).toMatchObject({ ok: false });

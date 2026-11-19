@@ -20,7 +20,7 @@ import {
   type ScoutRun,
 } from '@crystal-bridge/protocol';
 import { resolveClaudeBin } from './claude-bin.js';
-import { projectFor, questPrompt, questPromptForItems } from './scout-actions.js';
+import { checkedFolder, projectFor, questPrompt, questPromptForItems } from './scout-actions.js';
 import {
   DEFAULT_SYNTHESIS_BUDGET_USD,
   applySynthesis,
@@ -741,8 +741,8 @@ export function createScouts(options: ScoutsOptions): Scouts {
     const manifest = entry?.manifest;
     if (!entry || !manifest) return { ok: false, reason: `this Kingdom has no Scout ${request.scout} that loads` };
     const first = request.items[0]!;
-    // The user's folder, checked as a filled `project` is: a full path or ~/, no climbing, and there.
-    const project = projectFor(request.project ?? '~', first, home);
+    // The folder as the user typed it, checked as a filled `project` is, but never filled: item text can't pick it.
+    const project = checkedFolder(request.project ?? '~', home);
     if ('reason' in project) return { ok: false, reason: project.reason };
     const more = request.items.length - 1;
     return startQuest({
