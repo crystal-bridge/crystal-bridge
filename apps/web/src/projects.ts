@@ -23,8 +23,6 @@ export interface ProjectSection<T extends ScoutItem = BoardItem> {
   items: T[];
   /** Items with a listed reason in the Needs-you lane. */
   needs: number;
-  /** Items with a listed reason in the queue lane. */
-  queued: number;
   /** Newest `when`, in ms. */
   latest?: number;
 }
@@ -107,7 +105,6 @@ export function projectSections<T extends ScoutItem>(items: readonly T[], look: 
       tone: projectTone(name),
       items: ordered.map((row) => row.item),
       needs: list.filter((item) => needsYouFor(item, look)).length,
-      queued: list.filter((item) => queuedFor(item, look)).length,
     };
     const url = list.find((item) => item.project?.url !== undefined)?.project?.url;
     const description = list.find((item) => item.project?.description !== undefined)?.project?.description;
@@ -182,7 +179,7 @@ export function needsYou<T extends ScoutItem>(items: readonly T[], look: Look): 
 
 /** What the queue window orders an item by: its priority (lower first) and due time in ms, from the queue's fields. */
 export function queueSlots(item: ScoutItem, look: Look): { priority?: number; due?: number } {
-  return { priority: count(item, look?.queue?.priority), due: asTime(field(item, look?.queue?.due)) };
+  return { priority: count(item, look?.queue?.priority), due: dayOf(field(item, look?.queue?.due)) };
 }
 
 /** Lowest first; missing after present; 0 for a tie. */
@@ -203,11 +200,38 @@ export function yourQueue<T extends ScoutItem>(items: readonly T[], look: Look):
     .map(({ item }) => item);
 }
 
-/** A due time in words, such as "due in 3d" or "overdue 2d"; within a day, "due today" or "overdue". */
+/** Local midnight of the day a time falls on, in ms. */
+const midnightOf = (time: number): number => {
+  const date = new Date(time);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+};
+
+/**
+ * A due value as its local calendar day (local midnight, in ms). A date-only `YYYY-MM-DD` is that day where you are,
+ * not UTC midnight, which is the evening before west of Greenwich; a timestamp is the local day it falls on.
+ */
+export function dayOf(value: unknown): number | undefined {
+  const plain = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim()) : null;
+  if (plain) {
+    const [, year, month, date] = plain;
+    const parsed = new Date(Number(year), Number(month) - 1, Number(date));
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.getTime();
+  }
+  const time = asTime(value);
+  return time === undefined ? undefined : midnightOf(time);
+}
+
+/** Calendar days from today to a due day: 0 is today, negative is overdue. */
+export function dueDays(due: number, now: number): number {
+  // Rounded so a daylight-saving day of 23 or 25 hours still counts as one.
+  return Math.round((midnightOf(due) - midnightOf(now)) / DAY_MS);
+}
+
+/** A due day in words: "due today", "due in 3d" or "overdue 2d". */
 export function dueText(due: number, now: number): string {
-  const days = Math.floor(Math.abs(due - now) / DAY_MS);
-  if (due >= now) return days === 0 ? 'due today' : `due in ${days}d`;
-  return days === 0 ? 'overdue' : `overdue ${days}d`;
+  const days = dueDays(due, now);
+  if (days === 0) return 'due today';
+  return days > 0 ? `due in ${days}d` : `overdue ${-days}d`;
 }
 
 /** A priority badge's tone, by name from the Board palette: 0 red, 1 orange, 2 amber, 3 and after slate. */

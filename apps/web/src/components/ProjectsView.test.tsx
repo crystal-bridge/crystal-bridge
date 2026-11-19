@@ -494,6 +494,25 @@ describe('ProjectsView', () => {
       expect(needs.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
+    it('leads a queue card with its first Quest action when nothing is suggested, and leaves Needs you alone', () => {
+      show({
+        items: [
+          item('acme/lantern', { reason: 'next' }, { title: 'Plain', actions: ['triage', 'open', 'later', 'done'] }),
+          item('acme/lantern', { reason: 'fail' }, { title: 'Failing', actions: ['triage', 'open', 'later', 'done'] }),
+        ],
+      });
+      const queue = screen.getByRole('region', { name: 'Your queue' });
+      const card = within(queue).getAllByRole('article')[0]!;
+      expect(
+        within(card)
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Triage', 'Later']);
+      expect(within(card).getByRole('link', { name: 'Open' })).toBeTruthy();
+      const needs = within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('article')[0]!;
+      expect(within(needs).queryByRole('button', { name: 'Triage' })).toBeNull();
+    });
+
     it('leaves Needs you empty when only queue items are open, and still shows their reason in sections', () => {
       show({ items: queued() });
       expect(within(screen.getByRole('region', { name: 'Needs you' })).getByText('Nothing needs you right now.'));
@@ -520,6 +539,52 @@ describe('ProjectsView', () => {
       expect(within(queue).getAllByRole('article')).toHaveLength(8);
       fireEvent.click(within(queue).getByRole('button', { name: 'Show 3 more' }));
       expect(within(queue).getAllByRole('article')).toHaveLength(11);
+    });
+
+    it('caps Needs you at six so the queue stays in reach, with Show more and Show fewer', () => {
+      show({
+        items: [
+          ...Array.from({ length: 8 }, (_, at) => item('acme/lantern', { reason: 'fail' }, { title: `N${at}` })),
+          ...queued(),
+        ],
+      });
+      const needs = screen.getByRole('region', { name: 'Needs you' });
+      expect(within(needs).getAllByRole('article')).toHaveLength(6);
+      const more = within(needs).getByRole('button', { name: 'Show 2 more' });
+      expect(more.getAttribute('aria-expanded')).toBe('false');
+      expect(screen.getByRole('region', { name: 'Your queue' })).toBeTruthy();
+      fireEvent.click(more);
+      expect(within(needs).getAllByRole('article')).toHaveLength(8);
+      const fewer = within(needs).getByRole('button', { name: 'Show fewer' });
+      expect(fewer.getAttribute('aria-expanded')).toBe('true');
+      fireEvent.click(fewer);
+      expect(within(needs).getAllByRole('article')).toHaveLength(6);
+    });
+
+    it('sets aria-expanded on the queue toggle', () => {
+      show({
+        items: Array.from({ length: 9 }, (_, at) => item('acme/lantern', { reason: 'next' }, { title: `Q${at}` })),
+      });
+      const queue = screen.getByRole('region', { name: 'Your queue' });
+      const more = within(queue).getByRole('button', { name: 'Show 1 more' });
+      expect(more.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(more);
+      expect(within(queue).getByRole('button', { name: 'Show fewer' }).getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('lists a tile\u2019s Needs-you rows first, then its queue rows, then the rest', () => {
+      show({
+        items: [
+          item('acme/lantern', {}, { title: 'Plain A' }),
+          item('acme/lantern', {}, { title: 'Plain B' }),
+          item('acme/lantern', { reason: 'next', priority: 2 }, { title: 'Queued' }),
+          item('acme/lantern', { reason: 'fail' }, { title: 'Needing' }),
+        ],
+      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+      const tile = within(screen.getByRole('region', { name: 'Tiles' })).getByRole('article', { name: 'acme/lantern' });
+      const lines = within(within(tile).getByRole('list')).getAllByRole('listitem');
+      expect(lines.map((line) => line.textContent)).toEqual(['Needing', 'Queued', 'Plain A', 'Plain B']);
     });
 
     it('Tiles shows the queue as a second strip under Needs you', () => {

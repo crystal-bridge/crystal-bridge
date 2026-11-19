@@ -4,6 +4,7 @@ import { actionsFor } from '../boards.js';
 import { type BoardMode, useFolded } from '../boardPrefs.js';
 import {
   activity,
+  dueDays,
   dueText,
   FOLD_AT,
   needsYou,
@@ -410,18 +411,28 @@ function ProjectCard({
 }
 
 /** A card's buttons: the suggested action, then Open and Later where the item offers them, as its own buttons do. */
-function cardKeys(item: BoardItem, manifest: ScoutManifest): string[] {
+function cardKeys(item: BoardItem, manifest: ScoutManifest, lead?: string): string[] {
   const offered = actionsFor(item, manifest);
+  const first = lead ?? item.suggested;
   return [
-    ...offered.filter(({ key }) => key === item.suggested),
-    offered.find(({ key, action }) => action.kind === 'link' && key !== item.suggested),
-    offered.find(({ key, action }) => action.kind === 'snooze' && key !== item.suggested),
+    ...offered.filter(({ key }) => key === first),
+    offered.find(({ key, action }) => action.kind === 'link' && key !== first),
+    offered.find(({ key, action }) => action.kind === 'snooze' && key !== first),
   ].flatMap((found) => (found ? [found.key] : []));
+}
+
+/** An item's first Quest action, which leads a queue card when the item suggests none. */
+function leadQuest(item: BoardItem, manifest: ScoutManifest): string | undefined {
+  if (item.suggested !== undefined) return undefined;
+  return actionsFor(item, manifest).find(({ action }) => action.kind === 'quest')?.key;
 }
 
 /** Classes for buttons inside the blue window: the suggested one in the reason's tone, the rest ghosts. */
 const ghost =
   'cb-display rounded border border-white/30 px-2.5 text-base leading-6 text-white/85 hover:bg-white/10 disabled:opacity-50';
+
+/** The Needs-you window's cards before "Show N more", so the queue under it stays in reach. */
+const NEEDS_SHOWN = 6;
 
 /** What needs you, in the blue window that means it: a card per item with its reason, why, and what to press. */
 function NeedsYou({
@@ -447,6 +458,7 @@ function NeedsYou({
   start?: ProjectsViewProps['start'];
 }) {
   const [composing, setComposing] = useState<BoardItem[] | null>(null);
+  const [all, setAll] = useState(false);
   if (items.length === 0) {
     return (
       <section aria-label="Needs you" className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
@@ -456,6 +468,8 @@ function NeedsYou({
     );
   }
   const batch = questBatch(items);
+  const shown = all ? items : items.slice(0, NEEDS_SHOWN);
+  const hidden = items.length - shown.length;
   return (
     <section aria-label="Needs you" className="cb-window space-y-2 rounded-[10px] p-3">
       <div className="flex items-center gap-2">
@@ -491,7 +505,7 @@ function NeedsYou({
         </div>
       )}
       <div className={strip ? 'grid gap-2 md:grid-cols-2 lg:grid-cols-3' : 'space-y-2'}>
-        {items.map((item) => {
+        {shown.map((item) => {
           const row = rowLook(item, look);
           const tone = projectTone(projectOf(item));
           const keys = cardKeys(item, manifest);
@@ -550,6 +564,16 @@ function NeedsYou({
           );
         })}
       </div>
+      {items.length > NEEDS_SHOWN && (
+        <button
+          type="button"
+          aria-expanded={hidden === 0}
+          onClick={() => setAll(hidden > 0)}
+          className="rounded text-xs text-white/85 underline hover:text-white"
+        >
+          {hidden > 0 ? `Show ${hidden} more` : 'Show fewer'}
+        </button>
+      )}
     </section>
   );
 }
@@ -607,9 +631,12 @@ function YourQueue({
           const row = rowLook(item, look);
           const { priority, due } = queueSlots(item, look);
           const tone = projectTone(projectOf(item));
-          const keys = cardKeys(item, manifest);
+          const lead = leadQuest(item, manifest);
+          const keys = cardKeys(item, manifest, lead);
           const buttons: ButtonLook = {
-            suggested: `cb-display rounded px-2.5 text-base leading-6 ring-1 hover:brightness-105 disabled:opacity-50 ${toneChipClass(row.reason?.tone)}`,
+            suggested: lead
+              ? 'cb-display rounded bg-black/5 px-2.5 text-base leading-6 ring-1 ring-(--prompt-border) hover:brightness-105 disabled:opacity-50 dark:bg-white/10'
+              : `cb-display rounded px-2.5 text-base leading-6 ring-1 hover:brightness-105 disabled:opacity-50 ${toneChipClass(row.reason?.tone)}`,
             plain: queueGhost,
             row: 'mt-2 flex flex-wrap gap-1.5',
           };
@@ -632,7 +659,7 @@ function YourQueue({
                   {due !== undefined && (
                     <span
                       title={new Date(due).toLocaleDateString()}
-                      className={`whitespace-nowrap text-[11.5px] ${due < now ? 'font-bold text-red-700 dark:text-red-400' : 'text-(--prompt-muted)'}`}
+                      className={`whitespace-nowrap text-[11.5px] ${dueDays(due, now) < 0 ? 'font-bold text-red-700 dark:text-red-400' : 'text-(--prompt-muted)'}`}
                     >
                       {dueText(due, now)}
                     </span>
@@ -673,7 +700,7 @@ function YourQueue({
               </div>
               {keys.length > 0 && (
                 <ItemActions
-                  item={{ ...item, actions: keys }}
+                  item={{ ...item, actions: keys, ...(lead ? { suggested: lead } : {}) }}
                   manifest={manifest}
                   now={now}
                   act={act}
@@ -688,6 +715,7 @@ function YourQueue({
       {items.length > QUEUE_SHOWN && (
         <button
           type="button"
+          aria-expanded={hidden === 0}
           onClick={() => setAll(hidden > 0)}
           className="rounded text-xs text-sky-700 hover:underline dark:text-sky-400"
         >

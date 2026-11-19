@@ -3,6 +3,7 @@ import type { BoardItem, ScoutManifest } from '@crystal-bridge/protocol';
 import {
   FOLD_AT,
   activity,
+  dueDays,
   dueText,
   needsYou,
   priorityTone,
@@ -277,15 +278,19 @@ describe('the queue lane', () => {
   });
 
   it('reads an item’s priority and due', () => {
-    expect(queueSlots(item({ priority: '1', due: '2026-12-01T00:00:00Z' }), lanes)).toEqual({
+    // A date-only due is that local calendar day, whatever the zone.
+    expect(queueSlots(item({ priority: '1', due: '2026-12-01' }), lanes)).toEqual({
       priority: 1,
-      due: day('2026-12-01T00:00:00Z'),
+      due: new Date(2026, 11, 1).getTime(),
     });
+    // A full timestamp is the local day it falls on.
+    const stamp = new Date(2026, 11, 1, 15, 30);
+    expect(queueSlots(item({ due: stamp.getTime() }), lanes).due).toBe(new Date(2026, 11, 1).getTime());
     expect(queueSlots(item({ priority: null }), lanes)).toEqual({ priority: undefined, due: undefined });
     expect(queueSlots(item({ priority: 1 }), look)).toEqual({ priority: undefined, due: undefined });
   });
 
-  it('counts only needs-lane items as needs, and queue items as queued', () => {
+  it('counts only needs-lane items as needs', () => {
     const sections = projectSections(
       [
         item({ reason: 'next', updated: 9000 }, { project: { name: 'mine' } }),
@@ -294,19 +299,26 @@ describe('the queue lane', () => {
       ],
       lanes,
     );
-    expect(sections.map((s) => [s.name, s.needs, s.queued])).toEqual([
-      ['theirs', 1, 0],
-      ['mine', 0, 2],
+    expect(sections.map((s) => [s.name, s.needs])).toEqual([
+      ['theirs', 1],
+      ['mine', 0],
     ]);
     expect(tileCounts(sections[1]!, undefined)[0]).toMatchObject({ label: 'Needs you', count: 0 });
   });
 
-  it('words a due date and tones a priority', () => {
-    const now = day('2026-11-19T12:00:00Z');
-    expect(dueText(now + 3 * 86_400_000, now)).toBe('due in 3d');
-    expect(dueText(now + 3 * 3_600_000, now)).toBe('due today');
-    expect(dueText(now - 2 * 86_400_000, now)).toBe('overdue 2d');
-    expect(dueText(now - 3_600_000, now)).toBe('overdue');
+  it('words a due date by calendar days, not elapsed hours', () => {
+    const at = (d: number, h = 12) => new Date(2026, 10, d, h).getTime();
+    const now = at(19, 23);
+    expect(dueText(at(19, 0), now)).toBe('due today');
+    expect(dueDays(at(19, 0), now)).toBe(0);
+    expect(dueText(at(20, 23), at(19, 0))).toBe('due in 1d');
+    expect(dueText(at(20, 23), at(19, 23))).toBe('due in 1d');
+    expect(dueText(at(22), at(19))).toBe('due in 3d');
+    expect(dueText(at(18, 23), at(19, 1))).toBe('overdue 1d');
+    expect(dueText(at(17), at(19))).toBe('overdue 2d');
+    expect(dueDays(queueSlots(item({ due: '2026-11-19' }), lanes).due!, at(19, 23))).toBe(0);
+    expect(dueText(queueSlots(item({ due: '2026-11-20' }), lanes).due!, at(19, 23))).toBe('due in 1d');
+    expect(dueText(queueSlots(item({ due: '2026-11-18' }), lanes).due!, at(19, 1))).toBe('overdue 1d');
     expect([0, 1, 2, 3, 7].map(priorityTone)).toEqual(['red', 'orange', 'amber', 'slate', 'slate']);
   });
 });
