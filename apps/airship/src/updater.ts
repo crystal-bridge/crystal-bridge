@@ -170,7 +170,8 @@ export function readRequest(path: string): { version: unknown } | undefined {
   }
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.size > MAX_REQUEST_BYTES) return { version: 'unreadable request' };
+    // One link only: a hard link could bring in a file only root may read.
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_REQUEST_BYTES) return { version: 'unreadable request' };
     return JSON.parse(readFileSync(fd, 'utf8')) as { version: unknown };
   } catch {
     return { version: 'unreadable request' };

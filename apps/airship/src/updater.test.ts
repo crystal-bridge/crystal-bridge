@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readlinkSync,
@@ -193,6 +194,10 @@ describe('the updater-s steps on a host', () => {
     expect(readRequest(request)).toEqual({ version: 'unreadable request' });
     rmSync(request);
     expect(spawnSync('mkfifo', [request]).status).toBe(0);
+    expect(readRequest(request)).toEqual({ version: 'unreadable request' });
+    rmSync(request);
+    // A hard link to a file elsewhere is no request either.
+    linkSync(join(dir, 'secret.json'), request);
     expect(readRequest(request)).toEqual({ version: 'unreadable request' });
     rmSync(request);
     writeFileSync(request, 'x'.repeat(10_000));
