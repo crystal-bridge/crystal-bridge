@@ -77,4 +77,22 @@ describe('latestReleaseChecker', () => {
     channel = 'edge';
     expect((await check())?.version).toBe('1.2.1-edge.1');
   });
+
+  it('asks about edge builds every quarter hour, since each merge makes one, and about full releases less often', async () => {
+    let time = 0;
+    const fetchAny = vi.fn(async (url: string) =>
+      url.endsWith('/latest') ? answer(release) : answer([{ ...release, tag_name: 'v1.2.1-edge.1' }]),
+    );
+    let channel: 'stable' | 'edge' = 'edge';
+    const check = latestReleaseChecker({ fetch: fetchAny, now: () => time, channel: () => channel });
+    await check();
+    time = 16 * 60_000;
+    await check();
+    expect(fetchAny.mock.calls.filter(([url]) => !url.endsWith('/latest'))).toHaveLength(2);
+    channel = 'stable';
+    await check();
+    time += 16 * 60_000;
+    await check();
+    expect(fetchAny.mock.calls.filter(([url]) => url.endsWith('/latest'))).toHaveLength(1);
+  });
 });

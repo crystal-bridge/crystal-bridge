@@ -44,6 +44,9 @@ function parseRelease({ tag_name: tag, html_url: url, body }: GitHubRelease): La
   };
 }
 
+/** How long a hub on the edge channel keeps its answer. */
+const EDGE_TTL_MS = 15 * 60_000;
+
 const API = `https://api.github.com/repos/${RELEASE_REPO}/releases`;
 const HEADERS = { accept: 'application/vnd.github+json', 'user-agent': 'crystal-bridge-airship' };
 
@@ -60,6 +63,8 @@ export function latestReleaseChecker({
   channel = () => 'stable',
 }: LatestReleaseOptions = {}): () => Promise<LatestRelease | undefined> {
   const timing = { ...(now ? { now } : {}), ...(ttlMs ? { ttlMs } : {}) };
+  // Each merge to main makes an edge build, so a hub following them asks more often.
+  const edgeTiming = { ...(now ? { now } : {}), ttlMs: ttlMs ?? EDGE_TTL_MS };
   const checkers: Record<ReleaseChannel, () => Promise<LatestRelease | undefined>> = {
     stable: periodically(async () => {
       const response = await request(`${API}/latest`, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -79,7 +84,7 @@ export function latestReleaseChecker({
         (newest, one) => (!newest || isOlderVersion(newest.version, one.version) ? one : newest),
         undefined,
       );
-    }, timing),
+    }, edgeTiming),
   };
   return () => checkers[channel()]();
 }
