@@ -49,9 +49,14 @@ describe('the hub command', () => {
     symlinkSync(join(root, 'releases', '0.6.0'), join(root, 'current'));
     const request = join(data, 'update-request.json');
     writeFileSync(request, JSON.stringify({ version: '0.5.0' }));
-    const { status } = run({ AIRSHIP_UPDATE_REQUEST: request, AIRSHIP_INSTALL_ROOT: root });
+    const statusFile = join(data, 'status.json');
+    const { status } = run({
+      AIRSHIP_UPDATE_REQUEST: request,
+      AIRSHIP_UPDATE_STATUS: statusFile,
+      AIRSHIP_INSTALL_ROOT: root,
+    });
     expect(status).toBe(0);
-    expect(JSON.parse(readFileSync(join(data, 'update-status.json'), 'utf8'))).toMatchObject({
+    expect(JSON.parse(readFileSync(statusFile, 'utf8'))).toMatchObject({
       version: '0.5.0',
       state: 'failed',
       reason: '0.5.0 is not newer than 0.6.0',

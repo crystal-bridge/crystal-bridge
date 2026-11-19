@@ -165,6 +165,7 @@ export function ShipsLog({
   onApprove,
   onInstall,
   onChannel,
+  error,
 }: {
   /** Absent until the hub has answered. */
   status?: HubStatus | undefined;
@@ -175,6 +176,8 @@ export function ShipsLog({
   /** Asks the hub's updater for this release. */
   onInstall?: ((version: string) => void) | undefined;
   onChannel?: ((channel: ReleaseChannel) => void) | undefined;
+  /** Why the hub refused the last press here, such as an offer that changed meanwhile. */
+  error?: string | undefined;
 }) {
   if (!status) return null;
   const done = status.install?.progress;
@@ -198,9 +201,16 @@ export function ShipsLog({
         </p>
       </div>
       {updated?.from && (
-        <p className="text-xs text-neutral-500">{`Updated from ${updated.from} ${ago(updated.at, now)} ago`}</p>
+        <p role="status" className="text-xs text-neutral-500">
+          {`Updated from ${updated.from} ${ago(updated.at, now)} ago`}
+        </p>
       )}
       {status.update && <TakeUpdate update={status.update} install={status.install} onInstall={onInstall} />}
+      {error && (
+        <p role="alert" className="text-xs text-amber-700 dark:text-amber-400">
+          {error}
+        </p>
+      )}
       {status.kingdomUpdates?.offered && onApprove && (
         <KingdomUpdates updates={status.kingdomUpdates} onApprove={onApprove} />
       )}

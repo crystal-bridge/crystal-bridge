@@ -71,7 +71,10 @@ restore() {
 
 sudo ln -sfn "$release" /opt/crystal-bridge/current
 sudo install -m 0644 "$stage/airship.service" "$stage/airship-backup.service" "$stage/airship-backup.timer" "$units/"
+# The hub's updater, before the hub that offers Install updates starts, so a press never waits on nothing.
+sudo install -m 0644 "$stage/airship-update.service" "$stage/airship-update.path" "$units/"
 sudo systemctl daemon-reload
+sudo systemctl enable --now airship-update.path
 sudo systemctl restart airship.service
 
 port=$(sudo sed -n 's/^AIRSHIP_PORT=//p' /etc/crystal-bridge/airship.env)
@@ -79,10 +82,6 @@ for _ in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${port:-7700}/api/health" 2>/dev/null | grep -q "\"release\":\"$version\""; then
     # Keep the three newest releases.
     ls -1dt /opt/crystal-bridge/releases/* | tail -n +4 | xargs -r sudo rm -rf
-    # The hub's updater, once this hub is up, so the next update can come from the app (docs/OPERATIONS.md).
-    sudo install -m 0644 "$stage/airship-update.service" "$stage/airship-update.path" "$units/"
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now airship-update.path
     echo "deploy: $version is live"
     exit 0
   fi

@@ -2832,8 +2832,40 @@ describe('airship server updating itself', () => {
   it('says it can install updates itself, on which channel, and how the last one went', async () => {
     await start();
     expect(await status()).toMatchObject({ channel: 'stable', update: newer, install: {} });
-    progress = { version: '1.1.0', state: 'installing', at: 5 };
+    progress = { version: '1.1.0', state: 'installing', at: Date.now() };
     expect((await status()).install).toEqual({ progress });
+  });
+
+  it('reads an install that went quiet for twenty minutes as stopped, so it can be tried again', async () => {
+    await start();
+    progress = { version: '1.1.0', state: 'installing', at: Date.now() - 21 * 60_000 };
+    expect((await status()).install).toEqual({
+      progress: {
+        ...progress,
+        state: 'failed',
+        reason: 'the updater stopped partway, with no word for 20 minutes; try again',
+      },
+    });
+    expect((await send('POST', '/api/hub/update', { version: '1.1.0' })).status).toBe(202);
+  });
+
+  it('refuses a second press while an install runs', async () => {
+    await start();
+    progress = { version: '1.1.0', state: 'restarting', at: Date.now() };
+    expect(await (await send('POST', '/api/hub/update', { version: '1.1.0' })).json()).toEqual({
+      error: 'an update is already being installed',
+    });
+    expect(requested).toEqual([]);
+  });
+
+  it('forgets to approve Kingdoms to a release that failed to install', async () => {
+    const settings = loadHubSettings(path.join(dir, 'hub.json'));
+    settings.setKingdomUpdates({ mode: 'approved', approved: '1.0.0' });
+    await start();
+    await send('POST', '/api/hub/update', { version: '1.1.0' });
+    progress = { version: '1.1.0', state: 'failed', reason: 'no', at: Date.now() };
+    await status();
+    expect(loadHubSettings(path.join(dir, 'hub.json')).takeKingdomApproval('1.1.0')).toBe(false);
   });
 
   it('switches channel', async () => {

@@ -12,7 +12,10 @@ Environment=AIRSHIP_UPDATE_REQUEST=/var/lib/airship/update-request.json
 ExecStart=/opt/crystal-bridge/current/node_modules/.bin/crystal-bridge-airship apply-update
 TimeoutStartSec=15min
 
-# It writes only the releases and its status beside the request.
+# It writes only the releases, and its status in a folder of its own that the hub can read but not write. The hub's
+# folder, where the request is, it only reads: a link the hub planted there can't steer a write by root.
+StateDirectory=airship-update
+StateDirectoryMode=0755
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -23,4 +26,4 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-ReadWritePaths=/opt/crystal-bridge /var/lib/airship
+ReadWritePaths=/opt/crystal-bridge

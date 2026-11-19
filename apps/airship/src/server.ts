@@ -299,6 +299,9 @@ function parseFrame(data: unknown): unknown | undefined {
   }
 }
 
+/** Longer than airship-update.service's TimeoutStartSec: an install this quiet has stopped. */
+const INSTALL_QUIET_MS = 20 * 60_000;
+
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const {
     store,
@@ -341,6 +344,26 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const choice = settings?.kingdomUpdates();
     if (!kingdomVersion || choice?.mode !== 'approved' || !choice.approved) return kingdomVersion;
     return isOlderVersion(choice.approved, kingdomVersion) ? choice.approved : kingdomVersion;
+  };
+  /**
+   * How the last install went, with one that went quiet past the updater's own time limit read as stopped: a reboot or a
+   * kill mid-install leaves its last word, and the Ship's Log would otherwise wait on it for good. A failed one drops
+   * the Kingdom approval it was to bring.
+   */
+  const installProgress = (): UpdateStatus | undefined => {
+    const progress = hubUpdates?.status();
+    if (!progress) return undefined;
+    const busy = progress.state === 'installing' || progress.state === 'restarting';
+    const seen =
+      busy && Date.now() - progress.at > INSTALL_QUIET_MS
+        ? {
+            ...progress,
+            state: 'failed' as const,
+            reason: `the updater stopped partway, with no word for ${INSTALL_QUIET_MS / 60_000} minutes; try again`,
+          }
+        : progress;
+    if (seen.state === 'failed') settings?.takeKingdomApproval(seen.version);
+    return seen;
   };
   // Install updates asked for this release with Kingdoms waiting for approval: now it runs, approve them to it.
   if (settings && kingdomVersion && settings.takeKingdomApproval(release)) {
@@ -955,7 +978,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       ...upkeep?.(),
       ...(latest && isOlderVersion(release, latest.version) ? { update: latest } : {}),
       ...(settings ? { channel: settings.channel() } : {}),
-      ...(hubUpdates ? { install: { ...(hubUpdates.status() ? { progress: hubUpdates.status() } : {}) } } : {}),
+      ...(hubUpdates ? { install: { ...(installProgress() ? { progress: installProgress() } : {}) } } : {}),
       ...(named
         ? {
             kingdomUpdates: {
@@ -984,6 +1007,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const latest = await latestRelease?.();
     if (!latest || version !== latest.version || !isOlderVersion(release, latest.version)) {
       return reply.code(409).send({ error: 'that is not the update on offer' });
+    }
+    const running = installProgress();
+    if (running?.state === 'installing' || running?.state === 'restarting') {
+      return reply.code(409).send({ error: 'an update is already being installed' });
     }
     // Kingdoms waiting for approval move too, once the hub is up on the new release.
     if (settings && kingdomVersion && settings.kingdomUpdates().mode === 'approved') {

@@ -201,8 +201,12 @@ when a newer release is out; the logo's badge counts it. One press:
    checks its build provenance as a Kingdom does ([the security model](./SECURITY-MODEL.md)), installs it beside the
    running one, checks it starts as the `airship` user and says it's that version, then swaps `current` and restarts
    the hub.
-3. If the hub doesn't come back saying it runs the new release within a minute, the updater swaps back and restarts the
-   old one. The Ship's Log shows each step and why one failed.
+3. If the hub doesn't come back saying it runs the new release within a minute, or the swap or restart fails, the
+   updater swaps back, restarts the old one and checks that it answers. The Ship's Log shows Installing, Restarting,
+   then "Updated from", or why it failed, including "check the host" when the old release didn't come back either (a
+   release that migrated the database leaves the old one unable to open it; see [Rolling back](#rolling-back)). The
+   updater writes how it's going in `/var/lib/airship-update`, a folder only root writes; an install with no word for
+   20 minutes reads as stopped, and can be tried again. The hub refuses a second press while one runs.
 4. Once the hub runs the new release, Kingdoms set to **When approved** are approved to it, so they follow, each once
    it's idle.
 
@@ -220,9 +224,10 @@ The **Ship's Log** on the Airship shows the hub itself: its release, how its Kin
 further, its protocol version, uptime, database size, and last backup and mirror. It stays one line until something
 needs a look. It's left off phones for now.
 
-A packaged hub asks GitHub for this project's latest full release at most every six hours, sending nothing about you or
-your sessions, and keeps the last answer if GitHub can't be reached. When a newer one is out, the Ship's Log shows its
-notes and how to take it, and the logo that leads to the Airship gets a count badge. `AIRSHIP_RELEASE_CHECK=off` stops the
+A packaged hub asks GitHub for this project's latest full release at most every six hours, or on the edge channel the
+newest of its recent releases, pre-releases included, sending nothing about you or your sessions, and keeps the last
+answer if GitHub can't be reached. When a newer one is out, the Ship's Log shows its notes and how to take it (or
+Install updates), and the logo that leads to the Airship gets a count badge. `AIRSHIP_RELEASE_CHECK=off` stops the
 check. A hub run from git has no version to compare, so it never asks.
 
 Each Kingdom's line shows when it's behind, when it has a release ready and is waiting for its Quests to finish, and why

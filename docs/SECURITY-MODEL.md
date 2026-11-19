@@ -75,8 +75,11 @@ release carries a copy, GitHub's API is the fallback, and both have to pass the 
 
 A packaged hub updates itself the same way, through a separate root service that checks the hub's tarball against
 the same workflow identity and only moves forward. The hub, which runs as its own user, only names the release it wants
-in its data folder, so a hub that was taken over can ask for no more than a genuine, newer release
-([Updating the hub from the app](./OPERATIONS.md#updating-the-hub-from-the-app)).
+in its data folder. The updater reads that request without following links, and writes nothing there: its status goes in
+a folder only root writes. So a hub that was taken over can ask for no more than a genuine, newer release of the hub's
+own package ([Updating the hub from the app](./OPERATIONS.md#updating-the-hub-from-the-app)). As with
+`deploy-airship-package.sh` and `join`, that package's dependencies come from npm at install time, and their install
+scripts run, here as root; the next point covers them.
 
 What this doesn't cover:
 

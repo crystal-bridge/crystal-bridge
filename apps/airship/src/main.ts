@@ -14,7 +14,7 @@ import { loadHubSettings } from './hub-settings.js';
 import { hubPaths } from './paths.js';
 import { createPusher, loadVapidKeys, webPushSender } from './push.js';
 import { buildServer } from './server.js';
-import { applyUpdate, statusPathFor, systemSteps, type UpdateStatus } from './updater.js';
+import { applyUpdate, systemSteps, type UpdateStatus } from './updater.js';
 import { openStore } from './store.js';
 import { runTokens } from './tokens.js';
 
@@ -48,9 +48,11 @@ const ALLOWED_USERS = (process.env.AIRSHIP_ALLOWED_USERS ?? '')
  * set it; unset, no updater runs beside the hub and the Ship's Log says how to update by hand.
  */
 const UPDATE_REQUEST = process.env.AIRSHIP_UPDATE_REQUEST || undefined;
+/** Where the updater says how it's going: a folder only root writes (airship-update.service's StateDirectory). */
+const UPDATE_STATUS = process.env.AIRSHIP_UPDATE_STATUS || '/var/lib/airship-update/status.json';
 
 /** The hub's side of its updater: it writes the wanted release, and reads how the last one went. */
-function hubUpdates(requestPath: string) {
+function hubUpdates(requestPath: string, statusPath: string) {
   return {
     request(version: string) {
       const temp = `${requestPath}.${process.pid}.tmp`;
@@ -59,7 +61,7 @@ function hubUpdates(requestPath: string) {
     },
     status(): UpdateStatus | undefined {
       try {
-        return JSON.parse(readFileSync(statusPathFor(requestPath), 'utf8')) as UpdateStatus;
+        return JSON.parse(readFileSync(statusPath, 'utf8')) as UpdateStatus;
       } catch {
         return undefined;
       }
@@ -135,7 +137,7 @@ async function main(): Promise<void> {
     ...(VERSION && process.env.AIRSHIP_RELEASE_CHECK !== 'off'
       ? { latestRelease: latestReleaseChecker({ channel: () => settings.channel() }) }
       : {}),
-    ...(VERSION && UPDATE_REQUEST ? { hubUpdates: hubUpdates(UPDATE_REQUEST) } : {}),
+    ...(VERSION && UPDATE_REQUEST ? { hubUpdates: hubUpdates(UPDATE_REQUEST, UPDATE_STATUS) } : {}),
     upkeep: () => ({
       ...(existsSync(DB_PATH) ? { databaseBytes: statSync(DB_PATH).size } : {}),
       ...backupRecord(BACKUP_DIR),
@@ -179,6 +181,7 @@ if (command === '--version') {
   }
   const steps = systemSteps({
     requestPath: UPDATE_REQUEST,
+    statusPath: UPDATE_STATUS,
     root: process.env.AIRSHIP_INSTALL_ROOT ?? '/opt/crystal-bridge',
     port: PORT,
     user: process.env.AIRSHIP_USER ?? 'airship',

@@ -130,6 +130,25 @@ describe('ShipsLog installing updates', () => {
     expect(log().textContent).not.toContain('Updated from');
   });
 
+  it('says why the hub refused a press', () => {
+    render(
+      <ShipsLog
+        status={{ ...status, update, install: {} }}
+        fleet={fleet}
+        now={NOW}
+        onInstall={vi.fn()}
+        error="that is not the update on offer"
+      />,
+    );
+    expect(within(log()).getByRole('alert').textContent).toBe('that is not the update on offer');
+  });
+
+  it('announces that it was updated', () => {
+    const done = { version: '1.0.0', state: 'done' as const, from: '0.9.0', at: NOW - 60_000 };
+    render(<ShipsLog status={{ ...status, install: { progress: done } }} fleet={fleet} now={NOW} />);
+    expect(within(log()).getByRole('status').textContent).toContain('Updated from 0.9.0');
+  });
+
   it('chooses between full releases and every build of main', () => {
     const onChannel = vi.fn();
     render(<ShipsLog status={{ ...status, channel: 'stable' }} fleet={fleet} now={NOW} onChannel={onChannel} />);

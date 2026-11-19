@@ -1,5 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
-import { applyUpdate, type UpdaterSteps, type UpdateStatus } from './updater.js';
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyUpdate, readRequest, systemSteps, type UpdaterSteps, type UpdateStatus } from './updater.js';
 
 function steps(overrides: Partial<UpdaterSteps> = {}) {
   const statuses: UpdateStatus[] = [];
@@ -100,7 +113,7 @@ describe('applyUpdate: the hub-s updater, run as its own service', () => {
   });
 
   it('goes back to the release it ran when the new hub does not come up', async () => {
-    const { steps: s, statuses, calls } = steps({ healthy: vi.fn(async () => false) });
+    const { steps: s, statuses, calls } = steps({ healthy: vi.fn(async (v: string) => v !== '0.6.1-edge.2') });
     await applyUpdate(s);
     expect(calls).toEqual([
       'download 0.6.1-edge.2',
@@ -131,5 +144,89 @@ describe('applyUpdate: the hub-s updater, run as its own service', () => {
     await applyUpdate(s);
     expect(calls).not.toContain('activate 0.6.1-edge.2');
     expect(statuses.at(-1)).toMatchObject({ state: 'failed', reason: expect.stringMatching(/it says it is 0\.6\.0/) });
+  });
+
+  it('goes back, and says so, when the swap or the restart throws', async () => {
+    let restarts = 0;
+    const {
+      steps: s,
+      statuses,
+      calls,
+    } = steps({
+      healthy: vi.fn(async (v: string) => v !== '0.6.1-edge.2'),
+      restart: vi.fn(async () => {
+        restarts++;
+        calls.push('restart');
+        if (restarts === 1) throw new Error('systemctl failed: unit not found');
+      }),
+    });
+    await applyUpdate(s);
+    expect(calls.slice(-3)).toEqual(['restart', 'activate 0.6.1-edge.1', 'restart']);
+    expect(statuses.at(-1)).toMatchObject({
+      state: 'failed',
+      reason: expect.stringMatching(/systemctl failed: unit not found.*back on 0\.6\.1-edge\.1/),
+    });
+  });
+
+  it('says plainly when the old release does not come back either', async () => {
+    const { steps: s, statuses } = steps({ healthy: vi.fn(async () => false) });
+    await applyUpdate(s);
+    expect(statuses.at(-1)?.reason).toMatch(/0\.6\.1-edge\.1 did not answer either: check the host/);
+  });
+});
+
+describe('the updater-s steps on a host', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cb-updater-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('reads a request only from a small, plain file, never through a link or from a pipe', () => {
+    const request = join(dir, 'update-request.json');
+    expect(readRequest(request)).toBeUndefined();
+    writeFileSync(request, JSON.stringify({ version: '1.2.3' }));
+    expect(readRequest(request)).toEqual({ version: '1.2.3' });
+    rmSync(request);
+    writeFileSync(join(dir, 'secret.json'), JSON.stringify({ version: 'root-only' }));
+    symlinkSync(join(dir, 'secret.json'), request);
+    expect(readRequest(request)).toEqual({ version: 'unreadable request' });
+    rmSync(request);
+    expect(spawnSync('mkfifo', [request]).status).toBe(0);
+    expect(readRequest(request)).toEqual({ version: 'unreadable request' });
+    rmSync(request);
+    writeFileSync(request, 'x'.repeat(10_000));
+    expect(readRequest(request)).toEqual({ version: 'unreadable request' });
+  });
+
+  it('writes its status where it is told, and swaps current, and keeps the running release and the last two', () => {
+    const root = join(dir, 'opt');
+    const status = join(dir, 'state', 'status.json');
+    mkdirSync(join(dir, 'state'));
+    for (const [i, version] of ['0.1.0', '0.2.0', '0.3.0', '0.4.0', '0.5.0'].entries()) {
+      mkdirSync(join(root, 'releases', version), { recursive: true });
+      utimesSync(join(root, 'releases', version), i + 1, i + 1);
+    }
+    symlinkSync(join(root, 'releases', '0.4.0'), join(root, 'current'));
+    const host = systemSteps({
+      requestPath: join(dir, 'update-request.json'),
+      statusPath: status,
+      root,
+      port: 1,
+      user: 'nobody',
+      service: 'airship.service',
+    });
+    expect(host.current()).toBe('0.4.0');
+    host.activate('0.5.0');
+    expect(readlinkSync(join(root, 'current'))).toBe(join(root, 'releases', '0.5.0'));
+    expect(host.current()).toBe('0.5.0');
+    host.prune();
+    expect(['0.1.0', '0.2.0', '0.3.0', '0.4.0', '0.5.0'].filter((v) => existsSync(join(root, 'releases', v)))).toEqual([
+      '0.3.0',
+      '0.4.0',
+      '0.5.0',
+    ]);
+    host.report({ version: '0.5.0', state: 'done', at: 1 });
+    expect(existsSync(status)).toBe(true);
   });
 });

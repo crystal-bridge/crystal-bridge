@@ -26,7 +26,7 @@ describe('the units of a packaged hub', () => {
     assert.doesNotMatch(unit('deploy/airship/airship-backup.service'), /AIRSHIP_UPDATE_REQUEST/);
   });
 
-  it('has an updater that runs the package as root, writing only the releases and its status', () => {
+  it('has an updater that runs the package as root, writing only the releases and its own status folder', () => {
     const service = readFileSync('deploy/airship/airship-update.service', 'utf8');
     assert.match(
       service,
@@ -35,7 +35,10 @@ describe('the units of a packaged hub', () => {
     assert.match(service, /^Environment=AIRSHIP_UPDATE_REQUEST=\/var\/lib\/airship\/update-request\.json$/m);
     assert.match(service, /^Type=oneshot$/m);
     assert.match(service, /^ProtectSystem=strict$/m);
-    assert.match(service, /^ReadWritePaths=\/opt\/crystal-bridge \/var\/lib\/airship$/m);
+    assert.match(service, /^ReadWritePaths=\/opt\/crystal-bridge$/m);
+    // Its status goes in a folder only root writes, never the hub's own.
+    assert.match(service, /^StateDirectory=airship-update$/m);
+    assert.match(service, /^StateDirectoryMode=0755$/m);
     assert.doesNotMatch(service, /^User=/m);
     const path = readFileSync('deploy/airship/airship-update.path', 'utf8');
     assert.match(path, /^PathChanged=\/var\/lib\/airship\/update-request\.json$/m);

@@ -1,6 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
+  closeSync,
+  constants,
   cpSync,
+  fstatSync,
+  openSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -12,7 +16,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { isOlderVersion, ReleaseVersion, releaseTarballUrl } from '@crystal-bridge/protocol';
 import { verifyRelease, whyFailed } from '@crystal-bridge/release';
 
@@ -82,15 +86,29 @@ export async function applyUpdate(steps: UpdaterSteps): Promise<void> {
   }
 
   steps.report({ version, state: 'restarting', from, at: now() });
-  steps.activate(version);
-  await steps.restart();
-  if (!(await steps.healthy(version))) {
+  let why: string;
+  try {
+    steps.activate(version);
+    await steps.restart();
+    if (await steps.healthy(version)) {
+      steps.prune();
+      steps.report({ version, state: 'done', from, at: now() });
+      return;
+    }
+    why = `${version} did not come up`;
+  } catch (error) {
+    why = whyFailed(error);
+  }
+  // Back to what ran, and look: a release that migrated the database may leave the old one unable to start.
+  let back = false;
+  try {
     steps.activate(from);
     await steps.restart();
-    return fail(`${version} did not come up, so the hub is back on ${from}`);
+    back = await steps.healthy(from);
+  } catch {
+    // Said below.
   }
-  steps.prune();
-  steps.report({ version, state: 'done', from, at: now() });
+  fail(back ? `${why}, so the hub is back on ${from}` : `${why}, and ${from} did not answer either: check the host`);
 }
 
 const KEEP_RELEASES = 3;
@@ -121,6 +139,11 @@ function idsOf(user: string): { uid: number; gid: number } {
 export interface SystemOptions {
   /** The file the hub writes the wanted version to. */
   requestPath: string;
+  /**
+   * Where the updater writes how it's going, for the hub to read: in a folder only root may write
+   * (`StateDirectory=airship-update`), never the hub's own, where a link the hub planted would steer root's writes.
+   */
+  statusPath: string;
   /** Where releases live, with `current` pointing at the running one (`deploy-airship-package.sh`'s layout). */
   root: string;
   /** The hub's port, to see that it came back. */
@@ -131,27 +154,40 @@ export interface SystemOptions {
   service: string;
 }
 
-/** The status file beside the request, which the hub reads. */
-export function statusPathFor(requestPath: string): string {
-  return join(dirname(requestPath), 'update-status.json');
+/** The most a request may hold: one version, and when. */
+const MAX_REQUEST_BYTES = 4096;
+
+/**
+ * The hub's request, read as root from a folder the hub's user owns: only a small, plain file, never through a link (to
+ * a file only root may read) or from a pipe (which would hold the updater).
+ */
+export function readRequest(path: string): { version: unknown } | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? undefined : { version: 'unreadable request' };
+  }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > MAX_REQUEST_BYTES) return { version: 'unreadable request' };
+    return JSON.parse(readFileSync(fd, 'utf8')) as { version: unknown };
+  } catch {
+    return { version: 'unreadable request' };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** The steps on a real host: systemd, npm and the release layout `deploy-airship-package.sh` sets up. */
 export function systemSteps(options: SystemOptions): UpdaterSteps {
-  const { requestPath, root, port, user, service } = options;
+  const { requestPath, statusPath, root, port, user, service } = options;
   const releases = join(root, 'releases');
   const current = join(root, 'current');
   const releaseDir = (version: string) => join(releases, version);
   const staging = (version: string) => join(releases, `.installing-${version}`);
   return {
-    wanted: () => {
-      if (!existsSync(requestPath)) return undefined;
-      try {
-        return JSON.parse(readFileSync(requestPath, 'utf8')) as { version: unknown };
-      } catch {
-        return { version: 'unreadable request' };
-      }
-    },
+    wanted: () => readRequest(requestPath),
     current: () => (existsSync(current) ? basename(realpathSync(current)) : undefined),
     download: async (version) => {
       const response = await fetch(releaseTarballUrl('airship', version), { signal: AbortSignal.timeout(120_000) });
@@ -228,15 +264,15 @@ export function systemSteps(options: SystemOptions): UpdaterSteps {
       const old = readdirSync(releases)
         .filter((name) => !name.startsWith('.'))
         .map((name) => join(releases, name))
-        .filter((dir) => dir !== running)
+        // Both sides resolved, so a linked folder on the way (macOS's /var) can't hide the running release.
+        .filter((dir) => realpathSync(dir) !== running)
         .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
       for (const dir of old.slice(KEEP_RELEASES - 1)) rmSync(dir, { recursive: true, force: true });
     },
     report: (status) => {
-      const path = statusPathFor(requestPath);
-      const temp = `${path}.${process.pid}.tmp`;
+      const temp = `${statusPath}.${process.pid}.tmp`;
       writeFileSync(temp, `${JSON.stringify(status)}\n`, { mode: 0o644 });
-      renameSync(temp, path);
+      renameSync(temp, statusPath);
     },
   };
 }

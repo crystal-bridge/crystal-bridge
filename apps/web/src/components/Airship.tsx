@@ -46,6 +46,8 @@ export interface AirshipProps {
   onApproveKingdomUpdate?: () => void;
   onInstallUpdate?: (version: string) => void;
   onReleaseChannel?: (channel: ReleaseChannel) => void;
+  /** Why the hub refused the last change asked of it in the Ship's Log. */
+  hubError?: string | undefined;
   now?: number;
 }
 
@@ -79,6 +81,7 @@ export function Airship({
   onApproveKingdomUpdate,
   onInstallUpdate,
   onReleaseChannel,
+  hubError,
   now = Date.now(),
 }: AirshipProps) {
   const [moreLog, setMoreLog] = useState(false);
@@ -146,6 +149,7 @@ export function Airship({
             onApprove={onApproveKingdomUpdate}
             onInstall={onInstallUpdate}
             onChannel={onReleaseChannel}
+            error={hubError}
           />
         </div>
 
