@@ -305,6 +305,13 @@ describe('ProjectsView', () => {
     expect(screen.queryByRole('region', { name: 'Projects' })).toBeNull();
     expect(screen.getByText('Plain row').closest('li')).toBeTruthy();
   });
+  it('marks the chosen layout in a neutral shade, since window blue means something needs you', () => {
+    show({ items: [item('acme/lantern')] });
+    const layout = screen.getByRole('radiogroup', { name: 'Layout' });
+    for (const radio of within(layout).getAllByRole('radio')) {
+      expect(radio.closest('label')?.className).not.toMatch(/window/);
+    }
+  });
   it('offers Projects and Tiles, Projects first', () => {
     show({ items: [item('acme/lantern')] });
     const layout = screen.getByRole('radiogroup', { name: 'Layout' });
