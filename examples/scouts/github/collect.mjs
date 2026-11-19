@@ -5,7 +5,8 @@
  * uses the Kingdom's own `gh` login and stores no token.
  *
  * Node only, no packages, so it runs wherever Crystal does. `settings.json` beside it is optional:
- *   { "include": [], "exclude": [], "activeDays": 90, "perProject": 50, "discussions": false, "refreshMinutes": 60 }
+ *   { "include": [], "exclude": [], "activeDays": 90, "maxRepos": 30, "perProject": 50, "discussions": false,
+ *     "refreshMinutes": 60 }
  */
 import { execFile } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,9 @@ const MAX_ITEMS = 1000;
 /** Repositories listed per GraphQL call: each costs about 5 points and well under GitHub's node limit. */
 const BATCH = 5;
 /** Pages of your repositories to read, 100 each, newest push first, before giving up on older ones. */
-const MAX_PAGES = 5;
+export const MAX_PAGES = 5;
+/** Maintained repositories listed in full when `maxRepos` isn't set. */
+const DEFAULT_MAX_REPOS = 30;
 
 const LABELS = 'labels(first: 10) { nodes { name color } }';
 const COMMENTS = 'comments(last: 10) { totalCount nodes { author { login __typename } authorAssociation createdAt } }';
@@ -106,23 +109,31 @@ const lower = (name) => name.toLowerCase();
 
 /**
  * The repositories you maintain, sorted: admin or maintain permission, not archived, pushed within `activeDays` (90),
- * and not a fork unless it takes issues of its own; plus `include`, less `exclude`.
+ * and not a fork unless it takes issues of its own; plus `include`, less `exclude`. At most `maxRepos` (30) are kept:
+ * `include` always counts first, then the newest pushed.
  */
 export function maintainedRepos(repos, settings = {}, now = Date.now()) {
   const cutoff = now - (settings.activeDays ?? 90) * 24 * 60 * 60_000;
   const excluded = new Set((settings.exclude ?? []).map(lower));
+  const included = new Set((settings.include ?? []).map(lower));
   const kept = new Map();
+  const pushed = new Map();
   for (const repo of repos) {
     if (repo.viewerPermission !== 'ADMIN' && repo.viewerPermission !== 'MAINTAIN') continue;
     if (repo.isArchived || (repo.isFork && !repo.hasIssuesEnabled)) continue;
     if (!(Date.parse(repo.pushedAt) >= cutoff)) continue;
     kept.set(lower(repo.nameWithOwner), repo.nameWithOwner);
+    pushed.set(lower(repo.nameWithOwner), Date.parse(repo.pushedAt));
   }
   for (const name of settings.include ?? []) if (!kept.has(lower(name))) kept.set(lower(name), name);
-  return [...kept.entries()]
-    .filter(([key]) => !excluded.has(key))
-    .map(([, name]) => name)
-    .sort();
+  const candidates = [...kept.entries()].filter(([key]) => !excluded.has(key));
+  const first = candidates.filter(([key]) => included.has(key));
+  const room = Math.max(0, (settings.maxRepos ?? DEFAULT_MAX_REPOS) - first.length);
+  const rest = candidates
+    .filter(([key]) => !included.has(key))
+    .sort((a, b) => pushed.get(b[0]) - pushed.get(a[0]) || (a[0] < b[0] ? -1 : 1))
+    .slice(0, room);
+  return [...first, ...rest].map(([, name]) => name).sort();
 }
 
 const isBot = (author) => !author || author.__typename === 'Bot' || /\[bot\]$/.test(author.login ?? '');
@@ -211,7 +222,8 @@ function classify(node, me, found) {
     if (assigned && author !== me) {
       return { why: 'assigned to you', reason: 'assigned', action: 'triage', suggested: 'triage' };
     }
-    return { why: author === me ? 'waiting on others' : `by ${author ?? 'ghost'}` };
+    if (author === me) return { why: assigned ? 'your issue' : 'waiting on others' };
+    return { why: `by ${author ?? 'ghost'}` };
   }
   if (found.has('review')) {
     return { why: 'review requested', reason: 'review', action: 'review', suggested: 'review' };
@@ -251,13 +263,21 @@ function labelsOf(node) {
     .slice(0, 10);
 }
 
+/** A project's name is at most 100 characters: a longer one cuts the repository's name, keeping the owner. */
+function projectName(nameWithOwner) {
+  if (nameWithOwner.length <= 100) return nameWithOwner;
+  const slash = nameWithOwner.indexOf('/');
+  const owner = slash > 0 && slash < 50 ? nameWithOwner.slice(0, slash + 1) : '';
+  return `${owner}${nameWithOwner.slice(owner.length, 99)}…`;
+}
+
 function projectOf(repository, owned) {
   const description = String(repository.description ?? '')
     .trim()
     .slice(0, 200)
     .trim();
   return {
-    name: repository.nameWithOwner,
+    name: projectName(repository.nameWithOwner),
     ...(repository.url ? { url: repository.url } : {}),
     ...(description ? { description } : {}),
     owned,
@@ -273,6 +293,8 @@ function toItem(node, me, found, repository, owned) {
   const kind = isPr && node.isDraft ? 'draft' : bug ? 'bug' : type;
   const { why, reason, action, suggested } = classify(node, me, found);
   const failed = isPr ? failingChecks(node) : [];
+  // The banner counts `failing`, so a failure no check can be named for still sets it.
+  const failing = isPr && checksFailed(node);
   const author = node.author?.login ?? null;
   const mine = author === me;
   const checks = isPr ? CHECKS[rollupOf(node)?.state] : undefined;
@@ -308,7 +330,11 @@ function toItem(node, me, found, repository, owned) {
       number: node.number,
       isPr,
       isIssue: type === 'issue',
-      ...(failed.length > 0 ? { failing: failed.join(', ').slice(0, 2000) } : {}),
+      ...(failed.length > 0
+        ? { failing: failed.join(', ').slice(0, 2000) }
+        : failing
+          ? { failing: 'checks failing' }
+          : {}),
     },
     actions: [...(action ? [action] : []), 'open', 'later', 'done'],
     ...(suggested ? { suggested } : {}),
@@ -319,9 +345,9 @@ function toItem(node, me, found, repository, owned) {
 /**
  * The Board's items: every open pull request and issue in `listed` (the maintained repositories' lists), and your own
  * from the searches, each found once. `exclude` leaves repositories out; past `max` items, those that need you stay
- * and then the newest.
+ * and then the newest; `onDropped` hears how many were left out.
  */
-export function toItems(searches, me, listed = [], { exclude = [], max = MAX_ITEMS } = {}) {
+export function toItems(searches, me, listed = [], { exclude = [], max = MAX_ITEMS, onDropped } = {}) {
   const excluded = new Set(exclude.map(lower));
   const owned = new Map(listed.filter(Boolean).map((repo) => [lower(repo.nameWithOwner), repo]));
   const found = new Map();
@@ -365,6 +391,7 @@ export function toItems(searches, me, listed = [], { exclude = [], max = MAX_ITE
           )
           .slice(0, max)
           .map(({ item }) => item);
+  if (items.length > kept.length) onDropped?.(items.length - kept.length);
   return kept.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
@@ -386,7 +413,7 @@ function ghFailed(result) {
 
 /**
  * One GraphQL call's `data`. `gh` exits non-zero when any part of an answer failed, such as a repository the login
- * can't read: those parts are noted on stderr and left out. A rate limit, or an answer with no data, fails the run.
+ * can't read: those parts are noted on stderr and left out. A rate limit, or an answer with no data, throws.
  */
 async function graphql(gh, text, log) {
   const result = await gh(['api', 'graphql', '-f', `query=${text}`]);
@@ -398,7 +425,11 @@ async function graphql(gh, text, log) {
   }
   const errors = Array.isArray(body?.errors) ? body.errors : [];
   const limited = errors.find((error) => error?.type === 'RATE_LIMITED' || /rate limit/i.test(error?.message ?? ''));
-  if (limited) throw new Error(`GitHub's rate limit stopped this run: ${limited.message ?? 'rate limited'}`);
+  if (limited) {
+    throw Object.assign(new Error(`GitHub's rate limit stopped this run: ${limited.message ?? 'rate limited'}`), {
+      rateLimited: true,
+    });
+  }
   if (!body?.data) throw result.code !== 0 ? ghFailed(result) : new Error('GitHub answered with no data');
   for (const error of errors)
     log(`GitHub: ${error?.message ?? 'an error'}${error?.path ? ` (${error.path.join('.')})` : ''}`);
@@ -422,8 +453,12 @@ async function yourRepositories(gh, first, settings, now, log) {
   const cutoff = now - (settings.activeDays ?? 90) * 24 * 60 * 60_000;
   const repos = [...(first?.nodes ?? [])];
   let page = first?.pageInfo;
-  for (let pages = 1; page?.hasNextPage && pages < MAX_PAGES; pages++) {
+  for (let pages = 1; page?.hasNextPage; pages++) {
     if (!(Date.parse(repos.at(-1)?.pushedAt) >= cutoff)) break;
+    if (pages >= MAX_PAGES) {
+      log(`read the newest ${MAX_PAGES * 100} repositories; add older ones with include`);
+      break;
+    }
     const data = await graphql(gh, repositoriesQuery(page.endCursor), log);
     repos.push(...(data.viewer?.repositories?.nodes ?? []));
     page = data.viewer?.repositories?.pageInfo;
@@ -465,23 +500,36 @@ export async function collect({
 
   const data = await graphql(gh, query(settings), log);
   const me = data.viewer.login;
-  const names = maintainedRepos(
-    await yourRepositories(gh, data.viewer.repositories, settings, now, log),
-    settings,
-    now,
-  );
+  const yours = await yourRepositories(gh, data.viewer.repositories, settings, now, log);
+  const names = maintainedRepos(yours, settings, now);
+  const leftOut = maintainedRepos(yours, { ...settings, maxRepos: Infinity }, now).length - names.length;
+  if (leftOut > 0) {
+    log(
+      `listed ${names.length} repositories in full and left out ${leftOut}; raise maxRepos, or add some with include`,
+    );
+  }
   const listed = [];
   for (let at = 0; at < names.length; at += BATCH) {
     const batch = names.slice(at, at + BATCH);
-    const answer = await graphql(gh, projectsQuery(batch, settings.perProject ?? 50), log);
+    let answer;
+    try {
+      answer = await graphql(gh, projectsQuery(batch, settings.perProject ?? 50), log);
+    } catch (error) {
+      if (error?.rateLimited) throw error;
+      log(`skipped ${batch.join(', ')}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
     batch.forEach((name, index) => {
       const repo = answer[`r${index}`];
       if (repo) listed.push(repo);
       else log(`skipped ${name}: this login can't read it`);
     });
   }
-  const items = toItems(data, me, listed, { exclude: settings.exclude ?? [] });
-  if (items.length >= MAX_ITEMS) log(`kept ${MAX_ITEMS} items, those that need you first; lower perProject to see all`);
+  const items = toItems(data, me, listed, {
+    exclude: settings.exclude ?? [],
+    onDropped: (count) =>
+      log(`kept ${MAX_ITEMS} items and left out ${count}, those that need you first; lower perProject to see all`),
+  });
   mkdirSync(state, { recursive: true });
   writeFileSync(cacheFile, JSON.stringify({ key, etag: check.etag ?? cache?.etag, at: now, items }));
   return { items };
@@ -492,6 +540,7 @@ const SETTINGS = {
   discussions: [(value) => typeof value === 'boolean', 'true or false'],
   refreshMinutes: [(value) => typeof value === 'number' && value > 0, 'a number of minutes above 0'],
   activeDays: [(value) => typeof value === 'number' && value > 0, 'a number of days above 0'],
+  maxRepos: [(value) => Number.isInteger(value) && value >= 1 && value <= 200, 'a whole number from 1 to 200'],
   perProject: [(value) => Number.isInteger(value) && value >= 1 && value <= 100, 'a whole number from 1 to 100'],
   include: [(value) => Array.isArray(value) && value.every((one) => REPO_NAME.test(one)), 'a list of "owner/repo"'],
   exclude: [(value) => Array.isArray(value) && value.every((one) => REPO_NAME.test(one)), 'a list of "owner/repo"'],
