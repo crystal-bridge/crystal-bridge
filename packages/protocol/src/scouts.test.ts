@@ -404,6 +404,33 @@ describe('the projects view', () => {
     });
   });
 
+  describe('the queue lane', () => {
+    const block = (extra: object) => ScoutManifest.parse({ ...manifest, view: 'projects', projects: extra }).projects;
+    const reasons = (look: object) => ({ field: 'reason', values: { next: { icon: 'flag', ...look } } });
+
+    it('keeps a reason value’s lane and the queue block', () => {
+      const queue = { title: 'Your queue', priority: 'priority', due: 'due' };
+      const parsed = block({ reasons: reasons({ lane: 'queue' }), queue });
+      expect(parsed?.reasons?.values.next?.lane).toBe('queue');
+      expect(parsed?.queue).toEqual(queue);
+      expect(block({ reasons: reasons({ lane: 'needs' }) })?.reasons?.values.next?.lane).toBe('needs');
+    });
+
+    it('drops an unknown lane alone, keeping the block and the look', () => {
+      const parsed = block({ reasons: reasons({ lane: 'someday' }), who: 'author' });
+      expect(parsed?.who).toBe('author');
+      expect(parsed?.reasons?.values.next).toEqual({ icon: 'flag' });
+    });
+
+    it('drops a bad queue block alone', () => {
+      const parsed = block({ who: 'author', queue: { title: 't'.repeat(41) } });
+      expect(parsed?.who).toBe('author');
+      expect(parsed?.queue).toBeUndefined();
+      expect(block({ queue: { priority: 'Not a field'.repeat(10) } })?.queue).toBeUndefined();
+      expect(block({ queue: {} })?.queue).toEqual({});
+    });
+  });
+
   it('NodeScouts on this hub reads a projects Scout', () => {
     const frame = NodeScouts.parse({
       kind: 'scouts',

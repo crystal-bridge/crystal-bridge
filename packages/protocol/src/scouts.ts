@@ -72,7 +72,17 @@ export type ScoutView = z.infer<typeof ScoutView>;
 const lookName = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
 
 /** How one value of a field draws: an icon from the app's Board mark set, a tone from its palette, words for a tooltip. */
-export const ScoutLook = z.object({ icon: lookName.optional(), tone: lookName.optional(), label: label.optional() });
+export const ScoutLook = z.object({
+  icon: lookName.optional(),
+  tone: lookName.optional(),
+  label: label.optional(),
+  /**
+   * For a reason value in the `projects` view: which window its items go to. `needs` (the default) is Needs you, for
+   * work someone is waiting on; `queue` is the queue window, for the user's own work in order. A lane this hub doesn't
+   * know is dropped alone, so its items show in Needs you.
+   */
+  lane: z.enum(['needs', 'queue']).optional().catch(undefined),
+});
 export type ScoutLook = z.infer<typeof ScoutLook>;
 
 /** What each value of one item field looks like, such as `{ "field": "checks", "values": { "fail": { ... } } }`. */
@@ -166,6 +176,15 @@ export const ScoutManifest = z.object({
       added: fieldName.optional(),
       removed: fieldName.optional(),
       mine: fieldName.optional(),
+      /**
+       * The queue window, for items whose reason has `lane: "queue"`: its `title` (default "Your queue"), and the
+       * fields it orders by, `priority` (a number, lowest first) then `due` (a date, soonest first), then oldest
+       * first. Dropped alone when malformed.
+       */
+      queue: z
+        .object({ title: label.optional(), priority: fieldName.optional(), due: fieldName.optional() })
+        .optional()
+        .catch(undefined),
     })
     .optional()
     .catch(undefined),
