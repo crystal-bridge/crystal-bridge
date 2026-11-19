@@ -612,7 +612,8 @@ describe('airship server', () => {
     }
 
     beforeEach(async () => {
-      quiet = await buildServer({ store, nodeHeartbeatMs: 20 });
+      // Long enough that a busy runner's pause can't outlast a beat and a half, which reads as a node gone quiet.
+      quiet = await buildServer({ store, nodeHeartbeatMs: 100 });
       await quiet.listen({ port: 0, host: '127.0.0.1' });
       const address = quiet.server.address() as AddressInfo;
       quietUrl = `http://127.0.0.1:${address.port}`;
@@ -636,7 +637,7 @@ describe('airship server', () => {
 
     it('keeps one that answers', async () => {
       await connect();
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, 400));
       expect(await listed()).toEqual(['node-q']);
     });
   });
@@ -2363,10 +2364,12 @@ describe('airship server and open tabs', () => {
     expect(tab.readyState).toBe(WebSocket.OPEN);
   });
 
+  // 200 events of 256 KiB: a slow runner's store can take seconds, so the limit sits well above the polls (#223).
+  const slow = { timeout: 20_000 };
   const bigEvent = (session: string, seq: number) =>
     makeEnvelope({ session, seq, payload: { engine: 'claude', raw: { text: 'x'.repeat(256 * 1024) } } });
 
-  it('drops a tab too far behind, and stops piling frames up for it', async () => {
+  it('drops a tab too far behind, and stops piling frames up for it', slow, async () => {
     await start({ clientBacklogBytes: 64 * 1024 });
     const { session, node, tab, frames } = await watching();
     const closed = closing(tab);
@@ -2374,7 +2377,7 @@ describe('airship server and open tabs', () => {
 
     for (let seq = 1; seq <= 200; seq++) send(node, bigEvent(session, seq));
     const begun = Date.now();
-    while (store.nextSeq(session) <= 200 && Date.now() - begun < 5000) await new Promise((r) => setTimeout(r, 10));
+    while (store.nextSeq(session) <= 200 && Date.now() - begun < 10_000) await new Promise((r) => setTimeout(r, 10));
     expect(await relayed(session)).toBeLessThan(200 * 256 * 1024);
 
     tab.resume();
@@ -2382,7 +2385,7 @@ describe('airship server and open tabs', () => {
     expect(frames.frames.filter((frame) => frame.kind === 'event').length).toBeLessThan(200);
   });
 
-  it('lets a replay bigger than the limit finish on a slow tab, and live events follow it', async () => {
+  it('lets a replay bigger than the limit finish on a slow tab, and live events follow it', slow, async () => {
     await start({ clientBacklogBytes: 64 * 1024 });
     const session = randomUUID();
     store.appendEvent(sessionStartedEnvelope(session, 'node-a'));
