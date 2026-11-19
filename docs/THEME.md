@@ -154,7 +154,9 @@ later amber, done green, a link sky); and an accent per banner tile. A fork chan
 `emerald`, `rose`, `sky`, `blue`, `teal`, `fuchsia`, `lime` and `neutral`. A project gets a colour by a hash of its
 name, as a sender does. Every banner tile carries an icon and a tone, the built-in ones by default and a Scout's
 `summary` entries by name. The projects Board's Needs-you window is blue and follows the rule above: a blue window means
-this needs you.
+this needs you. The queue window under it is deliberately not window blue: it holds your own work, which nobody is
+waiting on, so it is a plain panel in the `--prompt-*` frame, with priority badges in the mark tones (P0 red, P1
+orange, P2 amber, then slate).
 
 When a Hero uses something from the Inventory, the chat says so in one line, with a verb per category: "Paladin
 **casts** deploy!" (Spells), "**uses**" (Items), "**invokes**" (Runes). The skill's own text stays folded under
