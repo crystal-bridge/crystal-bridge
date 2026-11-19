@@ -225,7 +225,7 @@ further, its protocol version, uptime, database size, and last backup and mirror
 needs a look. It's left off phones for now.
 
 A packaged hub asks GitHub for this project's latest full release at most every six hours, or on the edge channel the
-newest of its recent releases, pre-releases included, sending nothing about you or your sessions, and keeps the last
+newest of its recent releases, pre-releases included, every 15 minutes, sending nothing about you or your sessions, and keeps the last
 answer if GitHub can't be reached. When a newer one is out, the Ship's Log shows its notes and how to take it (or
 Install updates), and the logo that leads to the Airship gets a count badge. `AIRSHIP_RELEASE_CHECK=off` stops the
 check. A hub run from git has no version to compare, so it never asks.
