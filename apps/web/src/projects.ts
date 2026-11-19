@@ -21,8 +21,10 @@ export interface ProjectSection<T extends ScoutItem = BoardItem> {
   owned?: boolean;
   tone: ReturnType<typeof projectTone>;
   items: T[];
-  /** Items with a listed reason. */
+  /** Items with a listed reason in the Needs-you lane. */
   needs: number;
+  /** Items with a listed reason in the queue lane. */
+  queued: number;
   /** Newest `when`, in ms. */
   latest?: number;
 }
@@ -77,7 +79,15 @@ function newestFirst(a: number | undefined, b: number | undefined): number {
   return b - a;
 }
 
-const hasReason = (item: ScoutItem, look: Look): boolean => lookup(item, look?.reasons) !== undefined;
+/** Which window an item's reason sends it to, if it has a listed reason: Needs you unless the reason says the queue. */
+function laneOf(item: ScoutItem, look: Look): 'needs' | 'queue' | undefined {
+  const reason = lookup(item, look?.reasons);
+  if (!reason) return undefined;
+  return reason.lane === 'queue' ? 'queue' : 'needs';
+}
+
+const needsYouFor = (item: ScoutItem, look: Look): boolean => laneOf(item, look) === 'needs';
+const queuedFor = (item: ScoutItem, look: Look): boolean => laneOf(item, look) === 'queue';
 
 /** Items grouped by project: Needs-you projects first, then the newest, then first seen; rows by kind, then newest. */
 export function projectSections<T extends ScoutItem>(items: readonly T[], look: Look): ProjectSection<T>[] {
@@ -96,7 +106,8 @@ export function projectSections<T extends ScoutItem>(items: readonly T[], look: 
       name,
       tone: projectTone(name),
       items: ordered.map((row) => row.item),
-      needs: list.filter((item) => hasReason(item, look)).length,
+      needs: list.filter((item) => needsYouFor(item, look)).length,
+      queued: list.filter((item) => queuedFor(item, look)).length,
     };
     const url = list.find((item) => item.project?.url !== undefined)?.project?.url;
     const description = list.find((item) => item.project?.description !== undefined)?.project?.description;
@@ -153,12 +164,12 @@ export function rowLook(item: ScoutItem, look: Look): RowLook {
   };
 }
 
-/** Items with a listed reason: ranked first, then by reason order, newest, and input order. */
+/** Items with a listed reason in the Needs-you lane: ranked first, then by reason order, newest, and input order. */
 export function needsYou<T extends ScoutItem>(items: readonly T[], look: Look): T[] {
   const unranked = Number.MAX_SAFE_INTEGER;
   return items
     .map((item, at) => ({ item, at, reason: listedAt(item, look?.reasons), when: whenOf(item, look) }))
-    .filter(({ item }) => hasReason(item, look))
+    .filter(({ item }) => needsYouFor(item, look))
     .sort(
       (a, b) =>
         (a.item.rank ?? unranked) - (b.item.rank ?? unranked) ||
@@ -167,6 +178,41 @@ export function needsYou<T extends ScoutItem>(items: readonly T[], look: Look): 
         a.at - b.at,
     )
     .map(({ item }) => item);
+}
+
+/** What the queue window orders an item by: its priority (lower first) and due time in ms, from the queue's fields. */
+export function queueSlots(item: ScoutItem, look: Look): { priority?: number; due?: number } {
+  return { priority: count(item, look?.queue?.priority), due: asTime(field(item, look?.queue?.due)) };
+}
+
+/** Lowest first; missing after present; 0 for a tie. */
+function lowestFirst(a: number | undefined, b: number | undefined): number {
+  if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? 1 : -1;
+  return a - b;
+}
+
+/** Items whose reason is in the queue lane: by priority, then soonest due, then oldest `when`, then input order. */
+export function yourQueue<T extends ScoutItem>(items: readonly T[], look: Look): T[] {
+  return items
+    .map((item, at) => ({ item, at, ...queueSlots(item, look), when: whenOf(item, look) }))
+    .filter(({ item }) => queuedFor(item, look))
+    .sort(
+      (a, b) =>
+        lowestFirst(a.priority, b.priority) || lowestFirst(a.due, b.due) || lowestFirst(a.when, b.when) || a.at - b.at,
+    )
+    .map(({ item }) => item);
+}
+
+/** A due time in words, such as "due in 3d" or "overdue 2d"; within a day, "due today" or "overdue". */
+export function dueText(due: number, now: number): string {
+  const days = Math.floor(Math.abs(due - now) / DAY_MS);
+  if (due >= now) return days === 0 ? 'due today' : `due in ${days}d`;
+  return days === 0 ? 'overdue' : `overdue ${days}d`;
+}
+
+/** A priority badge's tone, by name from the Board palette: 0 red, 1 orange, 2 amber, 3 and after slate. */
+export function priorityTone(priority: number): string {
+  return priority < 1 ? 'red' : priority < 2 ? 'orange' : priority < 3 ? 'amber' : 'slate';
 }
 
 /** Items per local day over the last `days` days ending today, oldest first, by the `when` field. */

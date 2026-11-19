@@ -3,12 +3,16 @@ import type { BoardItem, ScoutManifest } from '@crystal-bridge/protocol';
 import {
   FOLD_AT,
   activity,
+  dueText,
   needsYou,
+  priorityTone,
   projectOf,
   projectSections,
+  queueSlots,
   rowLook,
   tileCounts,
   visibleRows,
+  yourQueue,
 } from './projects.js';
 import { projectTone } from './theme/boardTones.js';
 
@@ -219,5 +223,90 @@ describe('visibleRows', () => {
     expect(visibleRows(rows, false)).toEqual({ shown: rows.slice(0, 8), hidden: 2 });
     expect(visibleRows(rows, true)).toEqual({ shown: rows, hidden: 0 });
     expect(visibleRows(rows.slice(0, 8), false)).toEqual({ shown: rows.slice(0, 8), hidden: 0 });
+  });
+});
+
+describe('the queue lane', () => {
+  const lanes: Look = {
+    ...look,
+    reasons: {
+      field: 'reason',
+      values: { review: { label: 'Review asked' }, next: { label: 'Up next', lane: 'queue' }, mine: { lane: 'needs' } },
+    },
+    queue: { priority: 'priority', due: 'due' },
+  };
+
+  it('keeps queue-lane items out of Needs you', () => {
+    const a = item({ reason: 'review' });
+    const b = item({ reason: 'next' });
+    const c = item({ reason: 'mine' });
+    expect(needsYou([a, b, c], lanes)).toEqual([a, c]);
+  });
+
+  it('keeps everything in Needs you for a look without lanes', () => {
+    const a = item({ reason: 'review' });
+    const b = item({ reason: 'failing' });
+    expect(needsYou([a, b], look)).toEqual([a, b]);
+    expect(yourQueue([a, b], look)).toEqual([]);
+  });
+
+  it('orders the queue by priority, then due, then oldest, then input', () => {
+    const p2 = item({ reason: 'next', priority: 2 });
+    const p0 = item({ reason: 'next', priority: '0' });
+    const p1late = item({ reason: 'next', priority: 1, due: '2026-12-20T00:00:00Z' });
+    const p1soon = item({ reason: 'next', priority: 1, due: Math.floor(day('2026-12-01T00:00:00Z') / 1000) });
+    const p1none = item({ reason: 'next', priority: 1 });
+    const oldNone = item({ reason: 'next', updated: 1000 });
+    const newNone = item({ reason: 'next', updated: 5000 });
+    const undated = item({ reason: 'next' });
+    const tieA = item({ reason: 'next' });
+    const bad = item({ reason: 'next', priority: 'high', due: 'soon' });
+    const review = item({ reason: 'review', priority: 0 });
+    expect(yourQueue([undated, p2, newNone, review, p1none, p0, tieA, p1late, oldNone, bad, p1soon], lanes)).toEqual([
+      p0,
+      p1soon,
+      p1late,
+      p1none,
+      p2,
+      oldNone,
+      newNone,
+      undated,
+      tieA,
+      bad,
+    ]);
+  });
+
+  it('reads an item’s priority and due', () => {
+    expect(queueSlots(item({ priority: '1', due: '2026-12-01T00:00:00Z' }), lanes)).toEqual({
+      priority: 1,
+      due: day('2026-12-01T00:00:00Z'),
+    });
+    expect(queueSlots(item({ priority: null }), lanes)).toEqual({ priority: undefined, due: undefined });
+    expect(queueSlots(item({ priority: 1 }), look)).toEqual({ priority: undefined, due: undefined });
+  });
+
+  it('counts only needs-lane items as needs, and queue items as queued', () => {
+    const sections = projectSections(
+      [
+        item({ reason: 'next', updated: 9000 }, { project: { name: 'mine' } }),
+        item({ reason: 'next' }, { project: { name: 'mine' } }),
+        item({ reason: 'review', updated: 1000 }, { project: { name: 'theirs' } }),
+      ],
+      lanes,
+    );
+    expect(sections.map((s) => [s.name, s.needs, s.queued])).toEqual([
+      ['theirs', 1, 0],
+      ['mine', 0, 2],
+    ]);
+    expect(tileCounts(sections[1]!, undefined)[0]).toMatchObject({ label: 'Needs you', count: 0 });
+  });
+
+  it('words a due date and tones a priority', () => {
+    const now = day('2026-11-19T12:00:00Z');
+    expect(dueText(now + 3 * 86_400_000, now)).toBe('due in 3d');
+    expect(dueText(now + 3 * 3_600_000, now)).toBe('due today');
+    expect(dueText(now - 2 * 86_400_000, now)).toBe('overdue 2d');
+    expect(dueText(now - 3_600_000, now)).toBe('overdue');
+    expect([0, 1, 2, 3, 7].map(priorityTone)).toEqual(['red', 'orange', 'amber', 'slate', 'slate']);
   });
 });
