@@ -23,3 +23,51 @@ export const BOARD_ICONS: Readonly<Record<string, IconName>> = {
 export function boardIcon(name: string | undefined): IconName | undefined {
   return name !== undefined && Object.hasOwn(BOARD_ICONS, name) ? BOARD_ICONS[name] : undefined;
 }
+
+/**
+ * The marks an item can wear on a projects Board, by the short name a `ScoutLook.icon` gives (docs/SCOUTS.md). They
+ * are plain Phosphor drawings that take the text colour, so a tone (boardTones.ts) paints them. `draft` shares the
+ * pull request's drawing and `check-circle` the closed issue's. A fork adds its own here (and in iconSources.ts).
+ */
+export const BOARD_MARKS: Readonly<Record<string, IconName>> = {
+  'pull-request': 'markPullRequest',
+  merge: 'markMerge',
+  issue: 'markIssue',
+  'issue-closed': 'markIssueClosed',
+  bug: 'markBug',
+  discussion: 'markDiscussion',
+  'x-circle': 'markXCircle',
+  running: 'markRunning',
+  warning: 'markWarning',
+  'seal-check': 'markSealCheck',
+  changes: 'markChanges',
+  hourglass: 'markHourglass',
+  eye: 'markEye',
+  chat: 'markChat',
+  reply: 'markReply',
+  user: 'markUser',
+  crown: 'markCrown',
+  handshake: 'markHandshake',
+  robot: 'markRobot',
+  hand: 'markHand',
+  lock: 'markLock',
+  star: 'markStar',
+  tag: 'markTag',
+  rocket: 'markRocket',
+  clock: 'markClock',
+  flag: 'markFlag',
+  lightning: 'markLightning',
+  shield: 'markShield',
+  tray: 'markTray',
+  sparkle: 'markSparkle',
+  lightbulb: 'markLightbulb',
+  github: 'markGithub',
+  gitlab: 'markGitlab',
+  draft: 'markPullRequest',
+  'check-circle': 'markIssueClosed',
+};
+
+/** The icon an item's mark draws, or undefined for none. */
+export function markIcon(name: string | undefined): IconName | undefined {
+  return name !== undefined && Object.hasOwn(BOARD_MARKS, name) ? BOARD_MARKS[name] : undefined;
+}

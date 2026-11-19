@@ -1,0 +1,223 @@
+import { describe, expect, it } from 'vitest';
+import type { BoardItem, ScoutManifest } from '@crystal-bridge/protocol';
+import {
+  FOLD_AT,
+  activity,
+  needsYou,
+  projectOf,
+  projectSections,
+  rowLook,
+  tileCounts,
+  visibleRows,
+} from './projects.js';
+import { projectTone } from './theme/boardTones.js';
+
+type Look = NonNullable<ScoutManifest['projects']>;
+
+const look: Look = {
+  kind: { field: 'kind', values: { pr: { icon: 'pull' }, draft: { icon: 'draft' }, issue: { icon: 'issue' } } },
+  marks: [
+    { field: 'ci', values: { failing: { icon: 'x', tone: 'red' } } },
+    { field: 'review', values: { asked: {} } },
+  ],
+  reasons: { field: 'reason', values: { review: { label: 'Review asked' }, failing: { label: 'CI failing' } } },
+  who: 'author',
+  whoKey: 'login',
+  when: 'updated',
+  comments: 'comments',
+  added: 'plus',
+  removed: 'minus',
+  mine: 'mine',
+};
+
+let n = 0;
+const item = (fields: Record<string, unknown>, extra: Partial<BoardItem> = {}): BoardItem =>
+  ({ id: `i${n++}`, title: 't', fields, ...extra }) as BoardItem;
+
+const day = (iso: string) => Date.parse(iso);
+
+describe('projectOf', () => {
+  it('prefers the project, then the group, then Other', () => {
+    expect(projectOf(item({}, { project: { name: 'acme/lantern' }, group: 'g' }))).toBe('acme/lantern');
+    expect(projectOf(item({}, { group: 'orbit/ui' }))).toBe('orbit/ui');
+    expect(projectOf(item({}))).toBe('Other');
+  });
+});
+
+describe('projectSections', () => {
+  it('groups by project and reads the first url, description and owned', () => {
+    const items = [
+      item({}, { project: { name: 'acme/lantern' } }),
+      item({}, { project: { name: 'acme/lantern', url: 'https://x.test/l', description: 'd', owned: true } }),
+      item({}, { project: { name: 'acme/tidepool', url: 'https://x.test/t' } }),
+    ];
+    const sections = projectSections(items, look);
+    expect(sections.map((s) => s.name)).toEqual(['acme/lantern', 'acme/tidepool']);
+    expect(sections[0]).toMatchObject({
+      url: 'https://x.test/l',
+      description: 'd',
+      owned: true,
+      tone: projectTone('acme/lantern'),
+    });
+    expect(sections[0]!.items).toHaveLength(2);
+  });
+
+  it('puts Needs-you projects first, then newest, then first seen', () => {
+    const items = [
+      item({ updated: 1000 }, { project: { name: 'a' } }),
+      item({ updated: 5000 }, { project: { name: 'b' } }),
+      item({ updated: 1000, reason: 'review' }, { project: { name: 'c' } }),
+      item({}, { project: { name: 'd' } }),
+      item({}, { project: { name: 'e' } }),
+    ];
+    const sections = projectSections(items, look);
+    expect(sections.map((s) => s.name)).toEqual(['c', 'b', 'a', 'd', 'e']);
+    expect(sections[0]).toMatchObject({ needs: 1, latest: 1_000_000 });
+    expect(sections[3]!.latest).toBeUndefined();
+  });
+
+  it('orders items by kind, then newest, then input order', () => {
+    const a = item({ kind: 'issue', updated: 9000 }, { project: { name: 'p' } });
+    const b = item({ kind: 'pr', updated: 1000 }, { project: { name: 'p' } });
+    const c = item({ kind: 'pr', updated: 2000 }, { project: { name: 'p' } });
+    const d = item({ kind: 'draft' }, { project: { name: 'p' } });
+    const e = item({ kind: 'other' }, { project: { name: 'p' } });
+    const f = item({ kind: 'other' }, { project: { name: 'p' } });
+    const [section] = projectSections([a, b, c, d, e, f], look);
+    expect(section!.items).toEqual([c, b, d, a, e, f]);
+  });
+
+  it('still groups with no look, and files the unplaced under Other', () => {
+    const sections = projectSections([item({}, { group: 'orbit/ui' }), item({})], undefined);
+    expect(sections.map((s) => s.name)).toEqual(['orbit/ui', 'Other']);
+    expect(sections[0]!.needs).toBe(0);
+  });
+});
+
+describe('rowLook', () => {
+  it('reads each slot from the fields the manifest names', () => {
+    const row = rowLook(
+      item({
+        kind: 'pr',
+        ci: 'failing',
+        review: 'asked',
+        reason: 'review',
+        author: 'Ada',
+        login: 'ada1',
+        updated: '2026-11-17T10:00:00Z',
+        comments: '4',
+        plus: 12,
+        minus: 'x',
+        mine: 1,
+      }),
+      look,
+    );
+    expect(row).toEqual({
+      kind: { icon: 'pull' },
+      marks: [
+        { field: 'ci', look: { icon: 'x', tone: 'red' } },
+        { field: 'review', look: {} },
+      ],
+      reason: { label: 'Review asked' },
+      who: 'Ada',
+      whoKey: 'ada1',
+      when: day('2026-11-17T10:00:00Z'),
+      comments: 4,
+      added: 12,
+      removed: undefined,
+      mine: true,
+    });
+  });
+
+  it('leaves unlisted values and a missing look empty', () => {
+    const row = rowLook(item({ kind: 'wat', ci: 'passing' }), look);
+    expect(row.kind).toBeUndefined();
+    expect(row.marks).toEqual([]);
+    expect(row.mine).toBe(false);
+    const bare = rowLook(item({ kind: 'pr' }), undefined);
+    expect(bare).toEqual({
+      kind: undefined,
+      marks: [],
+      reason: undefined,
+      who: undefined,
+      whoKey: undefined,
+      when: undefined,
+      comments: undefined,
+      added: undefined,
+      removed: undefined,
+      mine: false,
+    });
+  });
+});
+
+describe('needsYou', () => {
+  it('lists items with a reason by rank, reason order, newest, then input', () => {
+    const a = item({ reason: 'failing', updated: 1 });
+    const b = item({ reason: 'review', updated: 1 });
+    const c = item({ reason: 'review', updated: 5 });
+    const d = item({ reason: 'review', updated: 5 }, { rank: 2 });
+    const e = item({ reason: 'failing' }, { rank: 1 });
+    const none = item({ reason: 'nope' });
+    expect(needsYou([a, b, none, c, d, e], look)).toEqual([e, d, c, b, a]);
+    expect(needsYou([a], undefined)).toEqual([]);
+  });
+});
+
+describe('activity', () => {
+  it('counts items per local day, oldest first', () => {
+    const now = new Date(2026, 10, 18, 15).getTime();
+    const at = (d: number, h: number) => new Date(2026, 10, d, h).getTime();
+    const items = [
+      item({ updated: at(18, 1) }),
+      item({ updated: new Date(2026, 10, 18, 9).toISOString() }),
+      item({ updated: Math.floor(at(17, 12) / 1000) }),
+      item({ updated: at(5, 12) }),
+      item({ updated: at(4, 12) }),
+      item({ updated: at(1, 12) }),
+      item({ updated: at(19, 12) }),
+      item({}),
+    ];
+    const counts = activity(items, 'updated', now);
+    expect(counts).toHaveLength(14);
+    expect(counts[13]).toBe(2);
+    expect(counts[12]).toBe(1);
+    expect(counts[0]).toBe(1);
+    expect(counts.reduce((x, y) => x + y, 0)).toBe(4);
+    expect(activity(items, 'updated', now, 3)).toEqual([0, 1, 2]);
+  });
+});
+
+describe('tileCounts', () => {
+  it('leads with Needs you, then the first three summary counts', () => {
+    const [section] = projectSections(
+      [
+        item({ reason: 'review', draft: true, bug: 0 }, { project: { name: 'p' } }),
+        item({ draft: 1 }, { project: { name: 'p' } }),
+      ],
+      look,
+    );
+    const summary = [
+      { label: 'Drafts', field: 'draft', icon: 'draft', tone: 'blue' },
+      { label: 'Bugs', field: 'bug' },
+      { label: 'C', field: 'c' },
+      { label: 'D', field: 'draft' },
+    ] as NonNullable<ScoutManifest['summary']>;
+    expect(tileCounts(section!, summary)).toEqual([
+      { label: 'Needs you', count: 1, icon: 'hand', tone: 'amber' },
+      { label: 'Drafts', count: 2, icon: 'draft', tone: 'blue' },
+      { label: 'Bugs', count: 0 },
+      { label: 'C', count: 0 },
+    ]);
+    expect(tileCounts(section!, undefined)).toHaveLength(1);
+  });
+});
+
+describe('visibleRows', () => {
+  const rows = Array.from({ length: 10 }, (_, i) => i);
+  it('folds past eight unless expanded', () => {
+    expect(FOLD_AT).toBe(8);
+    expect(visibleRows(rows, false)).toEqual({ shown: rows.slice(0, 8), hidden: 2 });
+    expect(visibleRows(rows, true)).toEqual({ shown: rows, hidden: 0 });
+    expect(visibleRows(rows.slice(0, 8), false)).toEqual({ shown: rows.slice(0, 8), hidden: 0 });
+  });
+});

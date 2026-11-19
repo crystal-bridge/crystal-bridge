@@ -65,8 +65,23 @@ export const ScoutAction = z.discriminatedUnion('kind', [
 ]);
 export type ScoutAction = z.infer<typeof ScoutAction>;
 
-export const ScoutView = z.enum(['list', 'checklist', 'table']);
+export const ScoutView = z.enum(['list', 'checklist', 'table', 'projects']);
 export type ScoutView = z.infer<typeof ScoutView>;
+
+/** A name from the app's Board icon set or tone palette (docs/SCOUTS.md): lower case, digits and dashes. */
+const lookName = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
+
+/** How one value of a field draws: an icon from the app's Board mark set, a tone from its palette, words for a tooltip. */
+export const ScoutLook = z.object({ icon: lookName.optional(), tone: lookName.optional(), label: label.optional() });
+export type ScoutLook = z.infer<typeof ScoutLook>;
+
+/** What each value of one item field looks like, such as `{ "field": "checks", "values": { "fail": { ... } } }`. */
+const valueLooks = z.object({
+  field: fieldName,
+  values: z
+    .record(z.string().min(1).max(64), ScoutLook)
+    .refine((values) => Object.keys(values).length <= 24, { message: 'at most 24 values' }),
+});
 
 /**
  * `scout.json`. Fields a newer Kingdom adds are dropped. A value this hub doesn't know, such as a new view or action kind,
@@ -107,7 +122,15 @@ export const ScoutManifest = z.object({
    * never failing the Scout.
    */
   summary: z
-    .array(z.object({ label: z.string().min(1).max(24), field: fieldName }))
+    .array(
+      z.object({
+        label: z.string().min(1).max(24),
+        field: fieldName,
+        /** An icon and a tone for the count, by name from the app's Board sets. A bad one drops alone. */
+        icon: lookName.optional().catch(undefined),
+        tone: lookName.optional().catch(undefined),
+      }),
+    )
     .max(6)
     .optional()
     .catch(undefined),
@@ -123,6 +146,26 @@ export const ScoutManifest = z.object({
       when: fieldName.optional(),
       unread: fieldName.optional(),
       preview: fieldName.optional(),
+    })
+    .optional()
+    .catch(undefined),
+  /**
+   * How the `projects` view draws an item, from its `fields`: `kind` picks the icon by one field's value, `marks` (up to
+   * four) add status icons, `reasons` say why the item is there, and the rest name the fields for the row's slots
+   * (docs/SCOUTS.md). Dropped when malformed, never failing the Scout.
+   */
+  projects: z
+    .object({
+      kind: valueLooks.optional(),
+      marks: z.array(valueLooks).max(4).optional(),
+      reasons: valueLooks.optional(),
+      who: fieldName.optional(),
+      whoKey: fieldName.optional(),
+      when: fieldName.optional(),
+      comments: fieldName.optional(),
+      added: fieldName.optional(),
+      removed: fieldName.optional(),
+      mine: fieldName.optional(),
     })
     .optional()
     .catch(undefined),
@@ -167,6 +210,26 @@ export const ScoutItem = z.object({
     .record(z.string().max(64), fieldValue)
     .refine((fields) => Object.keys(fields).length <= 32, { message: 'at most 32 fields' })
     .optional(),
+  /** Coloured tags the `projects` view draws on the row, such as an issue's labels. Dropped when malformed. */
+  labels: z
+    .array(z.object({ name: z.string().min(1).max(50), color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }))
+    .max(10)
+    .optional()
+    .catch(undefined),
+  /** The project the item belongs to, which the `projects` view groups by. Dropped when malformed. */
+  project: z
+    .object({
+      name: z.string().min(1).max(100),
+      url: z
+        .url({ protocol: /^https?$/ })
+        .max(4096)
+        .optional(),
+      description: z.string().max(200).optional(),
+      /** Whether the user owns the project: the view draws a crown, or a handshake and "showing your items" when false. */
+      owned: z.boolean().optional(),
+    })
+    .optional()
+    .catch(undefined),
   actions: z.array(ActionKey).max(16).optional(),
   /** The action the Board highlights for this item, from a collector or the synthesis step. Nothing runs until pressed. */
   suggested: ActionKey.optional(),

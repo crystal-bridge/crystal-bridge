@@ -250,6 +250,21 @@ describe('applySynthesis', () => {
     extra: [{ title: 'Two pull requests touch the uploader', summary: 'Review them together.', suggested: 'open' }],
   };
 
+  it('keeps labels and project on an item synthesis ranked', () => {
+    const tagged: ScoutItem = {
+      id: 'pr:12',
+      title: 'Fix the retry loop in the uploader',
+      labels: [{ name: 'bug', color: '#d73a4a' }],
+      project: { name: 'Uploader', url: 'https://example.com/uploader', owned: true },
+    };
+    const [one] = applySynthesis(
+      [tagged],
+      { items: [{ id: 'pr:12', rank: 1, summary: 'CI fails.' }], extra: [] },
+      manifest,
+    );
+    expect(one).toMatchObject({ rank: 1, labels: tagged.labels, project: tagged.project });
+  });
+
   it('ranks and summarizes the items it names, and suggests only an action the item offers', () => {
     const [first, second, third] = applySynthesis(items, answer, manifest);
     expect(first).toMatchObject({ id: 'pr:12', rank: 2, summary: 'CI fails.', suggested: 'fix' });

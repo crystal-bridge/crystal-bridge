@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { actionTone, SENDER_TONES, senderTone } from './boardTones.js';
+import {
+  actionTone,
+  CHIP_CLASSES,
+  markToneClass,
+  MARK_TONES,
+  projectTone,
+  SENDER_TONES,
+  senderTone,
+  tileTones,
+  toneChipClass,
+} from './boardTones.js';
 
 describe('senderTone', () => {
   it('gives one address the same colour every time, whatever its case or spacing', () => {
@@ -23,5 +33,37 @@ describe('actionTone', () => {
     expect(actionTone('tidy', 'run')).toBe('blue');
     // A key that names something on Object.prototype is no tone.
     expect(actionTone('constructor', 'dismiss')).toBe('rose');
+  });
+});
+
+describe('mark tones', () => {
+  it('colours a mark as text, with slate for an unknown tone', () => {
+    expect(markToneClass('red')).toContain('text-red-');
+    expect(markToneClass('nope')).toBe(markToneClass('slate'));
+    expect(markToneClass('constructor')).toBe(markToneClass('slate'));
+    expect(markToneClass(undefined)).toBe(markToneClass('slate'));
+  });
+
+  it('colours a project like a sender, by its name', () => {
+    expect(projectTone('acme/lantern')).toBe(senderTone('acme/lantern'));
+  });
+
+  it('has a chip for every tone, with slate for an unknown one', () => {
+    expect(toneChipClass('nope')).toBe(toneChipClass('slate'));
+    for (const tone of MARK_TONES) expect(toneChipClass(tone), tone).toBeTruthy();
+    expect(new Set(MARK_TONES).size).toBe(MARK_TONES.length);
+    expect(CHIP_CLASSES.slate).toBe(toneChipClass('slate'));
+  });
+});
+
+describe('tileTones', () => {
+  it('keeps a named tone, and gives the rest the cycle in turn, skipping the tones others name', () => {
+    expect(tileTones(['sky', undefined, 'teal', undefined, 'chartreuse'])).toEqual([
+      'sky',
+      'lime',
+      'teal',
+      'rose',
+      'indigo',
+    ]);
   });
 });

@@ -293,3 +293,123 @@ describe('a Quest from Board items, with the user-s own prompt', () => {
     expect(HubScoutQuest.safeParse({ ...frame, items: [] }).success).toBe(false);
   });
 });
+
+describe('the projects view', () => {
+  const projects = {
+    kind: { field: 'kind', values: { pr: { icon: 'pull-request', tone: 'emerald', label: 'Pull request' } } },
+    marks: [{ field: 'checks', values: { fail: { icon: 'x-circle', tone: 'red', label: 'Checks failing' } } }],
+    reasons: { field: 'reason', values: { review: { icon: 'eye', tone: 'violet', label: 'Review requested' } } },
+    who: 'author',
+    whoKey: 'login',
+    when: 'updated',
+    comments: 'comments',
+    added: 'added',
+    removed: 'removed',
+    mine: 'mine',
+  };
+
+  it('accepts view "projects" with a projects block', () => {
+    const parsed = ScoutManifest.parse({ ...manifest, view: 'projects', projects });
+    expect(parsed.view).toBe('projects');
+    expect(parsed.projects).toEqual(projects);
+  });
+
+  it('drops a malformed projects block, keeping the Scout', () => {
+    const parsed = ScoutManifest.parse({ ...manifest, view: 'projects', projects: { marks: 'x' } });
+    expect(parsed.view).toBe('projects');
+    expect(parsed.projects).toBeUndefined();
+  });
+
+  it('drops the block when marks has more than four entries', () => {
+    const mark = { field: 'checks', values: {} };
+    const parsed = ScoutManifest.parse({ ...manifest, view: 'projects', projects: { marks: Array(5).fill(mark) } });
+    expect(parsed.projects).toBeUndefined();
+  });
+
+  it('keeps an item’s labels and project', () => {
+    const extra = {
+      labels: [{ name: 'bug', color: '#d73a4a' }],
+      project: { name: 'acme/lantern', url: 'https://github.com/acme/lantern', description: 'Log viewer', owned: true },
+    };
+    const parsed = ScoutItems.parse({ items: [{ ...item, ...extra }] });
+    expect(parsed.items[0]?.labels).toEqual(extra.labels);
+    expect(parsed.items[0]?.project).toEqual(extra.project);
+  });
+
+  it('drops bad labels or a nameless project without failing the item', () => {
+    const parsed = ScoutItems.parse({
+      items: [
+        { ...item, labels: [{ name: 'bug', color: 'red' }], project: { url: 'https://github.com/acme/lantern' } },
+      ],
+    });
+    expect(parsed.items[0]?.id).toBe(item.id);
+    expect(parsed.items[0]?.labels).toBeUndefined();
+    expect(parsed.items[0]?.project).toBeUndefined();
+  });
+
+  it('keeps a summary entry’s icon and tone, and drops a bad one alone', () => {
+    const good = { label: 'Failing', field: 'checks', icon: 'x-circle', tone: 'red' };
+    const parsed = ScoutManifest.parse({
+      ...manifest,
+      summary: [good, { label: 'Open', field: 'open', icon: 'Bad Icon' }],
+    });
+    expect(parsed.summary).toEqual([good, { label: 'Open', field: 'open' }]);
+  });
+
+  describe('limits', () => {
+    const block = (extra: object) => ScoutManifest.parse({ ...manifest, view: 'projects', projects: extra });
+    const looks = (count: number) =>
+      Object.fromEntries(Array.from({ length: count }, (_, at) => [`v${at}`, { icon: 'bug', tone: 'red' }]));
+    const parseItem = (extra: object) => ScoutItems.parse({ items: [{ ...item, ...extra }] }).items[0]!;
+    const labels = (count: number) => Array.from({ length: count }, (_, at) => ({ name: `l${at}`, color: '#d73a4a' }));
+
+    it('keeps 24 values of a field and drops the block at 25', () => {
+      expect(block({ kind: { field: 'kind', values: looks(24) } }).projects).toBeDefined();
+      expect(block({ kind: { field: 'kind', values: looks(25) } }).projects).toBeUndefined();
+    });
+
+    it('drops the block for an icon or tone name that is not a name', () => {
+      expect(block({ kind: { field: 'kind', values: { a: { icon: 'pull-request' } } } }).projects).toBeDefined();
+      expect(block({ kind: { field: 'kind', values: { a: { icon: 'Pull Request' } } } }).projects).toBeUndefined();
+      expect(block({ kind: { field: 'kind', values: { a: { tone: 'Pull Request' } } } }).projects).toBeUndefined();
+    });
+
+    it('keeps 10 labels and drops them at 11, keeping the item', () => {
+      expect(parseItem({ labels: labels(10) }).labels).toHaveLength(10);
+      const dropped = parseItem({ labels: labels(11) });
+      expect(dropped.labels).toBeUndefined();
+      expect(dropped.id).toBe(item.id);
+    });
+
+    it('drops labels for a 3-digit hex colour or a name over 50 characters', () => {
+      expect(parseItem({ labels: [{ name: 'a'.repeat(50), color: '#ffffff' }] }).labels).toHaveLength(1);
+      expect(parseItem({ labels: [{ name: 'bug', color: '#fff' }] }).labels).toBeUndefined();
+      expect(parseItem({ labels: [{ name: 'a'.repeat(51), color: '#ffffff' }] }).labels).toBeUndefined();
+    });
+
+    it('drops a project whose description is over 200 characters or whose owned is not a boolean', () => {
+      expect(parseItem({ project: { name: 'acme/lantern', description: 'd'.repeat(200) } }).project).toBeDefined();
+      expect(parseItem({ project: { name: 'acme/lantern', description: 'd'.repeat(201) } }).project).toBeUndefined();
+      expect(parseItem({ project: { name: 'acme/lantern', owned: 'yes' } }).project).toBeUndefined();
+    });
+
+    it('keeps only web links as a project url, dropping the project for any other scheme', () => {
+      const url = 'https://example.com/acme/lantern';
+      expect(parseItem({ project: { name: 'acme/lantern', url } }).project?.url).toBe(url);
+      for (const bad of ['javascript:alert(1)', 'data:text/html,x']) {
+        const parsed = parseItem({ project: { name: 'acme/lantern', url: bad } });
+        expect(parsed.project).toBeUndefined();
+        expect(parsed.id).toBe(item.id);
+      }
+    });
+  });
+
+  it('NodeScouts on this hub reads a projects Scout', () => {
+    const frame = NodeScouts.parse({
+      kind: 'scouts',
+      scouts: [{ id: 'board', manifest: { ...manifest, view: 'projects', projects } }],
+    });
+    expect(frame.scouts[0]?.error).toBeUndefined();
+    expect(frame.scouts[0]?.manifest?.projects).toEqual(projects);
+  });
+});

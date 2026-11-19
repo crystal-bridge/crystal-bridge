@@ -261,6 +261,21 @@ describe('Scouts', () => {
       expect(listed()?.nextRunAt).toBe(slot(due));
     });
 
+    it('keeps an item’s labels and project in the run it sends', async () => {
+      const item = {
+        id: 'a',
+        title: 'First',
+        labels: [{ name: 'bug', color: '#d73a4a' }],
+        project: { name: 'Uploader', url: 'https://example.com/uploader', description: 'Sends files', owned: true },
+      };
+      scoutFolder('quest-board');
+      make();
+      await scouts!.tick();
+      scouts!.runNow('quest-board');
+      await finish(ok({ items: [item] }));
+      expect(sent[0]?.items).toEqual([item]);
+    });
+
     it('runs once on waking from a sleep that missed several runs, and marks it a catch-up', async () => {
       scoutFolder('quest-board');
       make();

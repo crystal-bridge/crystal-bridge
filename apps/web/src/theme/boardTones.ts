@@ -1,5 +1,6 @@
 /**
- * Colours on a Board (docs/THEME.md): a stable colour per sender, one per kind of action, and an accent per banner tile.
+ * Colours on a Board (docs/THEME.md): a stable colour per sender and per project, one per kind of action, an accent per
+ * banner tile, and the tones a projects Board's marks and chips name.
  * Data, so a fork changes the palette here. Each class is written out whole, so the stylesheet build keeps it.
  */
 
@@ -70,7 +71,23 @@ export function senderTone(key: string): SenderTone {
   return SENDER_TONES[hash % SENDER_TONES.length]!;
 }
 
-export type ChipTone = 'slate' | 'red' | 'orange' | 'violet' | 'amber' | 'emerald' | 'rose' | 'sky' | 'blue';
+/** The tones a mark or chip can name (a `ScoutLook.tone`), and the ones an action chip uses. */
+export const MARK_TONES = [
+  'slate',
+  'red',
+  'orange',
+  'violet',
+  'amber',
+  'emerald',
+  'rose',
+  'sky',
+  'blue',
+  'teal',
+  'fuchsia',
+  'lime',
+  'neutral',
+] as const;
+export type ChipTone = (typeof MARK_TONES)[number];
 
 /** A chip in each tone. */
 export const CHIP_CLASSES: Record<ChipTone, string> = {
@@ -84,6 +101,58 @@ export const CHIP_CLASSES: Record<ChipTone, string> = {
   rose: 'bg-rose-100 text-rose-800 ring-rose-300 dark:bg-rose-950 dark:text-rose-200 dark:ring-rose-800',
   sky: 'bg-sky-100 text-sky-800 ring-sky-300 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800',
   blue: 'bg-blue-100 text-blue-800 ring-blue-300 dark:bg-blue-950 dark:text-blue-200 dark:ring-blue-800',
+  teal: 'bg-teal-100 text-teal-800 ring-teal-300 dark:bg-teal-950 dark:text-teal-200 dark:ring-teal-800',
+  fuchsia:
+    'bg-fuchsia-100 text-fuchsia-800 ring-fuchsia-300 dark:bg-fuchsia-950 dark:text-fuchsia-200 dark:ring-fuchsia-800',
+  lime: 'bg-lime-100 text-lime-900 ring-lime-300 dark:bg-lime-950 dark:text-lime-200 dark:ring-lime-800',
+  neutral:
+    'bg-neutral-100 text-neutral-800 ring-neutral-300 dark:bg-neutral-800 dark:text-neutral-100 dark:ring-neutral-600',
+};
+
+/** A chip's classes for a tone name, slate for one not listed. */
+export function toneChipClass(tone: string | undefined): string {
+  return tone !== undefined && Object.hasOwn(CHIP_CLASSES, tone) ? CHIP_CLASSES[tone as ChipTone] : CHIP_CLASSES.slate;
+}
+
+/** A mark's text colour in each tone. */
+export const MARK_CLASSES: Record<ChipTone, string> = {
+  slate: 'text-slate-600 dark:text-slate-400',
+  red: 'text-red-600 dark:text-red-400',
+  orange: 'text-orange-600 dark:text-orange-400',
+  violet: 'text-violet-600 dark:text-violet-400',
+  amber: 'text-amber-600 dark:text-amber-400',
+  emerald: 'text-emerald-600 dark:text-emerald-400',
+  rose: 'text-rose-600 dark:text-rose-400',
+  sky: 'text-sky-600 dark:text-sky-400',
+  blue: 'text-blue-600 dark:text-blue-400',
+  teal: 'text-teal-600 dark:text-teal-400',
+  fuchsia: 'text-fuchsia-600 dark:text-fuchsia-400',
+  lime: 'text-lime-600 dark:text-lime-400',
+  neutral: 'text-neutral-600 dark:text-neutral-400',
+};
+
+/** A mark's text colour for a tone name, slate for one not listed. */
+export function markToneClass(tone: string | undefined): string {
+  return tone !== undefined && Object.hasOwn(MARK_CLASSES, tone) ? MARK_CLASSES[tone as ChipTone] : MARK_CLASSES.slate;
+}
+
+/** A project's colour, stable from its name and shared with the sender colours. */
+export function projectTone(name: string): SenderTone {
+  return senderTone(name);
+}
+
+/** A project's header wash, fading from its colour, and its small square dot (as in the Needs-you window). */
+export const PROJECT_CLASSES: Record<SenderTone, { wash: string; dot: string }> = {
+  rose: { wash: 'from-rose-100 dark:from-rose-900/45', dot: 'bg-rose-500 dark:bg-rose-400' },
+  orange: { wash: 'from-orange-100 dark:from-orange-900/45', dot: 'bg-orange-500 dark:bg-orange-400' },
+  amber: { wash: 'from-amber-100 dark:from-amber-900/45', dot: 'bg-amber-500 dark:bg-amber-400' },
+  lime: { wash: 'from-lime-100 dark:from-lime-900/45', dot: 'bg-lime-500 dark:bg-lime-400' },
+  emerald: { wash: 'from-emerald-100 dark:from-emerald-900/45', dot: 'bg-emerald-500 dark:bg-emerald-400' },
+  teal: { wash: 'from-teal-100 dark:from-teal-900/45', dot: 'bg-teal-500 dark:bg-teal-400' },
+  sky: { wash: 'from-sky-100 dark:from-sky-900/45', dot: 'bg-sky-500 dark:bg-sky-400' },
+  blue: { wash: 'from-blue-100 dark:from-blue-900/45', dot: 'bg-blue-500 dark:bg-blue-400' },
+  violet: { wash: 'from-violet-100 dark:from-violet-900/45', dot: 'bg-violet-500 dark:bg-violet-400' },
+  fuchsia: { wash: 'from-fuchsia-100 dark:from-fuchsia-900/45', dot: 'bg-fuchsia-500 dark:bg-fuchsia-400' },
 };
 
 /** Action keys with a colour of their own, by what they usually mean. */
@@ -104,11 +173,26 @@ export function actionTone(key: string, kind: string): ChipTone {
   return Object.hasOwn(BY_KIND, kind) ? BY_KIND[kind]! : 'slate';
 }
 
-/** Banner tile accents, in tile order. */
-export const TILE_TONES = ['blue', 'amber', 'violet', 'sky', 'teal', 'fuchsia', 'lime', 'rose', 'indigo'] as const;
+/**
+ * Banner tile accents, in the order a tile that names no tone takes them. A tile skips the tones other tiles in its banner
+ * name (the built-in ones name sky, amber, violet and fuchsia), so the cycle starts with the others.
+ */
+export const TILE_TONES = [
+  'teal',
+  'lime',
+  'rose',
+  'indigo',
+  'blue',
+  'emerald',
+  'orange',
+  'amber',
+  'violet',
+  'sky',
+  'fuchsia',
+] as const;
 export type TileTone = (typeof TILE_TONES)[number];
 
-export const TILE_CLASSES: Record<TileTone, { border: string; value: string }> = {
+export const TILE_CLASSES: Record<TileTone | ChipTone, { border: string; value: string }> = {
   blue: { border: 'border-l-blue-500 dark:border-l-blue-400', value: 'text-blue-700 dark:text-blue-300' },
   amber: { border: 'border-l-amber-500 dark:border-l-amber-400', value: 'text-amber-700 dark:text-amber-300' },
   violet: { border: 'border-l-violet-500 dark:border-l-violet-400', value: 'text-violet-700 dark:text-violet-300' },
@@ -120,5 +204,30 @@ export const TILE_CLASSES: Record<TileTone, { border: string; value: string }> =
   },
   lime: { border: 'border-l-lime-500 dark:border-l-lime-400', value: 'text-lime-700 dark:text-lime-300' },
   rose: { border: 'border-l-rose-500 dark:border-l-rose-400', value: 'text-rose-700 dark:text-rose-300' },
+  slate: { border: 'border-l-slate-500 dark:border-l-slate-400', value: 'text-slate-700 dark:text-slate-300' },
+  red: { border: 'border-l-red-500 dark:border-l-red-400', value: 'text-red-700 dark:text-red-300' },
+  orange: { border: 'border-l-orange-500 dark:border-l-orange-400', value: 'text-orange-700 dark:text-orange-300' },
+  emerald: {
+    border: 'border-l-emerald-500 dark:border-l-emerald-400',
+    value: 'text-emerald-700 dark:text-emerald-300',
+  },
+  neutral: {
+    border: 'border-l-neutral-500 dark:border-l-neutral-400',
+    value: 'text-neutral-700 dark:text-neutral-300',
+  },
   indigo: { border: 'border-l-indigo-500 dark:border-l-indigo-400', value: 'text-indigo-700 dark:text-indigo-300' },
 };
+
+/**
+ * The tones of a banner's tiles, in order: a tile's own when it names one we know, else the next of the cycle that no tile
+ * names and no earlier tile took, so every tile differs while the palette lasts (then the cycle starts over).
+ */
+export function tileTones(named: readonly (string | undefined)[]): (TileTone | ChipTone)[] {
+  const known = (tone: string | undefined): tone is TileTone | ChipTone =>
+    tone !== undefined && Object.hasOwn(TILE_CLASSES, tone);
+  const taken = new Set(named.filter(known));
+  const free = TILE_TONES.filter((tone) => !taken.has(tone));
+  const pool = free.length > 0 ? free : TILE_TONES;
+  let next = 0;
+  return named.map((tone) => (known(tone) ? tone : pool[next++ % pool.length]!));
+}

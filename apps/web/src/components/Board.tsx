@@ -1,13 +1,10 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { MAX_QUEST_ITEMS, MAX_QUEST_PROMPT } from '@crystal-bridge/protocol';
 import type {
   Board,
   BoardQuest,
-  PermissionMode,
   BoardItem,
   BoardItemState,
   ListedScout,
-  ScoutAction,
   ScoutManifest,
   ScoutRun,
 } from '@crystal-bridge/protocol';
@@ -17,26 +14,41 @@ import {
   boardCounts,
   boardSections,
   lastSynthesis,
-  linkFor,
   recommendations,
   rowView,
   settled,
-  snoozeUntil,
   tableColumns,
 } from '../boards.js';
 import { duration, goldText, shortWhen } from '../format.js';
-import { boardIcon } from '../theme/boardIcons.js';
-import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, TILE_TONES } from '../theme/boardTones.js';
+import { boardIcon, markIcon } from '../theme/boardIcons.js';
+import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, tileTones } from '../theme/boardTones.js';
 import { Icon } from '../theme/icons.js';
-import { hint, scoutReturnLine, sourceLine, w } from '../theme/words.js';
+import { hint, scoutReturnLine, w } from '../theme/words.js';
+import {
+  Avatar,
+  button,
+  ItemActions,
+  itemNote,
+  KingdomButton,
+  monogram,
+  NewMark,
+  QuestAllButton,
+  QuestComposer,
+  questBatch,
+  ROW_TOOLS,
+  SourceMark,
+  titleNote,
+} from './BoardParts.js';
 import { Gold } from './Gold.js';
-import { ThemedSelect } from './ThemedSelect.js';
-import { loadDefaultMode, MODES } from '../modes.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
+import { useBoardMode } from '../boardPrefs.js';
+import { LayoutSwitch, ProjectsView } from './ProjectsView.js';
 
 export interface BoardPageProps {
   /** The Kingdom's name, for the way back. */
   kingdom: string;
+  /** The Kingdom's id, which keys this device's choices for the Board; its name stands in without one. */
+  node?: string;
   /** The Scout as the hub lists it; undefined until the list loads, or when the Kingdom no longer has it. */
   scout: ListedScout | undefined;
   board: Board | null;
@@ -61,12 +73,6 @@ export interface BoardPageProps {
   onPin?: (pinned: boolean) => void;
 }
 
-const button =
-  'rounded border border-neutral-300 px-2 py-0.5 text-xs hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800';
-/** The suggested action stands out from the item's other buttons. */
-const suggestedButton =
-  'rounded border border-blue-600 bg-blue-600 px-2 py-0.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50';
-
 const OUTCOME_DOT: Record<string, string> = {
   succeeded: 'bg-green-500',
   failed: 'bg-red-500',
@@ -79,156 +85,6 @@ function shown(value: string | number | boolean | null | undefined): string {
   if (value === true) return 'yes';
   if (value === false) return 'no';
   return value === null || value === undefined ? '' : String(value);
-}
-
-/** An extra row the synthesis step added: its id says so, and only the Kingdom sets the step's source word. */
-function stepWrote(item: BoardItem): boolean {
-  return item.id.startsWith('synthesis:') && item.summarySource !== undefined;
-}
-
-/** The tooltip for an item's row and title: where its rank and summary came from. */
-function itemNote(item: BoardItem): string | undefined {
-  return sourceLine({ ...item, whole: stepWrote(item) });
-}
-
-/** The mark's words, when the step wrote a summary the Board shows, or the whole item. */
-function markNote(item: BoardItem): string | undefined {
-  if (item.summarySource === undefined || !(item.summary || stepWrote(item))) return undefined;
-  return itemNote(item);
-}
-
-/**
- * A faint mark on an item whose summary, or the whole item, the synthesis step wrote: its words come from a model that
- * read untrusted items. The tooltip names the source.
- */
-function SourceMark({ item }: { item: BoardItem }) {
-  const note = markNote(item);
-  if (note === undefined) return null;
-  return (
-    <span role="img" aria-label={note} title={note} className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-      ✦
-    </span>
-  );
-}
-
-/** The new mark: shown for the whole visit, though opening the Board has already marked the item seen. */
-function NewMark() {
-  return (
-    <span className="shrink-0 rounded bg-amber-400 px-1 text-[10px] font-bold uppercase text-neutral-950">New</span>
-  );
-}
-
-/**
- * A button the Kingdom carries out. One that wants confirming asks first, in place, with no browser dialog. It stays
- * disabled while the Kingdom works, so a second press doesn't start a second Quest.
- */
-function KingdomButton({
-  label,
-  confirm,
-  suggested,
-  run,
-}: {
-  label: string;
-  confirm: boolean;
-  suggested?: boolean;
-  run: () => Promise<void>;
-}) {
-  const [asking, setAsking] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const go = () => {
-    setAsking(false);
-    setBusy(true);
-    void run().finally(() => setBusy(false));
-  };
-  if (asking) {
-    return (
-      // Marked, so a row's tools stay shown while a confirm waits, though the pointer has left.
-      <span data-asking className="flex gap-1">
-        <button type="button" onClick={go} className={suggestedButton}>
-          {`Yes, ${label}`}
-        </button>
-        <button type="button" onClick={() => setAsking(false)} className={button}>
-          Cancel
-        </button>
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={() => (confirm ? setAsking(true) : go())}
-      className={suggested ? suggestedButton : button}
-      {...(suggested ? { title: 'Suggested' } : {})}
-    >
-      {busy ? `${label}…` : label}
-    </button>
-  );
-}
-
-/** An item's buttons. A link opens in a new tab; a quest or run goes to the Kingdom; the rest change its state. */
-function ItemActions({
-  item,
-  manifest,
-  now,
-  act,
-  perform,
-}: {
-  item: BoardItem;
-  manifest: ScoutManifest;
-  now: number;
-  act: (ids: string[], state: BoardItemState, until?: number) => void;
-  perform: (key: string, ids: string[]) => Promise<void>;
-}) {
-  const press = (action: ScoutAction) => {
-    if (action.kind === 'snooze') act([item.id], 'snoozed', snoozeUntil(action.for, now));
-    else if (action.kind === 'done') act([item.id], 'done');
-    else if (action.kind === 'dismiss') act([item.id], 'dismissed');
-  };
-  return (
-    <span className="flex shrink-0 flex-wrap gap-1">
-      {actionsFor(item, manifest).map(({ key, action }) => {
-        const suggested = item.suggested === key;
-        if (action.kind === 'link') {
-          const href = linkFor(action.url, item);
-          return href ? (
-            <a
-              key={key}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={suggested ? suggestedButton : button}
-              {...(suggested ? { title: 'Suggested' } : {})}
-            >
-              {action.label}
-            </a>
-          ) : null;
-        }
-        if (action.kind === 'quest' || action.kind === 'run') {
-          return (
-            <KingdomButton
-              key={key}
-              label={action.label}
-              confirm={action.kind === 'run' && Boolean(action.confirm)}
-              suggested={suggested}
-              run={() => perform(key, [item.id])}
-            />
-          );
-        }
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => press(action)}
-            className={suggested ? suggestedButton : button}
-            {...(suggested ? { title: 'Suggested' } : {})}
-          >
-            {action.label}
-          </button>
-        );
-      })}
-    </span>
-  );
 }
 
 /** One button per `run` action that takes several items, for the items in view that offer it. */
@@ -255,12 +111,6 @@ function BatchActions({
       ))}
     </span>
   );
-}
-
-/** An item's title on hover, with where its rank and summary came from, which the row's own tooltip can't show there. */
-function titleNote(item: BoardItem): string {
-  const note = itemNote(item);
-  return note ? `${item.title}\n${note}` : item.title;
 }
 
 function ItemText({ item, marked }: { item: BoardItem; marked: boolean }) {
@@ -340,11 +190,6 @@ function RunRow({ run, now }: { run: ScoutRun; now: number }) {
   );
 }
 
-/** A name's first character, for an avatar or a Board without an icon; whole even when it's an emoji. */
-function monogram(name: string): string {
-  return (Array.from(name.trim())[0] ?? '?').toUpperCase();
-}
-
 /**
  * A `list` row drawn like a mail client's: who it's from, when, the title with a line of preview, bold while unread. The
  * buttons show on hover, keyboard focus or touch, and while a confirm waits; at rest a tag names the suggested action,
@@ -376,16 +221,7 @@ function MailRow({
       data-unread={view.unread}
       title={itemNote(item)}
     >
-      {view.who !== undefined && (
-        <span
-          data-avatar
-          aria-hidden
-          data-tone={tone}
-          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${SENDER_CLASSES[tone!].avatar}`}
-        >
-          {monogram(view.who)}
-        </span>
-      )}
+      {view.who !== undefined && <Avatar who={view.who} {...(view.whoKey ? { whoKey: view.whoKey } : {})} />}
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           {/* Where the Scout says what unread is, a dot says it (and words, for a screen reader); else the New mark. */}
@@ -447,150 +283,10 @@ function MailRow({
       {/* Out of the way until hover or keyboard focus, as a mail client's row tools: the date and the suggestion show at
           rest, and the Counsel pane keeps a button for each suggestion. Hidden buttons take no clicks. */}
       {/* A touch screen has no hover: there the buttons sit at the row's end, always shown. */}
-      <span
-        data-row-tools
-        className="has-[[data-asking]]:pointer-events-auto has-[[data-asking]]:opacity-100 pointer-events-none absolute inset-y-1 right-0 flex items-center rounded-md bg-white px-1.5 opacity-0 shadow-md ring-1 ring-neutral-200 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 dark:bg-neutral-900 dark:ring-neutral-700 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:static [@media(hover:none)]:self-center [@media(hover:none)]:opacity-100 [@media(hover:none)]:shadow-none [@media(hover:none)]:ring-0"
-      >
+      <span data-row-tools className={ROW_TOOLS}>
         {actions}
       </span>
     </li>
-  );
-}
-
-/** The Scout's first `quest` action with a plain folder: a Quest written on the Board starts in its folder and mode. */
-function plainQuest(manifest: ScoutManifest): Extract<ScoutAction, { kind: 'quest' }> | undefined {
-  return Object.values(manifest.actions).find(
-    (action): action is Extract<ScoutAction, { kind: 'quest' }> =>
-      action.kind === 'quest' && !action.project.includes('{{'),
-  );
-}
-
-/** The opening words, which the user edits: what to do with the items, which follow as data. */
-function defaultPrompt(count: number): string {
-  return count === 1
-    ? "Help me with this item. Say what you'd do and why, then wait for my go-ahead before changing anything."
-    : `Work through these ${count} items with me, best first. For each, say what you'd do and why, then wait for my go-ahead before changing anything.`;
-}
-
-/**
- * Writes a Quest over Board items: the user's own prompt, the items as removable chips, the folder and the permission
- * mode. The Kingdom adds the items after the prompt as untrusted data, as a Scout's `quest` action does.
- */
-function QuestComposer({
-  items,
-  open,
-  manifest,
-  start,
-  onClose,
-}: {
-  items: readonly BoardItem[];
-  /** The Board's open items now. */
-  open: readonly BoardItem[];
-  manifest: ScoutManifest;
-  start: (ask: BoardQuest) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [chosen, setChosen] = useState<readonly BoardItem[]>(items);
-  const [prompt, setPrompt] = useState(() => defaultPrompt(items.length));
-  const [project, setProject] = useState(() => plainQuest(manifest)?.project ?? '~');
-  const [mode, setMode] = useState<PermissionMode>(() => plainQuest(manifest)?.mode ?? loadDefaultMode());
-  const promptRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => promptRef.current?.focus(), []);
-  // An item that left the open list (done elsewhere, gone) leaves the Quest too, so Start never asks for it.
-  const openIds = new Set(open.map((item) => item.id));
-  const shown = chosen.filter((item) => openIds.has(item.id));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const go = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await start({ ids: shown.map((item) => item.id), prompt, project: project.trim() || '~', mode });
-      onClose();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <form
-      aria-label={`${w('newQuest')} from this ${w('board')}`}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void go();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
-      }}
-      className="space-y-2 rounded-md border border-blue-300 bg-blue-50/50 p-2.5 dark:border-blue-800 dark:bg-blue-950/30"
-    >
-      <ul aria-label="Items it works on" className="flex flex-wrap gap-1">
-        {shown.map((item) => (
-          <li
-            key={item.id}
-            className="flex max-w-full items-center gap-1 rounded-full bg-white py-0.5 pl-2 pr-1 text-xs ring-1 ring-neutral-200 dark:bg-neutral-900 dark:ring-neutral-700"
-          >
-            <span className="truncate">{item.title}</span>
-            <button
-              type="button"
-              aria-label={`Leave out ${item.title}`}
-              onClick={() => setChosen((all) => all.filter((one) => one.id !== item.id))}
-              className="rounded-full px-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900 dark:hover:bg-neutral-700 dark:hover:text-white"
-            >
-              ×
-            </button>
-          </li>
-        ))}
-      </ul>
-      <label className="block text-xs text-neutral-500">
-        Prompt
-        <textarea
-          ref={promptRef}
-          value={prompt}
-          maxLength={MAX_QUEST_PROMPT}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={4}
-          className="mt-0.5 block w-full rounded border border-neutral-300 bg-white p-1.5 text-sm text-neutral-950 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
-        />
-      </label>
-      <p className="text-xs text-neutral-500">
-        The items follow your prompt as data, marked untrusted: the {w('quest')} treats their text as something to act
-        on, never as instructions.
-      </p>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="min-w-0 flex-1 text-xs text-neutral-500">
-          Folder
-          <input
-            value={project}
-            onChange={(event) => setProject(event.target.value)}
-            className="mt-0.5 block w-full rounded border border-neutral-300 bg-white px-1.5 py-1 font-mono text-xs text-neutral-950 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
-          />
-        </label>
-        <ThemedSelect
-          label="Permission mode"
-          icon="mode"
-          size="sm"
-          title={`Permission mode: how much the ${w('quest')} may do without asking`}
-          value={mode}
-          options={MODES}
-          onChange={(value) => setMode(value as PermissionMode)}
-        />
-      </div>
-      {error && (
-        <p role="alert" className="whitespace-pre-wrap text-xs text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-      <div className="flex justify-end gap-1">
-        <button type="button" onClick={onClose} className={button}>
-          Cancel
-        </button>
-        <button type="submit" disabled={busy || shown.length === 0 || prompt.trim() === ''} className={suggestedButton}>
-          {busy ? 'Starting…' : `Start ${w('quest')}`}
-        </button>
-      </div>
-    </form>
   );
 }
 
@@ -617,11 +313,8 @@ function Counsel({
   const groups = recommendations(open, manifest);
   const [composing, setComposing] = useState<BoardItem[] | null>(null);
   // Best first, as many as one Quest holds.
-  const suggested = groups
-    .flatMap((group) => group.items)
-    .sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
-  const best = suggested.slice(0, MAX_QUEST_ITEMS);
-  const allLabel = suggested.length > MAX_QUEST_ITEMS ? `the best ${MAX_QUEST_ITEMS}` : `all ${suggested.length}`;
+  const suggested = groups.flatMap((group) => group.items);
+  const batch = questBatch(suggested);
   return (
     <section
       aria-label={w('counsel')}
@@ -632,15 +325,7 @@ function Counsel({
           {w('counsel')}
         </h2>
         {start && suggested.length > 0 && !composing && (
-          <button
-            type="button"
-            aria-label={`Start a ${w('quest')} on ${allLabel}`}
-            title={`Write a ${w('quest')} that works through the suggestions here, best first, up to ${MAX_QUEST_ITEMS}`}
-            onClick={() => setComposing(best)}
-            className={suggestedButton}
-          >
-            {`${w('quest')} on ${allLabel}`}
-          </button>
+          <QuestAllButton label={batch.label} what="the suggestions here" onPress={() => setComposing(batch.best)} />
         )}
       </div>
       {start && composing && (
@@ -743,6 +428,7 @@ function Counsel({
  */
 export function BoardPage({
   kingdom,
+  node,
   scout,
   board,
   missing,
@@ -763,6 +449,8 @@ export function BoardPage({
   // Each item marked seen once while it stays new, so a slow answer doesn't send it again; once it's anything else, it
   // may come back as new and be marked again.
   const asked = useRef(new Set<string>());
+  // A projects Board's layout on this device: its projects, or a tile each.
+  const [mode, setMode] = useBoardMode(node ?? kingdom, scout?.id ?? board?.scout ?? '');
 
   const act = (ids: string[], state: BoardItemState, until?: number) => {
     setError(null);
@@ -842,8 +530,10 @@ export function BoardPage({
   const name = manifest?.name ?? scout?.id ?? board?.scout ?? '';
   const items = board?.items ?? [];
   const view = manifest?.view ?? 'list';
+  // A projects view the Scout doesn't say how to draw falls back to the mail list.
+  const mailList = view === 'list' || (view === 'projects' && !manifest?.projects);
   // A list with a time field reads newest first, like an inbox; the ranking moves to the Counsel pane.
-  const sections = boardSections(items, now, view === 'list' ? manifest?.show?.when : undefined);
+  const sections = boardSections(items, now, mailList ? manifest?.show?.when : undefined);
   const lastRun = board?.runs[0] ?? scout?.lastRun;
   const isMarked = (item: BoardItem) => item.state === 'new' || marked.has(item.id);
   // A checklist keeps what's ticked in place; the other views fold it away with what was dismissed.
@@ -856,13 +546,32 @@ export function BoardPage({
   const icon = boardIcon(manifest?.icon);
   // Counsel has a place when something suggests: the synthesis step, or a collector that already has.
   const counsel = Boolean(manifest && (manifest.synthesize || counts.suggested > 0));
-  const tiles: { label: string; value: string; hint?: string }[] = [
-    { label: 'Open', value: String(counts.open) },
-    { label: 'New', value: String(openItems.filter(isMarked).length), hint: 'new since anyone last looked' },
+  const tiles: { label: string; value: string; hint?: string; icon?: string; tone?: string }[] = [
+    { label: 'Open', value: String(counts.open), icon: 'tray', tone: 'sky' },
+    {
+      label: 'New',
+      value: String(openItems.filter(isMarked).length),
+      hint: 'new since anyone last looked',
+      icon: 'sparkle',
+      tone: 'amber',
+    },
     ...(manifest?.synthesize || counts.suggested > 0
-      ? [{ label: 'Suggested', value: String(counts.suggested), hint: 'items with a suggested action' }]
+      ? [
+          {
+            label: 'Suggested',
+            value: String(counts.suggested),
+            hint: 'items with a suggested action',
+            icon: 'lightbulb',
+            tone: 'violet',
+          },
+        ]
       : []),
-    ...counts.declared.map(({ label, count }) => ({ label, value: String(count) })),
+    ...counts.declared.map(({ label, count, icon, tone }) => ({
+      label,
+      value: String(count),
+      ...(icon !== undefined ? { icon } : {}),
+      ...(tone !== undefined ? { tone } : {}),
+    })),
     ...(manifest?.synthesize
       ? [
           {
@@ -873,10 +582,13 @@ export function BoardPage({
                 ? 'earlier'
                 : `${ago(augury.at, now)} ago · ${goldText(augury.costUsd)}`,
             hint: `when ${hint('synthesis')} last ranked the list, and what it cost`,
+            icon: 'eye',
+            tone: 'fuchsia',
           },
         ]
       : []),
   ];
+  const tones = tileTones(tiles.map((tile) => tile.tone));
 
   const mailRow = (item: BoardItem) => (
     <MailRow
@@ -965,6 +677,67 @@ export function BoardPage({
     </>
   );
 
+  // A Quest written on the Board opens once the Kingdom starts it.
+  const start = onQuest
+    ? async (ask: BoardQuest) => {
+        const { session } = await onQuest(ask);
+        if (session) onOpenQuest(session);
+      }
+    : undefined;
+  // The projects view, where the Scout says how to draw one; without that block it falls back to the list.
+  const projectsLook = view === 'projects' ? manifest?.projects : undefined;
+  const empty = (
+    <p className="text-sm text-neutral-500">
+      {board.runs.length > 0 ? 'Nothing to act on.' : `Nothing yet. ${w('scouts')} report after their first run.`}
+    </p>
+  );
+
+  const pastSections = (
+    <>
+      {sections.snoozed.length > 0 && (
+        <Folded title="Snoozed" plain="hidden until a time" count={sections.snoozed.length}>
+          <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+            {sections.snoozed.map((item) => (
+              <PastRow
+                key={item.id}
+                item={item}
+                note={item.until === undefined ? '' : `until ${new Date(item.until).toLocaleString()}`}
+                act={act}
+              />
+            ))}
+          </ul>
+        </Folded>
+      )}
+      {setAside.length > 0 && (
+        <Folded title="Set aside" plain="done or dismissed" count={setAside.length}>
+          <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+            {setAside.map((item) => (
+              <PastRow key={item.id} item={item} note={item.state} act={act} />
+            ))}
+          </ul>
+        </Folded>
+      )}
+      {sections.gone.length > 0 && (
+        <Folded title="Gone lately" plain="no longer in the collector's list" count={sections.gone.length}>
+          <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+            {sections.gone.map((item) => (
+              <PastRow key={item.id} item={item} note={`gone ${ago(item.goneAt ?? now, now)} ago`} />
+            ))}
+          </ul>
+        </Folded>
+      )}
+      {board && board.runs.length > 0 && (
+        <Folded title="Recent runs" plain="the latest runs, newest first" count={board.runs.length}>
+          <ul aria-label="Recent runs" className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+            {board.runs.map((run) => (
+              <RunRow key={run.id} run={run} now={now} />
+            ))}
+          </ul>
+        </Folded>
+      )}
+    </>
+  );
+
   return (
     <div className="h-full overflow-y-auto">
       <p className="px-3 py-6 text-sm text-neutral-500 md:hidden">{`${w('boards')} are on wider screens for now.`}</p>
@@ -1009,6 +782,7 @@ export function BoardPage({
               </div>
             </div>
             <span className="flex items-center gap-2">
+              {projectsLook && <LayoutSwitch mode={mode} onMode={setMode} />}
               {onPin && (
                 <button
                   type="button"
@@ -1041,23 +815,32 @@ export function BoardPage({
             </span>
           </div>
           <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
-            {tiles.map((tile, index) => (
-              <div
-                // A Scout's own label may match a built-in one.
-                key={index}
-                data-tile
-                data-tone={TILE_TONES[index % TILE_TONES.length]}
-                className={`rounded-md border border-l-4 border-neutral-200 bg-white/80 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950/80 ${TILE_CLASSES[TILE_TONES[index % TILE_TONES.length]!].border}`}
-                {...(tile.hint ? { title: tile.hint } : {})}
-              >
-                <dt className="text-xs text-neutral-500">{tile.label}</dt>
-                <dd
-                  className={`whitespace-nowrap text-lg font-semibold tabular-nums ${TILE_CLASSES[TILE_TONES[index % TILE_TONES.length]!].value}`}
+            {tiles.map((tile, index) => {
+              const tone = tones[index]!;
+              const mark = markIcon(tile.icon);
+              return (
+                <div
+                  // A Scout's own label may match a built-in one.
+                  key={index}
+                  data-tile
+                  data-tone={tone}
+                  className={`flex items-center gap-2 rounded-md border border-l-4 border-neutral-200 bg-white/80 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950/80 ${TILE_CLASSES[tone].border}`}
+                  {...(tile.hint ? { title: tile.hint } : {})}
                 >
-                  {tile.value}
-                </dd>
-              </div>
-            ))}
+                  {mark && (
+                    <span className={`shrink-0 ${TILE_CLASSES[tone].value}`}>
+                      <Icon name={mark} size={22} />
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <dt className="text-xs text-neutral-500">{tile.label}</dt>
+                    <dd className={`whitespace-nowrap text-lg font-semibold tabular-nums ${TILE_CLASSES[tone].value}`}>
+                      {tile.value}
+                    </dd>
+                  </div>
+                </div>
+              );
+            })}
           </dl>
           {scout?.paused && (
             <p role="alert" className="whitespace-pre-wrap text-sm text-amber-700 dark:text-amber-400">
@@ -1076,108 +859,76 @@ export function BoardPage({
           )}
         </header>
 
-        <div className={`grid gap-4 px-3 ${counsel ? 'lg:grid-cols-3' : ''}`}>
-          <section aria-label="Items" className={`min-w-0 space-y-4 ${counsel ? 'lg:col-span-2' : ''}`}>
-            {openCount === 0 && ticked.length === 0 ? (
-              <p className="text-sm text-neutral-500">
-                {board && board.runs.length > 0
-                  ? 'Nothing to act on.'
-                  : `Nothing yet. ${w('scouts')} report after their first run.`}
-              </p>
-            ) : view === 'table' ? (
-              table
-            ) : (
-              <>
-                {sections.open.map((group) => (
-                  <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      {(group.group !== undefined || sections.open.length > 1) && (
-                        <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
-                          {group.group ?? 'Other'}
-                        </h3>
-                      )}
-                      {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
-                    </div>
-                    <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                      {group.items.map(view === 'list' ? mailRow : row)}
+        {projectsLook && manifest ? (
+          <ProjectsView
+            items={openItems}
+            manifest={manifest}
+            look={projectsLook}
+            now={now}
+            node={node ?? kingdom}
+            scout={scout?.id ?? board.scout}
+            mode={mode}
+            onMode={setMode}
+            isMarked={isMarked}
+            act={act}
+            perform={perform}
+            {...(start ? { start } : {})}
+            empty={empty}
+            past={pastSections}
+          />
+        ) : (
+          <div className={`grid gap-4 px-3 ${counsel ? 'lg:grid-cols-3' : ''}`}>
+            <section aria-label="Items" className={`min-w-0 space-y-4 ${counsel ? 'lg:col-span-2' : ''}`}>
+              {openCount === 0 && ticked.length === 0 ? (
+                empty
+              ) : view === 'table' ? (
+                table
+              ) : (
+                <>
+                  {sections.open.map((group) => (
+                    <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        {(group.group !== undefined || sections.open.length > 1) && (
+                          <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
+                            {group.group ?? 'Other'}
+                          </h3>
+                        )}
+                        {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
+                      </div>
+                      <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                        {group.items.map(mailList ? mailRow : row)}
+                      </ul>
+                    </section>
+                  ))}
+                  {ticked.length > 0 && (
+                    <ul aria-label="Done" className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                      {ticked.map(row)}
                     </ul>
-                  </section>
-                ))}
-                {ticked.length > 0 && (
-                  <ul aria-label="Done" className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                    {ticked.map(row)}
-                  </ul>
-                )}
-              </>
-            )}
+                  )}
+                </>
+              )}
 
-            {sections.snoozed.length > 0 && (
-              <Folded title="Snoozed" plain="hidden until a time" count={sections.snoozed.length}>
-                <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-                  {sections.snoozed.map((item) => (
-                    <PastRow
-                      key={item.id}
-                      item={item}
-                      note={item.until === undefined ? '' : `until ${new Date(item.until).toLocaleString()}`}
+              {pastSections}
+            </section>
+            {/* The plan beside the inbox: sticky, so it stays in view down a long list. Above the list on narrower screens. */}
+            {counsel && (
+              <aside>
+                <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+                  {manifest && (
+                    <Counsel
+                      open={openItems}
+                      manifest={manifest}
+                      perform={perform}
                       act={act}
+                      now={now}
+                      {...(start ? { start } : {})}
                     />
-                  ))}
-                </ul>
-              </Folded>
+                  )}
+                </div>
+              </aside>
             )}
-            {setAside.length > 0 && (
-              <Folded title="Set aside" plain="done or dismissed" count={setAside.length}>
-                <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-                  {setAside.map((item) => (
-                    <PastRow key={item.id} item={item} note={item.state} act={act} />
-                  ))}
-                </ul>
-              </Folded>
-            )}
-            {sections.gone.length > 0 && (
-              <Folded title="Gone lately" plain="no longer in the collector's list" count={sections.gone.length}>
-                <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-                  {sections.gone.map((item) => (
-                    <PastRow key={item.id} item={item} note={`gone ${ago(item.goneAt ?? now, now)} ago`} />
-                  ))}
-                </ul>
-              </Folded>
-            )}
-            {board && board.runs.length > 0 && (
-              <Folded title="Recent runs" plain="the latest runs, newest first" count={board.runs.length}>
-                <ul aria-label="Recent runs" className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-                  {board.runs.map((run) => (
-                    <RunRow key={run.id} run={run} now={now} />
-                  ))}
-                </ul>
-              </Folded>
-            )}
-          </section>
-          {/* The plan beside the inbox: sticky, so it stays in view down a long list. Above the list on narrower screens. */}
-          {counsel && (
-            <aside>
-              <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                {manifest && (
-                  <Counsel
-                    open={openItems}
-                    manifest={manifest}
-                    perform={perform}
-                    act={act}
-                    now={now}
-                    {...(onQuest
-                      ? {
-                          start: async (ask: BoardQuest) => {
-                            const { session } = await onQuest(ask);
-                            if (session) onOpenQuest(session);
-                          },
-                        }
-                      : {})}
-                  />
-                )}
-              </div>
-            </aside>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

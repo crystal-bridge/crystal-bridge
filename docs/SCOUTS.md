@@ -105,6 +105,47 @@ that identifies the sender for good, such as an address: each sender gets a colo
 keyed on that field, or on the name shown without it. A malformed `summary`,
 `show` or `icon` is dropped, never failing the Scout.
 
+A `summary` entry may also name an `icon` and a `tone`, which its banner tile wears; the built-in tiles have their own.
+The names are the Board mark icons and tones in [the theme](./THEME.md#inventory).
+
+`view` is `list`, `checklist`, `table` or `projects`. The `projects` view groups items by project and draws each row
+from its `fields`, so the manifest says how, in a `projects` block. `kind` picks the row's icon, `marks` (up to four)
+add status icons, and `reasons` say why an item needs you. Each is a `field` and, per value, an `icon`, a `tone` and a
+`label`. The slots `who`, `whoKey`, `when`, `comments`, `added`, `removed` and `mine` name fields too. A malformed block
+is dropped, and the Board falls back to the mail-style list.
+
+```json
+{
+  "view": "projects",
+  "projects": {
+    "kind": {
+      "field": "type",
+      "values": {
+        "pr": { "icon": "pull-request", "tone": "emerald", "label": "Pull request" },
+        "issue": { "icon": "issue", "tone": "violet", "label": "Issue" }
+      }
+    },
+    "marks": [
+      {
+        "field": "checks",
+        "values": { "failing": { "icon": "x-circle", "tone": "red", "label": "Checks failing" } }
+      }
+    ],
+    "reasons": {
+      "field": "reason",
+      "values": {
+        "review": { "icon": "eye", "tone": "blue", "label": "Review asked" },
+        "mention": { "icon": "chat", "tone": "amber", "label": "Mentioned" }
+      }
+    },
+    "who": "author",
+    "when": "updated",
+    "comments": "comments",
+    "mine": "mine"
+  }
+}
+```
+
 ## Report back: what a collector prints
 
 A collector is any program. It runs in the Scout's folder as the Kingdom's user, with that user's login environment, and
@@ -136,6 +177,11 @@ prints one JSON document to stdout:
   by itself.
 - **`rank`** (a whole number from 1) puts the item in order on the Board, ranked items first; **`summary`** is one line
   on why it matters. The synthesis step sets these and `suggested`, but whatever a collector sets itself wins.
+- **`labels`** (up to ten of `{ "name": "bug", "color": "#d73a4a" }`) are coloured tags the `projects` view draws on the
+  row. A bad list is dropped, and the item stays.
+- **`project`** (`{ "name": "acme/lantern", "url": "https://...", "description": "...", "owned": true }`) is what the
+  `projects` view groups by, falling back to `group`. `owned` draws a crown for a project you own and a handshake,
+  "showing your items", for one you contribute to; leave it out to draw neither. A bad block is dropped.
 - **`rankSource`** and **`summarySource`** say what set `rank` or `summary` when the collector didn't, as a short word.
   The synthesis step sets `synthesis`. The Kingdom drops any a collector prints, so only it says what the step wrote.
 
@@ -193,6 +239,16 @@ Boards and their tabs show on wide screens only for now.
 - **A list reads like a mail client** when `show` names the fields: an avatar and who it's from, the time, the title
   with a line of preview, bold while unread, then the summary. With a `when` field, each group lists newest first, and
   the ranking moves to Counsel. A row's buttons appear on hover or keyboard focus; at rest it tags the suggested action.
+- **The projects view** (`view: "projects"`) has two modes, switched beside Run now and remembered per device per Board.
+  - **Projects** (the default) has a section per project: ones with items that need you first, then the latest
+    activity. A section folds, and the fold is remembered on this device. It shows eight rows, then "Show N more". A row
+    has its kind icon, a reason chip, labels, marks, comment count, age and who, with a gold edge on your own items.
+  - **The Needs-you window** is a blue window that replaces Counsel here. Each card has the suggested action, Open and
+    Later, and the top has "Quest on all".
+  - **Tiles** shows the Needs-you cards as a strip, then a tile per project: a 14-day activity strip counted from item
+    dates, counts, the top four items and "Open all N", which opens Projects at that section.
+  - **Rollout:** an older hub fails a Scout that declares the view ("needs a newer hub"), and an older Kingdom drops
+    `labels` and `project`. Update the hub and the Kingdoms before installing a Scout that uses it.
 - **Counsel**, beside the list on wide screens and above it on narrower ones: the items with a suggested action,
   gathered under each action (a chip in that action's colour), best rank first, each with its summary and that action's button, and "Archive all 4"
   where the action takes several items.
