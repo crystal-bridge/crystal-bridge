@@ -30,12 +30,13 @@ Run one per GitHub account, on one Kingdom: GitHub's rate limits are per account
   your items".
 
 The Board has two modes, switched beside Run now. **Projects** has a section per repository, with the items that need
-you in the Needs-you window beside it. **Tiles** has a tile per repository with its recent activity and top items.
+you in the Needs-you window beside it and your own work in the Your-queue window under that. **Tiles** has both
+windows as strips across the top, then a tile per repository with its recent activity and top items.
 
 Each row shows its kind (pull request, draft, issue, bug), its checks and review state, labels, comments, size, age and
 author, with a gold edge on your own. The banner counts pull requests, issues and failing checks.
 
-An item needs you for one of these reasons. Its card in the Needs-you window offers the button.
+An item gets one of these reasons. Its card in the Needs-you window, or in Your queue for Up next, offers the button.
 
 | Reason            | When                                                                         | Button            |
 | ----------------- | ---------------------------------------------------------------------------- | ----------------- |
@@ -45,14 +46,25 @@ An item needs you for one of these reasons. Its card in the Needs-you window off
 | Reply owed        | Someone else has the last word on your pull request, or on your issue.       | Answer, or Triage |
 | Ready to merge    | GitHub would merge your pull request now. Drafts never are.                  | Merge (a link)    |
 | Assigned to you   | Someone else opened an issue and it is assigned to you; no reply is owed.     | Triage            |
+| Up next           | You opened an issue and assigned it to yourself; no reply is owed.           | Triage (Your queue, not suggested) |
 
-Other items in a repository you maintain have no reason. They show in their section but not in the window.
+Other items in a repository you maintain have no reason. They show in their section but not in either window.
+
+**Your queue** holds the Up next issues: issues you opened and assigned to yourself. That is your own work, which nobody
+is waiting on, so it stays out of Needs you. An issue someone else opened and assigned to you is "Assigned to you" and
+goes in Needs you. A queue card offers Triage as its first button, Open and Later; Triage isn't suggested, since nothing
+is waiting. The queue lists the cards by priority, then by due date, then oldest first. The priority comes from a `P0`
+to `P3` style label (any `P<digit>` works, and the lowest number comes first; `priority: 1` and `priority/2` work too).
+The due date is the issue's milestone due day, shown as "due today", "due in 3d" or "overdue 2d" by calendar day, and
+the milestone's title shows on the card. Changing an issue's priority or moving its milestone reorders the queue
+without marking the issue new.
 
 Who has the last word counts people only: comments, reviews and pushes by bots are left out, and so is an approval,
 which asks nothing of you. A reply from someone without write access is listed, and Answer the review stays on the
 row, but it isn't suggested, since anyone can comment on a public pull request. An item comes back as new when its
-reason changes, when someone else acts on it, or when your pull request's failing checks change. Edits, labels and
-bot comments in a busy repository don't bring it back.
+reason changes, or when someone else acts on it, or when your pull request's failing checks change. Edits, priority
+and other labels, a moved milestone and bot comments in a busy repository don't bring it back, and neither does moving
+between Up next and no reason: your own work never relights itself.
 
 ## Buttons
 

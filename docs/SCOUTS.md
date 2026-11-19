@@ -114,6 +114,12 @@ add status icons, and `reasons` say why an item needs you. Each is a `field` and
 `label`. The slots `who`, `whoKey`, `when`, `comments`, `added`, `removed` and `mine` name fields too. A malformed block
 is dropped, and the Board falls back to the mail-style list.
 
+A reason value may also say `"lane": "queue"`: its items go to the queue window, for your own work in order, instead of
+Needs you, which is for work someone is waiting on. `"lane": "needs"` is the default. An optional `queue` block gives
+that window a `title` (default "Your queue") and names the fields it orders by: `priority`, a number, lowest first, and
+`due`, a date, soonest first; after those, the oldest comes first. A lane this hub doesn't know is dropped, and so is a
+malformed `queue` block, each alone, so those items show in Needs you, as they do on an older hub.
+
 ```json
 {
   "view": "projects",
@@ -135,9 +141,11 @@ is dropped, and the Board falls back to the mail-style list.
       "field": "reason",
       "values": {
         "review": { "icon": "eye", "tone": "blue", "label": "Review asked" },
-        "mention": { "icon": "chat", "tone": "amber", "label": "Mentioned" }
+        "mention": { "icon": "chat", "tone": "amber", "label": "Mentioned" },
+        "next": { "icon": "flag", "tone": "sky", "label": "Up next", "lane": "queue" }
       }
     },
+    "queue": { "title": "Your queue", "priority": "priority", "due": "due" },
     "who": "author",
     "when": "updated",
     "comments": "comments",
@@ -244,11 +252,20 @@ Boards and their tabs show on wide screens only for now.
     activity. A section folds, and the fold is remembered on this device. It shows eight rows, then "Show N more". A row
     has its kind icon, a reason chip, labels, marks, comment count, age and who, with a gold edge on your own items.
   - **The Needs-you window** is a blue window that replaces Counsel here. Each card has the suggested action, Open and
-    Later, and the top has "Quest on all".
-  - **Tiles** shows the Needs-you cards as a strip, then a tile per project: a 14-day activity strip counted from item
-    dates, counts, the top four items and "Open all N", which opens Projects at that section.
+    Later, and the top has "Quest on all". It shows six cards, then "Show N more", so the queue stays in reach. Items whose reason is in the queue lane aren't in it, and don't count toward
+    a section's or tile's "Needs you".
+  - **The queue window** ("Your queue", or the `queue` block's `title`) sits under Needs you, in a plain panel rather
+    than window blue, since nobody is waiting on it. It lists the queue-lane items by priority, then due date, then
+    oldest, each card with its reason, project, a priority badge ("P1") and due date ("due in 3d", "overdue 2d") when
+    set, the summary, and the suggested action (or the item's first Quest action when none is suggested), Open and Later.
+    A due date is a calendar day. It shows eight, then "Show N more", and is hidden when
+    empty.
+  - **Tiles** shows the Needs-you cards as a strip, the queue as a second strip under it, then a tile per project: a
+    14-day activity strip counted from item dates, counts, the top four items and "Open all N", which opens Projects at
+    that section.
   - **Rollout:** an older hub fails a Scout that declares the view ("needs a newer hub"), and an older Kingdom drops
-    `labels` and `project`. Update the hub and the Kingdoms before installing a Scout that uses it.
+    `labels` and `project`. Update the hub and the Kingdoms before installing a Scout that uses it. A hub from before
+    the queue lane drops `lane` and `queue`, so queue items show in Needs you there.
 - **Counsel**, beside the list on wide screens and above it on narrower ones: the items with a suggested action,
   gathered under each action (a chip in that action's colour), best rank first, each with its summary and that action's button, and "Archive all 4"
   where the action takes several items.
@@ -416,7 +433,9 @@ example: [`examples/scouts/github`](../examples/scouts/github/README.md).
 
 - It fills a `projects` Board. Repositories you maintain (admin or maintain permission, not archived, pushed lately)
   are listed in full, with aliased per-repository GraphQL queries, five repositories a call. Elsewhere, GitHub search
-  finds your items: your open pull requests, review requests, and open issues you wrote or are assigned.
+  finds your items: your open pull requests, review requests, and open issues you wrote or are assigned. An issue you
+  opened and assigned to yourself goes to the queue as Up next, ordered by its `P0`-`P3` style label and milestone due
+  date. An issue someone else opened and assigned to you stays in Needs you as Assigned to you.
 - GraphQL fields give each item its reason: `reviewDecision`, `statusCheckRollup` and `mergeStateStatus` give review
   requested, checks failing, changes requested and ready to merge.
 - Whether a pull request waits on you or on them is no GitHub field. The collector works it out from the last person,

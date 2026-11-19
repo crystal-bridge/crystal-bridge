@@ -49,6 +49,7 @@ const ISSUE_FIELDS = `
   author { login __typename }
   ${LABELS}
   assignees(first: 10) { nodes { login } }
+  milestone { title dueOn }
   ${COMMENTS}`;
 
 const DISCUSSION_FIELDS = `
@@ -218,11 +219,16 @@ function classify(node, me, found) {
     if (theirs && (assigned || author === me)) {
       return { why: theirs, reason: 'reply', action: 'triage', suggested: 'triage' };
     }
-    // One you opened and assigned to yourself is your own backlog: it shows in its project, not in Needs you.
     if (assigned && author !== me) {
       return { why: 'assigned to you', reason: 'assigned', action: 'triage', suggested: 'triage' };
     }
-    if (author === me) return { why: assigned ? 'your issue' : 'waiting on others' };
+    // One you opened and assigned to yourself is your own work: it goes to the queue, not to Needs you, with triage
+    // offered but not suggested, since nobody is waiting on it.
+    if (author === me && assigned) {
+      const milestone = String(node.milestone?.title ?? '').trim();
+      return { why: milestone ? `your issue · ${milestone}` : 'your issue', reason: 'next', action: 'triage' };
+    }
+    if (author === me) return { why: 'waiting on others' };
     return { why: `by ${author ?? 'ghost'}` };
   }
   if (found.has('review')) {
@@ -246,6 +252,21 @@ function classify(node, me, found) {
     return { why: 'ready to merge', reason: 'merge', action: 'merge', suggested: 'merge' };
   }
   return { why: node.isDraft ? 'draft' : 'waiting on others' };
+}
+
+/** Priority labels such as `P1`, `p0`, `priority: 2` or `priority/3`. */
+const PRIORITY = [/^p(\d)$/i, /^priority[:\s/-]*(\d)$/i];
+
+/** The number of the first priority label, lower meaning sooner, or undefined for none. */
+function priorityOf(node) {
+  for (const label of node.labels?.nodes ?? []) {
+    const name = String(label?.name ?? '').trim();
+    for (const pattern of PRIORITY) {
+      const match = pattern.exec(name);
+      if (match) return Number(match[1]);
+    }
+  }
+  return undefined;
 }
 
 const KINDS = { PullRequest: 'pr', Issue: 'issue', Discussion: 'discussion' };
@@ -296,12 +317,24 @@ function toItem(node, me, found, repository, owned) {
   const mine = author === me;
   const checks = isPr ? CHECKS[rollupOf(node)?.state] : undefined;
   const review = isPr ? REVIEWS[node.reviewDecision] : undefined;
+  const priority = priorityOf(node);
+  // A milestone's due date is a day, stored as a timestamp: keep the day. GitHub's UI stores a time early on that day in
+  // UTC, so the UTC date part is the day; one set through the API with an offset east of UTC could read a day early.
+  const due =
+    typeof node.milestone?.dueOn === 'string' && node.milestone.dueOn !== ''
+      ? node.milestone.dueOn.slice(0, 10)
+      : undefined;
   // Back to new only when the reason changes, someone else (not a bot) acts, or your failing checks change: a busy
-  // repository's edits, labels and bot comments don't relight it.
+  // repository's edits, other labels, bot comments, a moved milestone and a changed priority don't relight it. The queue
+  // lane's `next` counts as no reason, so an upgrade doesn't bring back an issue you had put away.
   const other = humanEvents(node)
     .filter((event) => event.login !== me)
     .at(-1);
-  const rev = [reason ?? '', other?.at ?? '', mine && reason === 'fail' ? failed.join(',') : ''];
+  const rev = [
+    reason && reason !== 'next' ? reason : '',
+    other?.at ?? '',
+    mine && reason === 'fail' ? failed.join(',') : '',
+  ];
   return {
     id: `${type}:${repository.nameWithOwner}#${node.number}`,
     rev: rev.join('|').slice(0, 200),
@@ -327,6 +360,8 @@ function toItem(node, me, found, repository, owned) {
       number: node.number,
       isPr,
       isIssue: type === 'issue',
+      ...(priority !== undefined ? { priority } : {}),
+      ...(due ? { due } : {}),
       ...(failed.length > 0
         ? { failing: failed.join(', ').slice(0, 2000) }
         : failing
@@ -476,7 +511,7 @@ async function yourRepositories(gh, first, settings, now, log) {
  * finishing makes no notification, so the list is searched again at least that often), a fresh one otherwise.
  */
 /** Bump when the items' shape or meaning changes, so a list kept by an older collector is searched again. */
-const CACHE_FORMAT = 2;
+const CACHE_FORMAT = 3;
 
 /** What a kept list was made with: this collector's format and the settings, so changing either searches again. */
 export function cacheKey(settings) {

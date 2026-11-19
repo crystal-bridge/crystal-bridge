@@ -286,6 +286,11 @@ describe('queries', () => {
     assert.match(query({ discussions: true }), /discussions: search\(.*type: DISCUSSION/);
   });
 
+  it('asks for an issue-s milestone and its due date, in the searches and the repository lists', () => {
+    assert.match(query({}), /milestone \{ title dueOn \}/);
+    assert.match(projectsQuery(['acme/lantern']), /milestone \{ title dueOn \}/);
+  });
+
   it('lists each maintained repository-s open pull requests and issues under an alias, newest first', () => {
     const text = projectsQuery(['acme/lantern', 'mira/notes'], 30);
     assert.match(text, /r0: repository\(owner: "acme", name: "lantern"\)/);
@@ -499,14 +504,17 @@ describe('toItems', () => {
     assert.deepEqual(toItems({ authored: { nodes: [issue({ author: user(ME) })] } }, ME), []);
   });
 
-  it('gives no reason to an issue you opened and assigned to yourself, so your backlog stays out of Needs you', () => {
+  it('queues an issue you opened and assigned to yourself as Up next, out of Needs you', () => {
     const own = issue({ author: user(ME), assignees: { nodes: [{ login: ME }] } });
     const item = listed(own);
-    assert.equal(item.fields!.reason, undefined);
+    assert.equal(item.fields!.reason, 'next');
     assert.equal(item.suggested, undefined);
-    assert.equal(one(own, 'assigned').fields!.reason, undefined);
+    assert.deepEqual(item.actions, ['triage', 'open', 'later', 'done']);
+    assert.equal(item.summary, 'your issue');
+    assert.equal(one(own, 'assigned').fields!.reason, 'next');
     assert.match(item.subtitle!, /· your issue$/);
     assert.match(listed(issue({ author: user(ME) })).subtitle!, /· waiting on others$/);
+    assert.equal(listed(issue({ author: user(ME) })).fields!.reason, undefined);
     // Once someone else replies, it waits on you again.
     const answered = issue({
       author: user(ME),
@@ -514,6 +522,71 @@ describe('toItems', () => {
       comments: { totalCount: 1, nodes: [{ author: user('ana'), createdAt: T(30) }] },
     });
     assert.equal(listed(answered).fields!.reason, 'reply');
+  });
+
+  it('names a queued issue-s milestone and takes its due date, and its priority from a P0-P3 label', () => {
+    const own = (extra: Record<string, unknown>) =>
+      listed(issue({ author: user(ME), assignees: { nodes: [{ login: ME }] }, ...extra }));
+    const planned = own({
+      milestone: { title: 'v0.7 Lanterns', dueOn: '2026-12-01T08:00:00Z' },
+      labels: {
+        nodes: [
+          { name: 'bug', color: 'd73a4a' },
+          { name: 'P1', color: 'b60205' },
+        ],
+      },
+    });
+    assert.equal(planned.summary, 'your issue · v0.7 Lanterns');
+    assert.equal(planned.fields!.due, '2026-12-01');
+    assert.equal(planned.fields!.priority, 1);
+    assert.equal(own({ milestone: { title: 'Someday', dueOn: null } }).fields!.due, undefined);
+    assert.equal(own({}).fields!.priority, undefined);
+    assert.equal(own({}).fields!.due, undefined);
+    const priority = (...names: string[]) =>
+      own({ labels: { nodes: names.map((name) => ({ name, color: 'ededed' })) } }).fields!.priority;
+    assert.equal(priority('p0'), 0);
+    assert.equal(priority('priority: 2'), 2);
+    assert.equal(priority('Priority/3'), 3);
+    assert.equal(priority('priority-1'), 1);
+    assert.equal(priority('p10', 'P2 later', 'help wanted'), undefined);
+    assert.equal(priority('docs', 'P3', 'P0'), 3);
+    // Any item may carry a priority, and one someone else assigned you stays in Needs you.
+    const theirs = listed(
+      issue({ assignees: { nodes: [{ login: ME }] }, labels: { nodes: [{ name: 'P0', color: 'b60205' }] } }),
+    );
+    assert.equal(theirs.fields!.reason, 'assigned');
+    assert.equal(theirs.fields!.priority, 0);
+  });
+
+  it('keeps the rev an item had before the queue lane, so an upgrade relights nothing', () => {
+    const own = (label: string | null, dueOn: string) =>
+      listed(
+        issue({
+          author: user(ME),
+          assignees: { nodes: [{ login: ME }] },
+          labels: { nodes: label ? [{ name: label, color: 'b60205' }] : [] },
+          milestone: { title: 'v1', dueOn },
+        }),
+      );
+    // Main's rule gave this issue no reason: the reason part is empty, and the other part is the last person's event.
+    const before = own(null, '2026-12-01T08:00:00Z');
+    assert.equal(before.fields!.reason, 'next');
+    const expected = ['', '', ''].join('|');
+    assert.equal(before.rev, expected);
+    assert.equal(own('P1', '2026-12-01T08:00:00Z').rev, expected);
+    // Changing a priority or moving a milestone reorders the queue but does not relight.
+    assert.equal(own('P0', '2026-12-09T08:00:00Z').rev, expected);
+    assert.equal(own('P2', '2026-12-01T08:00:00Z').rev, own('P0', '2026-12-01T08:00:00Z').rev);
+    // A priority on a Needs-you item adds nothing either.
+    const theirs = (label: string | null) =>
+      listed(
+        issue({
+          assignees: { nodes: [{ login: ME }] },
+          labels: { nodes: label ? [{ name: label, color: 'b60205' }] : [] },
+        }),
+      ).rev;
+    assert.equal(theirs('P0'), theirs(null));
+    assert.match(theirs(null)!, /^assigned\|/);
   });
 
   it('finds an issue assigned to you in a maintained repository without a search', () => {
@@ -646,7 +719,13 @@ describe('scout.json', () => {
           ],
         },
         review: { nodes: [pr({ id: 'PR_2', number: 8, author: user('ana') })] },
-        assigned: { nodes: [issue(), issue({ number: 13, labels: { nodes: [{ name: 'bug', color: 'd73a4a' }] } })] },
+        assigned: {
+          nodes: [
+            issue(),
+            issue({ number: 13, labels: { nodes: [{ name: 'bug', color: 'd73a4a' }] } }),
+            issue({ number: 14, author: user(ME), assignees: { nodes: [{ login: ME }] } }),
+          ],
+        },
         discussions: {
           nodes: [
             {
@@ -672,8 +751,15 @@ describe('scout.json', () => {
       [],
     );
     const reasons = new Set(items.flatMap((item) => (item.fields!.reason ? [item.fields!.reason as string] : [])));
-    assert.deepEqual([...reasons].sort(), ['assigned', 'changes', 'fail', 'merge', 'reply', 'review']);
+    assert.deepEqual([...reasons].sort(), ['assigned', 'changes', 'fail', 'merge', 'next', 'reply', 'review']);
     for (const reason of reasons) assert.ok(reason in manifest.projects!.reasons!.values, reason);
+    // Your own issues go to the queue window; everything else someone is waiting on stays in Needs you.
+    const lanes = Object.entries(manifest.projects!.reasons!.values).filter(([, look]) => look.lane === 'queue');
+    assert.deepEqual(
+      lanes.map(([key]) => key),
+      ['next'],
+    );
+    assert.deepEqual(manifest.projects!.queue, { title: 'Your queue', priority: 'priority', due: 'due' });
     for (const item of items) assert.ok((item.fields!.kind as string) in manifest.projects!.kind!.values);
     for (const action of Object.values(manifest.actions)) {
       if (action.kind === 'quest') readFileSync(join(HERE, action.prompt), 'utf8');
@@ -969,6 +1055,10 @@ describe('collect', () => {
       errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded for user' }],
     });
     await assert.rejects(collect({ gh, state, now: NOW, settings: {}, log: () => {} }), /rate limit/);
+  });
+
+  it('keys a kept list on a format that changed with the queue lane', () => {
+    assert.equal(JSON.parse(cacheKey({})).format, 3);
   });
 
   it('searches again when the kept list came from another version or other settings', async () => {

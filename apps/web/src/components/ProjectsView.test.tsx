@@ -40,8 +40,10 @@ const projects: NonNullable<ScoutManifest['projects']> = {
       changes: { icon: 'changes', tone: 'orange', label: 'Changes requested' },
       reply: { icon: 'reply', tone: 'sky', label: 'Reply owed' },
       merge: { icon: 'merge', tone: 'emerald', label: 'Ready to merge' },
+      next: { icon: 'flag', tone: 'sky', label: 'Up next', lane: 'queue' },
     },
   },
+  queue: { priority: 'priority', due: 'due' },
   who: 'author',
   whoKey: 'login',
   when: 'updated',
@@ -63,6 +65,7 @@ const manifest: ScoutManifest = {
     done: { kind: 'done', label: 'Done' },
     fix: { kind: 'quest', label: 'Fix the checks', project: '~/code/lantern', prompt: 'fix.md' },
     review: { kind: 'quest', label: 'Review', project: '~/code/lantern', prompt: 'review.md' },
+    triage: { kind: 'quest', label: 'Triage', project: '~/code/lantern', prompt: 'triage.md' },
   },
   defaults: ['open', 'later', 'done'],
 };
@@ -431,5 +434,181 @@ describe('ProjectsView', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
     fireEvent.click(screen.getByRole('button', { name: /Set aside/ }));
     expect(screen.getByText('Done one')).toBeTruthy();
+  });
+
+  describe('the queue window', () => {
+    const DAY = 86_400_000;
+    const queued = () => [
+      item('acme/lantern', { reason: 'next' }, { title: 'No priority' }),
+      item('acme/quill', { reason: 'next', priority: 2, due: new Date(NOW - 2 * DAY).toISOString() }, { title: 'P2' }),
+      item(
+        'acme/lantern',
+        { reason: 'next', priority: 0, due: new Date(NOW + 3 * DAY + HOUR).toISOString() },
+        {
+          title: 'P0',
+          summary: 'Ship it before the release.',
+          suggested: 'triage',
+          actions: ['triage', 'open', 'later'],
+        },
+      ),
+      item('acme/lantern', { reason: 'next', priority: '1' }, { title: 'P1' }),
+    ];
+
+    it('lists queue-lane items in order with their priority and due, apart from Needs you', () => {
+      const { onAct } = show({
+        items: [...queued(), item('acme/tidepool', { kind: 'pr', reason: 'fail' }, { title: 'Failing one' })],
+      });
+      const queue = screen.getByRole('region', { name: 'Your queue' });
+      const cards = within(queue).getAllByRole('article');
+      expect(cards.map((card) => card.querySelector('[data-title]')?.textContent)).toEqual([
+        'P0',
+        'P1',
+        'P2',
+        'No priority',
+      ]);
+      expect(within(queue).getByText('4')).toBeTruthy();
+      const p0 = cards[0]!;
+      expect(within(p0).getByText('Up next')).toBeTruthy();
+      expect(within(p0).getByText('acme/lantern')).toBeTruthy();
+      expect(within(p0).getByText('Ship it before the release.')).toBeTruthy();
+      expect(within(p0).getByTitle('Priority 0').textContent).toBe('P0');
+      expect(within(p0).getByTitle('Priority 0').className).toMatch(/red/);
+      expect(within(p0).getByText('due in 3d')).toBeTruthy();
+      expect(within(cards[1]!).getByTitle('Priority 1').className).toMatch(/orange/);
+      expect(within(cards[2]!).getByText('overdue 2d')).toBeTruthy();
+      expect(cards[3]!.querySelector('[title^="Priority"]')).toBeNull();
+      expect(
+        within(p0)
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Triage', 'Later']);
+      expect(within(p0).getByRole('link', { name: 'Open' })).toBeTruthy();
+      fireEvent.click(within(p0).getByRole('button', { name: 'Triage' }));
+      expect(onAct).toHaveBeenCalledWith('triage', [expect.any(String)]);
+      // A neutral panel: a blue window means someone is waiting on you.
+      expect(queue.className).not.toMatch(/window/);
+
+      const needs = screen.getByRole('region', { name: 'Needs you' });
+      expect(within(needs).getAllByRole('article')).toHaveLength(1);
+      expect(within(needs).queryByText('P0')).toBeNull();
+      expect(needs.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('leads a queue card with its first Quest action when nothing is suggested, and leaves Needs you alone', () => {
+      show({
+        items: [
+          item('acme/lantern', { reason: 'next' }, { title: 'Plain', actions: ['triage', 'open', 'later', 'done'] }),
+          item('acme/lantern', { reason: 'fail' }, { title: 'Failing', actions: ['triage', 'open', 'later', 'done'] }),
+        ],
+      });
+      const queue = screen.getByRole('region', { name: 'Your queue' });
+      const card = within(queue).getAllByRole('article')[0]!;
+      expect(
+        within(card)
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Triage', 'Later']);
+      // Offered, not suggested: nobody is waiting on your own work.
+      expect(within(card).getByRole('button', { name: 'Triage' }).getAttribute('title')).toBeNull();
+      expect(within(card).getByRole('link', { name: 'Open' })).toBeTruthy();
+      const needs = within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('article')[0]!;
+      expect(within(needs).queryByRole('button', { name: 'Triage' })).toBeNull();
+    });
+
+    it('leaves Needs you empty when only queue items are open, and still shows their reason in sections', () => {
+      show({ items: queued() });
+      expect(within(screen.getByRole('region', { name: 'Needs you' })).getByText('Nothing needs you right now.'));
+      const lantern = screen.getByRole('region', { name: 'acme/lantern' });
+      expect(within(lantern).getAllByText('Up next').length).toBeGreaterThan(0);
+    });
+
+    it('is absent when nothing is queued, and takes its title from the manifest', () => {
+      show({ items: [item('acme/lantern', { reason: 'fail' })] });
+      expect(screen.queryByRole('region', { name: 'Your queue' })).toBeNull();
+      cleanup();
+      show({
+        withManifest: { ...manifest, projects: { ...projects, queue: { ...projects.queue, title: 'On deck' } } },
+        items: queued(),
+      });
+      expect(screen.getByRole('region', { name: 'On deck' })).toBeTruthy();
+    });
+
+    it('shows eight and "Show N more"', () => {
+      show({
+        items: Array.from({ length: 11 }, (_, at) => item('acme/lantern', { reason: 'next' }, { title: `Q${at}` })),
+      });
+      const queue = screen.getByRole('region', { name: 'Your queue' });
+      expect(within(queue).getAllByRole('article')).toHaveLength(8);
+      fireEvent.click(within(queue).getByRole('button', { name: 'Show 3 more' }));
+      expect(within(queue).getAllByRole('article')).toHaveLength(11);
+    });
+
+    it('caps Needs you at six so the queue stays in reach, with Show more and Show fewer', () => {
+      show({
+        items: [
+          ...Array.from({ length: 8 }, (_, at) => item('acme/lantern', { reason: 'fail' }, { title: `N${at}` })),
+          ...queued(),
+        ],
+      });
+      const needs = screen.getByRole('region', { name: 'Needs you' });
+      expect(within(needs).getAllByRole('article')).toHaveLength(6);
+      const more = within(needs).getByRole('button', { name: 'Show 2 more' });
+      expect(more.getAttribute('aria-expanded')).toBe('false');
+      expect(screen.getByRole('region', { name: 'Your queue' })).toBeTruthy();
+      fireEvent.click(more);
+      expect(within(needs).getAllByRole('article')).toHaveLength(8);
+      const fewer = within(needs).getByRole('button', { name: 'Show fewer' });
+      expect(fewer.getAttribute('aria-expanded')).toBe('true');
+      fireEvent.click(fewer);
+      expect(within(needs).getAllByRole('article')).toHaveLength(6);
+    });
+
+    it('sets aria-expanded on the queue toggle', () => {
+      show({
+        items: Array.from({ length: 9 }, (_, at) => item('acme/lantern', { reason: 'next' }, { title: `Q${at}` })),
+      });
+      const queue = screen.getByRole('region', { name: 'Your queue' });
+      const more = within(queue).getByRole('button', { name: 'Show 1 more' });
+      expect(more.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(more);
+      expect(within(queue).getByRole('button', { name: 'Show fewer' }).getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('lists a tile\u2019s Needs-you rows first, then its queue rows, then the rest', () => {
+      show({
+        items: [
+          item('acme/lantern', {}, { title: 'Plain A' }),
+          item('acme/lantern', {}, { title: 'Plain B' }),
+          item('acme/lantern', { reason: 'next', priority: 2 }, { title: 'Queued' }),
+          item('acme/lantern', { reason: 'fail' }, { title: 'Needing' }),
+        ],
+      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+      const tile = within(screen.getByRole('region', { name: 'Tiles' })).getByRole('article', { name: 'acme/lantern' });
+      const lines = within(within(tile).getByRole('list')).getAllByRole('listitem');
+      expect(lines.map((line) => line.textContent)).toEqual(['Needing', 'Queued', 'Plain A', 'Plain B']);
+    });
+
+    it('Tiles shows the queue as a second strip under Needs you', () => {
+      show({ items: [...queued(), item('acme/tidepool', { reason: 'fail' }, { title: 'Failing one' })] });
+      fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+      const needs = screen.getByRole('region', { name: 'Needs you' });
+      const queue = screen.getByRole('region', { name: 'Your queue' });
+      const tiles = screen.getByRole('region', { name: 'Tiles' });
+      expect(needs.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(queue.compareDocumentPosition(tiles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(queue).getAllByRole('article')).toHaveLength(4);
+      expect(within(needs).getAllByRole('article')).toHaveLength(1);
+    });
+
+    it('keeps everything in Needs you for an older manifest without lanes', () => {
+      const values = Object.fromEntries(
+        Object.entries(projects.reasons!.values).map(([key, { lane: _lane, ...look }]) => [key, look]),
+      );
+      const { queue: _queue, ...older } = { ...projects, reasons: { field: 'reason', values } };
+      show({ withManifest: { ...manifest, projects: older }, items: queued() });
+      expect(screen.queryByRole('region', { name: 'Your queue' })).toBeNull();
+      expect(within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('article')).toHaveLength(4);
+    });
   });
 });
