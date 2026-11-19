@@ -318,16 +318,22 @@ function toItem(node, me, found, repository, owned) {
   const checks = isPr ? CHECKS[rollupOf(node)?.state] : undefined;
   const review = isPr ? REVIEWS[node.reviewDecision] : undefined;
   const priority = priorityOf(node);
+  // A milestone's due date is a day, stored as a timestamp: keep the day.
   const due =
-    typeof node.milestone?.dueOn === 'string' && node.milestone.dueOn !== '' ? node.milestone.dueOn : undefined;
-  // Back to new only when the reason changes, someone else (not a bot) acts, your failing checks change, or its
-  // priority changes: a busy repository's edits, other labels, bot comments and a moved milestone don't relight it.
+    typeof node.milestone?.dueOn === 'string' && node.milestone.dueOn !== ''
+      ? node.milestone.dueOn.slice(0, 10)
+      : undefined;
+  // Back to new only when the reason changes, someone else (not a bot) acts, or your failing checks change: a busy
+  // repository's edits, other labels, bot comments, a moved milestone and a changed priority don't relight it. The queue
+  // lane's `next` counts as no reason, so an upgrade doesn't bring back an issue you had put away.
   const other = humanEvents(node)
     .filter((event) => event.login !== me)
     .at(-1);
-  const rev = [reason ?? '', other?.at ?? '', mine && reason === 'fail' ? failed.join(',') : ''];
-  // Only an item with a priority gets the extra part, so the others keep the rev they had before priorities.
-  if (priority !== undefined) rev.push(`p${priority}`);
+  const rev = [
+    reason && reason !== 'next' ? reason : '',
+    other?.at ?? '',
+    mine && reason === 'fail' ? failed.join(',') : '',
+  ];
   return {
     id: `${type}:${repository.nameWithOwner}#${node.number}`,
     rev: rev.join('|').slice(0, 200),

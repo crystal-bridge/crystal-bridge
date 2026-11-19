@@ -537,7 +537,7 @@ describe('toItems', () => {
       },
     });
     assert.equal(planned.summary, 'your issue · v0.7 Lanterns');
-    assert.equal(planned.fields!.due, '2026-12-01T08:00:00Z');
+    assert.equal(planned.fields!.due, '2026-12-01');
     assert.equal(planned.fields!.priority, 1);
     assert.equal(own({ milestone: { title: 'Someday', dueOn: null } }).fields!.due, undefined);
     assert.equal(own({}).fields!.priority, undefined);
@@ -558,7 +558,7 @@ describe('toItems', () => {
     assert.equal(theirs.fields!.priority, 0);
   });
 
-  it('relights a queued issue when its priority changes, not when its milestone moves', () => {
+  it('keeps the rev an item had before the queue lane, so an upgrade relights nothing', () => {
     const own = (label: string | null, dueOn: string) =>
       listed(
         issue({
@@ -567,12 +567,26 @@ describe('toItems', () => {
           labels: { nodes: label ? [{ name: label, color: 'b60205' }] : [] },
           milestone: { title: 'v1', dueOn },
         }),
+      );
+    // Main's rule gave this issue no reason: the reason part is empty, and the other part is the last person's event.
+    const before = own(null, '2026-12-01T08:00:00Z');
+    assert.equal(before.fields!.reason, 'next');
+    const expected = ['', '', ''].join('|');
+    assert.equal(before.rev, expected);
+    assert.equal(own('P1', '2026-12-01T08:00:00Z').rev, expected);
+    // Changing a priority or moving a milestone reorders the queue but does not relight.
+    assert.equal(own('P0', '2026-12-09T08:00:00Z').rev, expected);
+    assert.equal(own('P2', '2026-12-01T08:00:00Z').rev, own('P0', '2026-12-01T08:00:00Z').rev);
+    // A priority on a Needs-you item adds nothing either.
+    const theirs = (label: string | null) =>
+      listed(
+        issue({
+          assignees: { nodes: [{ login: ME }] },
+          labels: { nodes: label ? [{ name: label, color: 'b60205' }] : [] },
+        }),
       ).rev;
-    assert.equal(own('P1', '2026-12-01T08:00:00Z'), own('P1', '2026-12-09T08:00:00Z'));
-    assert.notEqual(own('P1', '2026-12-01T08:00:00Z'), own('P0', '2026-12-01T08:00:00Z'));
-    assert.notEqual(own(null, '2026-12-01T08:00:00Z'), own('P2', '2026-12-01T08:00:00Z'));
-    // An item with no priority keeps the rev it had before priorities, so an upgrade relights nothing new.
-    assert.doesNotMatch(listed(pr({ author: user('mira') })).rev!, /\|p/);
+    assert.equal(theirs('P0'), theirs(null));
+    assert.match(theirs(null)!, /^assigned\|/);
   });
 
   it('finds an issue assigned to you in a maintained repository without a search', () => {
