@@ -118,7 +118,7 @@ export interface RowView {
 }
 
 /** A field as a time: an ISO date, or a count of seconds or milliseconds since 1970. */
-function asTime(value: unknown): number | undefined {
+export function asTime(value: unknown): number | undefined {
   if (typeof value === 'string' && /^\d{9,}$/.test(value)) return asTime(Number(value));
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value < 1e11 ? value * 1000 : value;
   // Only what reads as a date: an ISO date, or one with a month name, as mail headers write them. `Date.parse` alone
@@ -132,9 +132,9 @@ const text = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() !== '' ? value : undefined;
 
 /** Set to anything but false, 0, empty or null. */
-const isSet = (value: unknown): boolean => Boolean(value);
+export const isSet = (value: unknown): boolean => Boolean(value);
 
-function field(item: ScoutItem, name: string | undefined): unknown {
+export function field(item: ScoutItem, name: string | undefined): unknown {
   return name !== undefined && item.fields && Object.hasOwn(item.fields, name) ? item.fields[name] : undefined;
 }
 
