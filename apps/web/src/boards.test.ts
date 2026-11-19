@@ -1,10 +1,14 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import type { Board, BoardItem, ListedScout, ScoutManifest } from '@crystal-bridge/protocol';
+import type { Board, BoardItem, ListedScout, ScoutManifest, ScoutRun } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoardsFrame, HubClient } from './hub.js';
 import {
   actionsFor,
   batchesFor,
+  boardCounts,
+  lastSynthesis,
+  recommendations,
+  rowView,
   boardTabs,
   boardSections,
   linkFor,
@@ -112,6 +116,20 @@ describe('batchesFor', () => {
 });
 
 describe('boardSections', () => {
+  it('lists each group newest first, like an inbox, when the Scout names a time field, keeping the groups in rank order', () => {
+    const items = [
+      item({ id: 'old', rank: 1, group: 'Primary', fields: { date: '2026-11-01T00:00:00Z' } }),
+      item({ id: 'promo', rank: 2, group: 'Promotions', fields: { date: '2026-11-18T00:00:00Z' } }),
+      item({ id: 'new', rank: 3, group: 'Primary', fields: { date: '2026-11-17T00:00:00Z' } }),
+      item({ id: 'undated', rank: 4, group: 'Primary' }),
+      item({ id: 'undated-too', rank: 5, group: 'Primary' }),
+    ];
+    expect(boardSections(items, 0, 'date').open.map((g) => [g.group, g.items.map((i) => i.id)])).toEqual([
+      ['Primary', ['new', 'old', 'undated', 'undated-too']],
+      ['Promotions', ['promo']],
+    ]);
+  });
+
   it('groups open items in the collector’s order, and sets aside the rest', () => {
     const items = [
       item({ id: '1', group: 'Needs a fix' }),
@@ -221,6 +239,98 @@ function fakeFetch() {
 }
 
 const listed = (extra: Partial<ListedScout> = {}): ListedScout => ({ id: 'qb', fresh: 0, manifest, ...extra });
+
+describe('rowView', () => {
+  const show = { who: 'from', when: 'date', unread: 'unread', preview: 'body' };
+
+  it('reads the slots a Scout names from its fields', () => {
+    const view = rowView(
+      item({ fields: { from: 'Ada', date: '2026-11-18T10:00:00Z', unread: true, body: 'See you then' } }),
+      show,
+    );
+    expect(view).toEqual({
+      who: 'Ada',
+      when: Date.parse('2026-11-18T10:00:00Z'),
+      unread: true,
+      preview: 'See you then',
+    });
+  });
+
+  it('takes a time in seconds or milliseconds, and drops what it cannot read', () => {
+    expect(rowView(item({ fields: { date: 1_795_000_000 } }), show).when).toBe(1_795_000_000_000);
+    expect(rowView(item({ fields: { date: 1_795_000_000_000 } }), show).when).toBe(1_795_000_000_000);
+    expect(rowView(item({ fields: { date: 'soon', from: 7, unread: 'yes' } }), show)).toEqual({ unread: true });
+    // A short string or a bare number in text isn't taken for a date.
+    expect(rowView(item({ fields: { date: '5' } }), show).when).toBeUndefined();
+    expect(rowView(item({ fields: { date: '1795000000' } }), show).when).toBe(1_795_000_000_000);
+    expect(rowView(item({ fields: { date: 'Tue, 18 Nov 2026 10:00:00 GMT' } }), show).when).toBe(
+      Date.parse('2026-11-18T10:00:00Z'),
+    );
+    expect(rowView(item({ fields: { from: 'Ada' } }), undefined)).toEqual({ unread: false });
+  });
+});
+
+describe('boardCounts', () => {
+  const counted: ScoutManifest = { ...manifest, summary: [{ label: 'Unread', field: 'unread' }] };
+
+  it('counts what is open, what has a suggestion, and what the Scout asks for', () => {
+    const items = [
+      item({ id: 'a', suggested: 'done', fields: { unread: true } }),
+      item({ id: 'b', fields: { unread: false } }),
+      item({ id: 'c', suggested: 'nope', fields: { unread: 1 } }),
+    ];
+    expect(boardCounts(items, counted)).toEqual({ open: 3, suggested: 1, declared: [{ label: 'Unread', count: 2 }] });
+  });
+});
+
+describe('recommendations', () => {
+  it('gathers suggested items under their action, best first, the best group first', () => {
+    const items = [
+      item({ id: 'a', rank: 3, suggested: 'done' }),
+      item({ id: 'b', rank: 1, suggested: 'open', actions: ['open', 'done'], url: 'https://example.com/b' }),
+      item({ id: 'c', rank: 2, suggested: 'done' }),
+      item({ id: 'd', rank: 4 }),
+      item({ id: 'e', rank: 5, suggested: 'archive' }),
+    ];
+    const groups = recommendations(items, manifest);
+    expect(groups.map((group) => [group.key, group.items.map((one) => one.id)])).toEqual([
+      ['open', ['b']],
+      ['done', ['c', 'a']],
+    ]);
+    expect(groups[1]!.action).toEqual(manifest.actions.done);
+  });
+
+  it('leaves out a suggested link that has no address to open', () => {
+    const items = [item({ id: 'a', suggested: 'open', actions: ['open'] })];
+    expect(recommendations(items, manifest)).toEqual([]);
+    expect(boardCounts(items, manifest).suggested).toBe(0);
+  });
+});
+
+describe('lastSynthesis', () => {
+  it('is the newest run that paid for the synthesis step', () => {
+    const at = (startedAt: number, extra: Partial<ScoutRun> = {}): ScoutRun => ({
+      id: crypto.randomUUID(),
+      startedAt,
+      finishedAt: startedAt + 5,
+      trigger: 'schedule',
+      outcome: 'succeeded',
+      ...extra,
+    });
+    expect(lastSynthesis([at(30), at(20, { costUsd: 0.62 }), at(10, { costUsd: 0.5 })], [])).toEqual({
+      at: 25,
+      costUsd: 0.62,
+    });
+    // A press that paid but didn't rank says why on its run, and doesn't count as the last ranking.
+    expect(lastSynthesis([at(30, { costUsd: 0.1, reason: 'not JSON' }), at(20, { costUsd: 0.62 })], [])).toEqual({
+      at: 25,
+      costUsd: 0.62,
+    });
+    expect(lastSynthesis([at(30)], [])).toBeUndefined();
+    // Older than the runs the hub keeps, but the list still carries its ranking.
+    expect(lastSynthesis([at(30)], [item({ rank: 1, rankSource: 'synthesis' })])).toEqual({ earlier: true });
+  });
+});
 
 describe('boardTabs', () => {
   const gmail = listed({ id: 'gmail', fresh: 3, manifest: { ...manifest, name: 'Gmail', icon: 'mail' } });

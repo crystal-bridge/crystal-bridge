@@ -79,7 +79,8 @@ export type Concept =
   | 'scouts'
   | 'board'
   | 'boards'
-  | 'synthesis';
+  | 'synthesis'
+  | 'counsel';
 
 export type Words = Record<Concept, Word>;
 
@@ -155,6 +156,7 @@ export const CRYSTAL: Words = {
   board: { themed: 'Board', plain: 'the items a Scout found, to act on' },
   boards: { themed: 'Boards', plain: 'what each Scout found, to act on' },
   synthesis: { themed: 'Augury', plain: 'the synthesis step' },
+  counsel: { themed: 'Counsel', plain: 'what to do about the items, as suggested' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -230,6 +232,7 @@ export const CLASSIC: Words = {
   board: { themed: 'Board', plain: 'Board' },
   boards: { themed: 'Boards', plain: 'Boards' },
   synthesis: { themed: 'the synthesis step', plain: 'the synthesis step' },
+  counsel: { themed: 'Recommended', plain: 'Recommended' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type {
   Board,
   BoardItem,
@@ -8,8 +8,22 @@ import type {
   ScoutManifest,
   ScoutRun,
 } from '@crystal-bridge/protocol';
-import { actionsFor, batchesFor, boardSections, linkFor, settled, snoozeUntil, tableColumns } from '../boards.js';
-import { duration } from '../format.js';
+import {
+  actionsFor,
+  batchesFor,
+  boardCounts,
+  boardSections,
+  lastSynthesis,
+  linkFor,
+  recommendations,
+  rowView,
+  settled,
+  snoozeUntil,
+  tableColumns,
+} from '../boards.js';
+import { duration, goldText, shortWhen } from '../format.js';
+import { boardIcon } from '../theme/boardIcons.js';
+import { Icon } from '../theme/icons.js';
 import { hint, scoutReturnLine, sourceLine, w } from '../theme/words.js';
 import { Gold } from './Gold.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
@@ -120,7 +134,8 @@ function KingdomButton({
   };
   if (asking) {
     return (
-      <span className="flex gap-1">
+      // Marked, so a row's tools stay shown while a confirm waits, though the pointer has left.
+      <span data-asking className="flex gap-1">
         <button type="button" onClick={go} className={suggestedButton}>
           {`Yes, ${label}`}
         </button>
@@ -317,6 +332,221 @@ function RunRow({ run, now }: { run: ScoutRun; now: number }) {
   );
 }
 
+/** A name's first character, for an avatar or a Board without an icon; whole even when it's an emoji. */
+function monogram(name: string): string {
+  return (Array.from(name.trim())[0] ?? '?').toUpperCase();
+}
+
+/** Muted avatar colours, one per name, so the same sender looks the same down the list. Text stays in ink colours. */
+const AVATARS = [
+  'bg-rose-200 text-rose-950 dark:bg-rose-900 dark:text-rose-50',
+  'bg-amber-200 text-amber-950 dark:bg-amber-900 dark:text-amber-50',
+  'bg-emerald-200 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-50',
+  'bg-sky-200 text-sky-950 dark:bg-sky-900 dark:text-sky-50',
+  'bg-violet-200 text-violet-950 dark:bg-violet-900 dark:text-violet-50',
+  'bg-teal-200 text-teal-950 dark:bg-teal-900 dark:text-teal-50',
+];
+
+function avatarClass(name: string): string {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
+  return AVATARS[hash % AVATARS.length]!;
+}
+
+/**
+ * A `list` row drawn like a mail client's: who it's from, when, the title with a line of preview, bold while unread. The
+ * buttons show on hover, keyboard focus or touch, and while a confirm waits; at rest a tag names the suggested action,
+ * so the list isn't a wall of buttons. Without `show`, the title and subtitle fill the lines.
+ */
+function MailRow({
+  item,
+  marked,
+  show,
+  now,
+  suggestion,
+  actions,
+}: {
+  item: BoardItem;
+  marked: boolean;
+  show: ScoutManifest['show'];
+  now: number;
+  /** The suggested action's label, tagged on the row. */
+  suggestion: string | undefined;
+  actions: ReactNode;
+}) {
+  const view = rowView(item, show);
+  // Bold follows unread where the Scout says what that is; else what's new on this visit stands out.
+  const strong = show?.unread !== undefined ? view.unread : marked;
+  return (
+    <li
+      className="group relative flex items-start gap-3 py-2 pl-1 pr-1 hover:bg-neutral-50 dark:hover:bg-neutral-900"
+      data-unread={view.unread}
+      title={itemNote(item)}
+    >
+      {view.who !== undefined && (
+        <span
+          data-avatar
+          aria-hidden
+          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${avatarClass(view.who)}`}
+        >
+          {monogram(view.who)}
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          {/* Where the Scout says what unread is, a dot says it (and words, for a screen reader); else the New mark. */}
+          {show?.unread !== undefined
+            ? view.unread && (
+                <span className="h-2 w-2 shrink-0 self-center rounded-full bg-blue-500">
+                  <span className="sr-only">Unread</span>
+                </span>
+              )
+            : marked && <NewMark />}
+          <span className={`truncate ${strong ? 'font-semibold' : ''}`} title={view.who ?? titleNote(item)}>
+            {view.who ?? item.title}
+          </span>
+          <SourceMark item={item} />
+          {suggestion && (
+            <span
+              aria-hidden
+              className="ml-auto shrink-0 rounded bg-blue-100 px-1.5 text-[11px] font-medium leading-4 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+            >
+              {suggestion}
+            </span>
+          )}
+          {view.when !== undefined && (
+            <span
+              className={`${suggestion ? '' : 'ml-auto '}shrink-0 text-xs tabular-nums ${strong ? 'font-semibold' : 'text-neutral-500'}`}
+              title={new Date(view.when).toLocaleString()}
+            >
+              {shortWhen(view.when, now)}
+            </span>
+          )}
+        </span>
+        {view.who !== undefined ? (
+          <span className="block truncate text-sm">
+            <span
+              className={strong ? 'font-semibold' : 'text-neutral-700 dark:text-neutral-300'}
+              title={titleNote(item)}
+            >
+              {item.title}
+            </span>
+            {(view.preview ?? item.subtitle) && (
+              <span className="text-neutral-500">{` · ${view.preview ?? item.subtitle}`}</span>
+            )}
+          </span>
+        ) : (
+          item.subtitle && <span className="block truncate text-xs text-neutral-500">{item.subtitle}</span>
+        )}
+        {item.summary && (
+          <span className="line-clamp-2 text-xs text-neutral-600 dark:text-neutral-300" title={item.summary}>
+            {item.summary}
+          </span>
+        )}
+      </span>
+      {/* Out of the way until hover or keyboard focus, as a mail client's row tools: the date and the suggestion show at
+          rest, and the Counsel pane keeps a button for each suggestion. Hidden buttons take no clicks. */}
+      {/* A touch screen has no hover: there the buttons sit at the row's end, always shown. */}
+      <span
+        data-row-tools
+        className="has-[[data-asking]]:pointer-events-auto has-[[data-asking]]:opacity-100 pointer-events-none absolute inset-y-1 right-0 flex items-center rounded-md bg-white px-1.5 opacity-0 shadow-md ring-1 ring-neutral-200 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 dark:bg-neutral-900 dark:ring-neutral-700 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:static [@media(hover:none)]:self-center [@media(hover:none)]:opacity-100 [@media(hover:none)]:shadow-none [@media(hover:none)]:ring-0"
+      >
+        {actions}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Counsel: what the synthesis step (or the collector) suggests doing, gathered under each action, best first, with the
+ * action's button on each item and one for the group where the action takes several.
+ */
+function Counsel({
+  open,
+  manifest,
+  perform,
+  act,
+  now,
+}: {
+  open: readonly BoardItem[];
+  manifest: ScoutManifest;
+  perform: (key: string, ids: string[]) => Promise<void>;
+  act: (ids: string[], state: BoardItemState, until?: number) => void;
+  now: number;
+}) {
+  const groups = recommendations(open, manifest);
+  return (
+    <section
+      aria-label={w('counsel')}
+      className="space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"
+    >
+      <h2 className="cb-display text-2xl leading-none" title={hint('counsel')}>
+        {w('counsel')}
+      </h2>
+      {groups.length === 0 ? (
+        <p className="text-sm text-neutral-500">
+          {manifest.synthesize
+            ? `Nothing suggested yet. Run now asks ${w('synthesis')} to rank the list and suggest what to do.`
+            : `This ${w('scout')} suggests nothing yet.`}
+        </p>
+      ) : (
+        groups.map(({ key, action, items }) => (
+          <div key={key} role="group" aria-label={action.label} className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
+                {action.label} <span className="font-normal text-neutral-500">· {items.length}</span>
+              </h3>
+              {action.kind === 'run' && action.batch && items.length > 1 && (
+                <KingdomButton
+                  label={`${action.label} all ${items.length}`}
+                  confirm={Boolean(action.confirm)}
+                  run={() =>
+                    perform(
+                      key,
+                      items.map((item) => item.id),
+                    )
+                  }
+                />
+              )}
+            </div>
+            <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+              {items.map((item) => (
+                <li key={item.id} className="flex items-start gap-2 py-1.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium" title={titleNote(item)}>
+                      {item.title}
+                    </span>
+                    {rowView(item, manifest.show).who !== undefined && (
+                      <span className="block truncate text-xs text-neutral-500">
+                        {rowView(item, manifest.show).who}
+                      </span>
+                    )}
+                    {item.summary && (
+                      <span
+                        className="line-clamp-2 text-xs text-neutral-600 dark:text-neutral-300"
+                        title={item.summary}
+                      >
+                        {item.summary}
+                      </span>
+                    )}
+                  </span>
+                  <ItemActions
+                    item={{ ...item, actions: [key] }}
+                    manifest={manifest}
+                    now={now}
+                    act={act}
+                    perform={perform}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
 /**
  * A Scout's Board (docs/SCOUTS.md): what it found, drawn from data alone in one of three views, with a button for each
  * thing to do about an item. Opening it marks what's new as seen; the mark stays until the Board is left.
@@ -420,14 +650,58 @@ export function BoardPage({
   const manifest = scout?.manifest;
   const name = manifest?.name ?? scout?.id ?? board?.scout ?? '';
   const items = board?.items ?? [];
-  const sections = boardSections(items, now);
   const view = manifest?.view ?? 'list';
+  // A list with a time field reads newest first, like an inbox; the ranking moves to the Counsel pane.
+  const sections = boardSections(items, now, view === 'list' ? manifest?.show?.when : undefined);
   const lastRun = board?.runs[0] ?? scout?.lastRun;
   const isMarked = (item: BoardItem) => item.state === 'new' || marked.has(item.id);
   // A checklist keeps what's ticked in place; the other views fold it away with what was dismissed.
   const ticked = view === 'checklist' ? sections.setAside.filter((item) => item.state === 'done') : [];
   const setAside = view === 'checklist' ? sections.setAside.filter((item) => item.state !== 'done') : sections.setAside;
   const openCount = sections.open.reduce((total, group) => total + group.items.length, 0);
+  const openItems = sections.open.flatMap((group) => group.items);
+  const counts = boardCounts(openItems, manifest);
+  const augury = lastSynthesis(board.runs, openItems);
+  const icon = boardIcon(manifest?.icon);
+  // Counsel has a place when something suggests: the synthesis step, or a collector that already has.
+  const counsel = Boolean(manifest && (manifest.synthesize || counts.suggested > 0));
+  const tiles: { label: string; value: string; hint?: string }[] = [
+    { label: 'Open', value: String(counts.open) },
+    { label: 'New', value: String(openItems.filter(isMarked).length), hint: 'new since anyone last looked' },
+    ...(manifest?.synthesize || counts.suggested > 0
+      ? [{ label: 'Suggested', value: String(counts.suggested), hint: 'items with a suggested action' }]
+      : []),
+    ...counts.declared.map(({ label, count }) => ({ label, value: String(count) })),
+    ...(manifest?.synthesize
+      ? [
+          {
+            label: w('synthesis').replace(/^\w/, (first) => first.toUpperCase()),
+            value: !augury
+              ? 'not yet'
+              : 'earlier' in augury
+                ? 'earlier'
+                : `${ago(augury.at, now)} ago · ${goldText(augury.costUsd)}`,
+            hint: `when ${hint('synthesis')} last ranked the list, and what it cost`,
+          },
+        ]
+      : []),
+  ];
+
+  const mailRow = (item: BoardItem) => (
+    <MailRow
+      key={item.id}
+      item={item}
+      marked={isMarked(item)}
+      show={manifest?.show}
+      now={now}
+      suggestion={
+        manifest && item.suggested
+          ? actionsFor(item, manifest).find(({ key }) => key === item.suggested)?.action.label
+          : undefined
+      }
+      actions={manifest && <ItemActions item={item} manifest={manifest} now={now} act={act} perform={perform} />}
+    />
+  );
 
   const row = (item: BoardItem) => (
     <li key={item.id} className="flex items-center gap-3 py-1.5" title={itemNote(item)}>
@@ -505,31 +779,43 @@ export function BoardPage({
       <p className="px-3 py-6 text-sm text-neutral-500 md:hidden">{`${w('boards')} are on wider screens for now.`}</p>
       {/* A desktop page for now, like the Summoning Circle: a phone's actions need their own design. */}
       <div className={`${HOME_PAGE} hidden space-y-5 py-6 md:block`}>
-        <header className="mx-3 space-y-2 border-b border-neutral-200 pb-3 dark:border-neutral-800">
-          {back}
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="cb-display text-4xl leading-none" title={hint('board')}>
-                {name}
-              </h1>
-              <p className="text-sm text-neutral-500">
-                <span title={hint('scout')}>{w('scout')}</span> on {kingdom}
-                {manifest && (
-                  <span title="its schedule, in its time zone">
-                    {' '}
-                    · {manifest.schedule.cron} ({manifest.schedule.timezone})
-                  </span>
-                )}
-                {scout?.nextRunAt !== undefined && !scout.paused && (
-                  <span> · next {new Date(scout.nextRunAt).toLocaleString()}</span>
-                )}
-              </p>
-              {lastRun?.outcome === 'succeeded' && lastRun.items !== undefined && (
-                <p className="text-sm" title={scoutReturnLine(lastRun.items).plain}>
-                  {scoutReturnLine(lastRun.items).themed}
-                  <span className="text-neutral-500"> {ago(lastRun.finishedAt ?? lastRun.startedAt, now)} ago</span>
+        <div className="px-3">{back}</div>
+        <header
+          aria-label="Summary"
+          role="region"
+          className="mx-3 space-y-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-900"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <span
+                aria-hidden
+                className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-700 shadow-sm dark:bg-neutral-800 dark:text-neutral-200"
+              >
+                {icon ? <Icon name={icon} size={22} /> : <span className="text-lg font-bold">{monogram(name)}</span>}
+              </span>
+              <div className="min-w-0">
+                <h1 className="cb-display text-4xl leading-none" title={hint('board')}>
+                  {name}
+                </h1>
+                <p className="text-sm text-neutral-500">
+                  <span title={hint('scout')}>{w('scout')}</span> on {kingdom}
+                  {manifest && (
+                    <span title="its schedule, in its time zone">
+                      {' '}
+                      · {manifest.schedule.cron} ({manifest.schedule.timezone})
+                    </span>
+                  )}
+                  {scout?.nextRunAt !== undefined && !scout.paused && (
+                    <span> · next {new Date(scout.nextRunAt).toLocaleString()}</span>
+                  )}
                 </p>
-              )}
+                {lastRun?.outcome === 'succeeded' && lastRun.items !== undefined && (
+                  <p className="text-sm" title={scoutReturnLine(lastRun.items).plain}>
+                    {scoutReturnLine(lastRun.items).themed}
+                    <span className="text-neutral-500"> {ago(lastRun.finishedAt ?? lastRun.startedAt, now)} ago</span>
+                  </p>
+                )}
+              </div>
             </div>
             <span className="flex items-center gap-2">
               {onPin && (
@@ -563,6 +849,19 @@ export function BoardPage({
               )}
             </span>
           </div>
+          <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
+            {tiles.map((tile, index) => (
+              <div
+                // A Scout's own label may match a built-in one.
+                key={index}
+                className="rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950"
+                {...(tile.hint ? { title: tile.hint } : {})}
+              >
+                <dt className="text-xs text-neutral-500">{tile.label}</dt>
+                <dd className="whitespace-nowrap text-lg font-semibold tabular-nums">{tile.value}</dd>
+              </div>
+            ))}
+          </dl>
           {scout?.paused && (
             <p role="alert" className="whitespace-pre-wrap text-sm text-amber-700 dark:text-amber-400">
               {`Paused: ${scout.paused}`}
@@ -580,80 +879,92 @@ export function BoardPage({
           )}
         </header>
 
-        <div className="space-y-4 px-3">
-          {openCount === 0 && ticked.length === 0 ? (
-            <p className="text-sm text-neutral-500">
-              {board && board.runs.length > 0
-                ? 'Nothing to act on.'
-                : `Nothing yet. ${w('scouts')} report after their first run.`}
-            </p>
-          ) : view === 'table' ? (
-            table
-          ) : (
-            <>
-              {sections.open.map((group) => (
-                <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    {(group.group !== undefined || sections.open.length > 1) && (
-                      <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
-                        {group.group ?? 'Other'}
-                      </h3>
-                    )}
-                    {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
-                  </div>
-                  <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">{group.items.map(row)}</ul>
-                </section>
-              ))}
-              {ticked.length > 0 && (
-                <ul aria-label="Done" className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                  {ticked.map(row)}
+        <div className={`grid gap-4 px-3 ${counsel ? 'lg:grid-cols-3' : ''}`}>
+          <section aria-label="Items" className={`min-w-0 space-y-4 ${counsel ? 'lg:col-span-2' : ''}`}>
+            {openCount === 0 && ticked.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                {board && board.runs.length > 0
+                  ? 'Nothing to act on.'
+                  : `Nothing yet. ${w('scouts')} report after their first run.`}
+              </p>
+            ) : view === 'table' ? (
+              table
+            ) : (
+              <>
+                {sections.open.map((group) => (
+                  <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      {(group.group !== undefined || sections.open.length > 1) && (
+                        <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
+                          {group.group ?? 'Other'}
+                        </h3>
+                      )}
+                      {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
+                    </div>
+                    <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                      {group.items.map(view === 'list' ? mailRow : row)}
+                    </ul>
+                  </section>
+                ))}
+                {ticked.length > 0 && (
+                  <ul aria-label="Done" className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                    {ticked.map(row)}
+                  </ul>
+                )}
+              </>
+            )}
+
+            {sections.snoozed.length > 0 && (
+              <Folded title="Snoozed" plain="hidden until a time" count={sections.snoozed.length}>
+                <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+                  {sections.snoozed.map((item) => (
+                    <PastRow
+                      key={item.id}
+                      item={item}
+                      note={item.until === undefined ? '' : `until ${new Date(item.until).toLocaleString()}`}
+                      act={act}
+                    />
+                  ))}
                 </ul>
-              )}
-            </>
+              </Folded>
+            )}
+            {setAside.length > 0 && (
+              <Folded title="Set aside" plain="done or dismissed" count={setAside.length}>
+                <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+                  {setAside.map((item) => (
+                    <PastRow key={item.id} item={item} note={item.state} act={act} />
+                  ))}
+                </ul>
+              </Folded>
+            )}
+            {sections.gone.length > 0 && (
+              <Folded title="Gone lately" plain="no longer in the collector's list" count={sections.gone.length}>
+                <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+                  {sections.gone.map((item) => (
+                    <PastRow key={item.id} item={item} note={`gone ${ago(item.goneAt ?? now, now)} ago`} />
+                  ))}
+                </ul>
+              </Folded>
+            )}
+            {board && board.runs.length > 0 && (
+              <Folded title="Recent runs" plain="the latest runs, newest first" count={board.runs.length}>
+                <ul aria-label="Recent runs" className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
+                  {board.runs.map((run) => (
+                    <RunRow key={run.id} run={run} now={now} />
+                  ))}
+                </ul>
+              </Folded>
+            )}
+          </section>
+          {/* The plan beside the inbox: sticky, so it stays in view down a long list. Above the list on narrower screens. */}
+          {counsel && (
+            <aside>
+              <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+                {manifest && <Counsel open={openItems} manifest={manifest} perform={perform} act={act} now={now} />}
+              </div>
+            </aside>
           )}
         </div>
-
-        {sections.snoozed.length > 0 && (
-          <Folded title="Snoozed" plain="hidden until a time" count={sections.snoozed.length}>
-            <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-              {sections.snoozed.map((item) => (
-                <PastRow
-                  key={item.id}
-                  item={item}
-                  note={item.until === undefined ? '' : `until ${new Date(item.until).toLocaleString()}`}
-                  act={act}
-                />
-              ))}
-            </ul>
-          </Folded>
-        )}
-        {setAside.length > 0 && (
-          <Folded title="Set aside" plain="done or dismissed" count={setAside.length}>
-            <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-              {setAside.map((item) => (
-                <PastRow key={item.id} item={item} note={item.state} act={act} />
-              ))}
-            </ul>
-          </Folded>
-        )}
-        {sections.gone.length > 0 && (
-          <Folded title="Gone lately" plain="no longer in the collector's list" count={sections.gone.length}>
-            <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-              {sections.gone.map((item) => (
-                <PastRow key={item.id} item={item} note={`gone ${ago(item.goneAt ?? now, now)} ago`} />
-              ))}
-            </ul>
-          </Folded>
-        )}
-        {board && board.runs.length > 0 && (
-          <Folded title="Recent runs" plain="the latest runs, newest first" count={board.runs.length}>
-            <ul aria-label="Recent runs" className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
-              {board.runs.map((run) => (
-                <RunRow key={run.id} run={run} now={now} />
-              ))}
-            </ul>
-          </Folded>
-        )}
       </div>
     </div>
   );

@@ -34,3 +34,18 @@ export function goldText(usd: number, locale?: string): string {
   if (usd > 0 && coins === 0) return '<1';
   return new Intl.NumberFormat(locale).format(coins);
 }
+
+/** "9:05 AM" today, "Nov 12" this year, "Nov 12, 2025" before: a date as a mail list shows it. */
+export function shortWhen(at: number, now: number, locale?: string): string {
+  const date = new Date(at);
+  const today = new Date(now);
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+  }
+  const sameYear = date.getFullYear() === today.getFullYear();
+  return date.toLocaleDateString(locale, {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}

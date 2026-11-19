@@ -227,10 +227,228 @@ describe('BoardPage', () => {
     expect(onAct).toHaveBeenCalledWith('archive', ['1', '2']);
   });
 
+  describe('the redesigned page', () => {
+    const mail: ScoutManifest = {
+      ...manifest,
+      synthesize: { prompt: 'synthesize.md', when: 'now' },
+      summary: [{ label: 'Unread', field: 'unread' }],
+      show: { who: 'from', when: 'date', unread: 'unread', preview: 'body' },
+    };
+    const mailScout = (extra: Partial<ListedScout> = {}): ListedScout => ({
+      id: 'quest-board',
+      fresh: 0,
+      manifest: mail,
+      ...extra,
+    });
+    const today = new Date(NOW).toISOString();
+
+    it('sums the Board up in a banner: open, new this visit, suggested, the Scout-s counts, and when Augury last ran', () => {
+      show({
+        scout: mailScout(),
+        runs: [run({ startedAt: 0, finishedAt: 300_000, costUsd: 0.62 })],
+        items: [
+          item({ id: 'a', state: 'new', suggested: 'done', fields: { unread: true } }),
+          item({ id: 'b', state: 'seen', fields: { unread: false } }),
+          item({ id: 'c', state: 'done' }),
+        ],
+      });
+      const banner = screen.getByRole('region', { name: 'Summary' });
+      const tile = (label: string) =>
+        within(banner).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent;
+      expect(tile('Open')).toBe('2');
+      expect(tile('New')).toBe('1');
+      expect(tile('Suggested')).toBe('1');
+      expect(tile('Unread')).toBe('1');
+      expect(tile('Augury')).toContain('5m ago');
+    });
+
+    it('draws a row as a mail list does: who, when, the title with a preview, unread in bold', () => {
+      show({
+        scout: mailScout(),
+        items: [
+          item({
+            state: 'seen',
+            title: 'Lunch on Friday?',
+            fields: { from: 'Ada Lovelace', date: today, unread: true, body: 'Are you free at noon' },
+          }),
+        ],
+      });
+      const list = screen.getByRole('region', { name: 'Items' });
+      const row = within(list).getByText('Ada Lovelace').closest('li')!;
+      expect(row.getAttribute('data-unread')).toBe('true');
+      expect(within(row).getByText('Lunch on Friday?')).toBeTruthy();
+      expect(within(row).getByText(/Are you free at noon/)).toBeTruthy();
+      expect(
+        within(row).getByText(new Date(NOW).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })),
+      ).toBeTruthy();
+      // Unread is said in words too, not by weight alone.
+      expect(within(row).getByText('Unread', { selector: '.sr-only' })).toBeTruthy();
+      expect(within(row).getByText('A', { selector: '[data-avatar]' })).toBeTruthy();
+      expect(within(row).getByText('Ada Lovelace').className).toMatch(/font-semibold/);
+    });
+
+    it('keeps a read message in plain weight, though it is new on this visit', () => {
+      show({
+        scout: mailScout(),
+        items: [item({ state: 'new', title: 'Read already', fields: { from: 'Ada', date: today, unread: false } })],
+      });
+      expect(screen.getByText('Ada').className).not.toMatch(/font-semibold/);
+    });
+
+    it('gathers what Augury suggests in a pane beside the list, under each action, with its button', () => {
+      const shown = show({
+        scout: mailScout(),
+        items: [
+          item({
+            id: 'a',
+            state: 'seen',
+            title: 'Weekly digest',
+            rank: 2,
+            actions: ['archive', 'done'],
+            suggested: 'archive',
+            summary: 'Nothing to do.',
+          }),
+          item({
+            id: 'b',
+            state: 'seen',
+            title: 'Sale ends',
+            rank: 3,
+            actions: ['archive', 'done'],
+            suggested: 'archive',
+          }),
+          item({ id: 'c', state: 'seen', title: 'Your invoice', rank: 1, actions: ['done'], suggested: 'done' }),
+          item({ id: 'd', state: 'seen', title: 'Unranked' }),
+        ],
+      });
+      const pane = screen.getByRole('region', { name: 'Counsel' });
+      const groups = within(pane).getAllByRole('group');
+      expect(groups.map((group) => group.getAttribute('aria-label'))).toEqual(['Done', 'Archive']);
+      expect(
+        within(groups[1]!)
+          .getAllByRole('listitem')
+          .map((li) => li.textContent),
+      ).toEqual([expect.stringContaining('Weekly digest'), expect.stringContaining('Sale ends')]);
+      expect(within(groups[1]!).getByText('Nothing to do.')).toBeTruthy();
+      expect(within(pane).queryByText('Unranked')).toBeNull();
+      // One press for the whole group, asking first as the action says.
+      fireEvent.click(within(groups[1]!).getByRole('button', { name: 'Archive all 2' }));
+      fireEvent.click(within(groups[1]!).getByRole('button', { name: 'Yes, Archive all 2' }));
+      expect(shown.onAct).toHaveBeenCalledWith('archive', ['a', 'b']);
+    });
+
+    it('keeps the subtitle when the Scout names a sender but no preview, and falls back to the title with no sender', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, show: { who: 'author' } } }),
+        items: [
+          item({
+            id: 'a',
+            state: 'seen',
+            title: 'Fix the retry loop',
+            subtitle: 'owner/repo#1 · waiting on others',
+            fields: { author: 'ada' },
+          }),
+          item({ id: 'b', state: 'seen', title: 'No author here', subtitle: 'owner/repo#2' }),
+        ],
+      });
+      const list = screen.getByRole('region', { name: 'Items' });
+      const row = within(list).getByText('ada').closest('li')!;
+      expect(within(row).getByText(/owner\/repo#1 · waiting on others/)).toBeTruthy();
+      const bare = within(list).getByText('No author here').closest('li')!;
+      expect(bare.querySelector('[data-avatar]')).toBeNull();
+      expect(within(bare).getByText('owner/repo#2')).toBeTruthy();
+    });
+
+    it('lists newest first in a list, but leaves a table in rank order', () => {
+      const dated = [
+        item({
+          id: 'old',
+          state: 'seen',
+          title: 'Older',
+          rank: 1,
+          group: undefined,
+          fields: { date: '2026-11-01T00:00:00Z' },
+        }),
+        item({
+          id: 'new',
+          state: 'seen',
+          title: 'Newer',
+          rank: 2,
+          group: undefined,
+          fields: { date: '2026-11-17T00:00:00Z' },
+        }),
+      ];
+      show({ scout: mailScout(), items: dated });
+      const titles = () =>
+        within(screen.getByRole('region', { name: 'Items' }))
+          .getAllByText(/^(Older|Newer)$/)
+          .map((node) => node.textContent);
+      expect(titles()).toEqual(['Newer', 'Older']);
+      cleanup();
+      show({ scout: mailScout({ manifest: { ...mail, view: 'table' } }), items: dated });
+      expect(titles()).toEqual(['Older', 'Newer']);
+    });
+
+    it('keeps the next run, a pause and a broken scout.json in the banner', () => {
+      show({
+        scout: mailScout({ nextRunAt: NOW + 3_600_000, paused: 'Failed 3 times in a row.', error: 'bad json' }),
+      });
+      const banner = screen.getByRole('region', { name: 'Summary' });
+      expect(within(banner).getByText('Paused: Failed 3 times in a row.')).toBeTruthy();
+      expect(within(banner).getByText(/bad json/)).toBeTruthy();
+      expect(within(banner).getByRole('button', { name: 'Run now' })).toBeTruthy();
+      cleanup();
+      show({ scout: mailScout({ nextRunAt: NOW + 3_600_000 }) });
+      expect(within(screen.getByRole('region', { name: 'Summary' })).getByText(/next /)).toBeTruthy();
+      expect(
+        within(screen.getByRole('region', { name: 'Summary' })).getByText('Augury', { selector: 'dt' })
+          .nextElementSibling?.textContent,
+      ).toBe('not yet');
+    });
+
+    it('leaves Counsel out for a Scout that neither synthesizes nor suggests, and the list takes the width', () => {
+      const plain: ScoutManifest = { ...mail };
+      delete plain.synthesize;
+      show({ scout: mailScout({ manifest: plain }), items: [item({ state: 'seen' })] });
+      expect(screen.queryByRole('region', { name: 'Counsel' })).toBeNull();
+    });
+
+    it('says who each suggestion is from, where the Scout names a sender', () => {
+      show({
+        scout: mailScout(),
+        items: [
+          item({
+            state: 'seen',
+            title: 'Lunch?',
+            rank: 1,
+            suggested: 'done',
+            actions: ['done'],
+            fields: { from: 'Ada' },
+          }),
+        ],
+      });
+      expect(within(screen.getByRole('region', { name: 'Counsel' })).getByText('Ada')).toBeTruthy();
+    });
+
+    it('keeps a row-s confirm in view after the pointer leaves', () => {
+      show({ scout: mailScout(), items: [item({ state: 'seen', actions: ['archive'], fields: { from: 'Ada' } })] });
+      const list = screen.getByRole('region', { name: 'Items' });
+      fireEvent.click(within(list).getByRole('button', { name: 'Archive' }));
+      const tools = within(list).getByRole('button', { name: 'Yes, Archive' }).closest('[data-row-tools]')!;
+      expect(tools.querySelector('[data-asking]')).not.toBeNull();
+      expect(tools.className).toMatch(/has-\[\[data-asking\]\]:opacity-100/);
+    });
+
+    it('says what fills the pane when nothing is suggested yet', () => {
+      show({ scout: mailScout(), items: [item({ state: 'seen' })] });
+      expect(within(screen.getByRole('region', { name: 'Counsel' })).getByText(/Run now asks Augury/)).toBeTruthy();
+    });
+  });
+
   it('highlights the action suggested for an item', () => {
     show({ items: [item({ state: 'seen', actions: ['fix', 'done'], suggested: 'fix' })] });
-    expect(screen.getByRole('button', { name: 'Fix it' }).getAttribute('title')).toBe('Suggested');
-    expect(screen.getByRole('button', { name: 'Done' }).getAttribute('title')).toBeNull();
+    const list = screen.getByRole('region', { name: 'Items' });
+    expect(within(list).getByRole('button', { name: 'Fix it' }).getAttribute('title')).toBe('Suggested');
+    expect(within(list).getByRole('button', { name: 'Done' }).getAttribute('title')).toBeNull();
   });
 
   it.each(['list', 'table'] as const)('shows the line summing an item up, in a %s', (view) => {
