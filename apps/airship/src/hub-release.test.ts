@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { latestReleaseChecker } from './hub-release.js';
+import { latestReleaseChecker, releaseCheckOptions } from './hub-release.js';
 
 const answer = (body: unknown, ok = true) => ({ ok, json: async () => body }) as Response;
 const release = { tag_name: 'v1.2.0', html_url: 'https://example.invalid/r', body: 'What changed' };
@@ -94,5 +94,88 @@ describe('latestReleaseChecker', () => {
     time += 16 * 60_000;
     await check();
     expect(fetchAny.mock.calls.filter(([url]) => url.endsWith('/latest'))).toHaveLength(1);
+  });
+
+  it('asks at once when told to check now, but not twice within two minutes', async () => {
+    let time = 0;
+    const fetchAny = vi.fn(async () => answer([{ ...release, tag_name: 'v1.2.1-edge.1' }]));
+    const check = latestReleaseChecker({ fetch: fetchAny, now: () => time, channel: () => 'edge' });
+    await check();
+    time = 60_000;
+    expect(await check.refresh()).toBe('recent');
+    expect(fetchAny).toHaveBeenCalledTimes(1);
+    time = 3 * 60_000;
+    expect(await check.refresh()).toBe('answered');
+    expect(fetchAny).toHaveBeenCalledTimes(2);
+    await check();
+    expect(fetchAny).toHaveBeenCalledTimes(2);
+  });
+
+  it('says when GitHub did not answer, even within the two minutes', async () => {
+    let time = 0;
+    const check = latestReleaseChecker({
+      fetch: async () => answer({}, false),
+      now: () => time,
+    });
+    expect(await check.refresh()).toBe('failed');
+    time = 10_000;
+    expect(await check.refresh()).toBe('failed');
+  });
+
+  it('waits for a check already under way rather than answering from before it', async () => {
+    let finish: (response: Response) => void = () => {};
+    const fetchAny = vi.fn(() => new Promise<Response>((resolve) => (finish = resolve)));
+    const check = latestReleaseChecker({ fetch: fetchAny, now: () => 0 });
+    const first = check();
+    const pressed = check.refresh();
+    finish(answer(release));
+    expect((await first)?.version).toBe('1.2.0');
+    expect(await pressed).toBe('answered');
+    expect(fetchAny).toHaveBeenCalledTimes(1);
+  });
+
+  it('says when it last heard from GitHub, which a failure leaves alone', async () => {
+    let time = 5;
+    let fail = false;
+    const check = latestReleaseChecker({
+      fetch: async () => {
+        if (fail) throw new Error('offline');
+        return answer(release);
+      },
+      now: () => time,
+      ttlMs: 1000,
+    });
+    expect(check.checkedAt()).toBeUndefined();
+    await check();
+    expect(check.checkedAt()).toBe(5);
+    fail = true;
+    time = 5000;
+    await check();
+    expect(check.checkedAt()).toBe(5);
+  });
+
+  it('keeps each channel’s time apart, so a new channel has none until it hears', async () => {
+    let channel: 'stable' | 'edge' = 'stable';
+    const fetchAny = vi.fn(async (url: string) =>
+      url.endsWith('/latest') ? answer(release) : answer([{ ...release, tag_name: 'v1.2.1-edge.1' }]),
+    );
+    let time = 7;
+    const check = latestReleaseChecker({ fetch: fetchAny, now: () => time, channel: () => channel });
+    await check();
+    channel = 'edge';
+    expect(check.checkedAt()).toBeUndefined();
+    time = 9;
+    expect(await check.refresh()).toBe('answered');
+    expect(check.checkedAt()).toBe(9);
+  });
+});
+
+describe('releaseCheckOptions', () => {
+  it('hands the hub the check, the press and the time from one checker', async () => {
+    const check = latestReleaseChecker({ fetch: async () => answer(release), now: () => 42 });
+    const options = releaseCheckOptions(check);
+    expect((await options.latestRelease())?.version).toBe('1.2.0');
+    expect(options.releaseCheckedAt()).toBe(42);
+    expect(await options.checkReleaseNow()).toBe('recent');
   });
 });

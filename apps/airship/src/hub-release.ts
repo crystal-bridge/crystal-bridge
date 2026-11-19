@@ -1,5 +1,5 @@
 import { isOlderVersion, RELEASE_REPO, ReleaseVersion } from '@crystal-bridge/protocol';
-import { periodically } from './cli-release.js';
+import { type CheckOutcome, periodically, type PeriodicCheck } from './cli-release.js';
 
 const TIMEOUT_MS = 5000;
 const MAX_NOTES = 4000;
@@ -54,18 +54,18 @@ const HEADERS = { accept: 'application/vnd.github+json', 'user-agent': 'crystal-
  * What asks GitHub for this project's newest release on the hub's channel: on stable, the latest full release, which
  * pre-releases never are; on edge, the newest of the recent releases, pre-releases included. It sends nothing about the
  * hub but the request itself. GitHub allows 60 anonymous calls an hour per address, far more than this needs. Each
- * channel keeps its own answer, so a change of channel asks at once.
+ * channel keeps its own answer, so a change of channel asks at once. Check for updates calls `refresh`.
  */
 export function latestReleaseChecker({
   fetch: request = fetch,
   now,
   ttlMs,
   channel = () => 'stable',
-}: LatestReleaseOptions = {}): () => Promise<LatestRelease | undefined> {
+}: LatestReleaseOptions = {}): PeriodicCheck<LatestRelease> {
   const timing = { ...(now ? { now } : {}), ...(ttlMs ? { ttlMs } : {}) };
   // Each merge to main makes an edge build, so a hub following them asks more often.
   const edgeTiming = { ...(now ? { now } : {}), ttlMs: ttlMs ?? EDGE_TTL_MS };
-  const checkers: Record<ReleaseChannel, () => Promise<LatestRelease | undefined>> = {
+  const checkers: Record<ReleaseChannel, PeriodicCheck<LatestRelease>> = {
     stable: periodically(async () => {
       const response = await request(`${API}/latest`, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
       return response.ok ? parseRelease((await response.json()) as GitHubRelease) : undefined;
@@ -86,5 +86,21 @@ export function latestReleaseChecker({
       );
     }, edgeTiming),
   };
-  return () => checkers[channel()]();
+  return Object.assign(() => checkers[channel()](), {
+    refresh: () => checkers[channel()].refresh(),
+    checkedAt: () => checkers[channel()].checkedAt(),
+  });
+}
+
+/** What the hub's server takes from a release checker: its answer, a press of Check for updates, and when it last heard. */
+export function releaseCheckOptions(check: PeriodicCheck<LatestRelease>): {
+  latestRelease: () => Promise<LatestRelease | undefined>;
+  checkReleaseNow: () => Promise<CheckOutcome>;
+  releaseCheckedAt: () => number | undefined;
+} {
+  return {
+    latestRelease: () => check(),
+    checkReleaseNow: () => check.refresh(),
+    releaseCheckedAt: () => check.checkedAt(),
+  };
 }

@@ -5,7 +5,7 @@ import { accessRefusals, authMode } from './access.js';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { backupRecord, backupStore, runBackup } from './backup.js';
 import { latestCliChecker } from './cli-release.js';
-import { latestReleaseChecker } from './hub-release.js';
+import { latestReleaseChecker, releaseCheckOptions } from './hub-release.js';
 import { kingdomTarget } from './kingdom-target.js';
 import { createFirstRun } from './first-run.js';
 import { pendingMigrations } from './migrations.js';
@@ -135,7 +135,7 @@ async function main(): Promise<void> {
     ...(process.env.AIRSHIP_CLI_CHECK === 'off' ? {} : { latestCli: latestCliChecker() }),
     // A hub run from git has no version to compare, and follows `main` anyway.
     ...(VERSION && process.env.AIRSHIP_RELEASE_CHECK !== 'off'
-      ? { latestRelease: latestReleaseChecker({ channel: () => settings.channel() }) }
+      ? releaseCheckOptions(latestReleaseChecker({ channel: () => settings.channel() }))
       : {}),
     ...(VERSION && UPDATE_REQUEST ? { hubUpdates: hubUpdates(UPDATE_REQUEST, UPDATE_STATUS) } : {}),
     upkeep: () => ({
