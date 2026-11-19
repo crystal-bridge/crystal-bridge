@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@crystal-bridge/protocol": "workspace:*",
+    "@crystal-bridge/release": "workspace:*",
     "@sigstore/protobuf-specs": "^0.5.2",
     "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
