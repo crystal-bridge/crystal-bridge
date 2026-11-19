@@ -46,9 +46,11 @@
         "changes": { "icon": "changes", "tone": "orange", "label": "Changes requested" },
         "reply": { "icon": "reply", "tone": "sky", "label": "Reply owed" },
         "merge": { "icon": "merge", "tone": "emerald", "label": "Ready to merge" },
-        "assigned": { "icon": "user", "tone": "amber", "label": "Assigned to you" }
+        "assigned": { "icon": "user", "tone": "amber", "label": "Assigned to you" },
+        "next": { "icon": "flag", "tone": "sky", "label": "Up next", "lane": "queue" }
       }
     },
+    "queue": { "title": "Your queue", "priority": "priority", "due": "due" },
     "who": "author",
     "whoKey": "login",
     "when": "updated",
