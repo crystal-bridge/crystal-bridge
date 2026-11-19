@@ -76,6 +76,9 @@ Copy `settings.example.json` to `settings.json` beside `scout.json` to change:
   account.
 - `exclude`: repositories to leave out entirely, as `"owner/repo"`, even your own items in them.
 - `activeDays` (90): how recently a repository you maintain must have been pushed to be listed in full.
+- `maxRepos` (30, at most 200): how many maintained repositories to list in full, newest push first. `include`d ones
+  always count first. The rest are left out with a note in the run's stderr, so an account with many organizations
+  doesn't time out every run; raise it if your calls stay fast, or add the ones you want with `include`.
 - `perProject` (50, at most 100): how many open pull requests, and how many issues, to list per maintained repository.
 - `discussions`: also list your unanswered Discussions.
 - `refreshMinutes` (60): how old a kept list may get. Between runs, the collector asks GitHub's notifications API
@@ -86,9 +89,11 @@ Copy `settings.example.json` to `settings.json` beside `scout.json` to change:
 A `settings.json` that isn't JSON, names an unknown setting or gives one the wrong type fails the run, with the reason
 on the Board, rather than being ignored.
 
-A full read is one GraphQL call for your repositories and searches, then one call per five maintained repositories.
-A repository the login can't read is skipped with a note in the run's stderr. A rate-limit error fails the run with
-its reason, and the Board keeps its last list. A Board takes 1,000 items: past that, the items that need you stay,
-then the newest.
+A full read is one GraphQL call for your repositories and searches, then one call per five maintained repositories,
+plus one more per hundred repositories when you have more than that pushed within `activeDays` (at most five pages,
+so the newest 500; the run says so when there were more). A repository the login can't read is skipped with a note in
+the run's stderr, and so are the repositories of a call that fails outright, such as a GitHub timeout. A rate-limit
+error fails the run with its reason, and the Board keeps its last list. A Board takes 1,000 items: past that, the
+items that need you stay, then the newest.
 
 The kept list and ETag are in the Scout's `state` folder.
