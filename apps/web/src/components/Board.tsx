@@ -547,10 +547,24 @@ export function BoardPage({
   // Counsel has a place when something suggests: the synthesis step, or a collector that already has.
   const counsel = Boolean(manifest && (manifest.synthesize || counts.suggested > 0));
   const tiles: { label: string; value: string; hint?: string; icon?: string; tone?: string }[] = [
-    { label: 'Open', value: String(counts.open) },
-    { label: 'New', value: String(openItems.filter(isMarked).length), hint: 'new since anyone last looked' },
+    { label: 'Open', value: String(counts.open), icon: 'tray', tone: 'sky' },
+    {
+      label: 'New',
+      value: String(openItems.filter(isMarked).length),
+      hint: 'new since anyone last looked',
+      icon: 'sparkle',
+      tone: 'amber',
+    },
     ...(manifest?.synthesize || counts.suggested > 0
-      ? [{ label: 'Suggested', value: String(counts.suggested), hint: 'items with a suggested action' }]
+      ? [
+          {
+            label: 'Suggested',
+            value: String(counts.suggested),
+            hint: 'items with a suggested action',
+            icon: 'lightbulb',
+            tone: 'violet',
+          },
+        ]
       : []),
     ...counts.declared.map(({ label, count, icon, tone }) => ({
       label,
@@ -568,6 +582,8 @@ export function BoardPage({
                 ? 'earlier'
                 : `${ago(augury.at, now)} ago · ${goldText(augury.costUsd)}`,
             hint: `when ${hint('synthesis')} last ranked the list, and what it cost`,
+            icon: 'eye',
+            tone: 'fuchsia',
           },
         ]
       : []),

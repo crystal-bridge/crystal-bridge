@@ -173,8 +173,11 @@ export function actionTone(key: string, kind: string): ChipTone {
   return Object.hasOwn(BY_KIND, kind) ? BY_KIND[kind]! : 'slate';
 }
 
-/** Banner tile accents, in tile order. */
-export const TILE_TONES = ['blue', 'amber', 'violet', 'sky', 'teal', 'fuchsia', 'lime', 'rose', 'indigo'] as const;
+/**
+ * Banner tile accents, in tile order, for a tile that names no tone. The built-in tiles name theirs (sky, amber, violet,
+ * fuchsia), so the cycle starts with the others.
+ */
+export const TILE_TONES = ['teal', 'lime', 'rose', 'indigo', 'blue', 'amber', 'violet', 'sky', 'fuchsia'] as const;
 export type TileTone = (typeof TILE_TONES)[number];
 
 export const TILE_CLASSES: Record<TileTone | ChipTone, { border: string; value: string }> = {

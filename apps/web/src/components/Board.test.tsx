@@ -264,6 +264,18 @@ describe('BoardPage', () => {
       expect(tile('Augury')).toContain('5m ago');
     });
 
+    it('gives the built-in banner tiles icons too', () => {
+      show({
+        scout: mailScout(),
+        items: [item({ id: 'a', state: 'new', suggested: 'done' })],
+      });
+      const banner = screen.getByRole('region', { name: 'Summary' });
+      for (const label of ['Open', 'New', 'Suggested']) {
+        const tile = within(banner).getByText(label, { selector: 'dt' }).closest('[data-tile]');
+        expect(tile?.querySelector('svg'), label).not.toBeNull();
+      }
+    });
+
     it('draws a row as a mail list does: who, when, the title with a preview, unread in bold', () => {
       show({
         scout: mailScout(),
@@ -608,7 +620,7 @@ describe('BoardPage', () => {
       const banner = screen.getByRole('region', { name: 'Summary' });
       const tones = [...banner.querySelectorAll('[data-tile]')].map((tile) => tile.getAttribute('data-tone'));
       expect(new Set(tones).size).toBe(tones.length);
-      expect(tones[0]).toBe('blue');
+      expect(tones.slice(0, 3)).toEqual(['sky', 'amber', 'violet']);
     });
 
     describe('banner tiles', () => {
@@ -625,19 +637,19 @@ describe('BoardPage', () => {
         const tile = tilesFor([{ label: 'Failing', field: 'checks', icon: 'x-circle', tone: 'red' }]);
         expect(tile('Failing').querySelector('svg')).not.toBeNull();
         expect(tile('Failing').getAttribute('data-tone')).toBe('red');
-        expect(tile('Open').querySelector('svg')).toBeNull();
+        expect(tile('Open').querySelector('svg')).not.toBeNull();
       });
 
       it('keeps the cycling tone and no icon for an entry without them', () => {
         const tile = tilesFor([{ label: 'Failing', field: 'checks' }]);
         expect(tile('Failing').querySelector('svg')).toBeNull();
-        expect(tile('Failing').getAttribute('data-tone')).toBe('sky');
+        expect(tile('Failing').getAttribute('data-tone')).toBe('indigo');
       });
 
       it('draws no icon for an unknown name and cycles for an unknown tone', () => {
         const tile = tilesFor([{ label: 'Failing', field: 'checks', icon: 'nope', tone: 'chartreuse' }]);
         expect(tile('Failing').querySelector('svg')).toBeNull();
-        expect(tile('Failing').getAttribute('data-tone')).toBe('sky');
+        expect(tile('Failing').getAttribute('data-tone')).toBe('indigo');
       });
     });
 

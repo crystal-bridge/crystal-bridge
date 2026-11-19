@@ -143,6 +143,9 @@ export const ICON_SOURCES = {
   markFlag: { pack: 'ph', icon: 'flag-fill' },
   markLightning: { pack: 'ph', icon: 'lightning-fill' },
   markShield: { pack: 'ph', icon: 'shield-check-fill' },
+  markTray: { pack: 'ph', icon: 'tray-fill' },
+  markSparkle: { pack: 'ph', icon: 'sparkle-fill' },
+  markLightbulb: { pack: 'ph', icon: 'lightbulb-fill' },
   markGithub: { pack: 'ph', icon: 'github-logo-fill' },
   markGitlab: { pack: 'ph', icon: 'gitlab-logo-fill' },
   // A projects Board's layouts
