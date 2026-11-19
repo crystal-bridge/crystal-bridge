@@ -293,3 +293,75 @@ describe('a Quest from Board items, with the user-s own prompt', () => {
     expect(HubScoutQuest.safeParse({ ...frame, items: [] }).success).toBe(false);
   });
 });
+
+describe('the projects view', () => {
+  const projects = {
+    kind: { field: 'kind', values: { pr: { icon: 'pull-request', tone: 'emerald', label: 'Pull request' } } },
+    marks: [{ field: 'checks', values: { fail: { icon: 'x-circle', tone: 'red', label: 'Checks failing' } } }],
+    reasons: { field: 'reason', values: { review: { icon: 'eye', tone: 'violet', label: 'Review requested' } } },
+    who: 'author',
+    whoKey: 'login',
+    when: 'updated',
+    comments: 'comments',
+    added: 'added',
+    removed: 'removed',
+    mine: 'mine',
+  };
+
+  it('accepts view "projects" with a projects block', () => {
+    const parsed = ScoutManifest.parse({ ...manifest, view: 'projects', projects });
+    expect(parsed.view).toBe('projects');
+    expect(parsed.projects).toEqual(projects);
+  });
+
+  it('drops a malformed projects block, keeping the Scout', () => {
+    const parsed = ScoutManifest.parse({ ...manifest, view: 'projects', projects: { marks: 'x' } });
+    expect(parsed.view).toBe('projects');
+    expect(parsed.projects).toBeUndefined();
+  });
+
+  it('drops the block when marks has more than four entries', () => {
+    const mark = { field: 'checks', values: {} };
+    const parsed = ScoutManifest.parse({ ...manifest, view: 'projects', projects: { marks: Array(5).fill(mark) } });
+    expect(parsed.projects).toBeUndefined();
+  });
+
+  it('keeps an item’s labels and project', () => {
+    const extra = {
+      labels: [{ name: 'bug', color: '#d73a4a' }],
+      project: { name: 'acme/lantern', url: 'https://github.com/acme/lantern', description: 'Log viewer', owned: true },
+    };
+    const parsed = ScoutItems.parse({ items: [{ ...item, ...extra }] });
+    expect(parsed.items[0]?.labels).toEqual(extra.labels);
+    expect(parsed.items[0]?.project).toEqual(extra.project);
+  });
+
+  it('drops bad labels or a nameless project without failing the item', () => {
+    const parsed = ScoutItems.parse({
+      items: [
+        { ...item, labels: [{ name: 'bug', color: 'red' }], project: { url: 'https://github.com/acme/lantern' } },
+      ],
+    });
+    expect(parsed.items[0]?.id).toBe(item.id);
+    expect(parsed.items[0]?.labels).toBeUndefined();
+    expect(parsed.items[0]?.project).toBeUndefined();
+  });
+
+  it('keeps a summary entry’s icon and tone, and drops a bad one alone', () => {
+    const good = { label: 'Failing', field: 'checks', icon: 'x-circle', tone: 'red' };
+    const parsed = ScoutManifest.parse({
+      ...manifest,
+      summary: [good, { label: 'Open', field: 'open', icon: 'Bad Icon' }],
+    });
+    expect(parsed.summary).toEqual([good, { label: 'Open', field: 'open' }]);
+  });
+
+  it('NodeScouts on this hub reads a projects Scout', () => {
+    const frame = NodeScouts.parse({
+      kind: 'scouts',
+      scouts: [{ id: 'board', manifest: { ...manifest, view: 'projects', projects } }],
+    });
+    expect(frame.scouts[0]?.error).toBeUndefined();
+    expect(frame.scouts[0]?.manifest?.projects).toEqual(projects);
+  });
+});
