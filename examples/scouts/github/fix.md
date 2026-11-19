@@ -1,6 +1,7 @@
 A pull request of mine has failing checks. Find out why and fix it.
 
-The item below names the pull request's repository (`fields.repository`), its number and the checks that failed.
+The item below names the pull request's repository (`fields.repository`), its number and the checks that failed
+(`fields.failing`).
 
 1. Check that this folder is a clone of that repository: one of `git remote -v` must point at it. If none does, stop
    and tell me; don't check anything out.

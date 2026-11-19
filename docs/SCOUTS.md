@@ -403,8 +403,8 @@ memory, so a restart in the meantime loses them, and the next run sends the whol
   its run.
 - **The hub** stores each Scout's definition as the Kingdom reported it, its items and their states, and a short
   history of runs with their outcome, timing and cost. It shows the Boards and sends notifications.
-- **The browser** draws a Board from a fixed set of views (a grouped list, a checklist and a table). No code from a
-  Scout runs in the app.
+- **The browser** draws a Board from a fixed set of views (a grouped list, a checklist, a table and a projects view).
+  No code from a Scout runs in the app.
 
 The protocol stays additive: a `scouts` flag on `hello`, new frames beside the existing ones, and new hub tables. A
 Quest's event stream doesn't change. Boards stay off phones for now, like the Summoning Circle.
@@ -414,10 +414,11 @@ Quest's event stream doesn't change. Boards stay off phones for now, like the Su
 **A Quest Board** uses the Kingdom's own `gh` login, so no token is stored anywhere new. A working one ships as an
 example: [`examples/scouts/github`](../examples/scouts/github/README.md).
 
-- GitHub search finds the candidates: your open pull requests, review requests, and open issues you wrote or are
-  assigned.
-- GraphQL fields sort them: `reviewDecision`, `statusCheckRollup` and `mergeStateStatus` give review required, needs a
-  fix, and ready to merge.
+- It fills a `projects` Board. Repositories you maintain (admin or maintain permission, not archived, pushed lately)
+  are listed in full, with aliased per-repository GraphQL queries, five repositories a call. Elsewhere, GitHub search
+  finds your items: your open pull requests, review requests, and open issues you wrote or are assigned.
+- GraphQL fields give each item its reason: `reviewDecision`, `statusCheckRollup` and `mergeStateStatus` give review
+  requested, checks failing, changes requested and ready to merge.
 - Whether a pull request waits on you or on them is no GitHub field. The collector works it out from the last person,
   not bot, who commented, reviewed or pushed.
 - The notifications API is a cheap check for change: a reply of "not modified" costs no rate limit. Ask by ETag
