@@ -27,6 +27,8 @@ export interface ButtonLook {
   suggested: string;
   plain: string;
   row?: string;
+  /** The lead button's tooltip; "Suggested" unless a surface leads with an action it only offers (an empty string). */
+  hint?: string;
 }
 
 const LOOK: ButtonLook = { suggested: suggestedButton, plain: button };
@@ -111,7 +113,7 @@ export function KingdomButton({
       disabled={busy}
       onClick={() => (confirm ? setAsking(true) : go())}
       className={suggested ? look.suggested : look.plain}
-      {...(suggested ? { title: 'Suggested' } : {})}
+      {...(suggested && look.hint !== '' ? { title: look.hint ?? 'Suggested' } : {})}
     >
       {busy ? `${label}…` : label}
     </button>
@@ -153,7 +155,7 @@ export function ItemActions({
               target="_blank"
               rel="noopener noreferrer"
               className={suggested ? look.suggested : look.plain}
-              {...(suggested ? { title: 'Suggested' } : {})}
+              {...(suggested && look.hint !== '' ? { title: look.hint ?? 'Suggested' } : {})}
             >
               {action.label}
             </a>
@@ -177,7 +179,7 @@ export function ItemActions({
             type="button"
             onClick={() => press(action)}
             className={suggested ? look.suggested : look.plain}
-            {...(suggested ? { title: 'Suggested' } : {})}
+            {...(suggested && look.hint !== '' ? { title: look.hint ?? 'Suggested' } : {})}
           >
             {action.label}
           </button>

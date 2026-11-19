@@ -508,6 +508,8 @@ describe('ProjectsView', () => {
           .getAllByRole('button')
           .map((b) => b.textContent),
       ).toEqual(['Triage', 'Later']);
+      // Offered, not suggested: nobody is waiting on your own work.
+      expect(within(card).getByRole('button', { name: 'Triage' }).getAttribute('title')).toBeNull();
       expect(within(card).getByRole('link', { name: 'Open' })).toBeTruthy();
       const needs = within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('article')[0]!;
       expect(within(needs).queryByRole('button', { name: 'Triage' })).toBeNull();

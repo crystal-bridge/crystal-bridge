@@ -639,6 +639,8 @@ function YourQueue({
               : `cb-display rounded px-2.5 text-base leading-6 ring-1 hover:brightness-105 disabled:opacity-50 ${toneChipClass(row.reason?.tone)}`,
             plain: queueGhost,
             row: 'mt-2 flex flex-wrap gap-1.5',
+            // A lead Quest is offered, not suggested: nobody is waiting on your own work.
+            ...(lead ? { hint: '' } : {}),
           };
           return (
             <article
