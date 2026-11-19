@@ -15,6 +15,7 @@ import {
 } from '../projects.js';
 import { markIcon } from '../theme/boardIcons.js';
 import { markToneClass, PROJECT_CLASSES, projectTone, SENDER_CLASSES, toneChipClass } from '../theme/boardTones.js';
+import { labelColours } from '../theme/labelColours.js';
 import { Icon, type IconName } from '../theme/icons.js';
 import {
   Avatar,
@@ -100,16 +101,18 @@ function ReasonChip({ look }: { look: ScoutLook }) {
 
 /** A label tinted from its own colour, readable in both themes. */
 function LabelPill({ name, color }: { name: string; color: string }) {
+  const fg = labelColours(color);
   return (
     <span
       style={
         {
-          '--l': color,
+          '--fg-light': fg.light,
+          '--fg-dark': fg.dark,
           backgroundColor: `color-mix(in srgb, ${color} 16%, transparent)`,
           borderColor: `color-mix(in srgb, ${color} 55%, transparent)`,
         } as CSSProperties
       }
-      className="inline-flex items-center whitespace-nowrap rounded-full border px-[7px] py-[3px] text-[11px] leading-none text-[color-mix(in_srgb,var(--l)_55%,black)] dark:text-[color-mix(in_srgb,var(--l)_65%,white)]"
+      className="inline-flex items-center whitespace-nowrap rounded-full border px-[7px] py-[3px] text-[11px] leading-none text-[var(--fg-light)] dark:text-[var(--fg-dark)]"
     >
       {name}
     </span>

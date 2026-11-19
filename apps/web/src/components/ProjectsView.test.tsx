@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Board, BoardItem, ListedScout, ScoutManifest } from '@crystal-bridge/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { labelColours } from '../theme/labelColours.js';
 import { BoardPage, type BoardPageProps } from './Board.js';
 
 const projects: NonNullable<ScoutManifest['projects']> = {
@@ -270,6 +271,14 @@ describe('ProjectsView', () => {
     expect(segments[0]!.className).toMatch(/text-red-/);
     expect(segments[1]!.className).toMatch(/text-emerald-/);
     expect(segments.map((segment) => segment.style.width)).toEqual(Array(3).fill('33.33333333333333%'));
+  });
+
+  it('sets a label pill’s text colours for both themes from its colour', () => {
+    show({ items: [item('acme/lantern', {}, { title: 'Pale', labels: [{ name: 'docs', color: '#fef2c0' }] })] });
+    const pill = screen.getByText('docs');
+    expect(pill.style.getPropertyValue('--fg-light')).toBe(labelColours('#fef2c0').light);
+    expect(pill.style.getPropertyValue('--fg-dark')).toBe(labelColours('#fef2c0').dark);
+    expect(pill.className).toContain('text-[var(--fg-light)]');
   });
 
   it('keeps the folded Snoozed, Set aside and Gone sections', () => {
