@@ -85,7 +85,9 @@ What this doesn't cover:
 
 - **Who can push a release tag.** Whoever can run the release workflow can publish a release that passes. The workflow
   refuses a tag that isn't on `main` or fails the tests, but it reads that check from the tagged commit, which can leave
-  it out, so only a rule on who may push tags closes this.
+  it out, so only a rule on who may push tags closes this. The Publish workflow pushes one for each merge to `main`
+  ([Releases](./OPERATIONS.md#releases)), so that rule lets GitHub Actions through, and `main`'s own rules (a reviewed
+  pull request, passing checks) decide what gets released.
 - **Dependencies.** The proof covers this project's package. `npm install` resolves its dependencies from npm at
   install time, by the ranges in the package, as `join` does. Install scripts are off, but a dependency's code still runs.
 - **The first install.** `join` runs through `npx` from a URL and verifies nothing itself.

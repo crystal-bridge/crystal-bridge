@@ -578,6 +578,25 @@ identity. Old revisions and commit metadata stay behind.
 3. Push it to a new private repository, check CI and the rendered README, then switch on branch rules, CodeQL, secret
    scanning and Discussions, and make it public.
 
+### Releases
+
+Every merge to `main` publishes a release, by `.github/workflows/publish.yml`. It tags the merge and has the release
+workflow build that tag, so each package is attested at its own tag, which is what a Kingdom checks.
+
+- **An edge build** is what most merges make: `0.6.1-edge.4`, the next patch after the newest release, numbered after
+  the last edge build of it. It's a GitHub pre-release with the Kingdom and hub tarballs and no image, for hubs that
+  follow `main`. Only the ten newest stay. A merge that only touches the guides (`docs/`, Markdown) makes none.
+- **A full release** comes from a release PR: one that raises `version` in `apps/crystal/package.json` and
+  `apps/airship/package.json` past the newest release, with its `CHANGELOG.md` section. Merging it publishes that
+  version, its images, and `latest`. Edge builds then count on from the next patch.
+
+`scripts/next-release.mjs` decides which, and prints what it would publish when run in a checkout with its tags. A tag
+pushed by hand still starts the release workflow, as before.
+
+The workflow pushes `v*` tags with the GitHub Actions token, so a ruleset that limits who may create them needs GitHub
+Actions on its bypass list. Only Publish pushes them, and it runs only on a merge to `main`, which branch rules already
+guard.
+
 ## The docs site
 
 `docs/` builds into a VitePress site. It's its own pnpm workspace with its own lockfile, so its dependencies never

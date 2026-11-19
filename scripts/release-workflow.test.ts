@@ -39,4 +39,49 @@ describe('the release workflow', () => {
     assert.match(job('release'), /subject-path: \$\{\{ runner\.temp \}\}\/release\/\*\.tgz/);
     assert.match(job('image'), /subject-digest: \$\{\{ steps\.push\.outputs\.digest \}\}/);
   });
+
+  it('runs on a tag, pushed by hand or dispatched by Publish, and only on one', () => {
+    assert.match(workflow, /^ {2}workflow_dispatch:/m);
+    assert.match(job('verify'), /\[\[ \$GITHUB_REF == refs\/tags\/v\* \]\]/);
+  });
+
+  it('holds a full release to the package version, and stamps an edge build-s version into both packages', () => {
+    const release = job('release');
+    assert.match(release, /\*-edge\.\*/);
+    assert.match(release, /npm pkg set version=/);
+    assert.match(release, /require\('\.\/apps\/crystal\/package\.json'\)\.version/);
+  });
+
+  it('builds images for full releases only', () => {
+    assert.match(job('image'), /if: \$\{\{ !contains\(github\.ref_name, '-edge\.'\) \}\}/);
+  });
+
+  it('keeps the ten newest edge releases, and only edge ones', () => {
+    const prune = job('prune');
+    assert.match(prune, /needs: release/);
+    assert.match(prune, /-edge\./);
+    assert.match(prune, /KEEP: 10/);
+    assert.match(prune, /--cleanup-tag/);
+  });
+});
+
+describe('the publish workflow', () => {
+  const publish = readFileSync('.github/workflows/publish.yml', 'utf8');
+
+  it('runs on each merge to main, one at a time', () => {
+    assert.match(publish, /push:\n {4}branches: \[main\]/);
+    assert.match(publish, /concurrency:\n {2}group: publish\n {2}cancel-in-progress: false/);
+  });
+
+  it('tags the merge as next-release.mjs says, then has Release build that tag', () => {
+    assert.match(publish, /node scripts\/next-release\.mjs >> "\$GITHUB_OUTPUT"/);
+    assert.match(publish, /git push origin "refs\/tags\/\$TAG"/);
+    assert.match(publish, /gh workflow run release\.yml --ref "\$TAG"/);
+  });
+
+  it('may tag and dispatch, nothing more', () => {
+    assert.match(publish, /contents: write/);
+    assert.match(publish, /actions: write/);
+    assert.doesNotMatch(publish, /id-token|packages: write|attestations/);
+  });
 });
