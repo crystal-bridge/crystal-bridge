@@ -557,6 +557,60 @@ describe('BoardPage', () => {
       });
     });
 
+    it('colours a sender by address, so one address looks the same under any name', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, show: { ...mail.show, whoKey: 'fromAddress' } } }),
+        items: [
+          item({
+            id: 'a',
+            state: 'seen',
+            title: 'One',
+            fields: { from: 'Ada', fromAddress: 'ada@example.com', date: today },
+          }),
+          item({
+            id: 'b',
+            state: 'seen',
+            title: 'Two',
+            fields: { from: 'A. Lovelace', fromAddress: 'ada@example.com', date: today },
+          }),
+        ],
+      });
+      const tone = (title: string) =>
+        screen.getByText(title).closest('li')!.querySelector('[data-avatar]')!.getAttribute('data-tone');
+      expect(tone('One')).toBe(tone('Two'));
+      expect(screen.getByText('A. Lovelace').getAttribute('data-tone')).toBe(tone('One'));
+    });
+
+    it('shows a suggestion as a chip in its action-s colour, in the row and in Counsel', () => {
+      show({
+        scout: mailScout(),
+        items: [
+          item({
+            state: 'seen',
+            title: 'Digest',
+            rank: 1,
+            actions: ['archive'],
+            suggested: 'archive',
+            fields: { from: 'News' },
+          }),
+        ],
+      });
+      const row = within(screen.getByRole('region', { name: 'Items' }))
+        .getByText('Digest')
+        .closest('li')!;
+      expect(row.querySelector('[data-suggestion]')?.getAttribute('data-tone')).toBe('slate');
+      const group = within(screen.getByRole('region', { name: 'Counsel' })).getByRole('group', { name: 'Archive' });
+      expect(group.querySelector('[data-chip]')?.getAttribute('data-tone')).toBe('slate');
+    });
+
+    it('gives each banner tile its own accent', () => {
+      show({ scout: mailScout(), items: [item({ state: 'seen' })] });
+      const banner = screen.getByRole('region', { name: 'Summary' });
+      const tones = [...banner.querySelectorAll('[data-tile]')].map((tile) => tile.getAttribute('data-tone'));
+      expect(new Set(tones).size).toBe(tones.length);
+      expect(tones[0]).toBe('blue');
+    });
+
     it('says what fills the pane when nothing is suggested yet', () => {
       show({ scout: mailScout(), items: [item({ state: 'seen' })] });
       expect(within(screen.getByRole('region', { name: 'Counsel' })).getByText(/Run now asks Augury/)).toBeTruthy();

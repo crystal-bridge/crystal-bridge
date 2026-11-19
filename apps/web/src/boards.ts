@@ -109,6 +109,8 @@ export function boardTabs(
 /** A `list` row's slots, as a mail client shows them, read from the fields `show` names. */
 export interface RowView {
   who?: string;
+  /** What the sender's colour is keyed on: `show.whoKey`'s field, else the name shown. */
+  whoKey?: string;
   /** Epoch ms. */
   when?: number;
   unread: boolean;
@@ -142,7 +144,10 @@ export function rowView(item: ScoutItem, show: ScoutManifest['show']): RowView {
   const who = text(field(item, show?.who));
   const when = asTime(field(item, show?.when));
   const preview = text(field(item, show?.preview));
-  if (who !== undefined) view.who = who;
+  if (who !== undefined) {
+    view.who = who;
+    view.whoKey = text(field(item, show?.whoKey)) ?? who;
+  }
   if (when !== undefined) view.when = when;
   if (preview !== undefined) view.preview = preview;
   return view;

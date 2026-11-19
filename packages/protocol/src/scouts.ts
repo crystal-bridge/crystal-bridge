@@ -118,6 +118,8 @@ export const ScoutManifest = z.object({
   show: z
     .object({
       who: fieldName.optional(),
+      /** A field that names the sender for good, such as an address: its colour is keyed on it, not on the name. */
+      whoKey: fieldName.optional(),
       when: fieldName.optional(),
       unread: fieldName.optional(),
       preview: fieldName.optional(),

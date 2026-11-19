@@ -100,7 +100,9 @@ and the hub check the same thing:
 
 `summary` and `show` only shape the Board. `summary` is up to six counts for its banner, each counting the open items
 whose `field` is set to anything but `false`, `0` or empty. `show` names the fields a `list` row draws as a mail list
-does: `who`, `when` (an ISO date or a count of seconds or milliseconds), `unread` and `preview`. A malformed `summary`,
+does: `who`, `when` (an ISO date or a count of seconds or milliseconds), `unread` and `preview`. `whoKey` names a field
+that identifies the sender for good, such as an address: each sender gets a colour of its own, the same on every visit,
+keyed on that field, or on the name shown without it. A malformed `summary`,
 `show` or `icon` is dropped, never failing the Scout.
 
 ## Report back: what a collector prints
@@ -192,7 +194,7 @@ Boards and their tabs show on wide screens only for now.
   with a line of preview, bold while unread, then the summary. With a `when` field, each group lists newest first, and
   the ranking moves to Counsel. A row's buttons appear on hover or keyboard focus; at rest it tags the suggested action.
 - **Counsel**, beside the list on wide screens and above it on narrower ones: the items with a suggested action,
-  gathered under each action, best rank first, each with its summary and that action's button, and "Archive all 4"
+  gathered under each action (a chip in that action's colour), best rank first, each with its summary and that action's button, and "Archive all 4"
   where the action takes several items.
 - **A Quest you write**, from Counsel: "Quest on all 7" at its top (the best 50 when there are more, the most one
   Quest takes), or Quest beside one suggestion, opens a composer with the items as chips you can leave out, a prompt to

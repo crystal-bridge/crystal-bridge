@@ -243,6 +243,15 @@ const listed = (extra: Partial<ListedScout> = {}): ListedScout => ({ id: 'qb', f
 describe('rowView', () => {
   const show = { who: 'from', when: 'date', unread: 'unread', preview: 'body' };
 
+  it('keys a sender on the field the Scout names for it, else on the name shown', () => {
+    const keyed = { ...show, whoKey: 'fromAddress' };
+    expect(rowView(item({ fields: { from: 'Ada', fromAddress: 'ada@example.com' } }), keyed).whoKey).toBe(
+      'ada@example.com',
+    );
+    expect(rowView(item({ fields: { from: 'Ada', fromAddress: null } }), keyed).whoKey).toBe('Ada');
+    expect(rowView(item({ fields: { from: 'Ada' } }), show).whoKey).toBe('Ada');
+  });
+
   it('reads the slots a Scout names from its fields', () => {
     const view = rowView(
       item({ fields: { from: 'Ada', date: '2026-11-18T10:00:00Z', unread: true, body: 'See you then' } }),
@@ -250,6 +259,7 @@ describe('rowView', () => {
     );
     expect(view).toEqual({
       who: 'Ada',
+      whoKey: 'Ada',
       when: Date.parse('2026-11-18T10:00:00Z'),
       unread: true,
       preview: 'See you then',
