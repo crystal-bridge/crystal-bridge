@@ -6,7 +6,13 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { MAX_CLI_UPDATE_REASON, NodeError, type Effort, type HubScoutAction } from '@crystal-bridge/protocol';
+import {
+  MAX_CLI_UPDATE_REASON,
+  NodeError,
+  type Effort,
+  type HubScoutAction,
+  type HubScoutQuest,
+} from '@crystal-bridge/protocol';
 import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
@@ -418,6 +424,7 @@ describe('startNode', () => {
       recent: () => [{ kind: 'scout-run' as const, scout: 'quest-board', run, items }],
       runNow,
       act: vi.fn(async (): Promise<ActResult> => ({ ok: false, reason: 'not here' })),
+      quest: vi.fn(async (): Promise<ActResult> => ({ ok: false, reason: 'not here' })),
     });
 
     it('says in hello that it runs Scouts, only when it does', async () => {
@@ -428,6 +435,32 @@ describe('startNode', () => {
       createNode({ scouts: fakeScouts() });
       const hello = await waitForFrame(await nextConnection(harness, 1), (frame) => frame.kind === 'hello');
       expect(hello.scouts).toBe(true);
+      expect(hello.scoutQuests).toBe(true);
+    });
+
+    it('starts a Quest from Board items with the user-s prompt, and answers with its id', async () => {
+      const scouts = {
+        ...fakeScouts(),
+        quest: vi.fn((_request: HubScoutQuest, startQuest: (start: QuestStart) => Promise<ActResult>) =>
+          startQuest({ cwd: '/repo', prompt: 'Work through these.', from: fromItem }),
+        ),
+      };
+      createNode({ scouts });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const requestId = randomUUID();
+      conn.socket.send(
+        JSON.stringify({ kind: 'scout-quest', requestId, scout: 'quest-board', items, prompt: 'Work through these.' }),
+      );
+      const started = await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      expect(started.payload).toMatchObject({ cwd: '/repo', prompt: 'Work through these.', scout: fromItem });
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'scout-acted')).toEqual({
+        kind: 'scout-acted',
+        requestId,
+        ok: true,
+        session: started.session,
+      });
+      expect(scouts.quest.mock.calls[0]![0]).toMatchObject({ kind: 'scout-quest', prompt: 'Work through these.' });
     });
 
     it('tells the hub its Scouts and their latest runs on each connect, so a run finished offline arrives', async () => {

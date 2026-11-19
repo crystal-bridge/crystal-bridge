@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   BoardAct,
   BoardItemsChange,
+  BoardQuest,
   HubScoutAction,
+  HubScoutQuest,
   HubScoutRunNow,
   HubToClient,
   MAX_SCOUT_ITEMS,
@@ -259,5 +261,28 @@ describe('ScoutLink, the item a Quest came from', () => {
     const link = { scout: 'quest-board', item: item.id, title: item.title };
     expect(ScoutLink.parse(link)).toEqual(link);
     expect(ScoutLink.safeParse({ ...link, scout: '../x' }).success).toBe(false);
+  });
+});
+
+describe('a Quest from Board items, with the user-s own prompt', () => {
+  it('takes up to 50 items, the prompt and optionally where and how it runs', () => {
+    const ask = { ids: ['a', 'b'], prompt: 'Work through these with me.', project: '~/code', mode: 'auto' };
+    expect(BoardQuest.parse(ask)).toEqual(ask);
+    expect(BoardQuest.safeParse({ ...ask, ids: [] }).success).toBe(false);
+    expect(BoardQuest.safeParse({ ...ask, ids: Array.from({ length: 51 }, (_, i) => `i${i}`) }).success).toBe(false);
+    expect(BoardQuest.safeParse({ ...ask, prompt: '  ' }).success).toBe(false);
+    expect(BoardQuest.safeParse({ ...ask, mode: 'yolo' }).success).toBe(false);
+  });
+
+  it('reaches the Kingdom as its own frame, with the items as the hub stores them', () => {
+    const frame = {
+      kind: 'scout-quest',
+      requestId: '22222222-2222-4222-8222-222222222222',
+      scout: 'gmail',
+      items: [{ id: 'a', title: 'A' }],
+      prompt: 'Help me with this.',
+    };
+    expect(HubScoutQuest.parse(frame)).toEqual(frame);
+    expect(HubScoutQuest.safeParse({ ...frame, items: [] }).success).toBe(false);
   });
 });

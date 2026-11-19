@@ -345,6 +345,40 @@ export const HubScoutAction = z.object({
 });
 export type HubScoutAction = z.infer<typeof HubScoutAction>;
 
+/** The most items one Quest from a Board takes. */
+export const MAX_QUEST_ITEMS = 50;
+/** The longest prompt the user writes for a Quest from Board items. */
+export const MAX_QUEST_PROMPT = 20_000;
+
+const questPrompt = z
+  .string()
+  .max(MAX_QUEST_PROMPT)
+  .refine((text) => text.trim() !== '', { message: 'a prompt says something' });
+
+/**
+ * Client -> hub (REST): start one Quest over these items, with the user's own prompt, in `project` (default: home) and
+ * `mode` (default: the Kingdom's). Not a Scout's action: the user wrote the instructions; the items go along as data.
+ */
+export const BoardQuest = z.object({
+  ids: z.array(z.string().min(1).max(500)).min(1).max(MAX_QUEST_ITEMS),
+  prompt: questPrompt,
+  project: z.string().min(1).max(4096).optional(),
+  mode: PermissionMode.optional(),
+});
+export type BoardQuest = z.infer<typeof BoardQuest>;
+
+/** Hub -> node: start a `BoardQuest`, with the items as the hub stores them. Answered by `scout-acted`. */
+export const HubScoutQuest = z.object({
+  kind: z.literal('scout-quest'),
+  requestId: z.uuid(),
+  scout: ScoutId,
+  items: z.array(ScoutItem).min(1).max(MAX_QUEST_ITEMS),
+  prompt: questPrompt,
+  project: z.string().min(1).max(4096).optional(),
+  mode: PermissionMode.optional(),
+});
+export type HubScoutQuest = z.infer<typeof HubScoutQuest>;
+
 // hub -> client frames, listed in `HubToClient`
 
 /** A Kingdom's Scouts changed. */

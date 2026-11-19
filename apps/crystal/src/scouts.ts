@@ -11,6 +11,7 @@ import {
   ScoutItems,
   ScoutManifest,
   type HubScoutAction,
+  type HubScoutQuest,
   type NodeScoutRun,
   type PermissionMode,
   type Scout,
@@ -19,7 +20,7 @@ import {
   type ScoutRun,
 } from '@crystal-bridge/protocol';
 import { resolveClaudeBin } from './claude-bin.js';
-import { projectFor, questPrompt } from './scout-actions.js';
+import { projectFor, questPrompt, questPromptForItems } from './scout-actions.js';
 import {
   DEFAULT_SYNTHESIS_BUDGET_USD,
   applySynthesis,
@@ -137,6 +138,8 @@ export interface Scouts {
   runNow(id: string): void;
   /** Carries out a `quest` or `run` action on items the hub sent, starting a Quest through `startQuest`. */
   act(request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
+  /** Starts one Quest over Board items with the user's own prompt (`HubScoutQuest`). */
+  quest(request: HubScoutQuest, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
   /** Reads the folder again and starts any run that's due. Runs on a timer after `start`. */
   tick(): Promise<void>;
   /** Resolves once no collector is running. */
@@ -729,6 +732,32 @@ export function createScouts(options: ScoutsOptions): Scouts {
     return refuse(`the hub carries out ${action.kind} itself`);
   }
 
+  async function quest(
+    request: HubScoutQuest,
+    startQuest: (start: QuestStart) => Promise<ActResult>,
+  ): Promise<ActResult> {
+    if (closed) return { ok: false, reason: 'this Kingdom is shutting down' };
+    const entry = entries.get(request.scout);
+    const manifest = entry?.manifest;
+    if (!entry || !manifest) return { ok: false, reason: `this Kingdom has no Scout ${request.scout} that loads` };
+    const first = request.items[0]!;
+    // The user's folder, checked as a filled `project` is: a full path or ~/, no climbing, and there.
+    const project = projectFor(request.project ?? '~', first, home);
+    if ('reason' in project) return { ok: false, reason: project.reason };
+    const more = request.items.length - 1;
+    return startQuest({
+      cwd: project.cwd,
+      prompt: questPromptForItems(request.prompt, manifest.name, request.items),
+      ...(request.mode ? { mode: request.mode } : {}),
+      // The link's title holds 500 characters: a long first title gives way to the count.
+      from: {
+        scout: entry.id,
+        item: first.id,
+        title: more > 0 ? `${first.title.slice(0, 480)} and ${more} more` : first.title,
+      },
+    });
+  }
+
   async function tick(): Promise<void> {
     if (closed) return;
     scan();
@@ -767,6 +796,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
       ),
     runNow,
     act,
+    quest,
     tick,
     async idle() {
       await ticking;

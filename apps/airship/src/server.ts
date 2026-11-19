@@ -30,8 +30,10 @@ import {
   NodeHello,
   NodeSummons,
   BoardAct,
+  BoardQuest,
   BoardItemsChange,
   type HubScoutAction,
+  type HubScoutQuest,
   type HubScoutRunNow,
   NodeScoutActed,
   ScoutItem,
@@ -407,6 +409,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const inventoryListers = new Set<string>();
   // Nodes that run Scouts, so can be asked to run one now.
   const scoutNodes = new Set<string>();
+  /** Kingdoms that start a Quest from Board items with the user's prompt (`HubScoutQuest`). */
+  const scoutQuestNodes = new Set<string>();
   const inventoryLists = new Map<
     string,
     { node: string; finish: (events: NodeInventoryListed['events'], error?: string) => void }
@@ -1000,6 +1004,63 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     sendJson(socket, { kind: 'scout-run-now', scout } satisfies HubScoutRunNow);
     return reply.code(202).send();
   });
+  /** Sends a Board's request to its Kingdom and waits for its `scout-acted`, or says it didn't answer in time. */
+  function askKingdom(
+    socket: WebSocket,
+    node: string,
+    frame: HubScoutAction | HubScoutQuest,
+  ): Promise<{ ok: boolean; reason?: string; session?: string }> {
+    return new Promise((resolve) => {
+      const finish = (result: { ok: boolean; reason?: string; session?: string }) => {
+        clearTimeout(timer);
+        scoutActs.delete(frame.requestId);
+        resolve(result);
+      };
+      const timer = setTimeout(
+        () => finish({ ok: false, reason: 'the Kingdom did not answer in time' }),
+        SCOUT_ACTION_WAIT_MS,
+      );
+      scoutActs.set(frame.requestId, { node, finish });
+      sendJson(socket, frame);
+    });
+  }
+
+  // A Quest over Board items with the user's own prompt: the Kingdom starts it, with the items as the hub stores them.
+  app.post('/api/nodes/:node/scouts/:scout/quest', async (request, reply) => {
+    const { node, scout } = request.params as { node: string; scout: string };
+    const wanted = BoardQuest.safeParse(request.body);
+    if (!wanted.success) return reply.code(400).send({ error: 'expected { ids, prompt, project?, mode? }' });
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    const now = Date.now();
+    const listed = store.scouts(node, now).find((one) => one.id === scout);
+    if (!listed?.manifest) return reply.code(404).send({ error: 'no such Scout on that Kingdom' });
+    if (!scoutQuestNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    const onBoard = new Map(
+      (store.board(node, scout, now)?.items ?? [])
+        .filter((item) => item.goneAt === undefined)
+        .map((item) => [item.id, item]),
+    );
+    const chosen = [...new Set(wanted.data.ids)].map((id) => onBoard.get(id));
+    if (chosen.some((item) => item === undefined)) {
+      return reply.code(409).send({ error: 'some of these items are no longer on the Board' });
+    }
+    const { prompt, project, mode } = wanted.data;
+    const frame: HubScoutQuest = {
+      kind: 'scout-quest',
+      requestId: randomUUID(),
+      scout,
+      items: chosen.map((item) => ScoutItem.parse(item)),
+      prompt,
+      ...(project ? { project } : {}),
+      ...(mode ? { mode } : {}),
+    };
+    const answer = await askKingdom(socket, node, frame);
+    if (!answer.ok) return reply.code(409).send({ error: answer.reason ?? 'the Kingdom could not do this' });
+    return answer.session ? { session: answer.session } : {};
+  });
+
   // A quest or run action: the Kingdom carries it out on the items as the hub stores them, never as a client sends them.
   app.post('/api/nodes/:node/scouts/:scout/act', async (request, reply) => {
     const { node, scout } = request.params as { node: string; scout: string };
@@ -1038,19 +1099,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     const requestId = randomUUID();
     const frame: HubScoutAction = { kind: 'scout-action', requestId, scout, action: key, items };
-    const answer = await new Promise<{ ok: boolean; reason?: string; session?: string }>((resolve) => {
-      const finish = (result: { ok: boolean; reason?: string; session?: string }) => {
-        clearTimeout(timer);
-        scoutActs.delete(requestId);
-        resolve(result);
-      };
-      const timer = setTimeout(
-        () => finish({ ok: false, reason: 'the Kingdom did not answer in time' }),
-        SCOUT_ACTION_WAIT_MS,
-      );
-      scoutActs.set(requestId, { node, finish });
-      sendJson(socket, frame);
-    });
+    const answer = await askKingdom(socket, node, frame);
     if (!answer.ok) return reply.code(409).send({ error: answer.reason ?? 'the Kingdom could not do this' });
     if (action.kind === 'run' && action.then) {
       const state = action.then === 'done' ? 'done' : 'dismissed';
@@ -1201,6 +1250,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else inventoryListers.delete(helloNode);
           if (hello.data.scouts) scoutNodes.add(helloNode);
           else scoutNodes.delete(helloNode);
+          if (hello.data.scoutQuests) scoutQuestNodes.add(helloNode);
+          else scoutQuestNodes.delete(helloNode);
           selfUpdates.delete(helloNode);
           selfUpdaters.delete(helloNode);
           if (hello.data.selfUpdate) {
@@ -1418,6 +1469,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           cliUpdates.get(helloNode)?.finish({ error: 'the Kingdom went offline during the update' });
           inventoryListers.delete(helloNode);
           scoutNodes.delete(helloNode);
+          scoutQuestNodes.delete(helloNode);
           for (const waiting of [...inventoryLists.values()]) {
             if (waiting.node === helloNode) waiting.finish(undefined, 'the Kingdom went offline');
           }
