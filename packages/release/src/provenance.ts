@@ -103,7 +103,10 @@ export async function verifyRelease(
       const parsed = bundleFromJSON(bundle);
       verifier.verify(toSignedEntity(parsed), policy);
       const envelope = parsed.content.$case === 'dsseEnvelope' ? parsed.content.dsseEnvelope : undefined;
-      if (envelope && statementCovers(JSON.parse(envelope.payload.toString()), releaseTarballName(pkg, version), digest)) {
+      if (
+        envelope &&
+        statementCovers(JSON.parse(envelope.payload.toString()), releaseTarballName(pkg, version), digest)
+      ) {
         return;
       }
     } catch (error) {
