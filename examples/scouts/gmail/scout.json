@@ -16,7 +16,7 @@
   },
   "view": "list",
   "summary": [{ "label": "Unread", "field": "unread" }],
-  "show": { "who": "from", "when": "date", "unread": "unread", "preview": "body" },
+  "show": { "who": "from", "whoKey": "fromAddress", "when": "date", "unread": "unread", "preview": "body" },
   "actions": {
     "open": {
       "kind": "link",

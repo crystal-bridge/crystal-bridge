@@ -96,10 +96,17 @@ describe('ScoutManifest', () => {
     const parsed = ScoutManifest.parse({
       ...manifest,
       summary: [{ label: 'Unread', field: 'unread' }],
-      show: { who: 'from', when: 'date', unread: 'unread', preview: 'body' },
+      show: { who: 'from', whoKey: 'fromAddress', when: 'date', unread: 'unread', preview: 'body' },
     });
+    expect(parsed.show?.whoKey).toBe('fromAddress');
     expect(parsed.summary).toEqual([{ label: 'Unread', field: 'unread' }]);
-    expect(parsed.show).toEqual({ who: 'from', when: 'date', unread: 'unread', preview: 'body' });
+    expect(parsed.show).toEqual({
+      who: 'from',
+      whoKey: 'fromAddress',
+      when: 'date',
+      unread: 'unread',
+      preview: 'body',
+    });
     const bad = ScoutManifest.parse({ ...manifest, summary: [{ label: '' }], show: { who: 5 } });
     expect(bad.summary).toBeUndefined();
     expect(bad.show).toBeUndefined();

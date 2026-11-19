@@ -26,6 +26,7 @@ import {
 } from '../boards.js';
 import { duration, goldText, shortWhen } from '../format.js';
 import { boardIcon } from '../theme/boardIcons.js';
+import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, TILE_TONES } from '../theme/boardTones.js';
 import { Icon } from '../theme/icons.js';
 import { hint, scoutReturnLine, sourceLine, w } from '../theme/words.js';
 import { Gold } from './Gold.js';
@@ -344,22 +345,6 @@ function monogram(name: string): string {
   return (Array.from(name.trim())[0] ?? '?').toUpperCase();
 }
 
-/** Muted avatar colours, one per name, so the same sender looks the same down the list. Text stays in ink colours. */
-const AVATARS = [
-  'bg-rose-200 text-rose-950 dark:bg-rose-900 dark:text-rose-50',
-  'bg-amber-200 text-amber-950 dark:bg-amber-900 dark:text-amber-50',
-  'bg-emerald-200 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-50',
-  'bg-sky-200 text-sky-950 dark:bg-sky-900 dark:text-sky-50',
-  'bg-violet-200 text-violet-950 dark:bg-violet-900 dark:text-violet-50',
-  'bg-teal-200 text-teal-950 dark:bg-teal-900 dark:text-teal-50',
-];
-
-function avatarClass(name: string): string {
-  let hash = 0;
-  for (const char of name) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
-  return AVATARS[hash % AVATARS.length]!;
-}
-
 /**
  * A `list` row drawn like a mail client's: who it's from, when, the title with a line of preview, bold while unread. The
  * buttons show on hover, keyboard focus or touch, and while a confirm waits; at rest a tag names the suggested action,
@@ -378,10 +363,11 @@ function MailRow({
   show: ScoutManifest['show'];
   now: number;
   /** The suggested action's label, tagged on the row. */
-  suggestion: string | undefined;
+  suggestion: { key: string; label: string; kind: string } | undefined;
   actions: ReactNode;
 }) {
   const view = rowView(item, show);
+  const tone = view.whoKey !== undefined ? senderTone(view.whoKey) : undefined;
   // Bold follows unread where the Scout says what that is; else what's new on this visit stands out.
   const strong = show?.unread !== undefined ? view.unread : marked;
   return (
@@ -394,7 +380,8 @@ function MailRow({
         <span
           data-avatar
           aria-hidden
-          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${avatarClass(view.who)}`}
+          data-tone={tone}
+          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${SENDER_CLASSES[tone!].avatar}`}
         >
           {monogram(view.who)}
         </span>
@@ -409,16 +396,22 @@ function MailRow({
                 </span>
               )
             : marked && <NewMark />}
-          <span className={`truncate ${strong ? 'font-semibold' : ''}`} title={view.who ?? titleNote(item)}>
+          <span
+            {...(tone ? { 'data-tone': tone } : {})}
+            className={`truncate ${strong ? 'font-semibold' : ''} ${tone ? SENDER_CLASSES[tone].text : ''}`}
+            title={view.who ?? titleNote(item)}
+          >
             {view.who ?? item.title}
           </span>
           <SourceMark item={item} />
           {suggestion && (
             <span
               aria-hidden
-              className="ml-auto shrink-0 rounded bg-blue-100 px-1.5 text-[11px] font-medium leading-4 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+              data-suggestion
+              data-tone={actionTone(suggestion.key, suggestion.kind)}
+              className={`ml-auto shrink-0 rounded-full px-2 text-[11px] font-semibold leading-4 ring-1 ${CHIP_CLASSES[actionTone(suggestion.key, suggestion.kind)]}`}
             >
-              {suggestion}
+              {suggestion.label}
             </span>
           )}
           {view.when !== undefined && (
@@ -670,8 +663,15 @@ function Counsel({
         groups.map(({ key, action, items }) => (
           <div key={key} role="group" aria-label={action.label} className="space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
-                {action.label} <span className="font-normal text-neutral-500">· {items.length}</span>
+              <h3 className="flex items-center gap-1.5 text-sm">
+                <span
+                  data-chip
+                  data-tone={actionTone(key, action.kind)}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${CHIP_CLASSES[actionTone(key, action.kind)]}`}
+                >
+                  {action.label}
+                </span>
+                <span className="text-xs text-neutral-500">{items.length}</span>
               </h3>
               {action.kind === 'run' && action.batch && items.length > 1 && (
                 <KingdomButton
@@ -885,11 +885,11 @@ export function BoardPage({
       marked={isMarked(item)}
       show={manifest?.show}
       now={now}
-      suggestion={
-        manifest && item.suggested
-          ? actionsFor(item, manifest).find(({ key }) => key === item.suggested)?.action.label
-          : undefined
-      }
+      suggestion={(() => {
+        const found =
+          manifest && item.suggested ? actionsFor(item, manifest).find(({ key }) => key === item.suggested) : undefined;
+        return found ? { key: found.key, label: found.action.label, kind: found.action.kind } : undefined;
+      })()}
       actions={manifest && <ItemActions item={item} manifest={manifest} now={now} act={act} perform={perform} />}
     />
   );
@@ -974,13 +974,13 @@ export function BoardPage({
         <header
           aria-label="Summary"
           role="region"
-          className="mx-3 space-y-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-900"
+          className="mx-3 space-y-3 rounded-lg border border-neutral-200 bg-linear-to-r from-sky-50 via-white to-violet-50 p-4 dark:border-neutral-800 dark:from-sky-950/50 dark:via-neutral-900 dark:to-violet-950/50"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
               <span
                 aria-hidden
-                className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-700 shadow-sm dark:bg-neutral-800 dark:text-neutral-200"
+                className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700 shadow-sm ring-1 ring-sky-200 dark:bg-sky-900 dark:text-sky-200 dark:ring-sky-700"
               >
                 {icon ? <Icon name={icon} size={22} /> : <span className="text-lg font-bold">{monogram(name)}</span>}
               </span>
@@ -1045,11 +1045,17 @@ export function BoardPage({
               <div
                 // A Scout's own label may match a built-in one.
                 key={index}
-                className="rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950"
+                data-tile
+                data-tone={TILE_TONES[index % TILE_TONES.length]}
+                className={`rounded-md border border-l-4 border-neutral-200 bg-white/80 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950/80 ${TILE_CLASSES[TILE_TONES[index % TILE_TONES.length]!].border}`}
                 {...(tile.hint ? { title: tile.hint } : {})}
               >
                 <dt className="text-xs text-neutral-500">{tile.label}</dt>
-                <dd className="whitespace-nowrap text-lg font-semibold tabular-nums">{tile.value}</dd>
+                <dd
+                  className={`whitespace-nowrap text-lg font-semibold tabular-nums ${TILE_CLASSES[TILE_TONES[index % TILE_TONES.length]!].value}`}
+                >
+                  {tile.value}
+                </dd>
               </div>
             ))}
           </dl>
