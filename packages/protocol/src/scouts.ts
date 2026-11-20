@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PermissionMode } from './mode.js';
+import { Schedule } from './schedule.js';
 
 /**
  * Scouts and Boards (docs/SCOUTS.md): a Scout is a job on a Kingdom that runs a collector script on a schedule, and its
@@ -14,15 +15,9 @@ export type ScoutId = z.infer<typeof ScoutId>;
 export const ActionKey = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/);
 export type ActionKey = z.infer<typeof ActionKey>;
 
-/** Five-field cron, with the time zone it means, so a Scout means the same thing on every machine. */
-export const ScoutSchedule = z.object({
-  cron: z
-    .string()
-    .max(200)
-    .regex(/^\s*\S+(\s+\S+){4}\s*$/),
-  timezone: z.string().min(1).max(64),
-});
-export type ScoutSchedule = z.infer<typeof ScoutSchedule>;
+/** When a Scout collects: five-field cron, a recurrence rule or a single time, with the time zone it means. */
+export const ScoutSchedule = Schedule;
+export type ScoutSchedule = Schedule;
 
 const label = z.string().min(1).max(40);
 /** The name of a field in an item's `fields`. */

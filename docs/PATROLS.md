@@ -90,8 +90,10 @@ of three forms, each with a required IANA time zone:
 Daylight saving follows the time zone, and a night that repeats 01:30 runs it once. On a night that skips 02:30, a
 `rule` runs it after the gap (03:30), as calendar apps do, and a `cron` runs it at 03:00, as Scouts always have. The app shows the next few run times before you save, so a rule is checked by eye.
 
-Scouts move onto the same engine (#281), so `scout.json` gains `rule` and `once`. Existing `cron` schedules keep working
-unchanged.
+Scouts share this engine, so `scout.json` takes `rule` and `once` too. Existing `cron` schedules work as before. A rule
+gives only its parts (`FREQ=...;BYDAY=...`): the start goes in `start` and skipped days in `except`, and `FREQ=SECONDLY`
+and `BYSECOND` are refused: the finest a rule runs is each minute. `UNTIL` may be a date or a time in the schedule's
+zone, or a UTC time ending in `Z`.
 
 These run rules are the Scouts' ones:
 

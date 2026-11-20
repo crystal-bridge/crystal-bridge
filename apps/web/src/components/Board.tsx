@@ -19,7 +19,7 @@ import {
   settled,
   tableColumns,
 } from '../boards.js';
-import { duration, goldText, shortWhen } from '../format.js';
+import { duration, goldText, scheduleText, shortWhen } from '../format.js';
 import { boardIcon, markIcon } from '../theme/boardIcons.js';
 import {
   actionTone,
@@ -825,14 +825,15 @@ export function BoardPage({
                 </h1>
                 <p className="text-sm text-neutral-500">
                   <span title={hint('scout')}>{w('scout')}</span> on {kingdom}
-                  {manifest && (
-                    <span title="its schedule, in its time zone">
-                      {' '}
-                      · {manifest.schedule.cron} ({manifest.schedule.timezone})
-                    </span>
-                  )}
+                  {manifest && <span title="its schedule, in its time zone"> · {scheduleText(manifest.schedule)}</span>}
                   {scout?.nextRunAt !== undefined && !scout.paused && (
                     <span> · next {new Date(scout.nextRunAt).toLocaleString()}</span>
+                  )}
+                  {manifest && scout?.nextRunAt === undefined && !scout?.paused && !scout?.error && (
+                    <span title="a one-off that has run, or a rule that has ended: Run now still works">
+                      {' '}
+                      · no more runs
+                    </span>
                   )}
                 </p>
                 {lastRun?.outcome === 'succeeded' && lastRun.items !== undefined && (

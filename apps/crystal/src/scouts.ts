@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative, resolve, isAbsolute } from 'node:path';
-import { Cron } from 'croner';
 import { z } from 'zod';
 import {
   MAX_SCOUT_STDERR,
@@ -20,6 +19,7 @@ import {
   type ScoutRun,
 } from '@crystal-bridge/protocol';
 import { resolveClaudeBin } from './claude-bin.js';
+import { recurrenceOf, scheduleKey, type Recurrence } from './recurrence.js';
 import { checkedFolder, projectFor, questPrompt, questPromptForItems } from './scout-actions.js';
 import {
   DEFAULT_SYNTHESIS_BUDGET_USD,
@@ -177,7 +177,7 @@ interface Entry {
   id: string;
   /** The last `scout.json` that loaded. */
   manifest?: ScoutManifest;
-  cron?: Cron;
+  recurrence?: Recurrence;
   /** The text last read, so an unchanged file isn't parsed again. */
   text?: string;
   error?: string;
@@ -195,32 +195,12 @@ interface Entry {
   answered?: { answer: SynthesisAnswer; judged: Record<string, string> };
 }
 
-const scheduleKey = (manifest: ScoutManifest) => `${manifest.schedule.cron}|${manifest.schedule.timezone}`;
-
 /** The first problem zod found, as `path: message`. */
 function firstIssue(error: { issues: { path: PropertyKey[]; message: string }[] }): string {
   const issue = error.issues[0];
   if (!issue) return 'it doesn’t match';
   const path = issue.path.map(String).join('.');
   return path ? `${path}: ${issue.message}` : issue.message;
-}
-
-/** A cron that will come round, in a zone that exists, or why not. */
-function cronOf(manifest: ScoutManifest): Cron | string {
-  const { cron, timezone } = manifest.schedule;
-  try {
-    new Intl.DateTimeFormat('en', { timeZone: timezone });
-  } catch {
-    return `schedule: "${timezone}" is no time zone this machine knows (try one like "America/Chicago")`;
-  }
-  let job: Cron;
-  try {
-    job = new Cron(cron.trim(), { timezone, paused: true, mode: '5-part' });
-  } catch (error) {
-    return `schedule: "${cron}" isn't a five-field cron: ${error instanceof Error ? error.message : String(error)}`;
-  }
-  if (!job.nextRun()) return `schedule: "${cron}" never comes round`;
-  return job;
 }
 
 function tail(text: string, max = MAX_SCOUT_STDERR): string {
@@ -281,10 +261,17 @@ export function createScouts(options: ScoutsOptions): Scouts {
     }
   }
 
-  /** The next time a Scout is due after `from`, jitter included. */
+  /** The next time a Scout is due after `from`, jitter included. A schedule the engine can't follow shows as its error. */
   function nextAfter(entry: Entry, from: number): number | undefined {
-    const next = entry.cron?.nextRun(new Date(from));
-    return next ? next.getTime() + jitterOf(entry.id) : undefined;
+    let next: number | undefined;
+    try {
+      next = entry.recurrence?.next(from);
+    } catch (error) {
+      entry.error = `scout.json: schedule: ${error instanceof Error ? error.message : String(error)}`;
+      log(`${entry.id}: ${entry.error}`);
+      return undefined;
+    }
+    return next === undefined ? undefined : next + jitterOf(entry.id);
   }
 
   function list(): Scout[] {
@@ -333,15 +320,15 @@ export function createScouts(options: ScoutsOptions): Scouts {
       entry.error = `scout.json: ${firstIssue(parsed.error)}`;
       return;
     }
-    const cron = cronOf(parsed.data);
-    if (typeof cron === 'string') {
-      entry.error = `scout.json: ${cron}`;
+    const recurrence = recurrenceOf(parsed.data.schedule);
+    if (typeof recurrence === 'string') {
+      entry.error = `scout.json: ${recurrence}`;
       return;
     }
     entry.manifest = parsed.data;
-    entry.cron = cron;
+    entry.recurrence = recurrence;
     entry.error = undefined;
-    const key = scheduleKey(parsed.data);
+    const key = scheduleKey(parsed.data.schedule);
     const kept = entry.saved ?? saved[entry.id];
     if (kept && kept.schedule === key) {
       const next = kept.next ?? nextAfter(entry, now());
@@ -605,8 +592,10 @@ export function createScouts(options: ScoutsOptions): Scouts {
       saved.failures = 0;
       if (saved.paused) {
         delete saved.paused;
+        // A one-off or a rule that ended while paused has no next time left: it doesn't run again.
         const next = nextAfter(entry, now());
-        if (next !== undefined) saved.next = next;
+        if (next === undefined) delete saved.next;
+        else saved.next = next;
       }
       return;
     }

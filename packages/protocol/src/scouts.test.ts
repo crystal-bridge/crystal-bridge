@@ -76,6 +76,39 @@ describe('ScoutManifest', () => {
     expect(at({ cron: '0 0 9 * * *', timezone: 'UTC' })).toBe(false);
   });
 
+  it('takes the Patrols’ schedule forms too: a recurrence rule or a single time', () => {
+    const at = (schedule: unknown) => ScoutManifest.safeParse({ ...manifest, schedule }).success;
+    expect(at({ rule: 'FREQ=WEEKLY;BYDAY=MO', start: '2026-12-01T09:00', timezone: 'UTC' })).toBe(true);
+    expect(at({ once: '2026-12-01T09:00', timezone: 'UTC' })).toBe(true);
+    expect(at({ cron: '0 9 * * *', once: '2026-12-01T09:00', timezone: 'UTC' })).toBe(false);
+    expect(at({ rule: 'freq=daily', start: '2026-12-01T09:00', timezone: 'UTC' })).toBe(true);
+  });
+
+  it('keeps loading a schedule with a key it doesn’t know, as a cron schedule always did', () => {
+    const parsed = ScoutManifest.safeParse({
+      ...manifest,
+      schedule: { cron: '0 9 * * *', timezone: 'UTC', note: 'x' },
+    });
+    expect(parsed.success && parsed.data.schedule).toEqual({ cron: '0 9 * * *', timezone: 'UTC' });
+  });
+
+  it('says what a schedule needs, in words a scout.json writer can act on', () => {
+    const problem = (schedule: unknown) =>
+      ScoutManifest.safeParse({ ...manifest, schedule })
+        .error?.issues.map((issue) => issue.message)
+        .join(' | ');
+    expect(problem({ cron: '0 9 * * *', once: '2026-12-01T09:00', timezone: 'UTC' })).toMatch(
+      /one of `cron`, `rule` or `once`/,
+    );
+    expect(problem({ timezone: 'UTC' })).toMatch(/one of `cron`, `rule` or `once`/);
+    expect(problem({ cron: '0 9 * * *' })).toMatch(/time zone/);
+    expect(problem({ rule: 'INTERVAL=2', start: '2026-12-01T09:00', timezone: 'UTC' })).toMatch(/FREQ=/);
+    expect(problem({ once: '2026-12-01 09:00', timezone: 'UTC' })).toMatch(/2026-12-01T09:00/);
+    expect(problem({ rule: 'FREQ=DAILY', start: '2026-12-01T09:00', timezone: 'UTC', except: ['12/25'] })).toMatch(
+      /2026-12-25/,
+    );
+  });
+
   it('takes only the action kinds it knows, under short lower-case keys', () => {
     const withActions = (actions: unknown) => ScoutManifest.safeParse({ ...manifest, actions }).success;
     expect(withActions({ archive: { kind: 'run', label: 'Archive', command: ['./act.sh', 'archive'] } })).toBe(true);

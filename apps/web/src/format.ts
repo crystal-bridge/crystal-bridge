@@ -1,4 +1,6 @@
-/** Short number formats shared by the Stats panel and battle results. */
+import type { Schedule } from '@crystal-bridge/protocol';
+
+/** Short formats shared by the Stats panel, battle results and Boards. */
 
 /** 1234 -> 1.2k, 124000 -> 124k, 1000000 -> 1M */
 export function tokens(n: number): string {
@@ -48,4 +50,12 @@ export function shortWhen(at: number, now: number, locale?: string): string {
     day: 'numeric',
     ...(sameYear ? {} : { year: 'numeric' }),
   });
+}
+
+/** A Scout's or Patrol's schedule in one line, in its own time zone: a cron as written, a rule or a one-off with its start. */
+export function scheduleText(schedule: Schedule): string {
+  const local = (time: string) => time.replace('T', ' ');
+  if ('cron' in schedule) return `${schedule.cron} (${schedule.timezone})`;
+  if ('once' in schedule) return `once at ${local(schedule.once)} (${schedule.timezone})`;
+  return `${schedule.rule.replace(/^RRULE:/i, '')} from ${local(schedule.start)} (${schedule.timezone})`;
 }
