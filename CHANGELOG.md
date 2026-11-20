@@ -8,21 +8,40 @@ one entry.
 ### Added
 
 - A Kingdom runs Scouts: each folder under `~/.crystal-bridge/scouts/` names a collector and a schedule, and the Kingdom
-  runs it, sends the hub what it found and pauses it after three failures in a row. The hub stores the items; their
-  Boards come in a later release. See [Scouts and Boards](docs/SCOUTS.md).
+  runs it, sends the hub what it found and pauses it after three failures in a row. See
+  [Scouts and Boards](docs/SCOUTS.md).
+- Each Scout gets a Board: listed on the Castle and pinned as a tab in its Kingdom's strip, with new-item counts, Run
+  now, the schedule and recent runs. A Board draws its items in the Scout's view (a list, a checklist, a table, or a
+  projects view with Projects and Tiles modes), and its banner, groups, sender colours, icons and labels come from
+  `scout.json`.
+- A Board's buttons act on its items: a `quest` action starts a Quest from an item, a `run` action hands items to the
+  Scout's script, and Counsel gathers suggested items with their buttons. "Quest on all" writes one Quest over several
+  items, which reach the model marked as untrusted.
 - A Scout with `synthesize` has the Kingdom's own `claude` rank its list, sum each item up in a line and suggest an
-  action, only when the list changed, with no tools and a budget cap (`synthesize.maxBudgetUsd`, $0.50 unless set). The
-  Board orders items by rank, shows the summary, and records each run's cost. When the step fails, the Board keeps the
-  plain list and says why.
+  action, with no tools and a budget cap (`synthesize.maxBudgetUsd`, $0.50 unless set). It runs when the list changed,
+  or only on Run now with `synthesize.when: "now"`. A ✦ and a tooltip mark what the step wrote. When the step fails, the
+  Board keeps the plain list and says why.
+- Two example Scouts in `examples/scouts/`: GitHub (one projects Board per account, with a Needs you window and a Your
+  queue window for your own issues by priority and due day) and Gmail (your inbox by category, with Archive, Spam and
+  Filter sender).
+- The hub installs updates from the app: the Ship's Log offers Install updates when a newer release is out, and
+  Kingdoms set to When approved follow. Check for updates asks GitHub at once.
+- Every merge to `main` publishes an edge build, for hubs that follow development; full releases are tagged by hand.
+  See [Releases](docs/OPERATIONS.md#releases).
+- A Quest that finishes or fails while you aren't looking stays marked until you open it, on every device. The Tavern
+  lists those Quests after what needs you, and the Airship's Kingdom cards sort Quests by attention.
 
 ### Changed
 
 - New Quest now has the same layout as a running Quest: the Inventory, Belt and side panel are there before you start,
   and the prompt box sits at the bottom. The Inventory and slash suggestions are live from the Kingdom for the picked
   project, with no prompt sent. A Kingdom on an older release lists nothing here until it's updated.
+- The Classic theme calls the Tavern "For you".
 
 ### Fixed
 
+- An interactive Quest no longer stops before its first message at a prompt to trust its folder for attached files,
+  which Claude Code 2.1.329 asks about.
 - A Cast on a machine whose `tail` can't watch files, such as Ubuntu 26.04's when it has no inotify left, no
   longer finishes before its last lines are read.
 - A link or reload that opens a Board, a Castle, New Quest or the Airship stays there, instead of jumping to a saved

@@ -514,7 +514,8 @@ A restore loses only what happened after that backup; Crystals resend events the
 Files sent with a prompt (the prompt box's +, or a pasted image) travel in the command to the Kingdom, never into the
 hub's database: Crystal saves them in a private folder per Quest under the OS temp directory
 (`<tmp>/crystal-bridge/attachments/<session>/`, mode 0700, files 0600) and adds an `[Attached file: <path>]` line per
-file to the prompt, which is what the hub stores. Every process of the Quest starts with `--add-dir` on that folder, so
+file to the prompt, which is what the hub stores. Every process of the Quest gets that folder as an extra working directory
+(`--add-dir` on the stream engine, `permissions.additionalDirectories` in its settings on the interactive one), so
 the agent reads them without a permission prompt and nothing lands in the project. Limits: 5 files a prompt, about
 5 MB each. Closing the Quest removes its folder; folders of Quests that are never closed are empty or small and go
 with the OS's own temp cleanup.
