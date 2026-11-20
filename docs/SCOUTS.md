@@ -404,6 +404,19 @@ shows the code and the end of stderr on the Board. A script has two minutes. Wha
   `cron`, an RFC 5545 `rule` from a `start` (every other Tuesday, the last weekday of the month), or `once`. See
   [Patrols' schedules](PATROLS.md#keep-the-watch-schedules) for the details. The time zone is required, so a Scout means
   the same thing on every machine. `Run now` on the Board runs it at once.
+
+  ```json
+  {
+    "schedule": {
+      "rule": "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1",
+      "start": "2026-12-01T09:00",
+      "timezone": "Europe/London"
+    }
+  }
+  ```
+
+- **A one-off runs once.** After its time, or once a rule's `COUNT` or `UNTIL` runs out, the Board says "no more runs".
+  A `once` already past when the Scout is added never runs on its own. `Run now` still works.
 - **A missed run catches up once.** After a laptop sleeps through several, the Scout runs once when it wakes, not once
   per missed slot.
 - **No overlap.** A run that's due while the last one is still going is skipped and recorded as skipped.

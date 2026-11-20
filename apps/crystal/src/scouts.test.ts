@@ -402,6 +402,25 @@ describe('Scouts', () => {
       expect(listed()?.nextRunAt).toBe(slot(now));
     });
 
+    it('doesn’t run a one-off again when a Run now puts it back after its time has passed', async () => {
+      scoutFolder('quest-board', manifest({ schedule: { once: '2026-11-17T13:00', timezone: 'UTC' } }));
+      make();
+      await scouts!.tick();
+      for (let i = 0; i < FAILURES_TO_PAUSE; i++) {
+        scouts!.runNow('quest-board');
+        await finish({ kind: 'exited', code: 1, stdout: '', stderr: '' });
+      }
+      expect(listed()?.paused).toBeDefined();
+      now = Date.parse('2026-11-17T14:00Z');
+      scouts!.runNow('quest-board');
+      await finish(ok());
+      expect(listed()?.paused).toBeUndefined();
+      expect(listed()?.nextRunAt).toBeUndefined();
+      now += MINUTE;
+      await scouts!.tick();
+      expect(pending).toHaveLength(0);
+    });
+
     it('stays paused across a restart', async () => {
       scoutFolder('quest-board');
       make();

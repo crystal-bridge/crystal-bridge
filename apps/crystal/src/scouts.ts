@@ -261,9 +261,16 @@ export function createScouts(options: ScoutsOptions): Scouts {
     }
   }
 
-  /** The next time a Scout is due after `from`, jitter included. */
+  /** The next time a Scout is due after `from`, jitter included. A schedule the engine can't follow shows as its error. */
   function nextAfter(entry: Entry, from: number): number | undefined {
-    const next = entry.recurrence?.next(from);
+    let next: number | undefined;
+    try {
+      next = entry.recurrence?.next(from);
+    } catch (error) {
+      entry.error = `scout.json: schedule: ${error instanceof Error ? error.message : String(error)}`;
+      log(`${entry.id}: ${entry.error}`);
+      return undefined;
+    }
     return next === undefined ? undefined : next + jitterOf(entry.id);
   }
 
@@ -585,8 +592,10 @@ export function createScouts(options: ScoutsOptions): Scouts {
       saved.failures = 0;
       if (saved.paused) {
         delete saved.paused;
+        // A one-off or a rule that ended while paused has no next time left: it doesn't run again.
         const next = nextAfter(entry, now());
-        if (next !== undefined) saved.next = next;
+        if (next === undefined) delete saved.next;
+        else saved.next = next;
       }
       return;
     }

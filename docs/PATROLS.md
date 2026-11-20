@@ -92,7 +92,8 @@ Daylight saving follows the time zone, and a night that repeats 01:30 runs it on
 
 Scouts share this engine, so `scout.json` takes `rule` and `once` too. Existing `cron` schedules work as before. A rule
 gives only its parts (`FREQ=...;BYDAY=...`): the start goes in `start` and skipped days in `except`, and `FREQ=SECONDLY`
-is refused. `UNTIL` may be a date or a time in the schedule's zone, or a UTC time ending in `Z`.
+and `BYSECOND` are refused: the finest a rule runs is each minute. `UNTIL` may be a date or a time in the schedule's
+zone, or a UTC time ending in `Z`.
 
 These run rules are the Scouts' ones:
 

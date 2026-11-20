@@ -9,10 +9,14 @@ import { Temporal } from 'temporal-polyfill';
  *
  * A `rule` is expanded in wall-clock time and only then placed in its zone, so daylight saving can't drop a run: a time
  * the clocks skip runs just after the gap (02:30 becomes 03:30), as calendar apps do, and a time they repeat runs once,
- * at its first passing. A `cron` keeps croner's behaviour, which Scouts have always had.
+ * at its first passing. So an hourly rule runs once in the repeated hour, and the hour after the gap holds the gap's run.
+ * A `cron` keeps croner's behaviour, which Scouts have always had.
  */
 export interface Recurrence {
-  /** The first time the schedule gives strictly after `after`, in epoch milliseconds, or none once it has ended. */
+  /**
+   * The first time the schedule gives strictly after `after`, in epoch milliseconds, or none once it has ended. Throws
+   * when it can't tell, so a schedule never ends quietly by mistake.
+   */
   next(after: number): number | undefined;
 }
 
@@ -20,7 +24,7 @@ export interface Recurrence {
 const FREQUENCIES = new Set(['YEARLY', 'MONTHLY', 'WEEKLY', 'DAILY', 'HOURLY', 'MINUTELY']);
 /** Daylight saving moves a wall-clock time by at most this, so a later wall time can't be an earlier instant. */
 const SHIFT = { hours: 3 } as const;
-/** Occurrences one `next` may look through before it gives up, for rules that rarely come round. */
+/** Occurrences one `next` may look through before it gives up; a skipped day counts once, however many runs it held. */
 const MAX_STEPS = 10_000;
 
 /** The times a schedule gives after `after`, at most `count` of them, as the app's preview shows. */
@@ -102,6 +106,8 @@ function ruleOf(text: string, startText: string, timezone: string, exceptText: s
     const key = rawKey.toUpperCase();
     if (key === 'FREQ') freq = value.toUpperCase();
     if (key === 'COUNT') count = true;
+    // A list of seconds multiplies everything else the library works out, enough to stall the Kingdom for a minute.
+    if (key === 'BYSECOND') return 'schedule: rule: BYSECOND is finer than a rule runs; the finest is each minute';
     if (key === 'UNTIL') {
       const parsed = untilOf(value);
       if (!parsed) return `schedule: rule: UNTIL=${value} is no date or time`;
@@ -110,7 +116,7 @@ function ruleOf(text: string, startText: string, timezone: string, exceptText: s
     }
     parts.push(part);
   }
-  if (freq === 'SECONDLY') return 'schedule: rule: FREQ=SECONDLY is too often; the finest is MINUTELY';
+  if (freq === 'SECONDLY') return 'schedule: rule: FREQ=SECONDLY is finer than a rule runs; the finest is each minute';
   if (!freq || !FREQUENCIES.has(freq))
     return `schedule: rule: FREQ=${freq ?? ''} isn't one of ${[...FREQUENCIES].join(', ')}`;
   if (count && until) return 'schedule: rule: COUNT and UNTIL both end a rule; give one';
@@ -140,9 +146,6 @@ function ruleOf(text: string, startText: string, timezone: string, exceptText: s
     if (until.kind === 'wall') return Temporal.PlainDateTime.compare(wall, until.wall) > 0;
     return instantOf(wall, timezone) > until.at;
   };
-  const skipped = (wall: Temporal.PlainDateTime) =>
-    except.has(wall.toPlainDate().toString()) || except.has(wall.toString());
-
   const recurrence: Recurrence = {
     next(after) {
       const afterWall = Temporal.Instant.fromEpochMilliseconds(after).toZonedDateTimeISO(timezone).toPlainDateTime();
@@ -150,28 +153,34 @@ function ruleOf(text: string, startText: string, timezone: string, exceptText: s
       let best: number | undefined;
       let bestWall: Temporal.PlainDateTime | undefined;
       for (let step = 0; step < MAX_STEPS; step++) {
-        let found: Temporal.ZonedDateTime | null;
-        try {
-          found = rrule.next(cursor, false) as Temporal.ZonedDateTime | null;
-        } catch {
-          return best;
-        }
-        if (!found) break;
+        const found = rrule.next(cursor, false) as Temporal.ZonedDateTime | null;
+        if (!found) return best;
         cursor = found;
         const wall = found.toPlainDateTime();
-        if (bestWall && Temporal.PlainDateTime.compare(wall, bestWall.add(SHIFT)) > 0) break;
-        if (beyond(wall)) break;
-        if (skipped(wall)) continue;
+        if (bestWall && Temporal.PlainDateTime.compare(wall, bestWall.add(SHIFT)) > 0) return best;
+        if (beyond(wall)) return best;
+        if (except.has(wall.toPlainDate().toString())) {
+          // Past the whole skipped day at once, so a rule every minute doesn't spend a step on each of its runs.
+          const nextDay = wall.toPlainDate().add({ days: 1 }).toPlainDateTime();
+          cursor = nextDay.toZonedDateTime('UTC').subtract({ nanoseconds: 1 });
+          continue;
+        }
+        if (except.has(wall.toString())) continue;
         const time = instantOf(wall, timezone);
         if (time <= after) continue;
         if (best === undefined || time < best) best = time;
         bestWall ??= wall;
       }
-      return best;
+      if (best !== undefined) return best;
+      throw new Error(`looked through ${MAX_STEPS} times without finding the next one`);
     },
   };
-  if (recurrence.next(instantOf(start, timezone) - 1) === undefined)
-    return `schedule: rule: "${text}" never comes round`;
+  try {
+    if (recurrence.next(instantOf(start, timezone) - 1) === undefined)
+      return `schedule: rule: "${text}" never comes round`;
+  } catch (error) {
+    return `schedule: rule: "${text}" never comes round, or too rarely to find (${messageOf(error)})`;
+  }
   return recurrence;
 }
 

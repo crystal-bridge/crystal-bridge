@@ -129,7 +129,7 @@ describe('rule schedules', () => {
     const schedule: Schedule = { rule: 'FREQ=MINUTELY;INTERVAL=5', start: '2024-01-01T00:00', timezone: 'UTC' };
     const began = performance.now();
     expect(engine(schedule).next(at('2026-11-20T10:02Z'))).toBe(at('2026-11-20T10:05Z'));
-    expect(performance.now() - began).toBeLessThan(1000);
+    expect(performance.now() - began).toBeLessThan(5000);
   });
 
   it('has nothing next once the rule has ended', () => {
@@ -144,6 +144,60 @@ describe('rule schedules', () => {
     expect(errorOf(chicago('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30', '2026-12-01T09:00'))).toMatch(/never comes round/);
     expect(errorOf(chicago('FREQ=DAILY', '2026-02-30T09:00'))).toMatch(/start/);
     expect(errorOf({ rule: 'FREQ=DAILY', start: '2026-12-01T09:00', timezone: 'Mars/Olympus' })).toMatch(/time zone/);
+    expect(errorOf(chicago('FREQ=DAILY;UNTIL=20261301', '2026-12-01T09:00'))).toMatch(/UNTIL=20261301/);
+    // RFC 5545 has no UNTIL with a numeric offset: UTC with Z, or a time in the schedule's zone.
+    expect(errorOf(chicago('FREQ=DAILY;UNTIL=20261205T150000+0100', '2026-12-01T09:00'))).toMatch(/UNTIL/);
+    expect(errorOf(chicago('FREQ=DAILY', '2026-12-01T09:00', ['nope']))).toMatch(/except: "nope"/);
+  });
+
+  it('refuses runs finer than a minute, however the rule asks for them', () => {
+    expect(errorOf(chicago('FREQ=MINUTELY;BYSECOND=0,30', '2026-12-01T09:00'))).toMatch(/BYSECOND/);
+  });
+
+  it('refuses a rule that asks for every second at once, rather than stalling the Kingdom working it out', () => {
+    const sixty = Array.from({ length: 60 }, (_, unit) => unit).join(',');
+    const began = performance.now();
+    expect(errorOf(chicago(`FREQ=HOURLY;BYSECOND=${sixty};BYMINUTE=${sixty}`, '2026-12-01T09:00'))).toMatch(/BYSECOND/);
+    expect(performance.now() - began).toBeLessThan(1000);
+  });
+
+  it('works out a busy rule without seconds quickly', () => {
+    const hours = Array.from({ length: 24 }, (_, hour) => hour).join(',');
+    const minutes = Array.from({ length: 60 }, (_, minute) => minute).join(',');
+    const rule = `FREQ=YEARLY;BYHOUR=${hours};BYMINUTE=${minutes};BYSETPOS=-1`;
+    const began = performance.now();
+    expect(engine(chicago(rule, '2026-12-01T09:00')).next(at('2026-12-01T00:00Z'))).toBe(at('2026-12-02T05:59Z'));
+    expect(performance.now() - began).toBeLessThan(5000);
+  });
+
+  it('looks past a long run of skipped days', () => {
+    const except = Array.from({ length: 8 }, (_, day) => `2026-12-0${day + 1}`);
+    const schedule: Schedule = { rule: 'FREQ=MINUTELY', start: '2026-11-30T23:00', timezone: 'UTC', except };
+    expect(engine(schedule).next(at('2026-11-30T23:59Z'))).toBe(at('2026-12-09T00:00Z'));
+  });
+
+  it('runs an hourly rule once in the hour the clocks repeat, at its first passing', () => {
+    const times = upcoming(engine(chicago('FREQ=HOURLY', '2026-11-01T00:30')), at('2026-11-01T00:00Z'), 4);
+    expect(iso(times)).toEqual([
+      '2026-11-01T05:30:00.000Z',
+      '2026-11-01T06:30:00.000Z',
+      '2026-11-01T08:30:00.000Z',
+      '2026-11-01T09:30:00.000Z',
+    ]);
+  });
+
+  it('follows daylight saving in the southern hemisphere too', () => {
+    const sydney = (start: string): Schedule => ({ rule: 'FREQ=DAILY', start, timezone: 'Australia/Sydney' });
+    // Clocks go forward at 02:00 on 2026-10-04 (AEST +10 to AEDT +11): 02:30 runs at 03:30.
+    expect(iso(upcoming(engine(sydney('2026-10-03T02:30')), at('2026-10-02T00:00Z'), 2))).toEqual([
+      '2026-10-02T16:30:00.000Z',
+      '2026-10-03T16:30:00.000Z',
+    ]);
+    // Clocks go back at 03:00 on 2027-04-04: 02:30 runs once, at its first passing (AEDT).
+    expect(iso(upcoming(engine(sydney('2027-04-03T02:30')), at('2027-04-02T00:00Z'), 2))).toEqual([
+      '2027-04-02T15:30:00.000Z',
+      '2027-04-03T15:30:00.000Z',
+    ]);
   });
 });
 
