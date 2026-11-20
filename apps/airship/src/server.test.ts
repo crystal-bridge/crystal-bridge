@@ -3685,6 +3685,71 @@ describe('airship server appearance', () => {
   });
 });
 
+describe('airship server: done until viewed', () => {
+  let store: Store;
+  let app: import('fastify').FastifyInstance;
+  let baseUrl: string;
+  const sockets: WebSocket[] = [];
+
+  beforeEach(async () => {
+    store = openStore(':memory:');
+    app = await buildServer({ store, auth: tailscaleServe(['me@example.com', 'you@example.com']) });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  });
+
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) socket.terminate();
+    await app.close();
+    store.close();
+  });
+
+  const as = (login: string, method = 'GET') => ({ method, headers: { 'tailscale-user-login': login } });
+  async function client(login: string) {
+    const socket = new WebSocket(`${baseUrl.replace('http:', 'ws:')}/client`, {
+      headers: { 'tailscale-user-login': login },
+    });
+    sockets.push(socket);
+    await new Promise((resolve) => socket.once('open', resolve));
+    return new FrameRecorder(socket);
+  }
+  function finished(session: string) {
+    store.appendEvent(sessionStartedEnvelope(session, 'node-a'));
+    store.appendEvent(
+      makeEnvelope({ node: 'node-a', session, seq: 1, type: 'turn.finished', payload: { outcome: 'success' } }),
+    );
+  }
+
+  it('lists a finished Quest until that login has viewed it, Kingdom online or not', async () => {
+    const session = randomUUID();
+    finished(session);
+    const unseen = async (login: string) =>
+      (await (await fetch(`${baseUrl}/api/unseen`, as(login))).json()) as unknown[];
+    expect(await unseen('me@example.com')).toEqual([
+      { session, node: 'node-a', reason: 'done', at: expect.any(Number) },
+    ]);
+    const seen = await fetch(`${baseUrl}/api/sessions/${session}/seen`, as('me@example.com', 'POST'));
+    expect(seen.status).toBe(204);
+    expect(await unseen('me@example.com')).toEqual([]);
+    expect(await unseen('you@example.com')).toHaveLength(1);
+  });
+
+  it('tells that login-s other open tabs, and nobody else', async () => {
+    const session = randomUUID();
+    finished(session);
+    const mine = await client('me@example.com');
+    const theirs = await client('you@example.com');
+    await fetch(`${baseUrl}/api/sessions/${session}/seen`, as('me@example.com', 'POST'));
+    expect(await mine.waitFor((f) => f.kind === 'seen')).toEqual({ kind: 'seen', session });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(theirs.frames.some((f) => f.kind === 'seen')).toBe(false);
+  });
+
+  it('refuses an id that is not a Quest id', async () => {
+    expect((await fetch(`${baseUrl}/api/sessions/nope/seen`, as('me@example.com', 'POST'))).status).toBe(400);
+  });
+});
+
 describe('airship server appearance without tailnet logins', () => {
   it('keeps one shared appearance, as in pnpm dev', async () => {
     const store = openStore(':memory:');

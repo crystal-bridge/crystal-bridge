@@ -63,6 +63,17 @@ describe('HubClient replay', () => {
     expect(heard).toHaveBeenCalledTimes(3);
   });
 
+  it('hands seen frames to their listeners', () => {
+    const { hub, socket } = connected();
+    const heard = vi.fn();
+    const stop = hub.onSeen(heard);
+    socket.deliver({ kind: 'seen', session: SESSION });
+    expect(heard).toHaveBeenCalledWith(SESSION);
+    stop();
+    socket.deliver({ kind: 'seen', session: SESSION });
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
   it('says when the socket comes back, not when it first opens', () => {
     const { hub, socket } = connected();
     const back = vi.fn();

@@ -7,6 +7,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { RawData, WebSocket } from 'ws';
+import { z } from 'zod';
 import {
   ClientMessage,
   HEARTBEAT_MS,
@@ -965,6 +966,19 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     store.putAppearance(login, body.data);
     for (const [socket, owner] of clientLogins) {
       if (owner === login) sendToClient(socket, { kind: 'appearance', appearance: body.data });
+    }
+    return reply.code(204).send();
+  });
+  // Done until viewed: per user, so viewing a finished Quest on one device clears it on their others at once. Any
+  // Kingdom's, online or not: a Quest that finished stays finished.
+  app.get('/api/unseen', async (request) => store.unseen(loginOf(request)));
+  app.post('/api/sessions/:session/seen', async (request, reply) => {
+    const { session } = request.params as { session: string };
+    if (!z.uuid().safeParse(session).success) return reply.code(400).send({ error: 'expected a Quest id' });
+    const login = loginOf(request);
+    store.markSeen(login, session);
+    for (const [socket, owner] of clientLogins) {
+      if (owner === login) sendToClient(socket, { kind: 'seen', session });
     }
     return reply.code(204).send();
   });

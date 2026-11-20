@@ -87,7 +87,7 @@ export type Words = Record<Concept, Word>;
 /** Crystal Bridge's own theme: old-school JRPG words over plain concepts. */
 export const CRYSTAL: Words = {
   home: { themed: 'The Airship', plain: 'Home: every Kingdom at a glance, and the hub itself' },
-  tavern: { themed: 'Tavern', plain: "What's waiting on you" },
+  tavern: { themed: 'Tavern', plain: 'What needs you, and what finished since you looked' },
   kingdom: { themed: 'Kingdom', plain: 'node' },
   kingdoms: { themed: 'Kingdoms', plain: 'nodes' },
   castle: { themed: 'Castle', plain: "this node's home" },
@@ -162,7 +162,7 @@ export const CRYSTAL: Words = {
 /** A plain theme: the same concepts with everyday words. */
 export const CLASSIC: Words = {
   home: { themed: 'Home', plain: 'Home: every node at a glance, and the hub itself' },
-  tavern: { themed: 'Waiting on you', plain: 'Waiting on you' },
+  tavern: { themed: 'For you', plain: 'What needs you, and what finished since you looked' },
   kingdom: { themed: 'Node', plain: 'Node' },
   kingdoms: { themed: 'Nodes', plain: 'Nodes' },
   castle: { themed: 'Overview', plain: 'Overview' },

@@ -2,12 +2,12 @@ import { type CSSProperties, useState } from 'react';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import type { Level } from '../levels.js';
 import { type ActivityItem, activityLine, sumStats, type TurnStats } from '../home.js';
-import { ago, HOME_PAGE, HOME_PAIR, QuestCard, StatTiles } from './HomeParts.js';
+import { ago, HOME_PAGE, HOME_PAIR, QuestCard, StatTiles, UnseenMark } from './HomeParts.js';
 import type { KingdomLook } from '../appearance.js';
 import type { Kingdom } from '../kingdoms.js';
 import { hint, w } from '../theme/words.js';
 import type { NotifyLevel } from '../notify.js';
-import { isActiveQuest } from '../quests.js';
+import { byAttention, isActiveQuest, type UnseenQuest } from '../quests.js';
 import { KingdomIcon } from './KingdomIcon.js';
 import type { FleetRow } from '../fleet.js';
 import { Roster } from './Roster.js';
@@ -27,6 +27,8 @@ export interface AirshipProps {
   sessions: SessionSummary[];
   /** Quests waiting on the user: session id -> node. */
   waiting: Record<string, string>;
+  /** Finished Quests the user hasn't viewed since: session id -> how and when. */
+  unseen?: Record<string, UnseenQuest>;
   usage: NodeUsageRow[];
   /** This device's notification level per Kingdom; Discreet ones show no Quest titles here. */
   notify: Record<string, NotifyLevel>;
@@ -71,6 +73,7 @@ export function Airship({
   kingdoms,
   sessions,
   waiting,
+  unseen = {},
   usage,
   notify,
   onKingdom,
@@ -96,19 +99,32 @@ export function Airship({
   const discreet = (node: string) => (notify[node] ?? 'full') === 'discreet';
   const shown = new Map(kingdoms.map((k) => [k.id, k]));
   const waitingIds = new Set(Object.keys(waiting));
+  const unseenIds = new Set(Object.keys(unseen));
+  const marked = new Set([...waitingIds, ...unseenIds]);
   // Hidden Kingdoms never reach the Airship, not even as log lines.
   const log = activity.filter((item) => shown.has(item.node));
-  const tavern = Object.entries(waiting)
+  const labelOf = (session: string) => sessions.find((s) => s.id === session)?.label || `a ${w('quest')}`;
+  // The Tavern: what needs you, then what finished since you last looked, newest first.
+  const needsYou = Object.entries(waiting)
     .filter(([, node]) => shown.has(node))
     .map(([session, node]) => {
       const kingdom = shown.get(node)!;
-      const label = sessions.find((s) => s.id === session)?.label || `a ${w('quest')}`;
-      const text =
-        (notify[node] ?? 'full') === 'discreet'
-          ? `${kingdom.name}: a ${w('quest')} needs you`
-          : `${kingdom.name}: ${label}`;
-      return { session, node, text };
+      const text = discreet(node)
+        ? `${kingdom.name}: a ${w('quest')} needs you`
+        : `${kingdom.name}: ${labelOf(session)}`;
+      return { session, node, text, unseen: undefined };
     });
+  const finished = Object.entries(unseen)
+    .filter(([session, { node }]) => shown.has(node) && !waitingIds.has(session))
+    .sort(([, a], [, b]) => b.at - a.at)
+    .map(([session, { node, reason }]) => {
+      const kingdom = shown.get(node)!;
+      const text = discreet(node)
+        ? `${kingdom.name}: a ${w('quest')} ${reason === 'done' ? 'finished' : 'failed'}`
+        : `${kingdom.name}: ${labelOf(session)}`;
+      return { session, node, text, unseen: reason };
+    });
+  const tavern = [...needsYou, ...finished];
 
   return (
     <div className="h-full overflow-y-auto">
@@ -133,9 +149,15 @@ export function Airship({
                       onClick={() => onQuest(row.node, row.session)}
                       className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-white/10"
                     >
-                      <span className="shrink-0 rounded-full bg-amber-500 px-1.5 text-xs font-bold leading-4 text-white">
-                        !
-                      </span>
+                      {row.unseen ? (
+                        <span className="flex w-[1.125rem] shrink-0 justify-center">
+                          <UnseenMark reason={row.unseen} />
+                        </span>
+                      ) : (
+                        <span className="shrink-0 rounded-full bg-amber-500 px-1.5 text-xs font-bold leading-4 text-white">
+                          !
+                        </span>
+                      )}
                       <span className="truncate">{row.text}</span>
                     </button>
                   </li>
@@ -168,9 +190,10 @@ export function Airship({
         >
           {kingdoms.map((kingdom) => {
             const own = sessions.filter((s) => s.node === kingdom.id);
-            const active = own
-              .filter((s) => isActiveQuest(s, now, waitingIds))
-              .sort((a, b) => (b.lastActivity ?? b.createdAt) - (a.lastActivity ?? a.createdAt));
+            const active = byAttention(
+              own.filter((s) => isActiveQuest(s, now, marked)),
+              { now, waiting: waitingIds, unseen: unseenIds },
+            );
             const look = looks[kingdom.id];
             return (
               <div
@@ -204,6 +227,7 @@ export function Airship({
                         <QuestCard
                           session={session}
                           waiting={waitingIds.has(session.id)}
+                          unseen={unseen[session.id]?.reason}
                           heroes={heroes}
                           state={heroStates[session.id]}
                           showDetail={!discreet(kingdom.id)}

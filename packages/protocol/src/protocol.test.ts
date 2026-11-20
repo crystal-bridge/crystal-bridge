@@ -276,6 +276,11 @@ describe('HubToClient', () => {
     expect(HubToClient.safeParse({ kind: 'synced', session, seq: -2 }).success).toBe(false);
   });
 
+  it('accepts a seen frame for a Quest id, which older clients ignore', () => {
+    expect(HubToClient.safeParse({ kind: 'seen', session }).success).toBe(true);
+    expect(HubToClient.safeParse({ kind: 'seen', session: 'nope' }).success).toBe(false);
+  });
+
   it('accepts an event frame wrapping an envelope', () => {
     const result = HubToClient.safeParse({
       kind: 'event',

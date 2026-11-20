@@ -92,7 +92,14 @@ import { isLooking, notificationFor } from './notify.js';
 import { disablePush, enablePush, openTarget, prefsForPush, pushSupported, syncPush } from './push.js';
 import { applyOrder, moveTo } from './tabOrder.js';
 import { type Hotkey, hotkeyFor, keyHint, needsYouNext, pickerOpen, step, typingOption } from './hotkeys.js';
-import { loadPutAway, projectName, putAway as withPutAway, questTabs, savePutAway } from './quests.js';
+import {
+  loadPutAway,
+  projectName,
+  putAway as withPutAway,
+  questTabs,
+  savePutAway,
+  type UnseenQuest,
+} from './quests.js';
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
 import { RemovedKingdom } from './components/RemovedKingdom.js';
@@ -126,6 +133,11 @@ function logOut(): void {
 async function forgetKingdom(node: string): Promise<void> {
   const response = await fetch(`/api/nodes/${encodeURIComponent(node)}/quests`, { method: 'DELETE' });
   if (!response.ok) throw await refusal(response);
+}
+
+/** Tells the hub the user has a finished Quest in view, for their other devices. A miss only leaves it marked there. */
+function markSeen(session: string): void {
+  fetch(`/api/sessions/${session}/seen`, { method: 'POST' }).catch(() => undefined);
 }
 
 async function tryJson<T>(url: string): Promise<T | undefined> {
@@ -230,6 +242,10 @@ export function App({ hub }: { hub: HubClient }) {
   const [waiting, setWaiting] = useState<Record<string, string>>({});
   // Each Quest's latest finished turn or failure, as the hub announced it, for its party leader's pose.
   const [outcomes, setOutcomes] = useState<Record<string, QuestOutcome>>({});
+  // Finished Quests the user hasn't viewed since, on any device (the hub keeps it per user), until opened.
+  const [unseen, setUnseen] = useState<Record<string, UnseenQuest>>({});
+  const unseenNow = useRef(unseen);
+  unseenNow.current = unseen;
   const heroManifest = useHeroManifest(showHeroes);
   const [canNotify, setCanNotify] = useState(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -340,11 +356,16 @@ export function App({ hub }: { hub: HubClient }) {
     document.title = waitingShown > 0 ? `(${waitingShown}) ${title}` : title;
   }, [waitingShown, title]);
 
-  // Opening a session, in either pane, clears its waiting mark.
+  // Opening a session, in either pane, clears its waiting mark, and its unseen one on every device.
   useEffect(() => {
     const open = [shown, splitShown && splitPaneVisible() ? splitShown : null].filter(
       (id): id is string => id !== null,
     );
+    const viewed = open.filter((id) => id in unseenNow.current);
+    if (viewed.length > 0) {
+      for (const id of viewed) markSeen(id);
+      setUnseen((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !viewed.includes(id))));
+    }
     if (open.length > 0)
       setWaiting((prev) =>
         open.some((id) => id in prev)
@@ -392,6 +413,9 @@ export function App({ hub }: { hub: HubClient }) {
         const { reason } = attention;
         if (reason === 'done' || reason === 'failed') {
           setOutcomes((prev) => ({ ...prev, [attention.session]: { reason, at: Date.now() } }));
+          if (looking) markSeen(attention.session);
+          else
+            setUnseen((prev) => ({ ...prev, [attention.session]: { node: attention.node, reason, at: Date.now() } }));
         }
         if (reason !== 'cast-done' && reason !== 'cast-failed') {
           setWaiting((prev) => {
@@ -639,7 +663,7 @@ export function App({ hub }: { hub: HubClient }) {
 
   const refresh = useCallback(async () => {
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
-    const [s, n, u, x, h, p, e, l, a, t, b, g] = await Promise.all([
+    const [s, n, u, x, h, p, e, l, a, t, b, g, f] = await Promise.all([
       tryJson<SessionSummary[]>('/api/sessions'),
       tryJson<string[]>('/api/nodes'),
       tryJson<NodeUsageRow[]>('/api/usage'),
@@ -652,6 +676,7 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<string[]>('/api/nodes/enrolled'),
       tryJson<{ name?: string | null }>('/api/hub'),
       tryJson<HubStatus>('/api/hub/status'),
+      tryJson<({ session: string } & UnseenQuest)[]>('/api/unseen'),
     ]);
     keep(setSessions, s);
     keep(setNodes, n);
@@ -680,6 +705,18 @@ export function App({ hub }: { hub: HubClient }) {
             .map(({ session, node }) => [session, node]),
         ),
       );
+    }
+    // Finished out of view, by the hub's word. One in view now counts as seen.
+    if (f) {
+      const hidden = loadPrefs().hidden;
+      const { shown: open, splitShown: beside } = current.current;
+      const next: Record<string, UnseenQuest> = {};
+      for (const { session, node, reason, at } of f) {
+        if (hidden.includes(node)) continue;
+        if (isLooking(open, session) || (splitPaneVisible() && isLooking(beside, session))) markSeen(session);
+        else next[session] = { node, reason, at };
+      }
+      setUnseen(next);
     }
   }, []);
 
@@ -797,6 +834,19 @@ export function App({ hub }: { hub: HubClient }) {
       off();
     };
   }, [hub]);
+
+  // Viewed on another tab or device: no longer unseen here.
+  useEffect(
+    () =>
+      hub.onSeen((session) =>
+        setUnseen((prev) => {
+          if (!(session in prev)) return prev;
+          const { [session]: _viewed, ...rest } = prev;
+          return rest;
+        }),
+      ),
+    [hub],
+  );
 
   /** Applies an appearance change here at once and saves it for the user's other devices. */
   function changeAppearance(change: (prev: Appearance) => Appearance) {
@@ -1322,6 +1372,7 @@ export function App({ hub }: { hub: HubClient }) {
                 kingdoms={visible}
                 sessions={sessions}
                 waiting={waiting}
+                unseen={unseen}
                 usage={usage}
                 notify={prefs.notify ?? {}}
                 looks={looks}
@@ -1475,6 +1526,7 @@ export function App({ hub }: { hub: HubClient }) {
                 look={looks[kingdom.id]}
                 sessions={kingdomSessions}
                 waiting={waitingIds}
+                unseen={unseen}
                 usage={kingdomUsage}
                 found={kingdomFound}
                 engines={engineLists.find((row) => row.node === kingdom.id)?.engines}

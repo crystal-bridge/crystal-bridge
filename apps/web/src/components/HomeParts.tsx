@@ -59,12 +59,36 @@ export function StatTiles({ title, plain, stats }: { title: string; plain: strin
 }
 
 /**
+ * A finished Quest not yet viewed: a gold dot, or a rose one with a × for a failure, so it never rests on colour alone.
+ * Marks, never asks: blue and "!" mean needs you.
+ */
+export function UnseenMark({ reason }: { reason: 'done' | 'failed' }) {
+  const text = reason === 'done' ? 'Finished, not viewed yet' : 'Failed, not viewed yet';
+  return (
+    <span
+      role="img"
+      aria-label={text}
+      title={text}
+      data-unseen={reason}
+      className={
+        reason === 'done'
+          ? 'inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-gold'
+          : 'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold leading-none text-white'
+      }
+    >
+      {reason === 'failed' ? '×' : null}
+    </span>
+  );
+}
+
+/**
  * A Quest as a card: its leader Hero in its state (or a status dot), title, folder, last activity and, unless the
  * caller hides it (Discreet, cross-Kingdom), the start of its latest reply.
  */
 export function QuestCard({
   session,
   waiting,
+  unseen,
   heroes,
   state,
   showDetail = true,
@@ -73,6 +97,8 @@ export function QuestCard({
 }: {
   session: SessionSummary;
   waiting: boolean;
+  /** Finished since you last viewed it, and how. */
+  unseen?: 'done' | 'failed' | undefined;
   heroes?: HeroManifest | null;
   state?: HeroState;
   /** False for a Discreet Kingdom outside its own Castle: no title or preview. */
@@ -111,6 +137,7 @@ export function QuestCard({
           {waiting && (
             <span className="shrink-0 rounded-full bg-amber-500 px-1.5 text-xs font-bold leading-4 text-white">!</span>
           )}
+          {!waiting && unseen && <UnseenMark reason={unseen} />}
           <span className="ml-auto shrink-0 text-xs text-neutral-500">
             {ago(session.lastActivity ?? session.createdAt, now)}
           </span>

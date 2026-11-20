@@ -72,7 +72,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Crystal Bridge** | the app | The name of the game. |
 | **Airship** | the hub, and the app-wide Home | The app-bar logo goes here. |
 | **Ship's Log** | the hub's release, health and updates | A section of the Airship. Classic: Hub. |
-| **Tavern** | what's waiting on you, across Kingdoms | A room on the Airship; respects hidden and Discreet Kingdoms. |
+| **Tavern** | what's waiting on you, across Kingdoms | A room on the Airship; respects hidden and Discreet Kingdoms. Below what needs you ("!"), Quests that finished since you last opened them, with a gold dot (a rose one with a × if they failed), newest first. The Classic theme says For you. |
 | **Kingdom** | a node and its Claude account | Its dashboard is the **Castle**. |
 | **Crystal** | the agent that runs a Kingdom | Operators see this word; users add and pick Kingdoms. The package is `@crystal-bridge/kingdom`. |
 | **Quest** | a session | |

@@ -22,6 +22,11 @@ describe('theme words', () => {
     expect(hint('quest', CLASSIC)).toBe('Session');
   });
 
+  it('names the Tavern for what needs you and what finished, not only what waits', () => {
+    expect(hint('tavern', CRYSTAL)).toBe('Tavern (What needs you, and what finished since you looked)');
+    expect(w('tavern', CLASSIC)).toBe('For you');
+  });
+
   it('calls cost Gold: generic fantasy words, not one franchise’s coinage', () => {
     expect(w('gold', CRYSTAL)).toBe('Gold');
     expect(hint('gold', CRYSTAL)).toBe('Gold (cost)');

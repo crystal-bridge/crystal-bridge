@@ -74,6 +74,16 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (node, scout, id)
   ) WITHOUT ROWID;
   `,
+  // 9: done until viewed. The latest event seq each login has had in view per Quest; a Quest whose latest finished turn
+  // or failure is newer is unseen. Only outcomes after `seen_floor` count, so an upgrade doesn't mark all history unseen.
+  `
+  CREATE TABLE seen (
+    login TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL,
+    PRIMARY KEY (login, session)
+  ) WITHOUT ROWID;
+  CREATE TABLE seen_floor (at INTEGER NOT NULL);
+  INSERT INTO seen_floor VALUES (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

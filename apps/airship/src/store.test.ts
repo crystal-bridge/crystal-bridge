@@ -689,6 +689,97 @@ describe('store', () => {
     });
   });
 
+  describe('finished Quests the user has not seen', () => {
+    const started = (session: string): Envelope =>
+      makeEnvelope({ session, seq: 0, type: 'session.started', payload: { cwd: '/w', prompt: 'p', label: 'p' } });
+    const turn = (session: string, seq: number, outcome: string, ts = Date.now()): Envelope =>
+      makeEnvelope({ session, seq, ts, type: 'turn.finished', payload: { outcome } });
+    const ended = (session: string, seq: number, payload: Record<string, unknown>): Envelope =>
+      makeEnvelope({ session, seq, type: 'session.ended', payload: { exitCode: null, signal: null, ...payload } });
+
+    it('lists a finished turn until that login has seen it, and only for that login', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(turn(session, 1, 'success'));
+      expect(store.unseen('a')).toEqual([{ session, node: 'local', reason: 'done', at: expect.any(Number) }]);
+      store.markSeen('a', session);
+      expect(store.unseen('a')).toEqual([]);
+      expect(store.unseen('b')).toHaveLength(1);
+    });
+
+    it('lists it again when a later turn finishes', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(turn(session, 1, 'success'));
+      store.markSeen('a', session);
+      store.appendEvent(turn(session, 2, 'error'));
+      expect(store.unseen('a')).toEqual([{ session, node: 'local', reason: 'failed', at: expect.any(Number) }]);
+    });
+
+    it('counts a crash or a restart with no resume as failed, after the turn that came before', () => {
+      const crashed = randomUUID();
+      const cut = randomUUID();
+      const resumed = randomUUID();
+      for (const s of [crashed, cut, resumed]) {
+        store.appendEvent(started(s));
+        store.appendEvent(turn(s, 1, 'success'));
+      }
+      store.appendEvent(ended(crashed, 2, { reason: 'error' }));
+      store.appendEvent(ended(cut, 2, { reason: 'restart' }));
+      store.appendEvent(ended(resumed, 2, { reason: 'restart', resuming: true }));
+      const reasons = Object.fromEntries(store.unseen('a').map((u) => [u.session, u.reason]));
+      expect(reasons).toEqual({ [crashed]: 'failed', [cut]: 'failed', [resumed]: 'done' });
+    });
+
+    it('keeps the finished turn when the process then exits or idles normally', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(turn(session, 1, 'success'));
+      store.appendEvent(ended(session, 2, { reason: 'idle' }));
+      expect(store.unseen('a').map((u) => u.reason)).toEqual(['done']);
+    });
+
+    it('leaves out an interrupted turn, a Quest with no finished turn, and a closed Quest', () => {
+      const interrupted = randomUUID();
+      const working = randomUUID();
+      const closed = randomUUID();
+      store.appendEvent(started(interrupted));
+      store.appendEvent(turn(interrupted, 1, 'interrupted'));
+      store.appendEvent(started(working));
+      store.appendEvent(started(closed));
+      store.appendEvent(turn(closed, 1, 'success'));
+      store.appendEvent(makeEnvelope({ session: closed, seq: 2, type: 'session.closed', payload: {} }));
+      expect(store.unseen('a')).toEqual([]);
+    });
+
+    it('leaves out turns that finished before the hub could keep track', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(turn(session, 1, 'success', 1));
+      expect(store.unseen('a')).toEqual([]);
+    });
+
+    it('seen never goes backwards, and marking a Quest it has never heard of changes nothing', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(turn(session, 1, 'success'));
+      store.markSeen('a', session);
+      store.markSeen('a', randomUUID());
+      expect(store.unseen('a')).toEqual([]);
+    });
+
+    it('forgets what was seen with the node', () => {
+      const session = randomUUID();
+      store.appendEvent(started(session));
+      store.appendEvent(turn(session, 1, 'success'));
+      store.markSeen('a', session);
+      store.forgetNode('local');
+      store.appendEvent(started(session));
+      store.appendEvent(turn(session, 1, 'success'));
+      expect(store.unseen('a')).toHaveLength(1);
+    });
+  });
+
   describe('home page data', () => {
     const start = (session: string, node: string, label: string, ts: number) =>
       store.appendEvent(

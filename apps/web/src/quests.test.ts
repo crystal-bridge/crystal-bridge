@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionSummary } from './components/SessionList.js';
-import { isActiveQuest, loadPutAway, projectName, putAway, questTabs, RECENT_MS, savePutAway } from './quests.js';
+import {
+  byAttention,
+  isActiveQuest,
+  loadPutAway,
+  projectName,
+  putAway,
+  questTabs,
+  RECENT_MS,
+  savePutAway,
+} from './quests.js';
 
 const NOW = 10 * RECENT_MS;
 
@@ -41,8 +50,40 @@ describe('isActiveQuest', () => {
     expect(isActiveQuest(quest('shut', { status: 'closed', lastActivity: NOW }), NOW, waiting)).toBe(false);
   });
 
+  it('counts a finished Quest you have not seen, however old', () => {
+    expect(isActiveQuest(quest('u'), NOW, new Set(['u']))).toBe(true);
+  });
+
   it('falls back to the start time when the hub sends no last activity', () => {
     expect(isActiveQuest(quest('x', { lastActivity: undefined, createdAt: NOW - 1000 }), NOW, new Set())).toBe(true);
+  });
+});
+
+describe('byAttention', () => {
+  it('puts what needs you first, then finished and unseen, then working, then idle, newest first in each', () => {
+    const sessions = [
+      quest('idle-new', { lastActivity: NOW - 10 * 60_000 }),
+      quest('working', { status: 'running', lastActivity: NOW - 1_000 }),
+      quest('unseen-old', { lastActivity: NOW - 3 * RECENT_MS }),
+      quest('needs-you', { lastActivity: NOW - 2 * RECENT_MS }),
+      quest('unseen-new', { lastActivity: NOW - 5_000 }),
+      quest('idle-old'),
+      quest('running-quiet', { status: 'running', lastActivity: NOW - 60 * 60_000 }),
+    ];
+    const order = byAttention(sessions, {
+      now: NOW,
+      waiting: new Set(['needs-you']),
+      unseen: new Set(['unseen-old', 'unseen-new']),
+    }).map((s) => s.id);
+    expect(order).toEqual([
+      'needs-you',
+      'unseen-new',
+      'unseen-old',
+      'working',
+      'idle-new',
+      'running-quiet',
+      'idle-old',
+    ]);
   });
 });
 
