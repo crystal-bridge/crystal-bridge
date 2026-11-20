@@ -476,6 +476,26 @@ describe('startNode', () => {
       expect(patrols.change).toHaveBeenCalledWith('sweep', { op: 'pause' });
     });
 
+    it('says in hello that it previews schedules, and answers a preview with times or why not', async () => {
+      createNode({ patrols: fakePatrols() });
+      const { conn, hello: said } = await hello();
+      expect(said.patrolPreview).toBe(true);
+      const requestId = randomUUID();
+      const schedule = { once: '2999-01-01T09:00', timezone: 'UTC' };
+      conn.socket.send(JSON.stringify({ kind: 'patrol-preview', requestId, schedule, count: 3 }));
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'patrol-previewed')).toEqual({
+        kind: 'patrol-previewed',
+        requestId,
+        times: [Date.parse('2999-01-01T09:00:00Z')],
+      });
+      const second = randomUUID();
+      const bad = { cron: '0 9 * * *', timezone: 'Mars/Base' };
+      conn.socket.send(JSON.stringify({ kind: 'patrol-preview', requestId: second, schedule: bad, count: 3 }));
+      expect(
+        await waitForFrame(conn, (frame) => frame.kind === 'patrol-previewed' && frame.requestId === second),
+      ).toEqual({ kind: 'patrol-previewed', requestId: second, reason: expect.stringMatching(/no time zone/) });
+    });
+
     it('answers a change that threw, with why', async () => {
       const patrols = fakePatrols();
       patrols.change.mockRejectedValueOnce(new Error('disk full'));

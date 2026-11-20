@@ -174,6 +174,19 @@ export const PatrolChangeRequest = z.discriminatedUnion('op', [
 ]);
 export type PatrolChangeRequest = z.infer<typeof PatrolChangeRequest>;
 
+/** The most run times a preview gives. */
+export const MAX_PATROL_PREVIEW = 10;
+
+/**
+ * Client -> hub (REST), passed to the Kingdom: the next few times a schedule would run, worked out on the Kingdom so they
+ * use its clock and its time zone data. The form shows them before a save.
+ */
+export const PatrolPreviewRequest = z.object({
+  schedule: PatrolSchedule,
+  count: z.number().int().min(1).max(MAX_PATROL_PREVIEW).default(5),
+});
+export type PatrolPreviewRequest = z.infer<typeof PatrolPreviewRequest>;
+
 // node -> hub
 
 /**
@@ -217,6 +230,15 @@ export const NodePatrolChanged = z.object({
 });
 export type NodePatrolChanged = z.infer<typeof NodePatrolChanged>;
 
+/** Node -> hub: a `patrol-preview` answered, with the times (epoch ms, fewer if the schedule ends) or why there are none. */
+export const NodePatrolPreviewed = z.object({
+  kind: z.literal('patrol-previewed'),
+  requestId: z.uuid(),
+  times: z.array(z.number().int()).max(MAX_PATROL_PREVIEW).optional(),
+  reason: z.string().max(2000).optional(),
+});
+export type NodePatrolPreviewed = z.infer<typeof NodePatrolPreviewed>;
+
 // hub -> node: frames of their own, not `NodeCommand`s, so a client can only reach them through the hub's routes.
 
 /** Hub -> node: run a Patrol now. */
@@ -231,6 +253,13 @@ export const HubPatrolChange = z.object({
   change: PatrolChangeRequest,
 });
 export type HubPatrolChange = z.infer<typeof HubPatrolChange>;
+
+/** Hub -> node: the next times a schedule would run. Answered by `patrol-previewed`. */
+export const HubPatrolPreview = PatrolPreviewRequest.extend({
+  kind: z.literal('patrol-preview'),
+  requestId: z.uuid(),
+});
+export type HubPatrolPreview = z.infer<typeof HubPatrolPreview>;
 
 // hub -> client frames, listed in `HubToClient`
 

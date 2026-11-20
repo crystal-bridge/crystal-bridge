@@ -182,13 +182,13 @@ action can offer "Patrol this", which opens the form with the item's prompt fill
 ## Who holds what
 
 - **The Kingdom** holds the Patrol folders, the prompts and scripts, their state, and the scheduler. Credentials stay
-  there.
+  there. It also works out the form's preview of the next run times, so they follow its clock and its time zone data.
 - **The hub** stores each Patrol as the Kingdom reported it and a short run history: times, trigger, outcome, reason,
   the end of a script's output, and a link to a Quest's session. Engine output stays in the Quest's event stream; nothing
   engine-specific becomes a column.
 - **The browser** shows the Watchtower and the form. The phone shows Patrols read-only for now.
 
-The protocol stays additive: a `patrols` flag on `hello`, new frames beside the Scouts' ones, new hub tables in a new
+The protocol stays additive: `patrols` and `patrolPreview` flags on `hello`, new frames beside the Scouts' ones, new hub tables in a new
 migration, and a `patrol` link on `session.started` for a Patrol's Quest. Older hubs and Kingdoms ignore all of it.
 
 ## Not planned

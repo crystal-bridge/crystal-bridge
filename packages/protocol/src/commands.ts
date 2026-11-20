@@ -234,6 +234,8 @@ export const NodeHello = z.object({
   patrols: z.boolean().optional(),
   /** This node takes new and changed Patrols from the app; false when its owner keeps Patrols to files. */
   patrolsFromApp: z.boolean().optional(),
+  /** This node answers `patrol-preview` with a schedule's next run times; older nodes leave it out. */
+  patrolPreview: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 

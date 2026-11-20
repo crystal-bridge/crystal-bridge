@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { HubToClient, NodeHello } from './commands.js';
 import {
   HubPatrolChange,
+  HubPatrolPreview,
+  MAX_PATROL_PREVIEW,
   MAX_PATROL_OUTPUT,
   NodePatrolChanged,
+  NodePatrolPreviewed,
   NodePatrolRun,
   NodePatrols,
   PatrolChangeRequest,
   PatrolLink,
   PatrolManifest,
+  PatrolPreviewRequest,
   PatrolRun,
   PatrolSchedule,
 } from './patrols.js';
@@ -174,11 +178,46 @@ describe('changing a Patrol from the app', () => {
   });
 });
 
+describe('Patrol previews', () => {
+  const schedule = { cron: '0 9 * * 1', timezone: 'Europe/Berlin' };
+
+  it('asks for a schedule as patrol.json takes it, and a few times', () => {
+    expect(PatrolPreviewRequest.parse({ schedule })).toEqual({ schedule, count: 5 });
+    expect(PatrolPreviewRequest.parse({ schedule, count: MAX_PATROL_PREVIEW }).count).toBe(MAX_PATROL_PREVIEW);
+    expect(PatrolPreviewRequest.safeParse({ schedule, count: MAX_PATROL_PREVIEW + 1 }).success).toBe(false);
+    expect(PatrolPreviewRequest.safeParse({ schedule, count: 0 }).success).toBe(false);
+  });
+
+  it('refuses a schedule patrol.json would refuse, in words', () => {
+    const bad = PatrolPreviewRequest.safeParse({ schedule: { cron: '0 9 * * 1' } });
+    expect(bad.success).toBe(false);
+  });
+
+  it('goes to the Kingdom with a request id, and comes back with times or a reason', () => {
+    expect(HubPatrolPreview.safeParse({ kind: 'patrol-preview', requestId: REQUEST, schedule, count: 3 }).success).toBe(
+      true,
+    );
+    expect(
+      NodePatrolPreviewed.safeParse({ kind: 'patrol-previewed', requestId: REQUEST, times: [1, 2, 3] }).success,
+    ).toBe(true);
+    expect(
+      NodePatrolPreviewed.safeParse({ kind: 'patrol-previewed', requestId: REQUEST, reason: 'no such zone' }).success,
+    ).toBe(true);
+    const many = Array.from({ length: MAX_PATROL_PREVIEW + 1 }, (_, i) => i);
+    expect(NodePatrolPreviewed.safeParse({ kind: 'patrol-previewed', requestId: REQUEST, times: many }).success).toBe(
+      false,
+    );
+  });
+});
+
 describe('Patrols elsewhere in the protocol', () => {
   it('has hello flags for running Patrols and taking them from the app', () => {
-    expect(NodeHello.parse({ kind: 'hello', node: 'n', patrols: true, patrolsFromApp: false })).toMatchObject({
+    expect(
+      NodeHello.parse({ kind: 'hello', node: 'n', patrols: true, patrolsFromApp: false, patrolPreview: true }),
+    ).toMatchObject({
       patrols: true,
       patrolsFromApp: false,
+      patrolPreview: true,
     });
   });
 
