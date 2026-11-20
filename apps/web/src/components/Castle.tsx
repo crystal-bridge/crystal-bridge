@@ -4,7 +4,7 @@ import { KingdomIcon } from './KingdomIcon.js';
 import { hint, postingsLine, w } from '../theme/words.js';
 import type { Engine, ExternalSession, ListedScout, SelfUpdate } from '@crystal-bridge/protocol';
 import type { Kingdom } from '../kingdoms.js';
-import { isActiveQuest } from '../quests.js';
+import { isActiveQuest, type UnseenQuest } from '../quests.js';
 import type { Circle } from '../summons.js';
 import { FoundSessions } from './FoundSessions.js';
 import { NodeUsage, type NodeUsageRow } from './NodeUsage.js';
@@ -22,6 +22,8 @@ export interface CastleProps {
   /** This Kingdom's Quests, newest first. */
   sessions: SessionSummary[];
   waiting: ReadonlySet<string>;
+  /** Finished Quests the user hasn't viewed since: they stay in play, marked, until opened. */
+  unseen?: Record<string, UnseenQuest>;
   usage: NodeUsageRow[];
   /** Sessions found outside the bridge, offered as Recruits. */
   found: ExternalSession[];
@@ -365,6 +367,7 @@ export function Castle({
   onPinBoard,
   sessions,
   waiting,
+  unseen = {},
   usage,
   found,
   engines,
@@ -399,6 +402,7 @@ export function Castle({
       <QuestCard
         session={session}
         waiting={waiting.has(session.id)}
+        unseen={unseen[session.id]?.reason}
         heroes={heroes}
         state={heroStates[session.id]}
         now={now}
@@ -406,9 +410,10 @@ export function Castle({
       />
     </li>
   );
+  const marked = new Set([...waiting, ...Object.keys(unseen)]);
   const needsYou = sessions.filter((s) => waiting.has(s.id));
-  const active = sessions.filter((s) => !waiting.has(s.id) && isActiveQuest(s, now, waiting));
-  const history = sessions.filter((s) => !isActiveQuest(s, now, waiting));
+  const active = sessions.filter((s) => !waiting.has(s.id) && isActiveQuest(s, now, marked));
+  const history = sessions.filter((s) => !isActiveQuest(s, now, marked));
   const searching = query.trim().length >= 2;
 
   return (

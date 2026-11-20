@@ -51,6 +51,41 @@ describe('Airship', () => {
     expect(props.onQuest).toHaveBeenCalledWith('quiet', 'c');
   });
 
+  it('lists finished Quests you have not seen after what needs you, newest first, with no titles from Discreet Kingdoms', () => {
+    const props = renderAirship({
+      waiting: { a: 'dev' },
+      unseen: {
+        b: { node: 'dev', reason: 'done', at: NOW - 5_000 },
+        c: { node: 'quiet', reason: 'failed', at: NOW - 1_000 },
+      },
+    });
+    const rows = within(screen.getByRole('region', { name: 'Tavern' })).getAllByRole('button');
+    expect(rows.map((row) => row.textContent)).toEqual([
+      '!Workshop: fix the build',
+      expect.stringContaining('Lantern: a Quest failed'),
+      expect.stringContaining('Workshop: old'),
+    ]);
+    // Failed carries a shape as well as its colour; finished is a plain dot.
+    expect(rows[1]!.querySelector('[data-unseen="failed"]')?.textContent).toBe('×');
+    expect(rows[2]!.querySelector('[data-unseen="done"]')?.textContent).toBe('');
+    expect(screen.queryByText(/private matter/)).toBeNull();
+    fireEvent.click(rows[2]!);
+    expect(props.onQuest).toHaveBeenCalledWith('dev', 'b');
+  });
+
+  it('lists a Kingdom-s Quests on its card by attention, marking finished ones you have not seen', () => {
+    renderAirship({
+      waiting: {},
+      unseen: { b: { node: 'dev', reason: 'done', at: NOW } },
+    });
+    const workshop = document.querySelector('[data-kingdom="dev"]') as HTMLElement;
+    expect(workshop.textContent).toContain('2 active');
+    const titles = [...workshop.querySelectorAll('li')].map((li) => li.textContent);
+    expect(titles[0]).toContain('old');
+    expect(titles[1]).toContain('fix the build');
+    expect(workshop.querySelector('[data-unseen="done"]')).not.toBeNull();
+  });
+
   it('shows each Kingdom card with its icon and colour', () => {
     const props = renderAirship({ looks: { quiet: { icon: 'ship', colour: '#1f9aa6' } } });
     const card = document.querySelector('[data-kingdom="quiet"]') as HTMLElement;
@@ -60,7 +95,7 @@ describe('Airship', () => {
   });
 
   it('says so when nothing is waiting', () => {
-    renderAirship({ waiting: {} });
+    renderAirship({ waiting: {}, unseen: {} });
     expect(screen.getByText('Nothing is waiting on you.')).toBeTruthy();
   });
 

@@ -458,6 +458,8 @@ export const HubToClient = z.discriminatedUnion('kind', [
   Attention,
   /** The user's appearance changed on another device; clients that don't know this frame ignore it. */
   z.object({ kind: z.literal('appearance'), appearance: Appearance }),
+  /** The user viewed this finished Quest on another tab or device; clients that don't know this frame ignore it. */
+  z.object({ kind: z.literal('seen'), session: z.uuid() }),
   /** The answer to this client's `file.read`; clients that don't know this frame ignore it. */
   FileReply,
   /** A Cast changed; clients that don't know this frame ignore it. */

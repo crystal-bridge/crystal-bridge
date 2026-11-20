@@ -27,6 +27,7 @@ const sessions = [
 
 let attentionListener: ((attention: unknown) => void) | undefined;
 let appearanceListener: ((appearance: unknown) => void) | undefined;
+let seenListener: ((session: string) => void) | undefined;
 
 const NO_EVENTS: never[] = [];
 const LOADED = { received: 0, total: 0, synced: true };
@@ -45,6 +46,10 @@ function fakeHub(): HubClient {
     },
     onAppearance: (listener: (appearance: unknown) => void) => {
       appearanceListener = listener;
+      return () => {};
+    },
+    onSeen: (listener: (session: string) => void) => {
+      seenListener = listener;
       return () => {};
     },
     // A stable snapshot, as the real HubClient gives: useSyncExternalStore loops on a new array every call.
@@ -1474,5 +1479,86 @@ describe('App file viewer', () => {
     expect(screen.getByRole('heading', { name: 'Notes' })).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('heading', { name: 'Notes' })).toBeNull();
+  });
+});
+
+describe('App: done until viewed', () => {
+  const [build, work] = sessions;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    window.history.replaceState(null, '', '/#/airship');
+    fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return new Response(null, { status: 204 });
+      const body =
+        url === '/api/sessions'
+          ? sessions
+          : url === '/api/nodes'
+            ? ['node-b', 'node-a']
+            : url === '/api/unseen'
+              ? [{ session: work!.id, node: work!.node, reason: 'done', at: 5 }]
+              : [];
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const tavern = () => within(screen.getByRole('region', { name: 'Tavern' }));
+  const seenPosts = () =>
+    fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST').map(([url]) => url);
+
+  it('knows on load what finished since you last looked, and opening it tells the hub', async () => {
+    await renderApp();
+    const row = tavern().getByRole('button', { name: /private work/ });
+    expect(row.querySelector('[data-unseen="done"]')).not.toBeNull();
+    fireEvent.click(row);
+    await waitFor(() => expect(seenPosts()).toEqual([`/api/sessions/${work!.id}/seen`]));
+    fireEvent.click(screen.getByRole('button', { name: /Crystal Bridge/ }));
+    expect(tavern().queryByRole('button', { name: /private work/ })).toBeNull();
+  });
+
+  it('drops it when you view it on another device', async () => {
+    await renderApp();
+    expect(tavern().getByRole('button', { name: /private work/ })).toBeTruthy();
+    act(() => seenListener!(work!.id));
+    expect(tavern().queryByRole('button', { name: /private work/ })).toBeNull();
+  });
+
+  it('marks a turn that finishes out of view, and marks one in view seen at once', async () => {
+    await renderApp();
+    act(() => {
+      attentionListener!({
+        kind: 'attention',
+        node: build!.node,
+        session: build!.id,
+        label: 'fix the build',
+        reason: 'failed',
+      });
+    });
+    expect(
+      tavern()
+        .getByRole('button', { name: /fix the build/ })
+        .querySelector('[data-unseen="failed"]'),
+    ).not.toBeNull();
+    expect(seenPosts()).toEqual([]);
+
+    fireEvent.click(tavern().getByRole('button', { name: /fix the build/ }));
+    await waitFor(() => expect(seenPosts()).toEqual([`/api/sessions/${build!.id}/seen`]));
+    act(() => {
+      attentionListener!({
+        kind: 'attention',
+        node: build!.node,
+        session: build!.id,
+        label: 'fix the build',
+        reason: 'done',
+      });
+    });
+    await waitFor(() => expect(seenPosts()).toHaveLength(2));
   });
 });

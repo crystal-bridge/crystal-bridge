@@ -1,8 +1,17 @@
 import type { SessionSummary } from './components/SessionList.js';
+import { QUIET_MS } from './heroes.js';
 import { hint } from './theme/words.js';
 
 /** A Quest that had activity this recently is still active, whatever its process is doing. */
 export const RECENT_MS = 24 * 60 * 60_000;
+
+/** A Quest that finished a turn or failed since you last had it in view (the hub keeps this per user). */
+export interface UnseenQuest {
+  node: string;
+  reason: 'done' | 'failed';
+  /** When it finished. */
+  at: number;
+}
 
 /** Put-away Quests per Kingdom: session id -> the Quest's last activity when it was put away. */
 export type PutAway = Record<string, Record<string, number>>;
@@ -21,10 +30,30 @@ export function projectName(cwd: string): string {
   return cwd.replace(WORKTREE, '').split('/').filter(Boolean).at(-1) ?? cwd;
 }
 
-/** Running, waiting on the user, or active in the last day. A closed Quest is history, never active. */
-export function isActiveQuest(session: SessionSummary, now: number, waiting: ReadonlySet<string>): boolean {
+/**
+ * Running, marked (waiting on the user, or finished and not yet viewed), or active in the last day. A closed Quest is
+ * history, never active.
+ */
+export function isActiveQuest(session: SessionSummary, now: number, marked: ReadonlySet<string>): boolean {
   if (session.status === 'closed') return false;
-  return session.status === 'running' || waiting.has(session.id) || now - lastActivity(session) < RECENT_MS;
+  return session.status === 'running' || marked.has(session.id) || now - lastActivity(session) < RECENT_MS;
+}
+
+/**
+ * Quests by what they ask of you: needing you, then finished and not yet viewed, then working (a running process with
+ * activity in the last `QUIET_MS`), then idle; newest activity first within each. A new array.
+ */
+export function byAttention(
+  sessions: readonly SessionSummary[],
+  { now, waiting, unseen }: { now: number; waiting: ReadonlySet<string>; unseen: ReadonlySet<string> },
+): SessionSummary[] {
+  const rank = (s: SessionSummary): number => {
+    if (waiting.has(s.id)) return 0;
+    if (unseen.has(s.id)) return 1;
+    if (s.status === 'running' && now - lastActivity(s) < QUIET_MS) return 2;
+    return 3;
+  };
+  return [...sessions].sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
 }
 
 /**

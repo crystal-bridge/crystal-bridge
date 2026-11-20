@@ -132,6 +132,13 @@ describe('Castle', () => {
     expect(screen.getByPlaceholderText('Search this Kingdom')).toBeTruthy();
   });
 
+  it('keeps a finished Quest you have not seen in play, marked, however old', () => {
+    renderCastle({ unseen: { c: { node: 'k', reason: 'done', at: NOW } } });
+    const active = screen.getByRole('region', { name: 'Active Quests' });
+    expect(active.textContent).toContain('old work');
+    expect(active.querySelector('[data-unseen="done"]')).not.toBeNull();
+  });
+
   it('flies the Kingdom-s banner: its icon and colour in the header', () => {
     renderCastle({ look: { icon: 'fortress', colour: '#2f9e5a' } });
     const header = screen.getByRole('banner');

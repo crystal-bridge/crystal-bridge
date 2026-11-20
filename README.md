@@ -43,7 +43,7 @@ The default theme has its own words for things. Classic uses plain ones.
 |---|---|
 | **Airship** | The hub every machine connects to, and the app's home page |
 | **Ship's Log** | The hub's own release, health and updates, on the Airship |
-| **Tavern** | The room on the Airship that lists everything waiting on you, across Kingdoms |
+| **Tavern** | The room on the Airship that lists everything waiting on you, across Kingdoms, then the Quests that finished since you last opened them |
 | **Kingdom** | A machine and the Claude account signed in on it |
 | **Crystal** | The agent that runs on a Kingdom and connects it to the Airship |
 | **Castle** | A Kingdom's dashboard |

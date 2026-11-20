@@ -490,6 +490,17 @@ A restore loses only what happened after that backup; Crystals resend events the
 - The release that added it applied migration 3, so rolling back past it refuses to start (see Rolling back). The
   deploy backs the database up before migrating, as for every migration.
 
+## Done until viewed
+
+- A Quest that finishes a turn or fails while you aren't looking at it stays marked until you open it, on every device.
+  The hub keeps, per user (as for appearance), the latest event of each Quest they've had in view (`seen`, migration 9).
+  A Quest counts as unseen when its latest finished turn, or a crash or restart that didn't resume, is newer.
+- `GET /api/unseen` lists them; `POST /api/sessions/<id>/seen` marks one viewed and sends a `seen` frame to that user's
+  other open tabs. An older tab ignores the frame.
+- Only turns that finished after the upgrade count (`seen_floor`), so the first start on migration 9 doesn't mark all
+  of history unseen. A closed Quest is never unseen.
+- Rolling back past it refuses to start (see Rolling back). The deploy backs the database up before migrating.
+
 ## Relayed bytes
 
 - The hub counts the bytes of every frame it sends clients about a session (replay batches, `synced`, live events),

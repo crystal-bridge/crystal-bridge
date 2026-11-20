@@ -75,6 +75,7 @@ export class HubClient {
   private readonly castListeners = new Set<(node: string, cast: Cast) => void>();
   private readonly boardListeners = new Set<(frame: BoardsFrame) => void>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
+  private readonly seenListeners = new Set<(session: string) => void>();
   private readonly reconnectListeners = new Set<() => void>();
   private readonly fileRequests = new Map<string, (reply: FileReply) => void>();
   private outbox: ClientMessage[] = [];
@@ -124,6 +125,12 @@ export class HubClient {
   onReconnect(listener: () => void): () => void {
     this.reconnectListeners.add(listener);
     return () => this.reconnectListeners.delete(listener);
+  }
+
+  /** The user viewed a finished Quest on another tab or device. */
+  onSeen(listener: (session: string) => void): () => void {
+    this.seenListeners.add(listener);
+    return () => this.seenListeners.delete(listener);
   }
 
   /** The user's Kingdom appearance, changed on another of their devices. */
@@ -358,6 +365,10 @@ export class HubClient {
     }
     if (frame.data.kind === 'scouts' || frame.data.kind === 'board' || frame.data.kind === 'board-items') {
       for (const listener of this.boardListeners) listener(frame.data);
+      return;
+    }
+    if (frame.data.kind === 'seen') {
+      for (const listener of this.seenListeners) listener(frame.data.session);
       return;
     }
     if (frame.data.kind === 'appearance') {

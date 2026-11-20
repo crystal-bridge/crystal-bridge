@@ -59,6 +59,18 @@ describe('store migrations', () => {
     db.close();
   });
 
+  it('starts tracking seen Quests from when it upgrades, so older finished turns never count as unseen', () => {
+    const db = new Database(path);
+    db.exec(MIGRATIONS.slice(0, 8).join(';'));
+    db.pragma('user_version = 8');
+    const before = Date.now();
+    migrate(db);
+    const { at } = db.prepare('SELECT at FROM seen_floor').get() as { at: number };
+    expect(at).toBeGreaterThanOrEqual(before - 1_000);
+    expect(at).toBeLessThanOrEqual(Date.now() + 1_000);
+    db.close();
+  });
+
   it('refuses a database written by newer code, e.g. after rolling back past a migration', () => {
     const db = new Database(path);
     db.pragma(`user_version = ${SCHEMA_VERSION + 1}`);

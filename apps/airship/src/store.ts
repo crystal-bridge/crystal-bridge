@@ -94,6 +94,15 @@ const SEARCH_BUDGET_MS = 5000;
 
 export { GONE_ITEMS_KEPT_MS, SCOUT_RUNS_KEPT, SCOUT_RUNS_SHOWN } from './boards.js';
 
+/** An open Quest that finished a turn or failed since the login last had it in view. */
+export interface UnseenQuest {
+  session: string;
+  node: string;
+  reason: 'done' | 'failed';
+  /** When it finished, by the node's clock. */
+  at: number;
+}
+
 /** Everything the hub keeps, Scouts' Boards included (`boards.ts`). */
 export interface Store extends Boards {
   /** Stores an event; false for a duplicate. Throws `BadEvent` for one that can never be stored. */
@@ -108,6 +117,10 @@ export interface Store extends Boards {
   activity(limit: number): ActivityItem[];
   /** Quests with a permission request nobody has answered, and that can still be answered. */
   waiting(): { session: string; node: string }[];
+  /** Open Quests whose latest finished turn or failure is newer than what this login has had in view. */
+  unseen(login: string): UnseenQuest[];
+  /** This login has a Quest in view up to its latest event. Never goes backwards; an unknown Quest changes nothing. */
+  markSeen(login: string, session: string): void;
   /** Adds bytes relayed to clients, per session, in one transaction. */
   addRelayed(bytes: ReadonlyMap<string, number>): void;
   /** Deletes everything held for a node, in one transaction, and returns the ids of the sessions that went. */
@@ -191,6 +204,33 @@ interface SessionTableRow {
   label: string;
   status: string;
   created_at: number;
+}
+
+/** One row of `unseenStmt`: a Quest, what this login has seen of it, its latest finished turn and latest process end. */
+interface UnseenRow {
+  session: string;
+  node: string;
+  seen: number;
+  turn_seq: number | null;
+  turn_ts: number | null;
+  outcome: unknown;
+  end_seq: number | null;
+  end_ts: number | null;
+  reason: unknown;
+  resuming: unknown;
+}
+
+/**
+ * A Quest's latest outcome, as the hub's attention frames judge one: a process end that failed (an error, or a restart
+ * with no resume) after the last turn, else that turn unless it was interrupted. A normal exit or idle stop after a turn
+ * keeps the turn.
+ */
+function outcomeOf(row: UnseenRow): { reason: 'done' | 'failed'; seq: number; at: number } | undefined {
+  const endFailed = row.reason === 'error' || (row.reason === 'restart' && row.resuming !== 1);
+  if (row.end_seq !== null && row.end_ts !== null && endFailed && row.end_seq > (row.turn_seq ?? -1))
+    return { reason: 'failed', seq: row.end_seq, at: row.end_ts };
+  if (row.turn_seq === null || row.turn_ts === null || row.outcome === 'interrupted') return undefined;
+  return { reason: row.outcome === 'success' ? 'done' : 'failed', seq: row.turn_seq, at: row.turn_ts };
 }
 
 /** One field of a stored payload, which a node can have left as anything JSON can be, and `null` has no fields. */
@@ -307,6 +347,28 @@ export function openStore(path: string): Store {
   const forgetRelayStmt = db.prepare(`DELETE FROM relay WHERE session IN (SELECT id FROM sessions WHERE node = ?)`);
   const forgetEventsStmt = db.prepare(`DELETE FROM events WHERE node = ?`);
   const forgetSessionsStmt = db.prepare(`DELETE FROM sessions WHERE node = ?`);
+  const forgetSeenStmt = db.prepare(`DELETE FROM seen WHERE session IN (SELECT id FROM sessions WHERE node = ?)`);
+  // Each open Quest's latest finished turn and latest process end: two probes of events_session_type_seq per Quest, as
+  // listSessions does for its preview. Which of them counts, if either, is decided in code (see `outcomeOf`).
+  const unseenStmt = db.prepare(
+    `SELECT q.id AS session, q.node AS node, COALESCE(seen.seq, -1) AS seen,
+       t.seq AS turn_seq, t.ts AS turn_ts, json_extract(t.payload, '$.outcome') AS outcome,
+       e.seq AS end_seq, e.ts AS end_ts, json_extract(e.payload, '$.reason') AS reason,
+       json_extract(e.payload, '$.resuming') AS resuming
+     FROM sessions q
+     LEFT JOIN seen ON seen.login = ? AND seen.session = q.id
+     LEFT JOIN events t ON t.session = q.id AND t.seq =
+       (SELECT seq FROM events WHERE session = q.id AND type = 'turn.finished' ORDER BY seq DESC LIMIT 1)
+     LEFT JOIN events e ON e.session = q.id AND e.seq =
+       (SELECT seq FROM events WHERE session = q.id AND type = 'session.ended' ORDER BY seq DESC LIMIT 1)
+     WHERE q.status != 'closed' AND (t.seq IS NOT NULL OR e.seq IS NOT NULL)`,
+  );
+  const seenFloorStmt = db.prepare(`SELECT at FROM seen_floor`);
+  const markSeenStmt = db.prepare(
+    `INSERT INTO seen (login, session, seq)
+       SELECT ?, session, MAX(seq) FROM events WHERE session = ? GROUP BY session
+     ON CONFLICT (login, session) DO UPDATE SET seq = MAX(seq, excluded.seq)`,
+  );
   const getCastStmt = db.prepare(`SELECT node, state, delivered FROM casts WHERE id = ?`);
   const upsertCastStmt = db.prepare(
     `INSERT INTO casts (id, node, session, state, started_at, data) VALUES (?, ?, ?, ?, ?, ?)
@@ -325,6 +387,7 @@ export function openStore(path: string): Store {
     boards.forgetBoards(node);
     forgetCastsStmt.run(node);
     forgetRelayStmt.run(node);
+    forgetSeenStmt.run(node);
     forgetEventsStmt.run(node);
     forgetSessionsStmt.run(node);
     return ids;
@@ -516,6 +579,19 @@ export function openStore(path: string): Store {
     },
     waiting() {
       return waitingStmt.all() as { session: string; node: string }[];
+    },
+    unseen(login) {
+      const floor = (seenFloorStmt.get() as { at: number }).at;
+      const found: UnseenQuest[] = [];
+      for (const row of unseenStmt.all(login) as UnseenRow[]) {
+        const outcome = outcomeOf(row);
+        if (outcome && outcome.seq > row.seen && outcome.at >= floor)
+          found.push({ session: row.session, node: row.node, reason: outcome.reason, at: outcome.at });
+      }
+      return found;
+    },
+    markSeen(login, session) {
+      markSeenStmt.run(login, session);
     },
     activity(limit) {
       type Row = { session: string; node: string; label: string; ts: number; type: string; outcome: unknown };
