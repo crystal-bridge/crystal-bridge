@@ -33,6 +33,11 @@ one entry.
 - A Scout's `schedule` takes an RFC 5545 recurrence rule (`rule` with a `start`, such as every other Tuesday or the
   last weekday of the month) or a single time (`once`) besides cron, each in its time zone. Patrols will use the same
   engine. Existing cron schedules work as before.
+- A Kingdom runs Patrols: each folder under `~/.crystal-bridge/patrols/` names a schedule and either a Quest (a prompt,
+  a project and a mode) or a script, and the Kingdom sets out at each time, catches up a missed run only within its
+  `catchUp` window, stands a Patrol down after three failures and reports every run to the hub. A permission prompt in a
+  Patrol's Quest that nobody answers within `waitForYou` ends the run as needing you. The app's Watchtower comes in a
+  later release. See [Patrols](docs/PATROLS.md).
 
 ### Changed
 

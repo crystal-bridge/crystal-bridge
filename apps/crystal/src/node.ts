@@ -4,9 +4,18 @@ import {
   HubCliUpdate,
   HubListInventory,
   HubKingdomVersion,
+  HubPatrolChange,
+  HubPatrolRunNow,
   HubScoutAction,
   HubScoutQuest,
   HubScoutRunNow,
+  type NodePatrolChanged,
+  type NodePatrolRun,
+  type NodePatrols,
+  type Patrol,
+  type PatrolChangeRequest,
+  type PatrolLink,
+  type PatrolRun,
   type NodeScoutActed,
   MAX_CLI_UPDATE_REASON,
   NodeCliUpdated,
@@ -49,6 +58,7 @@ import type { PermissionDecision, PermissionRequest } from './permissions.js';
 import type { ReplayEvent } from './transcripts.js';
 import type { ClaudeSessionEvent } from './session.js';
 import type { ActResult, QuestStart } from './scouts.js';
+import type { ChangeResult, PatrolQuestStart, QuestEnded } from './patrols.js';
 
 /** The subset of `ClaudeSession` the node link drives, so tests can supply a fake. */
 export interface SessionLike {
@@ -141,6 +151,17 @@ export interface StartNodeOptions {
     act(request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
     quest(request: HubScoutQuest, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
   };
+  /** This Kingdom's Patrols (`patrols.ts`), told to the hub with their latest runs on each connect; unset runs none. */
+  patrols?: {
+    list(): Patrol[];
+    recent(): NodePatrolRun[];
+    runNow(id: string): void;
+    change(id: string, change: PatrolChangeRequest): Promise<ChangeResult>;
+    /** A Patrol's Quest's first turn ended. */
+    questEnded(session: string, ended: QuestEnded): void;
+    /** Whether the app may save Patrols here, said in hello. */
+    fromApp(): boolean;
+  };
   /** How often to rescan `transcripts`; the hub only hears about a change. Default 60 s. */
   scanMs?: number;
   /** How often to check the hub is still there. Default `HEARTBEAT_MS`. */
@@ -169,6 +190,17 @@ export interface CrystalNode {
   reportScouts(scouts: Scout[]): void;
   /** Tells the hub a Scout's run ended. The latest runs go again on the next connect; the hub ignores repeats. */
   reportScoutRun(scout: string, run: ScoutRun, items: ScoutItem[] | undefined): void;
+  /** Tells the hub the Patrols changed. The list goes again on the next connect. */
+  reportPatrols(patrols: Patrol[]): void;
+  /** Tells the hub a Patrol's run set out or ended. The latest runs go again on the next connect. */
+  reportPatrolRun(patrol: string, run: PatrolRun): void;
+  /**
+   * Starts a Patrol's Quest as New Quest would, marked with its run. Its first turn's end goes to `patrols.questEnded`,
+   * and until then a permission prompt nobody answers within `waitForYouMs` is denied and the turn ended.
+   */
+  startPatrolQuest(start: PatrolQuestStart): Promise<{ ok: true; session: string } | { ok: false; reason: string }>;
+  /** Stops treating a Quest as its Patrol's: its prompts wait as long as any Quest's, and its end reports nothing. */
+  forgetPatrolQuest(session: string): void;
   /** Whether a session is open here, so only a real Quest can use the `summon` tool. */
   holds(session: string): boolean;
   /**
@@ -226,6 +258,28 @@ interface PendingPermission {
   resolve: PermissionResolver;
 }
 
+/** A Patrol's Quest whose first turn hasn't ended: its prompts wait only so long, and its end is the run's outcome. */
+interface PatrolQuest {
+  waitForYouMs: number;
+  /** A prompt outwaited `waitForYouMs`, so the turn was ended. */
+  timedOut?: boolean;
+}
+
+/** The longest delay `setTimeout` keeps: 2^31 - 1 ms, about 24.8 days. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** `waitForYou` as the run's reason says it: `30m`, `2h`, or seconds for a short one. */
+function waitedFor(ms: number): string {
+  if (ms >= MAX_TIMER_MS) return 'about 24 days';
+  for (const [unit, size] of [
+    ['d', 86_400_000],
+    ['h', 3_600_000],
+    ['m', 60_000],
+  ] as const)
+    if (ms >= size && ms % size === 0) return `${ms / size}${unit}`;
+  return `${Math.round(ms / 100) / 10}s`;
+}
+
 /** The deny message for a prompt whose `claude` process (or the whole node) went away first. */
 const SESSION_ENDED_MESSAGE = 'Session ended before an answer';
 
@@ -266,6 +320,9 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
   const sessions = new Map<string, SessionState>();
   const pendingPermissions = new Map<string, PendingPermission>();
+  const patrolQuests = new Map<string, PatrolQuest>();
+  /** Patrol Quests let go while they were still starting, so they aren't watched once they've started. */
+  const forgottenQuests = new Set<string>();
 
   let socket: WebSocket | null = null;
   let closed = false;
@@ -395,6 +452,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       // The process that asked can no longer use an answer; deny so nothing stays pending forever.
       if (event.type === 'session.ended') denyPending(sessionId);
       sendEnvelope(sessionId, event.type, event.payload);
+      watchPatrolQuest(sessionId, event);
     });
     return runtime;
   }
@@ -409,7 +467,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
    * why not when it can't; a reason left out means nothing needs saying.
    */
   async function startSession(
-    cmd: Extract<NodeCommand, { type: 'session.start' }> & { scout?: ScoutLink },
+    cmd: Extract<NodeCommand, { type: 'session.start' }> & { scout?: ScoutLink; patrol?: PatrolLink },
+    onCreated?: () => void,
   ): Promise<{ ok: true } | { ok: false; reason?: string }> {
     // A second start would spawn another claude for the same conversation and restart seq at 0.
     if (sessions.has(cmd.session)) {
@@ -445,6 +504,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     const prompt = withFiles(cmd.session, cmd.prompt, cmd.attachments);
     if (prompt === undefined) return { ok: false };
     const runtime = createSession(cmd.session, cwd, 0, cmd.mode, cmd.forkFrom, cmd.engine, cmd.effort);
+    onCreated?.();
     sendEnvelope(cmd.session, 'session.started', {
       cwd,
       prompt,
@@ -456,6 +516,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       ...(cmd.engine ? { engine: cmd.engine } : {}),
       ...(cmd.effort ? { effort: cmd.effort } : {}),
       ...(cmd.scout ? { scout: cmd.scout } : {}),
+      ...(cmd.patrol ? { patrol: cmd.patrol } : {}),
     });
 
     runtime.start(prompt);
@@ -486,6 +547,119 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       };
     }
     return started.ok ? { ok: true, session } : { ok: false, reason: started.reason ?? 'the Quest did not start' };
+  }
+
+  async function startPatrolQuest(
+    start: PatrolQuestStart,
+  ): Promise<{ ok: true; session: string } | { ok: false; reason: string }> {
+    const session = start.session;
+    let started: Awaited<ReturnType<typeof startSession>>;
+    try {
+      started = await startSession(
+        {
+          type: 'session.start',
+          node: nodeId,
+          session,
+          cwd: start.cwd,
+          prompt: start.prompt,
+          ...(start.mode ? { mode: start.mode } : {}),
+          ...(start.effort ? { effort: start.effort } : {}),
+          ...(start.engine ? { engine: start.engine } : {}),
+          ...(start.worktree ? { worktree: true } : {}),
+          patrol: start.link,
+        },
+        // Watched before its process starts, so neither its first prompt nor a quick end slips past.
+        () => {
+          if (!forgottenQuests.delete(session)) patrolQuests.set(session, { waitForYouMs: start.waitForYouMs });
+        },
+      );
+    } catch (error) {
+      patrolQuests.delete(session);
+      failSession(session, error);
+      return {
+        ok: false,
+        reason: `the Quest did not start: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    if (!started.ok) {
+      patrolQuests.delete(session);
+      return { ok: false, reason: started.reason ?? 'the Quest did not start' };
+    }
+    return { ok: true, session };
+  }
+
+  /** The end of a Patrol's Quest's first turn is its run's outcome; after that the Quest is the user's. */
+  function watchPatrolQuest(session: string, event: ClaudeSessionEvent): void {
+    const watched = patrolQuests.get(session);
+    if (!watched) return;
+    let ended: QuestEnded;
+    if (watched.timedOut && (event.type === 'turn.finished' || event.type === 'session.ended')) {
+      ended = {
+        outcome: 'needs-you',
+        reason: `a permission prompt waited ${waitedFor(Math.min(watched.waitForYouMs, MAX_TIMER_MS))} with nobody to answer it; send the Quest a message to carry on`,
+      };
+    } else if (event.type === 'turn.finished') {
+      const outcome = event.payload.outcome;
+      ended =
+        outcome === 'success'
+          ? { outcome: 'finished' }
+          : outcome === 'error'
+            ? { outcome: 'failed', reason: 'the Quest’s turn ended in an error' }
+            : { outcome: 'failed', reason: 'the Quest was stopped' };
+    } else if (event.type === 'session.ended') {
+      ended = { outcome: 'failed', reason: 'the Quest ended before its turn did' };
+    } else return;
+    patrolQuests.delete(session);
+    options.patrols?.questEnded(session, ended);
+  }
+
+  /** Ends a Patrol's Quest's turn when a prompt in it waited `waitForYouMs` with nobody answering. */
+  function timePatrolPrompt(requestId: string, session: string): (() => void) | undefined {
+    const watched = patrolQuests.get(session);
+    if (!watched) return undefined;
+    const timer = setTimeout(
+      () => {
+        const pending = pendingPermissions.get(requestId);
+        if (!pending || patrolQuests.get(session) !== watched) return;
+        pendingPermissions.delete(requestId);
+        watched.timedOut = true;
+        pending.resolve(
+          'deny',
+          `Nobody answered this within ${waitedFor(Math.min(watched.waitForYouMs, MAX_TIMER_MS))}: this scheduled run stops here. Don't retry; end your turn.`,
+        );
+        try {
+          sessions.get(session)?.runtime.interrupt();
+        } catch (error) {
+          log(`could not end the turn of ${session}`, error);
+        }
+      },
+      // A longer delay than a timer holds would fire at once; past about 24 days it waits that long instead.
+      Math.min(watched.waitForYouMs, MAX_TIMER_MS),
+    );
+    timer.unref?.();
+    return () => clearTimeout(timer);
+  }
+
+  /** Carries out a change the app asked for; the answer always goes back, so the hub never waits on it. */
+  async function handlePatrolChange(request: HubPatrolChange): Promise<void> {
+    let answer: ChangeResult;
+    try {
+      answer = options.patrols
+        ? await options.patrols.change(request.patrol, request.change)
+        : { ok: false, reason: 'this Kingdom runs no Patrols' };
+    } catch (error) {
+      answer = { ok: false, reason: `the change failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    wsSend(
+      (answer.ok
+        ? { kind: 'patrol-changed', requestId: request.requestId, ok: true }
+        : {
+            kind: 'patrol-changed',
+            requestId: request.requestId,
+            ok: false,
+            reason: answer.reason.slice(0, 2000),
+          }) satisfies NodePatrolChanged,
+    );
   }
 
   /** Carries out a Board's `quest` or `run` action; the answer always goes back, so the Board never waits on it. */
@@ -892,6 +1066,18 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const patrolRunNow = HubPatrolRunNow.safeParse(parsed);
+    if (patrolRunNow.success) {
+      options.patrols?.runNow(patrolRunNow.data.patrol);
+      return;
+    }
+
+    const patrolChange = HubPatrolChange.safeParse(parsed);
+    if (patrolChange.success) {
+      void handlePatrolChange(patrolChange.data);
+      return;
+    }
+
     const kingdomVersion = HubKingdomVersion.safeParse(parsed);
     if (kingdomVersion.success) {
       options.onKingdomVersion?.(kingdomVersion.data.version);
@@ -936,6 +1122,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.listInventory ? { inventory: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
           ...(options.scouts ? { scouts: true, scoutQuests: true } : {}),
+          ...(options.patrols ? { patrols: true, patrolsFromApp: options.patrols.fromApp() } : {}),
         }),
       );
       resendUnacked();
@@ -949,6 +1136,11 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       if (options.scouts) {
         reportScouts(options.scouts.list());
         for (const frame of options.scouts.recent()) wsSend(frame);
+      }
+      // The list first: the hub keeps runs only for Patrols it has listed.
+      if (options.patrols) {
+        reportPatrols(options.patrols.list());
+        for (const frame of options.patrols.recent()) wsSend(frame);
       }
     });
 
@@ -978,9 +1170,11 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return Promise.resolve({ behavior: 'deny', message: 'This session is not running on this node.' });
     }
     return new Promise<PermissionDecision>((resolve) => {
+      let stopTimer: (() => void) | undefined;
       pendingPermissions.set(request.requestId, {
         session: request.session,
         resolve: (behavior, message, answers) => {
+          stopTimer?.();
           // Answers to a question go back inside the tool's own input, which is how the CLI reads them.
           const allow: PermissionDecision = answers
             ? { behavior: 'allow', updatedInput: { ...(request.input as object), answers } }
@@ -999,6 +1193,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       };
       if (request.toolUseId !== undefined) payload.toolUseId = request.toolUseId;
       sendEnvelope(request.session, 'permission.request', payload);
+      stopTimer = timePatrolPrompt(request.requestId, request.session);
     });
   }
 
@@ -1020,6 +1215,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       reconnectTimer = null;
     }
     denyPending();
+    // A Patrol's Quest ended by closing hasn't ended its run: the Patrols say so on the next start.
+    patrolQuests.clear();
     const stopping: Promise<void>[] = [];
     for (const [id, state] of sessions) {
       // One that won't stop mustn't leave the rest running after Crystal has gone.
@@ -1075,6 +1272,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     wsSend({ kind: 'scout-run', scout, run, ...(items ? { items } : {}) } satisfies NodeScoutRun);
   }
 
+  function reportPatrols(patrols: Patrol[]): void {
+    wsSend({ kind: 'patrols', patrols } satisfies NodePatrols);
+  }
+
+  function reportPatrolRun(patrol: string, run: PatrolRun): void {
+    wsSend({ kind: 'patrol-run', patrol, run } satisfies NodePatrolRun);
+  }
+
   function holds(session: string): boolean {
     const state = sessions.get(session);
     return state !== undefined && !state.closed;
@@ -1088,6 +1293,13 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     reportSummons,
     reportScouts,
     reportScoutRun,
+    reportPatrols,
+    reportPatrolRun,
+    startPatrolQuest,
+    forgetPatrolQuest(session: string) {
+      // Still starting (its worktree being made): remembered, so it isn't watched once it's started.
+      if (!patrolQuests.delete(session) && !sessions.has(session)) forgottenQuests.add(session);
+    },
     holds,
     close,
   };

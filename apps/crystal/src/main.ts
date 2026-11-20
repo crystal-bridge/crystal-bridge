@@ -26,6 +26,7 @@ import {
 } from './release.js';
 import { createUpdater } from './self-update.js';
 import { createScouts } from './scouts.js';
+import { createPatrols } from './patrols.js';
 import {
   createSummons,
   envFileOf,
@@ -69,6 +70,10 @@ const PROJECT_ROOTS = (process.env.CRYSTAL_PROJECT_ROOTS ?? join(homedir(), 'cod
 const CLAUDE_BIN = resolveClaudeBin(process.env);
 // One folder per Scout (docs/SCOUTS.md); its schedule state sits beside the folder, not in it.
 const SCOUTS_DIR = process.env.CRYSTAL_SCOUTS_DIR || join(homedir(), '.crystal-bridge', 'scouts');
+// One folder per Patrol (docs/PATROLS.md), beside the Scouts; its state sits beside the folder too.
+const PATROLS_DIR = process.env.CRYSTAL_PATROLS_DIR || join(homedir(), '.crystal-bridge', 'patrols');
+// `off` keeps the Scouts' line: only what's already in a folder runs, and the app can't create or edit a Patrol.
+const PATROLS_FROM_APP = process.env.CRYSTAL_PATROLS_FROM_APP !== 'off';
 
 /** Exiting with a failure is what makes every service manager, and `crystal.cmd`, start Crystal again. */
 const EXIT_RESTART = 75;
@@ -145,6 +150,17 @@ async function main(): Promise<void> {
     onRun: (scout, run, items) => node.reportScoutRun(scout, run, items),
   });
 
+  const patrols = createPatrols({
+    dir: PATROLS_DIR,
+    statePath: join(dirname(PATROLS_DIR), `${basename(PATROLS_DIR)}-state.json`),
+    env: sessionEnv,
+    fromApp: () => PATROLS_FROM_APP,
+    startQuest: (start) => node.startPatrolQuest(start),
+    onPatrols: (list) => node.reportPatrols(list),
+    onRun: (patrol, run) => node.reportPatrolRun(patrol, run),
+    forgetQuest: (session) => node.forgetPatrolQuest(session),
+  });
+
   const permissionServer = await createPermissionServer({
     port: MCP_PORT,
     host: '127.0.0.1',
@@ -187,6 +203,7 @@ async function main(): Promise<void> {
     ...(updater ? { onKingdomVersion: updater.target } : {}),
     summons,
     scouts,
+    patrols: { ...patrols, fromApp: () => PATROLS_FROM_APP },
     defaultMode: DEFAULT_MODE,
     ...(ENGINES.length > 0 ? { engines: [...new Set<Engine>(['stream', ...ENGINES])] } : {}),
     sessionFactory: ({ engine, ...opts }) => {
@@ -221,6 +238,7 @@ async function main(): Promise<void> {
 
   summons.resume();
   scouts.start();
+  patrols.start();
 
   console.log(
     `[crystal] node "${NODE_ID}" dialing ${HUB_URL}, permission server on http://127.0.0.1:${permissionServer.port}`,
@@ -237,7 +255,9 @@ async function main(): Promise<void> {
     updater?.close();
     summons.close();
     // Wait for the claude processes to stop: with KillMode=process nothing else would end them.
-    await Promise.all([node.close(), scouts.close()]);
+    // Patrols first, so the Quests the node stops aren't taken as their runs ending.
+    const patrolsClosed = patrols.close();
+    await Promise.all([node.close(), scouts.close(), patrolsClosed]);
     await permissionServer.close();
     process.exit(code);
   };

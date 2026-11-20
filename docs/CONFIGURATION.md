@@ -26,6 +26,10 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_PID_FILE` | unset; Windows' `crystal.cmd` sets it | Crystal: where to record its process id, so `leave` can stop it |
 | `CRYSTAL_LOGIN_SHELL` | `$SHELL`, then `/bin/bash` | Crystal: the shell whose login environment sessions get; `join` writes it |
 | `CRYSTAL_SESSION` | set by Crystal | Not a setting: the session id on each `claude` process, so a hook can tell it runs under the bridge |
+| `CRYSTAL_PATROLS_DIR` | `~/.crystal-bridge/patrols` (`%USERPROFILE%\.crystal-bridge\patrols` on Windows) | Crystal: the folder holding one folder per Patrol; each Patrol's schedule state is kept beside it, in `<folder name>-state.json` (`patrols-state.json` by default). See [Patrols](PATROLS.md) |
+| `CRYSTAL_PATROLS_FROM_APP` | on | Crystal: `off` stops the app creating or editing Patrols on this Kingdom; pausing, resuming, deleting and Run now still work. See [Patrols](PATROLS.md#edit-from-the-app) |
+| `CRYSTAL_PATROL` | set by Crystal | Not a setting: a script Patrol gets its Patrol id |
+| `CRYSTAL_PATROL_RUN` | set by Crystal | Not a setting: a script Patrol gets the id of the run it is |
 | `CRYSTAL_SCOUT` | set by Crystal | Not a setting: a Scout's collector and action scripts get its Scout id |
 | `CRYSTAL_SCOUT_ACTION` | set by Crystal | Not a setting: a Scout's `run` action script gets the action's key |
 | `CRYSTAL_SCOUT_STATE` | set by Crystal | Not a setting: a Scout's collector gets the `state` folder it may keep its own state in, which Crystal creates and never reads |
