@@ -88,6 +88,8 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Scout** | a scheduled job on a Kingdom that collects items | See [Scouts and Boards](./SCOUTS.md). "Your Scout returned with 4 findings." The Classic theme says Scheduled job, since it already calls a Cast a Job. |
 | **Board** | the page showing what a Scout found | Opened from its pinned tab or the Castle's Boards. "3 new postings on the Quest Board." |
 | **Counsel** | the Board's pane of suggested actions | Beside the list. The Classic theme says Recommended. |
+| **Patrol** | a scheduled Quest or script on a Kingdom | See [Patrols](./PATROLS.md). A run **sets out**, **returns** or **turns back**; a run skipped because the last was still out says **Still out**; a paused Patrol is **stood down**. The Classic theme says Scheduled task, since Scheduled job is a Scout there. |
+| **Watchtower** | where a Kingdom's Patrols are listed | A panel on the Castle: a card per Patrol with its next run and its latest runs. The Classic theme says Scheduled tasks. |
 | **Config** | settings | The app-bar gear menu. |
 
 ### Inventory

@@ -80,7 +80,11 @@ export type Concept =
   | 'board'
   | 'boards'
   | 'synthesis'
-  | 'counsel';
+  | 'counsel'
+  | 'patrol'
+  | 'patrols'
+  | 'watchtower'
+  | 'nextRun';
 
 export type Words = Record<Concept, Word>;
 
@@ -157,6 +161,10 @@ export const CRYSTAL: Words = {
   boards: { themed: 'Boards', plain: 'what each Scout found, to act on' },
   synthesis: { themed: 'Augury', plain: 'the synthesis step' },
   counsel: { themed: 'Counsel', plain: 'what to do about the items, as suggested' },
+  patrol: { themed: 'Patrol', plain: 'a scheduled Quest or script' },
+  patrols: { themed: 'Patrols', plain: 'scheduled Quests and scripts' },
+  watchtower: { themed: 'Watchtower', plain: 'this Kingdom’s scheduled Quests and scripts, and their runs' },
+  nextRun: { themed: 'Next watch', plain: 'next run' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -233,6 +241,11 @@ export const CLASSIC: Words = {
   boards: { themed: 'Boards', plain: 'Boards' },
   synthesis: { themed: 'the synthesis step', plain: 'the synthesis step' },
   counsel: { themed: 'Recommended', plain: 'Recommended' },
+  // Not "Scheduled job": Classic already calls a Scout that.
+  patrol: { themed: 'Scheduled task', plain: 'Scheduled task' },
+  patrols: { themed: 'Scheduled tasks', plain: 'Scheduled tasks' },
+  watchtower: { themed: 'Scheduled tasks', plain: 'Scheduled tasks' },
+  nextRun: { themed: 'Next run', plain: 'Next run' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };
@@ -462,4 +475,50 @@ export function castLine(cast: CastLineInput, summon: string, theme: Words = wor
   };
   const { themed, plain } = line[state];
   return { themed: theme === CLASSIC ? `${name} on ${summon}: ${plain}` : themed, plain };
+}
+
+/** How a Patrol run ended (`PatrolRunOutcome`), in the theme's run words; an outcome a newer Kingdom sends shows as it is. */
+export function patrolOutcomeWord(outcome: string, theme: Words = words): Word {
+  const plain: Record<string, string> = {
+    running: 'Running',
+    finished: 'Finished',
+    failed: 'Failed',
+    'needs-you': 'Needs you: a prompt waited longer than the Patrol allows',
+    'timed-out': 'Timed out',
+    skipped: 'Skipped: the last run was still out',
+    missed: 'Missed: past its catch-up window',
+  };
+  const themed: Record<string, string> = {
+    running: 'Set out',
+    finished: 'Returned',
+    failed: 'Turned back',
+    'needs-you': 'Waiting on you',
+    'timed-out': 'Out too long',
+    skipped: 'Still out',
+    missed: 'Missed its watch',
+  };
+  if (!Object.hasOwn(plain, outcome)) return { themed: outcome, plain: outcome };
+  const word = plain[outcome]!;
+  if (theme === CLASSIC) {
+    const short = word.split(':')[0]!;
+    return { themed: short, plain: short };
+  }
+  return { themed: themed[outcome]!, plain: word };
+}
+
+/** How a Patrol stands (`PatrolStanding` in patrols.ts), in the theme's words. */
+export function patrolStandingWord(
+  standing: 'broken' | 'stood-down' | 'out' | 'waiting' | 'failing' | 'on-watch',
+  theme: Words = words,
+): Word {
+  const line: Record<typeof standing, Word> = {
+    broken: { themed: 'Can’t set out', plain: 'Its patrol.json doesn’t load' },
+    'stood-down': { themed: 'Stood down', plain: 'Paused' },
+    out: { themed: 'Out on patrol', plain: 'Running' },
+    waiting: { themed: 'Waiting on you', plain: 'Needs you' },
+    failing: { themed: 'On watch', plain: 'Scheduled, after a failed run' },
+    'on-watch': { themed: 'On watch', plain: 'Scheduled' },
+  };
+  const { themed, plain } = line[standing];
+  return theme === CLASSIC ? { themed: plain, plain } : { themed, plain };
 }

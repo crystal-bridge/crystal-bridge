@@ -4,6 +4,7 @@ import { KingdomIcon } from './KingdomIcon.js';
 import { hint, postingsLine, w } from '../theme/words.js';
 import type { Engine, ExternalSession, ListedScout, SelfUpdate } from '@crystal-bridge/protocol';
 import type { Kingdom } from '../kingdoms.js';
+import type { PatrolsState } from '../patrols.js';
 import { isActiveQuest, type UnseenQuest } from '../quests.js';
 import type { Circle } from '../summons.js';
 import { FoundSessions } from './FoundSessions.js';
@@ -14,6 +15,7 @@ import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
+import { Watchtower } from './Watchtower.js';
 import { hasCircle, SummoningCircle } from './SummoningCircle.js';
 import { Folded, HOME_PAGE, HOME_PAIR, QUEST_GRID, QuestCard, StatTiles } from './HomeParts.js';
 
@@ -59,6 +61,10 @@ export interface CastleProps {
   /** This Kingdom's Scouts, each with a Board; without `onOpenBoard`, no Boards section. */
   scouts?: ListedScout[];
   onOpenBoard?: (scout: string) => void;
+  /** This Kingdom's Patrols and their runs, for the Watchtower; it shows once there is a Patrol. */
+  patrols?: PatrolsState;
+  onRunPatrol?: (patrol: string) => Promise<void>;
+  onChangePatrol?: (patrol: string, op: 'pause' | 'resume' | 'delete') => Promise<void>;
   /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
   pinnedBoards?: ReadonlySet<string>;
   onPinBoard?: (scout: string) => void;
@@ -363,6 +369,9 @@ export function Castle({
   circle,
   scouts = [],
   onOpenBoard,
+  patrols,
+  onRunPatrol,
+  onChangePatrol,
   pinnedBoards,
   onPinBoard,
   sessions,
@@ -578,6 +587,24 @@ export function Castle({
           <div className="hidden md:block">
             <Boards scouts={scouts} onOpen={onOpenBoard} pinned={pinnedBoards} onPin={onPinBoard} />
           </div>
+        )}
+
+        {patrols && patrols.patrols.length > 0 && (
+          <>
+            <div className="hidden md:block">
+              <Watchtower
+                state={patrols}
+                now={now ?? Date.now()}
+                onRun={onRunPatrol}
+                onChange={onChangePatrol}
+                onOpenQuest={onSelect}
+              />
+            </div>
+            {/* The phone shows Patrols read-only: its actions need their own design there. */}
+            <div className="md:hidden">
+              <Watchtower state={patrols} now={now ?? Date.now()} onOpenQuest={onSelect} />
+            </div>
+          </>
         )}
 
         {circle && hasCircle(circle.summons, circle.casts) && (

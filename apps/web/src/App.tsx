@@ -78,6 +78,7 @@ import {
   useBoard,
   useScouts,
 } from './boards.js';
+import { changePatrol, runPatrolNow, usePatrols } from './patrols.js';
 import { BoardPage } from './components/Board.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
@@ -299,6 +300,7 @@ export function App({ hub }: { hub: HubClient }) {
   const kingdomProjects = projectLists.find((row) => row.node === active)?.projects ?? EMPTY_PROJECTS;
   const circle = useCircle(hub, active ?? undefined);
   const scouts = useScouts(hub, active ?? undefined);
+  const patrols = usePatrols(hub, active ?? undefined);
   const openBoard = useBoard(hub, active ?? undefined, page === 'board' ? (boardScout ?? undefined) : undefined);
   const changeItems = useCallback(
     (ids: string[], state: BoardItemState, until?: number) =>
@@ -1534,6 +1536,9 @@ export function App({ hub }: { hub: HubClient }) {
                 hubRelease={servedRelease}
                 circle={circle}
                 scouts={scouts}
+                patrols={patrols}
+                onRunPatrol={(patrol) => runPatrolNow(kingdom.id, patrol)}
+                onChangePatrol={(patrol, op) => changePatrol(kingdom.id, patrol, op)}
                 pinnedBoards={new Set(pinnedBoards.map((tab) => tab.id))}
                 onPinBoard={(scout) => pinBoard(kingdom.id, scout, true)}
                 onOpenBoard={(scout) => {
