@@ -289,6 +289,43 @@ describe('Scouts', () => {
       expect(listed()?.nextRunAt).toBe(slot(now));
     });
 
+    it('runs on a recurrence rule, once on waking from a sleep across several of its times', async () => {
+      // Every other day at 13:00 UTC, from the day before NOON: the next time is two days on.
+      const schedule = { rule: 'FREQ=DAILY;INTERVAL=2', start: '2026-11-16T13:00', timezone: 'UTC' };
+      scoutFolder('quest-board', manifest({ schedule }));
+      make();
+      await scouts!.tick();
+      const first = Date.parse('2026-11-18T13:00Z') + jitterOf('quest-board');
+      expect(listed()?.nextRunAt).toBe(first);
+      now = Date.parse('2026-11-23T12:00Z');
+      await scouts!.tick();
+      await scouts!.tick();
+      expect(pending).toHaveLength(1);
+      await finish(ok());
+      expect(sent[0]?.run.trigger).toBe('catch-up');
+      expect(listed()?.nextRunAt).toBe(Date.parse('2026-11-24T13:00Z') + jitterOf('quest-board'));
+    });
+
+    it('runs a one-off schedule once, then has no next time', async () => {
+      scoutFolder('quest-board', manifest({ schedule: { once: '2026-11-17T13:00', timezone: 'UTC' } }));
+      make();
+      await scouts!.tick();
+      now = Date.parse('2026-11-17T13:01Z');
+      await scouts!.tick();
+      await finish(ok());
+      expect(sent[0]?.run.trigger).toBe('schedule');
+      expect(listed()?.nextRunAt).toBeUndefined();
+      expect(listed()?.error).toBeUndefined();
+    });
+
+    it('shows why a rule can’t run', async () => {
+      const schedule = { rule: 'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30', start: '2026-11-16T13:00', timezone: 'UTC' };
+      scoutFolder('quest-board', manifest({ schedule }));
+      make();
+      await scouts!.tick();
+      expect(listed()?.error).toMatch(/never comes round/);
+    });
+
     it('counts a tick that is only a little late as on time', async () => {
       scoutFolder('quest-board');
       make();

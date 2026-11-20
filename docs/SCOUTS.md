@@ -400,8 +400,10 @@ shows the code and the end of stderr on the Board. A script has two minutes. Wha
 
 ## Keep the watch: schedules
 
-- **Cron, five fields, with a time zone.** The time zone is required, so a Scout means the same thing on every machine.
-  `Run now` on the Board runs it at once.
+- **Cron, a recurrence rule or a single time, with a time zone.** `schedule` takes the forms Patrols do: five-field
+  `cron`, an RFC 5545 `rule` from a `start` (every other Tuesday, the last weekday of the month), or `once`. See
+  [Patrols' schedules](PATROLS.md#keep-the-watch-schedules) for the details. The time zone is required, so a Scout means
+  the same thing on every machine. `Run now` on the Board runs it at once.
 - **A missed run catches up once.** After a laptop sleeps through several, the Scout runs once when it wakes, not once
   per missed slot.
 - **No overlap.** A run that's due while the last one is still going is skipped and recorded as skipped.
