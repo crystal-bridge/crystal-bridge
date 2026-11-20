@@ -360,6 +360,9 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   `permissions.additionalDirectories` in the `--settings` file shows no dialog, and a manual-mode Quest read a file
   there without a permission request. So the interactive engine passes its attachments folder that way (#297); the
   stream engine keeps `--add-dir`, which `-p` doesn't question.
+  `pnpm smoke` attaches no file, so after a CLI update check this by hand: attach a file to an interactive Quest in
+  manual mode and ask it to read it; it should neither stop at a dialog nor ask permission. The setting merges with the
+  user's own permission rules (a project deny rule still blocked a read in the same check).
 - **Statusline** (documented, code.claude.com/docs/en/statusline): a `statusLine` command in `--settings` gets JSON on
   stdin after each change (debounced 300 ms): `cost.total_cost_usd` (running, across resumes), `cost.total_api_duration_ms`,
   `context_window.context_window_size` (1000000 here), `context_window.total_input_tokens`, and
