@@ -568,6 +568,199 @@ describe('airship server', () => {
     });
   });
 
+  describe('Patrols', () => {
+    const RUN = '33333333-3333-4333-8333-333333333333';
+    const manifest = {
+      name: 'Nightly backup check',
+      schedule: { cron: '30 3 * * *', timezone: 'UTC' },
+      script: { command: ['./check.sh'] },
+    };
+    const questManifest = {
+      name: 'Dependency sweep',
+      schedule: { cron: '0 9 * * 2', timezone: 'UTC' },
+      quest: { project: '~/code/app', promptText: 'Update the dependencies.' },
+    };
+    const run = (extra: Record<string, unknown> = {}) => ({
+      id: RUN,
+      startedAt: 1,
+      trigger: 'schedule',
+      outcome: 'running',
+      ...extra,
+    });
+
+    async function patrollingNode(patrols = true, patrolsFromApp = patrols) {
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const frames = new FrameRecorder(socket);
+      send(socket, { kind: 'hello', node: 'node-a', patrols, patrolsFromApp });
+      send(socket, {
+        kind: 'patrols',
+        patrols: [
+          { id: 'backup-check', manifest, failures: 0 },
+          { id: 'sweep', manifest: questManifest, failures: 0 },
+        ],
+      });
+      return { socket, frames };
+    }
+
+    const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
+    const call = (method: string, path: string, body?: unknown) =>
+      fetch(`${baseUrl}${path}`, {
+        method,
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      });
+
+    async function until(condition: () => boolean) {
+      const start = Date.now();
+      while (!condition()) {
+        if (Date.now() - start > 2000) throw new Error('timed out');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    const listed = () => until(() => store.hasPatrol('node-a', 'backup-check'));
+
+    /** Answers the next `patrol-change` the node gets that nobody answered yet, and returns it. */
+    const answered = new Set<unknown>();
+    async function answer(node: { socket: WebSocket; frames: FrameRecorder }, ok = true, reason?: string) {
+      const frame = await node.frames.waitFor((frame) => frame.kind === 'patrol-change' && !answered.has(frame));
+      answered.add(frame);
+      send(node.socket, { kind: 'patrol-changed', requestId: frame.requestId, ok, ...(reason ? { reason } : {}) });
+      return frame;
+    }
+
+    it('stores and shows a Kingdom’s Patrols and their runs, live', async () => {
+      const client = await connectClient();
+      const node = await patrollingNode();
+      const listed = await client.frames.waitFor((frame) => frame.kind === 'patrols');
+      expect(listed).toMatchObject({
+        node: 'node-a',
+        editable: true,
+        patrols: [{ id: 'backup-check' }, { id: 'sweep' }],
+      });
+
+      send(node.socket, { kind: 'patrol-run', patrol: 'backup-check', run: run() });
+      await client.frames.waitFor((frame) => frame.kind === 'patrol-runs');
+      send(node.socket, {
+        kind: 'patrol-run',
+        patrol: 'backup-check',
+        run: run({ finishedAt: 2, outcome: 'failed', exitCode: 1 }),
+      });
+      const back = await client.frames.waitFor(
+        (frame) => frame.kind === 'patrol-runs' && (frame.runs as { outcome: string }[])[0]?.outcome === 'failed',
+      );
+      expect(back).toMatchObject({ node: 'node-a', patrol: 'backup-check', runs: [{ id: RUN, exitCode: 1 }] });
+      expect((back.runs as unknown[]).length).toBe(1);
+
+      expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/patrols`))).body).toMatchObject({
+        editable: true,
+        patrols: [{ id: 'backup-check', lastRun: { id: RUN, outcome: 'failed' } }, { id: 'sweep' }],
+      });
+      expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/patrols/backup-check`))).body).toMatchObject({
+        patrol: { id: 'backup-check' },
+        runs: [{ id: RUN }],
+      });
+      expect((await fetch(`${baseUrl}/api/nodes/node-a/patrols/nope`)).status).toBe(404);
+    });
+
+    it('drops a run for a Patrol the Kingdom doesn’t list', async () => {
+      const client = await connectClient();
+      const node = await patrollingNode();
+      await client.frames.waitFor((frame) => frame.kind === 'patrols');
+      send(node.socket, { kind: 'patrol-run', patrol: 'other', run: run() });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(client.frames.frames.filter((frame) => frame.kind === 'patrol-runs')).toHaveLength(0);
+      expect(store.patrolRuns('node-a', 'other')).toBeUndefined();
+    });
+
+    it('asks the Kingdom to run a Patrol now, when it can', async () => {
+      const node = await patrollingNode();
+      await listed();
+      expect((await call('POST', '/api/nodes/node-a/patrols/backup-check/run')).status).toBe(202);
+      await node.frames.waitFor((frame) => frame.kind === 'patrol-run-now' && frame.patrol === 'backup-check');
+      expect((await call('POST', '/api/nodes/node-a/patrols/nope/run')).status).toBe(404);
+      expect((await call('POST', '/api/nodes/node-b/patrols/backup-check/run')).status).toBe(404);
+    });
+
+    it('saves, deletes, pauses and resumes a Patrol through the Kingdom, and passes on a refusal', async () => {
+      const node = await patrollingNode();
+      await listed();
+
+      const saving = call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest: questManifest });
+      expect(await answer(node)).toMatchObject({
+        patrol: 'new-one',
+        change: { op: 'save', manifest: questManifest },
+      });
+      expect((await saving).status).toBe(200);
+
+      for (const op of ['pause', 'resume'] as const) {
+        const pressing = call('POST', `/api/nodes/node-a/patrols/backup-check/${op}`);
+        expect(await answer(node)).toMatchObject({ patrol: 'backup-check', change: { op } });
+        expect((await pressing).status).toBe(200);
+      }
+
+      const deleting = call('DELETE', '/api/nodes/node-a/patrols/backup-check');
+      await answer(node, false, 'patrol.json is read-only');
+      expect(await json(await deleting)).toEqual({ status: 409, body: { error: 'patrol.json is read-only' } });
+    });
+
+    it('refuses a malformed save, and a change to a Patrol the Kingdom doesn’t list, before asking', async () => {
+      const node = await patrollingNode();
+      await listed();
+      expect((await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest: { name: 'x' } })).status).toBe(400);
+      expect(
+        (await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest, prompt: 'no file named' })).status,
+      ).toBe(400);
+      expect((await call('PUT', '/api/nodes/node-a/patrols/Bad!', { manifest: questManifest })).status).toBe(400);
+      expect((await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest })).status).toBe(400);
+      expect(
+        await json(await call('PUT', '/api/nodes/node-a/patrols/backup-check', { manifest: questManifest })),
+      ).toEqual({ status: 409, body: { error: 'a script Patrol is changed only in its file on the Kingdom' } });
+      expect((await call('DELETE', '/api/nodes/node-a/patrols/nope')).status).toBe(404);
+      expect((await call('POST', '/api/nodes/node-a/patrols/nope/pause')).status).toBe(404);
+      expect(node.frames.frames.filter((frame) => frame.kind === 'patrol-change')).toHaveLength(0);
+    });
+
+    it('refuses saves on a Kingdom that takes Patrols only from files, but still deletes, runs and pauses them', async () => {
+      const client = await connectClient();
+      const node = await patrollingNode(true, false);
+      expect(await client.frames.waitFor((frame) => frame.kind === 'patrols')).toMatchObject({ editable: false });
+      expect(await json(await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest: questManifest }))).toEqual({
+        status: 409,
+        body: { error: 'this Kingdom takes Patrols only from files' },
+      });
+      const deleting = call('DELETE', '/api/nodes/node-a/patrols/backup-check');
+      await answer(node);
+      expect((await deleting).status).toBe(200);
+      const pausing = call('POST', '/api/nodes/node-a/patrols/backup-check/pause');
+      await answer(node);
+      expect((await pausing).status).toBe(200);
+    });
+
+    it('won’t ask a Kingdom too old for Patrols, and stops waiting when the Kingdom goes', async () => {
+      const old = await patrollingNode(false);
+      await listed();
+      expect((await call('POST', '/api/nodes/node-a/patrols/backup-check/run')).status).toBe(409);
+      expect((await call('POST', '/api/nodes/node-a/patrols/backup-check/pause')).status).toBe(409);
+      old.socket.close();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/patrols`))).body).toMatchObject({ editable: false });
+
+      const node = await patrollingNode();
+      await listed();
+      const pausing = call('POST', '/api/nodes/node-a/patrols/backup-check/pause');
+      await node.frames.waitFor((frame) => frame.kind === 'patrol-change');
+      node.socket.close();
+      expect(await json(await pausing)).toEqual({ status: 409, body: { error: 'the Kingdom went offline' } });
+    });
+
+    it('forgets a removed Kingdom’s Patrols with its Quests', async () => {
+      const node = await patrollingNode();
+      await listed();
+      store.forgetNode('node-a');
+      expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/patrols`))).body).toMatchObject({ patrols: [] });
+    });
+  });
+
   it('answers a client-s ping, so a client can tell a live link from a half-open one', async () => {
     const client = await connectClient();
     send(client.socket, { kind: 'ping' });

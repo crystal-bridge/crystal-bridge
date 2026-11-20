@@ -71,6 +71,21 @@ describe('store migrations', () => {
     db.close();
   });
 
+  it('adds Patrols and their runs to a database from before them, keeping what it had', () => {
+    const db = new Database(path);
+    db.exec(MIGRATIONS.slice(0, 9).join(';'));
+    db.pragma('user_version = 9');
+    db.exec(`INSERT INTO scouts VALUES ('n', 'quest-board', 0, '{}')`);
+    migrate(db);
+    db.exec(`
+      INSERT INTO patrols VALUES ('n', 'sweep', 0, '{}');
+      INSERT INTO patrol_runs VALUES ('n', 'r', 'sweep', 1, 'running', '{}');
+    `);
+    expect(db.prepare('SELECT count(*) AS n FROM scouts').get()).toEqual({ n: 1 });
+    expect(db.prepare('SELECT count(*) AS n FROM patrol_runs').get()).toEqual({ n: 1 });
+    db.close();
+  });
+
   it('refuses a database written by newer code, e.g. after rolling back past a migration', () => {
     const db = new Database(path);
     db.pragma(`user_version = ${SCHEMA_VERSION + 1}`);

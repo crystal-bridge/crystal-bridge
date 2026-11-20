@@ -3,7 +3,8 @@
 A Patrol sets out from a Kingdom at the hours you give it, does its round and reports back.
 
 ::: warning Planned
-This page is the agreed design; none of it is built yet. The work is tracked in the
+This page is the agreed design. The hub stores the Patrols a Kingdom reports and their runs, and passes on changes
+from the app; Kingdoms don't run Patrols yet, and the app doesn't show them. The work is tracked in the
 [v0.8 Patrols milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/10) and #278.
 :::
 
@@ -135,6 +136,7 @@ latest few runs in memory and sends them when it reconnects; a restart in the me
 | `needs-you` | a permission prompt outwaited `waitForYou` | not used                  |
 | `skipped`   | the last run was still out            | the last run was still out     |
 | `missed`    | the slot was older than `catchUp`     | the slot was older than `catchUp` |
+| `running`   | the run is still out                  | the run is still out           |
 
 ## Edit from the app
 

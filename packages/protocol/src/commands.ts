@@ -1,21 +1,11 @@
 import { z } from 'zod';
 import { Appearance } from './appearance.js';
 import { Envelope } from './envelope.js';
-import { PermissionMode } from './mode.js';
+import { Effort, Engine, PermissionMode } from './mode.js';
+import { PatrolRunsFrame, PatrolsFrame } from './patrols.js';
 import { BoardFrame, BoardItemsFrame, ScoutsFrame } from './scouts.js';
 
-export { PermissionMode } from './mode.js';
-
-/**
- * How a node runs a session's engine. `stream` drives `claude -p` over stream-json (the default); `interactive` runs
- * the real interactive `claude` in a pseudo-terminal, for the tools only an interactive session gets (e.g. artifacts).
- */
-export const Engine = z.enum(['stream', 'interactive']);
-export type Engine = z.infer<typeof Engine>;
-
-/** How hard the agent thinks: the CLI's `--effort` levels. Unset leaves the CLI's own default. */
-export const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-export type Effort = z.infer<typeof Effort>;
+export { Effort, Engine, PermissionMode } from './mode.js';
 
 /** How many files one prompt or follow-up can carry, and each one's size as base64 (about 5 MB of file). */
 export const MAX_ATTACHMENTS = 5;
@@ -240,6 +230,10 @@ export const NodeHello = z.object({
   scouts: z.boolean().optional(),
   /** This node starts a Quest from Board items with the user's prompt (`HubScoutQuest`); older nodes leave it out. */
   scoutQuests: z.boolean().optional(),
+  /** This node runs Patrols and takes `patrol-run-now` and `patrol-change` (docs/PATROLS.md); older nodes leave it out. */
+  patrols: z.boolean().optional(),
+  /** This node takes new and changed Patrols from the app; false when its owner keeps Patrols to files. */
+  patrolsFromApp: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
@@ -470,6 +464,10 @@ export const HubToClient = z.discriminatedUnion('kind', [
   BoardFrame,
   /** Items on a Board changed state; clients that don't know this frame ignore it. */
   BoardItemsFrame,
+  /** A Kingdom's Patrols changed; clients that don't know this frame ignore it. */
+  PatrolsFrame,
+  /** A Patrol's run started or ended; clients that don't know this frame ignore it. */
+  PatrolRunsFrame,
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
 

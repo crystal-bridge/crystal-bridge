@@ -1,4 +1,13 @@
-import type { Cast, Scout, ScoutItem, ScoutManifest, ScoutRun } from '@crystal-bridge/protocol';
+import type {
+  Cast,
+  Patrol,
+  PatrolManifest,
+  PatrolRun,
+  Scout,
+  ScoutItem,
+  ScoutManifest,
+  ScoutRun,
+} from '@crystal-bridge/protocol';
 import { randomUUID } from 'node:crypto';
 import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,7 +15,15 @@ import { join } from 'node:path';
 import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
-import { GONE_ITEMS_KEPT_MS, openStore, SCOUT_RUNS_KEPT, SCOUT_RUNS_SHOWN, type Store } from './store.js';
+import {
+  GONE_ITEMS_KEPT_MS,
+  openStore,
+  PATROL_RUNS_KEPT,
+  PATROL_RUNS_SHOWN,
+  SCOUT_RUNS_KEPT,
+  SCOUT_RUNS_SHOWN,
+  type Store,
+} from './store.js';
 
 function makeEnvelope(overrides: Partial<Envelope> = {}): Envelope {
   return {
@@ -1115,5 +1132,85 @@ describe('Boards', () => {
     store.putScouts('a', [scout]);
     expect(store.board('a', 'quest-board', 200)).toEqual({ scout: 'quest-board', runs: [], items: [] });
     expect(store.board('b', 'quest-board', 200)!.items).toHaveLength(1);
+  });
+});
+
+describe('Patrols', () => {
+  const manifest: PatrolManifest = {
+    name: 'Nightly backup check',
+    schedule: { cron: '30 3 * * *', timezone: 'UTC' },
+    script: { command: ['./check.sh'] },
+  };
+  const patrol: Patrol = { id: 'backup-check', manifest, failures: 0 };
+  let runs = 0;
+  const run = (extra: Partial<PatrolRun> = {}): PatrolRun => ({
+    id: `00000000-0000-4000-8000-${String(++runs).padStart(12, '0')}`,
+    startedAt: runs,
+    trigger: 'schedule',
+    outcome: 'running',
+    ...extra,
+  });
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    store.putPatrols('a', [patrol]);
+  });
+  afterEach(() => store.close());
+
+  it('keeps each Kingdom’s list of Patrols, replacing it on each report', () => {
+    store.putPatrols('b', [{ id: 'sweep', error: 'patrol.json: bad' }]);
+    store.putPatrols('a', [{ id: 'other', manifest }, patrol]);
+    expect(store.patrols('a').map((entry) => entry.id)).toEqual(['other', 'backup-check']);
+    expect(store.patrols('b')).toEqual([{ id: 'sweep', error: 'patrol.json: bad' }]);
+    expect(store.hasPatrol('a', 'other')).toBe(true);
+    expect(store.hasPatrol('b', 'other')).toBe(false);
+  });
+
+  it('updates a run in place when it comes back, and lists it as the Patrol’s latest', () => {
+    const out = run();
+    expect(store.recordPatrolRun('a', 'backup-check', out)).toEqual([out]);
+    const back = { ...out, finishedAt: 9, outcome: 'failed', exitCode: 2, stderr: 'disk full' };
+    expect(store.recordPatrolRun('a', 'backup-check', back)).toEqual([back]);
+    expect(store.patrols('a')).toEqual([{ ...patrol, lastRun: back }]);
+  });
+
+  it('lists runs newest first and keeps only the most recent', () => {
+    for (let n = 0; n < PATROL_RUNS_KEPT + 5; n++) store.recordPatrolRun('a', 'backup-check', run());
+    const shown = store.patrolRuns('a', 'backup-check')!;
+    expect(shown).toHaveLength(PATROL_RUNS_SHOWN);
+    expect(shown[0]!.startedAt).toBeGreaterThan(shown[1]!.startedAt);
+    store.putPatrols('a', [patrol]);
+    const kept = store.patrolRuns('a', 'backup-check', PATROL_RUNS_KEPT + 5)!;
+    expect(kept).toHaveLength(PATROL_RUNS_KEPT);
+    expect(Math.min(...kept.map((kept) => kept.startedAt))).toBe(runs - PATROL_RUNS_KEPT + 1);
+  });
+
+  it('keeps a run under the Patrol it was first reported under', () => {
+    const other: Patrol = { ...patrol, id: 'other' };
+    store.putPatrols('a', [patrol, other]);
+    const first = run();
+    store.recordPatrolRun('a', 'backup-check', first);
+    store.recordPatrolRun('a', 'other', { ...first, outcome: 'finished' });
+    expect(store.patrolRuns('a', 'other')).toEqual([]);
+    expect(store.patrolRuns('a', 'backup-check')).toEqual([first]);
+  });
+
+  it('has no runs for a Patrol its Kingdom doesn’t list, and keeps them in case it comes back', () => {
+    store.recordPatrolRun('a', 'backup-check', run());
+    store.putPatrols('a', []);
+    expect(store.patrolRuns('a', 'backup-check')).toBeUndefined();
+    store.putPatrols('a', [patrol]);
+    expect(store.patrolRuns('a', 'backup-check')).toHaveLength(1);
+  });
+
+  it('forgets a Kingdom’s Patrols and runs with the Kingdom', () => {
+    store.recordPatrolRun('a', 'backup-check', run());
+    store.putPatrols('b', [patrol]);
+    store.recordPatrolRun('b', 'backup-check', run());
+    store.forgetNode('a');
+    expect(store.patrols('a')).toEqual([]);
+    store.putPatrols('a', [patrol]);
+    expect(store.patrolRuns('a', 'backup-check')).toEqual([]);
+    expect(store.patrolRuns('b', 'backup-check')).toHaveLength(1);
   });
 });
