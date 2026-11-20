@@ -66,6 +66,7 @@ export default defineConfig({
           { text: 'Operations', link: '/operations' },
           { text: 'Summons', link: '/summons' },
           { text: 'Scouts and Boards', link: '/scouts' },
+          { text: 'Patrols', link: '/patrols' },
         ],
       },
       {
