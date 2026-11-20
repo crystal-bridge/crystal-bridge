@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { ScoutItems, ScoutManifest } from '../../../packages/protocol/src/index.ts';
 import { act } from './act.mjs';
 import { collect } from './collect.mjs';
-import { accessToken, cleanBody, gmail, readClient, redact, toItem } from './gmail.mjs';
+import { accessToken, cleanBody, gmail, GROUPS, readClient, redact, toItem } from './gmail.mjs';
 import { authUrl, signIn } from './sign-in.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -617,6 +617,12 @@ describe('scout.json', () => {
       if (action.kind === 'run') assert.deepEqual(action.command, ['node', 'act.mjs']);
     }
     readFileSync(join(HERE, manifest.synthesize!.prompt), 'utf8');
+    // Each inbox category's band has an icon and a tone of its own.
+    assert.deepEqual(
+      GROUPS.filter((group) => !manifest.groups?.[group]?.icon || !manifest.groups[group]?.tone),
+      [],
+    );
+    assert.equal(new Set(GROUPS.map((group) => manifest.groups?.[group]?.tone)).size, GROUPS.length);
     // A mail list changes on nearly every run: only a press spends plan usage, about $0.57 for 100 threads live.
     assert.deepEqual(
       { when: manifest.synthesize!.when, maxBudgetUsd: manifest.synthesize!.maxBudgetUsd },

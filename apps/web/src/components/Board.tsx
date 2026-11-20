@@ -21,7 +21,16 @@ import {
 } from '../boards.js';
 import { duration, goldText, shortWhen } from '../format.js';
 import { boardIcon, markIcon } from '../theme/boardIcons.js';
-import { actionTone, CHIP_CLASSES, SENDER_CLASSES, senderTone, TILE_CLASSES, tileTones } from '../theme/boardTones.js';
+import {
+  actionTone,
+  BAND_CLASSES,
+  bandTone,
+  CHIP_CLASSES,
+  SENDER_CLASSES,
+  senderTone,
+  TILE_CLASSES,
+  tileTones,
+} from '../theme/boardTones.js';
 import { Icon } from '../theme/icons.js';
 import { hint, scoutReturnLine, w } from '../theme/words.js';
 import {
@@ -215,26 +224,33 @@ function MailRow({
   const tone = view.whoKey !== undefined ? senderTone(view.whoKey) : undefined;
   // Bold follows unread where the Scout says what that is; else what's new on this visit stands out.
   const strong = show?.unread !== undefined ? view.unread : marked;
+  // Where the Scout says what unread is, a read message steps back: grey, its avatar faded.
+  const read = show?.unread !== undefined && !view.unread;
   return (
     <li
-      className="group relative flex items-start gap-3 py-2 pl-1 pr-1 hover:bg-neutral-50 dark:hover:bg-neutral-900"
+      className="group relative flex items-start gap-3 py-2 pl-3 pr-1 hover:bg-neutral-50 dark:hover:bg-neutral-900"
       data-unread={view.unread}
       title={itemNote(item)}
     >
-      {view.who !== undefined && <Avatar who={view.who} {...(view.whoKey ? { whoKey: view.whoKey } : {})} />}
+      {show?.unread !== undefined && view.unread && (
+        <span aria-hidden data-unread-bar className="absolute inset-y-1 left-0 w-1 rounded-full bg-gold" />
+      )}
+      {view.who !== undefined && (
+        <Avatar who={view.who} {...(view.whoKey ? { whoKey: view.whoKey } : {})} faded={read} />
+      )}
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           {/* Where the Scout says what unread is, a dot says it (and words, for a screen reader); else the New mark. */}
           {show?.unread !== undefined
             ? view.unread && (
-                <span className="h-2 w-2 shrink-0 self-center rounded-full bg-blue-500">
+                <span className="h-2.5 w-2.5 shrink-0 self-center rounded-full bg-gold ring-2 ring-gold-bright/50">
                   <span className="sr-only">Unread</span>
                 </span>
               )
             : marked && <NewMark />}
           <span
             {...(tone ? { 'data-tone': tone } : {})}
-            className={`truncate ${strong ? 'font-semibold' : ''} ${tone ? SENDER_CLASSES[tone].text : ''}`}
+            className={`truncate ${strong ? 'font-semibold' : ''} ${read ? 'text-neutral-500' : tone ? SENDER_CLASSES[tone].text : ''}`}
             title={view.who ?? titleNote(item)}
           >
             {view.who ?? item.title}
@@ -262,7 +278,9 @@ function MailRow({
         {view.who !== undefined ? (
           <span className="block truncate text-sm">
             <span
-              className={strong ? 'font-semibold' : 'text-neutral-700 dark:text-neutral-300'}
+              className={
+                strong ? 'font-semibold' : read ? 'text-neutral-500' : 'text-neutral-700 dark:text-neutral-300'
+              }
               title={titleNote(item)}
             >
               {item.title}
@@ -287,6 +305,44 @@ function MailRow({
         {actions}
       </span>
     </li>
+  );
+}
+
+/**
+ * A group's header as a band: the icon and tone the Scout names for it (`groups` in scout.json), else a neutral one, its
+ * name in the display face, and how many of its items are unread where the Scout says what that is.
+ */
+function GroupBand({
+  name,
+  items,
+  manifest,
+}: {
+  name: string;
+  items: readonly BoardItem[];
+  manifest: ScoutManifest | undefined;
+}) {
+  const look = manifest?.groups && Object.hasOwn(manifest.groups, name) ? manifest.groups[name] : undefined;
+  const tone = bandTone(look?.tone);
+  const mark = markIcon(look?.icon);
+  const show = manifest?.show;
+  const unread = show?.unread !== undefined ? items.filter((item) => rowView(item, show).unread).length : 0;
+  return (
+    <div
+      data-band
+      data-tone={tone}
+      className={`flex min-w-0 flex-1 items-center gap-2 rounded-md border-l-4 px-3 py-1 ${BAND_CLASSES[tone].band}`}
+    >
+      {mark && (
+        <span className={`shrink-0 ${BAND_CLASSES[tone].icon}`}>
+          <Icon name={mark} size={20} />
+        </span>
+      )}
+      <h3 className="truncate font-display text-2xl leading-none">{name}</h3>
+      <span className="ml-auto shrink-0 text-xs tabular-nums text-neutral-600 dark:text-neutral-300">
+        {unread > 0 && <b className="text-amber-700 dark:text-amber-300">{`${unread} unread · `}</b>}
+        {items.length}
+      </span>
+    </div>
   );
 }
 
@@ -889,9 +945,7 @@ export function BoardPage({
                     <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         {(group.group !== undefined || sections.open.length > 1) && (
-                          <h3 className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
-                            {group.group ?? 'Other'}
-                          </h3>
+                          <GroupBand name={group.group ?? 'Other'} items={group.items} manifest={manifest} />
                         )}
                         {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
                       </div>

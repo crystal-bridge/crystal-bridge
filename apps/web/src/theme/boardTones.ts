@@ -136,6 +136,67 @@ export function markToneClass(tone: string | undefined): string {
   return tone !== undefined && Object.hasOwn(MARK_CLASSES, tone) ? MARK_CLASSES[tone as ChipTone] : MARK_CLASSES.slate;
 }
 
+/** A list group's header band in each tone: a wash, a bar on the left, and its icon's colour. */
+export const BAND_CLASSES: Record<ChipTone, { band: string; icon: string }> = {
+  slate: {
+    band: 'bg-slate-50 border-slate-500 dark:bg-slate-900/50 dark:border-slate-400',
+    icon: 'text-slate-600 dark:text-slate-400',
+  },
+  red: {
+    band: 'bg-red-50 border-red-500 dark:bg-red-950/40 dark:border-red-400',
+    icon: 'text-red-600 dark:text-red-400',
+  },
+  orange: {
+    band: 'bg-orange-50 border-orange-500 dark:bg-orange-950/40 dark:border-orange-400',
+    icon: 'text-orange-600 dark:text-orange-400',
+  },
+  violet: {
+    band: 'bg-violet-50 border-violet-500 dark:bg-violet-950/40 dark:border-violet-400',
+    icon: 'text-violet-600 dark:text-violet-400',
+  },
+  amber: {
+    band: 'bg-amber-50 border-amber-500 dark:bg-amber-950/40 dark:border-amber-400',
+    icon: 'text-amber-600 dark:text-amber-400',
+  },
+  emerald: {
+    band: 'bg-emerald-50 border-emerald-500 dark:bg-emerald-950/40 dark:border-emerald-400',
+    icon: 'text-emerald-600 dark:text-emerald-400',
+  },
+  rose: {
+    band: 'bg-rose-50 border-rose-500 dark:bg-rose-950/40 dark:border-rose-400',
+    icon: 'text-rose-600 dark:text-rose-400',
+  },
+  sky: {
+    band: 'bg-sky-50 border-sky-500 dark:bg-sky-950/40 dark:border-sky-400',
+    icon: 'text-sky-600 dark:text-sky-400',
+  },
+  blue: {
+    band: 'bg-blue-50 border-blue-500 dark:bg-blue-950/40 dark:border-blue-400',
+    icon: 'text-blue-600 dark:text-blue-400',
+  },
+  teal: {
+    band: 'bg-teal-50 border-teal-500 dark:bg-teal-950/40 dark:border-teal-400',
+    icon: 'text-teal-600 dark:text-teal-400',
+  },
+  fuchsia: {
+    band: 'bg-fuchsia-50 border-fuchsia-500 dark:bg-fuchsia-950/40 dark:border-fuchsia-400',
+    icon: 'text-fuchsia-600 dark:text-fuchsia-400',
+  },
+  lime: {
+    band: 'bg-lime-50 border-lime-500 dark:bg-lime-950/40 dark:border-lime-400',
+    icon: 'text-lime-600 dark:text-lime-400',
+  },
+  neutral: {
+    band: 'bg-neutral-50 border-neutral-400 dark:bg-neutral-900/60 dark:border-neutral-600',
+    icon: 'text-neutral-600 dark:text-neutral-400',
+  },
+};
+
+/** The tone a group's band wears: the one its look names, or neutral for none or one not listed. */
+export function bandTone(tone: string | undefined): ChipTone {
+  return tone !== undefined && Object.hasOwn(BAND_CLASSES, tone) ? (tone as ChipTone) : 'neutral';
+}
+
 /** A project's colour, stable from its name and shared with the sender colours. */
 export function projectTone(name: string): SenderTone {
   return senderTone(name);

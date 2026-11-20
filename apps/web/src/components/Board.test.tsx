@@ -301,6 +301,45 @@ describe('BoardPage', () => {
       expect(within(row).getByText('Ada Lovelace').className).toMatch(/font-semibold/);
     });
 
+    it('bands each group, with the icon and tone the Scout names and its unread count', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, groups: { Primary: { icon: 'star', tone: 'violet' } } } }),
+        items: [
+          item({ id: 'a', group: 'Primary', fields: { from: 'Ada', date: today, unread: true } }),
+          item({ id: 'b', group: 'Primary', fields: { from: 'Bo', date: today, unread: false } }),
+          item({ id: 'c', group: 'Updates', fields: { from: 'Cy', date: today, unread: false } }),
+        ],
+      });
+      const band = (name: string) => screen.getByRole('heading', { name }).closest('[data-band]')!;
+      expect(band('Primary').getAttribute('data-tone')).toBe('violet');
+      expect(band('Primary').querySelector('svg')).not.toBeNull();
+      expect(band('Primary').textContent).toMatch(/1 unread · 2$/);
+      // A group the Scout gives no look still gets a band, in a neutral shade and without an icon.
+      expect(band('Updates').getAttribute('data-tone')).toBe('neutral');
+      expect(band('Updates').querySelector('svg')).toBeNull();
+      expect(band('Updates').textContent).toMatch(/1$/);
+    });
+
+    it('marks an unread row in gold, never blue, and fades a read one', () => {
+      show({
+        scout: mailScout(),
+        items: [
+          item({ id: 'a', fields: { from: 'Ada', date: today, unread: true } }),
+          item({ id: 'b', fields: { from: 'Bo', date: today, unread: false } }),
+        ],
+      });
+      const unread = screen.getByText('Ada').closest('li')!;
+      const read = screen.getByText('Bo').closest('li')!;
+      // Blue is kept for something waiting on you.
+      const dot = within(unread).getByText('Unread', { selector: '.sr-only' }).parentElement!;
+      expect(dot.className).toMatch(/bg-gold/);
+      expect(dot.className).not.toMatch(/blue/);
+      expect(unread.querySelector('[data-unread-bar]')).not.toBeNull();
+      expect(read.querySelector('[data-unread-bar]')).toBeNull();
+      expect(read.querySelector('[data-avatar]')?.className).toMatch(/opacity-50/);
+      expect(screen.getByText('Bo').className).toMatch(/text-neutral-500/);
+    });
+
     it('keeps a read message in plain weight, though it is new on this visit', () => {
       show({
         scout: mailScout(),

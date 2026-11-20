@@ -139,16 +139,17 @@ Class keywords. In the rules, a specific one goes before a broader one.
 pixels, named by `scout.json`'s `icon` ([Scouts](./SCOUTS.md#read-the-board-what-it-shows)). The names are data in
 `apps/web/src/theme/boardIcons.ts`; a fork adds one there and in `iconSources.ts`.
 
-**Board marks** are the set a projects Board's rows, chips and banner tiles draw, named by a `look`'s `icon` in
+**Board marks** are the set a projects Board's rows, chips, banner tiles and group bands draw, named by a `look`'s `icon` in
 `scout.json`. They are plain Phosphor icons that take a tone's colour. The names are data in `BOARD_MARKS`
 (`boardIcons.ts`): `pull-request`, `merge`, `issue`, `issue-closed`, `bug`, `discussion`, `x-circle`, `running`,
 `warning`, `seal-check`, `changes`, `hourglass`, `eye`, `chat`, `reply`, `user`, `crown`, `handshake`, `robot`, `hand`,
-`lock`, `star`, `tag`, `rocket`, `clock`, `flag`, `lightning`, `shield`, `tray`, `sparkle`, `lightbulb`, `github`,
-`gitlab`, plus `draft` and `check-circle`, which share a drawing with the pull request and the closed issue.
+`lock`, `star`, `tag`, `rocket`, `clock`, `flag`, `lightning`, `shield`, `tray`, `bell`, `users`, `envelope`, `sparkle`,
+`lightbulb`, `github`, `gitlab`, plus `draft` and `check-circle`, which share a drawing with the pull request and the closed issue.
 
 **Board colours** are data in `apps/web/src/theme/boardTones.ts`: ten sender colours, picked by a hash of the sender's
 address so one sender always looks the same; a chip colour per kind of action (archive slate, spam red, a Quest violet,
-later amber, done green, a link sky); and an accent per banner tile. A fork changes the palette there.
+later amber, done green, a link sky); an accent per banner tile; and a band per tone for a list's group headers. Unread
+mail is marked in gold, not blue, because blue means something is waiting on you. A fork changes the palette there.
 
 **Mark tones** (`MARK_TONES`) are the colours a `look`'s `tone` can name: `slate`, `red`, `orange`, `violet`, `amber`,
 `emerald`, `rose`, `sky`, `blue`, `teal`, `fuchsia`, `lime` and `neutral`. A project gets a colour by a hash of its
