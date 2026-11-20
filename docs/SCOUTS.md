@@ -480,6 +480,7 @@ step by step: [`examples/scouts/gmail`](../examples/scouts/gmail/README.md).
 ## Not planned
 
 - **Code from a Scout in the app.** Boards are drawn from data, so a Board can't run anything in your browser.
-- **Acting without you.** A Scout suggests; you press the button. Rules that act by themselves are a separate idea.
+- **Acting without you.** A Scout suggests; you press the button. Jobs that act by themselves on a schedule are
+  [Patrols](PATROLS.md).
 - **Triggers from webhooks or GitHub events.** Schedules come first. A trigger needs a public address, which a Kingdom
   doesn't have.
