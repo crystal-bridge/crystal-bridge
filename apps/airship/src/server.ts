@@ -40,6 +40,13 @@ import {
   ScoutItem,
   NodeScoutRun,
   NodeScouts,
+  type HubPatrolChange,
+  type HubPatrolRunNow,
+  NodePatrolChanged,
+  NodePatrolRun,
+  NodePatrols,
+  PatrolChangeRequest,
+  PatrolId,
   type Cast,
   type Resume,
   type Summon,
@@ -455,12 +462,15 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const scoutNodes = new Set<string>();
   /** Kingdoms that start a Quest from Board items with the user's prompt (`HubScoutQuest`). */
   const scoutQuestNodes = new Set<string>();
+  /** Kingdoms that run Patrols, and those of them that take Patrols from the app (docs/PATROLS.md). */
+  const patrolNodes = new Set<string>();
+  const patrolEditNodes = new Set<string>();
   const inventoryLists = new Map<
     string,
     { node: string; finish: (events: NodeInventoryListed['events'], error?: string) => void }
   >();
-  // Board actions in flight, by request: only the asked node's answer ends one.
-  const scoutActs = new Map<
+  // Board actions and Patrol changes in flight, by request: only the asked node's answer ends one.
+  const kingdomAsks = new Map<
     string,
     { node: string; finish: (answer: { ok: boolean; reason?: string; session?: string }) => void }
   >();
@@ -654,6 +664,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!resuming) return;
     const send: NodeCommand = { type: 'session.send', session: id, text: REVIVE_TEXT, resume: resumeOf(quest) };
     sendJson(socket, send);
+  }
+
+  /** Sends every client a Kingdom's Patrols, and whether it takes changes from the app right now. */
+  function sendPatrols(node: string): void {
+    const patrols = store.patrols(node);
+    const editable = patrolEditNodes.has(node);
+    for (const client of clients) sendToClient(client, { kind: 'patrols', node, editable, patrols });
   }
 
   /** Sends every client a Kingdom's Scouts, with their counts as they now stand. */
@@ -1098,23 +1115,93 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     sendJson(socket, { kind: 'scout-run-now', scout } satisfies HubScoutRunNow);
     return reply.code(202).send();
   });
-  /** Sends a Board's request to its Kingdom and waits for its `scout-acted`, or says it didn't answer in time. */
+  // Patrols (docs/PATROLS.md). The hub keeps a Kingdom's list while it's offline too; changes go to the Kingdom, which
+  // writes `patrol.json` and reports its list again.
+  app.get('/api/nodes/:node/patrols', async (request) => {
+    const { node } = request.params as { node: string };
+    return { patrols: store.patrols(node), editable: patrolEditNodes.has(node) };
+  });
+  app.get('/api/nodes/:node/patrols/:patrol', async (request, reply) => {
+    const { node, patrol } = request.params as { node: string; patrol: string };
+    const runs = store.patrolRuns(node, patrol);
+    const listed = store.patrols(node).find((one) => one.id === patrol);
+    if (!runs || !listed) return reply.code(404).send({ error: 'no such Patrol on that Kingdom' });
+    return { patrol: listed, runs };
+  });
+  app.post('/api/nodes/:node/patrols/:patrol/run', async (request, reply) => {
+    const { node, patrol } = request.params as { node: string; patrol: string };
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!patrolNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    if (!store.hasPatrol(node, patrol)) return reply.code(404).send({ error: 'no such Patrol on that Kingdom' });
+    sendJson(socket, { kind: 'patrol-run-now', patrol } satisfies HubPatrolRunNow);
+    return reply.code(202).send();
+  });
+  /** Passes a change to the Kingdom and answers with its outcome. Save and delete need a Kingdom that takes them. */
+  async function changePatrol(
+    node: string,
+    patrol: string,
+    change: PatrolChangeRequest,
+    reply: import('fastify').FastifyReply,
+  ) {
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!patrolNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    const writes = change.op === 'save' || change.op === 'delete';
+    if (writes && !patrolEditNodes.has(node))
+      return reply.code(409).send({ error: 'this Kingdom takes Patrols only from files' });
+    if (change.op !== 'save' && !store.hasPatrol(node, patrol))
+      return reply.code(404).send({ error: 'no such Patrol on that Kingdom' });
+    const answer = await askKingdom(socket, node, {
+      kind: 'patrol-change',
+      requestId: randomUUID(),
+      patrol,
+      change,
+    });
+    if (!answer.ok) return reply.code(409).send({ error: answer.reason ?? 'the Kingdom could not do this' });
+    return {};
+  }
+  app.put('/api/nodes/:node/patrols/:patrol', async (request, reply) => {
+    const { node, patrol } = request.params as { node: string; patrol: string };
+    if (!PatrolId.safeParse(patrol).success) return reply.code(400).send({ error: 'not a Patrol id' });
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const change = PatrolChangeRequest.safeParse({ op: 'save', manifest: body.manifest, prompt: body.prompt });
+    if (!change.success) return reply.code(400).send({ error: 'expected { manifest, prompt? } as patrol.json takes' });
+    return changePatrol(node, patrol, change.data, reply);
+  });
+  app.delete('/api/nodes/:node/patrols/:patrol', async (request, reply) => {
+    const { node, patrol } = request.params as { node: string; patrol: string };
+    return changePatrol(node, patrol, { op: 'delete' }, reply);
+  });
+  for (const op of ['pause', 'resume'] as const) {
+    app.post(`/api/nodes/:node/patrols/:patrol/${op}`, async (request, reply) => {
+      const { node, patrol } = request.params as { node: string; patrol: string };
+      return changePatrol(node, patrol, { op }, reply);
+    });
+  }
+
+  /**
+   * Sends a Board's request or a Patrol change to its Kingdom and waits for its answer (`scout-acted` or
+   * `patrol-changed`), or says it didn't answer in time.
+   */
   function askKingdom(
     socket: WebSocket,
     node: string,
-    frame: HubScoutAction | HubScoutQuest,
+    frame: HubScoutAction | HubScoutQuest | HubPatrolChange,
   ): Promise<{ ok: boolean; reason?: string; session?: string }> {
     return new Promise((resolve) => {
       const finish = (result: { ok: boolean; reason?: string; session?: string }) => {
         clearTimeout(timer);
-        scoutActs.delete(frame.requestId);
+        kingdomAsks.delete(frame.requestId);
         resolve(result);
       };
       const timer = setTimeout(
         () => finish({ ok: false, reason: 'the Kingdom did not answer in time' }),
         SCOUT_ACTION_WAIT_MS,
       );
-      scoutActs.set(frame.requestId, { node, finish });
+      kingdomAsks.set(frame.requestId, { node, finish });
       sendJson(socket, frame);
     });
   }
@@ -1346,6 +1433,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else scoutNodes.delete(helloNode);
           if (hello.data.scoutQuests) scoutQuestNodes.add(helloNode);
           else scoutQuestNodes.delete(helloNode);
+          if (hello.data.patrols) patrolNodes.add(helloNode);
+          else patrolNodes.delete(helloNode);
+          if (hello.data.patrols && hello.data.patrolsFromApp) patrolEditNodes.add(helloNode);
+          else patrolEditNodes.delete(helloNode);
           selfUpdates.delete(helloNode);
           selfUpdaters.delete(helloNode);
           if (hello.data.selfUpdate) {
@@ -1410,13 +1501,45 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
         const acted = NodeScoutActed.safeParse(parsed);
         if (acted.success) {
-          const waiting = scoutActs.get(acted.data.requestId);
+          const waiting = kingdomAsks.get(acted.data.requestId);
           if (waiting?.node !== helloNode) {
             app.log.warn({ node: helloNode }, 'dropped a Board action answer nobody is waiting for from this node');
             return;
           }
           const { ok, reason, session } = acted.data;
           waiting.finish({ ok, ...(reason ? { reason } : {}), ...(session ? { session } : {}) });
+          return;
+        }
+
+        const patrolChanged = NodePatrolChanged.safeParse(parsed);
+        if (patrolChanged.success) {
+          const waiting = kingdomAsks.get(patrolChanged.data.requestId);
+          if (waiting?.node !== helloNode) {
+            app.log.warn({ node: helloNode }, 'dropped a Patrol change answer nobody is waiting for from this node');
+            return;
+          }
+          const { ok, reason } = patrolChanged.data;
+          waiting.finish({ ok, ...(reason ? { reason } : {}) });
+          return;
+        }
+
+        const patrolList = NodePatrols.safeParse(parsed);
+        if (patrolList.success) {
+          store.putPatrols(helloNode, patrolList.data.patrols);
+          sendPatrols(helloNode);
+          return;
+        }
+
+        const patrolRun = NodePatrolRun.safeParse(parsed);
+        if (patrolRun.success) {
+          const { patrol, run } = patrolRun.data;
+          if (!store.hasPatrol(helloNode, patrol)) {
+            app.log.warn({ node: helloNode, patrol }, 'dropped a run of a Patrol this node does not list');
+            return;
+          }
+          const runs = store.recordPatrolRun(helloNode, patrol, run);
+          for (const client of clients) sendToClient(client, { kind: 'patrol-runs', node: helloNode, patrol, runs });
+          sendPatrols(helloNode);
           return;
         }
 
@@ -1564,10 +1687,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           inventoryListers.delete(helloNode);
           scoutNodes.delete(helloNode);
           scoutQuestNodes.delete(helloNode);
+          patrolNodes.delete(helloNode);
+          patrolEditNodes.delete(helloNode);
           for (const waiting of [...inventoryLists.values()]) {
             if (waiting.node === helloNode) waiting.finish(undefined, 'the Kingdom went offline');
           }
-          for (const waiting of [...scoutActs.values()]) {
+          for (const waiting of [...kingdomAsks.values()]) {
             if (waiting.node === helloNode) waiting.finish({ ok: false, reason: 'the Kingdom went offline' });
           }
         }

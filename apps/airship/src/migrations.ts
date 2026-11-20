@@ -84,6 +84,20 @@ export const MIGRATIONS: readonly string[] = [
   CREATE TABLE seen_floor (at INTEGER NOT NULL);
   INSERT INTO seen_floor VALUES (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
   `,
+  // 10: Patrols (docs/PATROLS.md). Each Kingdom's Patrols in its order, and runs, the newest few per Patrol. A run is
+  // reported when it sets out and again when it's back, under one id, so its row is updated in place.
+  `
+  CREATE TABLE patrols (
+    node TEXT NOT NULL, id TEXT NOT NULL, ord INTEGER NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (node, id)
+  ) WITHOUT ROWID;
+  CREATE TABLE patrol_runs (
+    node TEXT NOT NULL, id TEXT NOT NULL, patrol TEXT NOT NULL, started_at INTEGER NOT NULL, outcome TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (node, id)
+  );
+  CREATE INDEX patrol_runs_patrol ON patrol_runs (node, patrol, started_at);
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
