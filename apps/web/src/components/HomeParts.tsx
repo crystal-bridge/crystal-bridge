@@ -2,7 +2,7 @@ import { useContext, useState, type ReactNode } from 'react';
 import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import type { TurnStats } from '../home.js';
 import { duration, tokens } from '../format.js';
-import { questTitle } from '../quests.js';
+import { questName, questTitle } from '../quests.js';
 import { hint, w } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import type { SessionSummary } from './SessionList.js';
@@ -108,7 +108,7 @@ export function QuestCard({
 }) {
   const leaderOf = useContext(LeaderContext);
   const folder = session.cwd.split('/').filter(Boolean).at(-1) ?? session.cwd;
-  const label = showDetail ? session.label || session.id : `A ${w('quest')}`;
+  const label = showDetail ? questName(session) : `A ${w('quest')}`;
   return (
     <button
       type="button"

@@ -254,4 +254,44 @@ describe('QuestStrip', () => {
       expect(onMoveBoard).toHaveBeenCalledWith('gmail', 1);
     });
   });
+
+  describe('naming a Quest', () => {
+    it('shows the name a Quest gave itself', () => {
+      renderStrip({ quests: [{ ...quests[0]!, themedLabel: 'The Siege of the Build' }] });
+      expect(screen.getByRole('tab', { name: /The Siege of the Build/ })).toBeTruthy();
+    });
+
+    it('renames a Quest from its tab’s menu', () => {
+      const onRename = vi.fn();
+      renderStrip({ onRename });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+      const box = screen.getByRole('textbox', { name: /Rename/ }) as HTMLInputElement;
+      expect(box.value).toBe('fix the build');
+      fireEvent.change(box, { target: { value: '  Build fix  ' } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(onRename).toHaveBeenCalledWith('a', 'Build fix');
+      expect(screen.queryByRole('textbox')).toBeNull();
+    });
+
+    it('leaves the name alone on Escape, or when nothing is typed', () => {
+      const onRename = vi.fn();
+      renderStrip({ onRename });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+      const box = screen.getByRole('textbox');
+      fireEvent.change(box, { target: { value: '   ' } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(onRename).not.toHaveBeenCalled();
+    });
+
+    it('offers no menu on a Quest tab when renaming isn’t wired', () => {
+      renderStrip();
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+  });
 });

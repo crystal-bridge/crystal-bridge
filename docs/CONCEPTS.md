@@ -30,6 +30,9 @@ The app calls a session a **Quest**.
 4. When Claude needs permission, or has a question, a card appears in the app and a notification goes to your devices.
    Your answer goes back the same way, and Claude carries on.
 
+A Quest's tab starts with the first words of your prompt. Once the Quest understands the task, it names itself through
+Crystal's `title` tool, without asking you. Right-click the tab and pick Rename to name it yourself; your name stays.
+
 Each Claude agent in a Quest is a **Hero**. The leader runs the Quest, and subagents join the party for a task. Heroes
 gain pointless levels as you use them.
 

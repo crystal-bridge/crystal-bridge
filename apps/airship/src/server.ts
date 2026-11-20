@@ -607,6 +607,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       ...(engine ? { engine } : {}),
       ...(effort ? { effort } : {}),
       ...(mode ? { mode } : {}),
+      ...(session.titledBy === 'you' ? { titledByYou: true } : {}),
     };
   }
 
@@ -766,7 +767,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       return;
     }
     const rebuilds =
-      command.type === 'session.send' || command.type === 'session.mode' || command.type === 'session.effort';
+      command.type === 'session.send' ||
+      command.type === 'session.mode' ||
+      command.type === 'session.effort' ||
+      command.type === 'session.title';
     if (rebuilds && session.status === 'closed') {
       // A node that restarted since would rebuild it from `resume`, and a turn would run behind a closed status.
       sendToClient(clientSocket, { kind: 'error', message: `session is closed: ${command.session}` });

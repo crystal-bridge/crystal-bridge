@@ -360,3 +360,47 @@ describe('the summon tool', () => {
     await bare.close();
   });
 });
+
+describe('the title tool', () => {
+  let server: PermissionServer;
+  let client: Client;
+  let calls: { session: string; args: Record<string, unknown> }[];
+
+  beforeEach(async () => {
+    calls = [];
+    server = await createPermissionServer({
+      port: 0,
+      onRequest: async () => ({ behavior: 'allow' }),
+      title: (session, args) => {
+        calls.push({ session, args });
+        if (args.plain === 'refuse') throw new Error('This session is not running on this node.');
+        return 'Named.';
+      },
+    });
+    client = await connectClient(server, 'quest-1');
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it('is offered, saying when to call it, and takes a themed and a plain title', async () => {
+    const { tools } = await client.listTools();
+    const title = tools.find((tool) => tool.name === 'title');
+    expect(title?.description).toMatch(/once/i);
+    expect(Object.keys(title?.inputSchema.properties ?? {}).sort()).toEqual(['plain', 'themed']);
+  });
+
+  it('passes a call on with the Quest it came from, and answers in words', async () => {
+    const result = await client.callTool({ name: 'title', arguments: { themed: 'The Siege', plain: 'Fix it' } });
+    expect(calls).toEqual([{ session: 'quest-1', args: { themed: 'The Siege', plain: 'Fix it' } }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'Named.' }]);
+  });
+
+  it('turns a refusal into a tool error the agent can read', async () => {
+    const result = await client.callTool({ name: 'title', arguments: { themed: 'X', plain: 'refuse' } });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: 'text', text: 'This session is not running on this node.' }]);
+  });
+});

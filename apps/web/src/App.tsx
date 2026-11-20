@@ -96,6 +96,7 @@ import {
   loadPutAway,
   projectName,
   putAway as withPutAway,
+  questName,
   questTabs,
   savePutAway,
   type UnseenQuest,
@@ -568,6 +569,19 @@ export function App({ hub }: { hub: HubClient }) {
     if (id === shown) setSelected(null);
   }
 
+  /** Names a Quest. The tab shows it at once; the hub's list confirms it once the Kingdom records it. */
+  function renameQuest(id: string, title: string) {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        const { themedLabel: _themed, ...rest } = s;
+        return { ...rest, label: title, titledBy: 'you' as const };
+      }),
+    );
+    hub.send({ type: 'session.title', session: id, title });
+    setTimeout(() => void refresh(), 500);
+  }
+
   const status = useSyncExternalStore(hub.onChange, () => hub.status);
   const queuedSends = useSyncExternalStore(hub.onChange, () => hub.queued);
   // The link starts out connecting on every load; only a link that dropped is worth a banner.
@@ -992,7 +1006,10 @@ export function App({ hub }: { hub: HubClient }) {
         onFork={primary ? fork : undefined}
         onOpen={openQuest}
         onOpenBoard={node ? (scout) => showBoard(node, scout) : undefined}
-        labelOf={(other) => sessions.find((s) => s.id === other)?.label}
+        labelOf={(other) => {
+          const found = sessions.find((s) => s.id === other);
+          return found ? questName(found) : undefined;
+        }}
         subscribeErrors={subscribeErrors}
         linkDown={status !== 'open'}
         compact={splitShown !== null}
@@ -1021,7 +1038,7 @@ export function App({ hub }: { hub: HubClient }) {
     const session = sessions.find((s) => s.id === id);
     const node = session?.node ?? '';
     const look = looks[node];
-    const label = session?.label || id;
+    const label = session ? questName(session) : id;
     const isFocused = focused === id;
     return (
       <section
@@ -1309,6 +1326,7 @@ export function App({ hub }: { hub: HubClient }) {
               }}
               onSelect={openQuest}
               onPutAway={putAwayQuest}
+              onRename={renameQuest}
               boards={pinnedBoards}
               // An open Board without a pinned tab leaves the Castle's tab standing for it, as before pinning.
               currentBoard={
@@ -1602,7 +1620,7 @@ export function App({ hub }: { hub: HubClient }) {
                 .sort((a, b) => (b.lastActivity ?? b.createdAt) - (a.lastActivity ?? a.createdAt))
                 .map((s) => ({
                   id: s.id,
-                  label: s.label || s.id,
+                  label: questName(s),
                   kingdom: visible.find((k) => k.id === s.node)?.name ?? s.node,
                   project: notifyLevel(prefs, s.node) === 'discreet' ? undefined : projectName(s.cwd),
                   look: looks[s.node] ?? lookFor(appearance, s.node),
