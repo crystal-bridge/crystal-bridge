@@ -971,14 +971,25 @@ describe('InteractiveSession stats and inventory', () => {
     for (const { args } of [spawned[0]!, spawned[1]!]) expect(args[args.indexOf('--effort') + 1]).toBe('max');
   });
 
-  it('gives every process it starts the extra folders it may read (--add-dir, one each)', async () => {
+  it('gives every process the extra folders it may read through its settings, not --add-dir, which stops at a trust prompt', async () => {
     const { session, spawned, hook } = harness({ addDirs: ['/tmp/files/s1'] });
     session.start('hello');
     hook('SessionStart', {});
     await tick();
     const { args } = spawned[0]!;
-    expect(args[args.indexOf('--add-dir') + 1]).toBe('/tmp/files/s1');
-    expect(args[args.indexOf('--add-dir') + 2]).toMatch(/^--/);
+    // CLI 2.1.329 asks "Adding a new directory … Yes, add it" for each --add-dir folder, with "No, exit" chosen (#297).
+    expect(args).not.toContain('--add-dir');
+    const settings = JSON.parse(readFileSync(args.at(-1)!, 'utf8'));
+    expect(settings.permissions).toEqual({ additionalDirectories: ['/tmp/files/s1'] });
+  });
+
+  it('writes no permissions block when there are no extra folders', async () => {
+    const { session, spawned, hook } = harness();
+    session.start('hello');
+    hook('SessionStart', {});
+    await tick();
+    const settings = JSON.parse(readFileSync(spawned[0]!.args.at(-1)!, 'utf8'));
+    expect(settings).not.toHaveProperty('permissions');
   });
 });
 

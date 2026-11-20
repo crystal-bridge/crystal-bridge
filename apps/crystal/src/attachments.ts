@@ -18,7 +18,7 @@ export function safeName(name: string): string {
   return /[A-Za-z0-9]/.test(plain) ? plain : 'file';
 }
 
-/** A session's private folder for its files, created if missing; the agent gets it with `--add-dir`. */
+/** A session's private folder for its files, created if missing; the agent gets it as an extra working directory. */
 export function attachmentDir(session: string, base = ATTACHMENTS_DIR): string {
   const dir = join(base, session);
   mkdirSync(dir, { recursive: true, mode: 0o700 });

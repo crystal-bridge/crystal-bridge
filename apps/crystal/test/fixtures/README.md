@@ -354,6 +354,12 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   written during the session.
 - **Startup.** A folder not yet trusted shows the workspace-trust dialog with the cursor on "No, exit": Down then
   Enter accepts it. No other dialog appeared with hooks in `--settings`.
+- **Extra folders (2.1.329, observed 2026-11-20).** Each `--add-dir` folder not yet trusted gets its own dialog after
+  workspace trust: "Adding a new directory: <path> … This session hasn't worked here before. Is this a directory you
+  created or one you trust?", with the cursor on "No, exit" and "Yes, add it" below. The same folder in
+  `permissions.additionalDirectories` in the `--settings` file shows no dialog, and a manual-mode Quest read a file
+  there without a permission request. So the interactive engine passes its attachments folder that way (#297); the
+  stream engine keeps `--add-dir`, which `-p` doesn't question.
 - **Statusline** (documented, code.claude.com/docs/en/statusline): a `statusLine` command in `--settings` gets JSON on
   stdin after each change (debounced 300 ms): `cost.total_cost_usd` (running, across resumes), `cost.total_api_duration_ms`,
   `context_window.context_window_size` (1000000 here), `context_window.total_input_tokens`, and
