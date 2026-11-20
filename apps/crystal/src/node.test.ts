@@ -398,6 +398,197 @@ describe('startNode', () => {
     });
   });
 
+  describe('Patrols', () => {
+    const patrol = {
+      id: 'sweep',
+      nextRunAt: 1,
+      manifest: {
+        name: 'Sweep',
+        schedule: { cron: '0 * * * *', timezone: 'UTC' },
+        quest: { project: '/repo', promptText: 'Sweep.' },
+      },
+    };
+    const RUN = '55555555-5555-4555-8555-555555555555';
+    const run = { id: RUN, startedAt: 1, trigger: 'schedule', outcome: 'running' };
+    const fakePatrols = (fromApp = true) => ({
+      list: () => [patrol],
+      recent: () => [{ kind: 'patrol-run' as const, patrol: 'sweep', run }],
+      runNow: vi.fn(),
+      change: vi.fn(async (): Promise<{ ok: true } | { ok: false; reason: string }> => ({ ok: true })),
+      questEnded: vi.fn(),
+      fromApp: () => fromApp,
+    });
+    const hello = async (index = 0) => {
+      const conn = await nextConnection(harness, index);
+      return { conn, hello: await waitForFrame(conn, (frame) => frame.kind === 'hello') };
+    };
+    const start = {
+      cwd: '/repo',
+      prompt: 'Sweep the deps.',
+      mode: 'auto' as const,
+      effort: 'high' as const,
+      link: { patrol: 'sweep', run: RUN },
+      waitForYouMs: 60_000,
+    };
+
+    it('says in hello that it runs Patrols, and whether it takes them from the app', async () => {
+      createNode({});
+      expect((await hello(0)).hello.patrols).toBeUndefined();
+      await node!.close();
+      createNode({ patrols: fakePatrols(false) });
+      const { hello: second } = await hello(1);
+      expect(second.patrols).toBe(true);
+      expect(second.patrolsFromApp).toBe(false);
+    });
+
+    it('tells the hub its Patrols, then their latest runs, on each connect', async () => {
+      createNode({ patrols: fakePatrols() });
+      const conn = await nextConnection(harness, 0);
+      const list = await waitForFrame(conn, (frame) => frame.kind === 'patrols');
+      expect(list).toEqual({ kind: 'patrols', patrols: [patrol] });
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'patrol-run')).toEqual({
+        kind: 'patrol-run',
+        patrol: 'sweep',
+        run,
+      });
+      // The hub keeps runs only for Patrols it has listed.
+      expect(conn.frames.findIndex((frame) => frame.kind === 'patrols')).toBeLessThan(
+        conn.frames.findIndex((frame) => frame.kind === 'patrol-run'),
+      );
+    });
+
+    it('runs a Patrol on Run now, and answers a change with its result', async () => {
+      const patrols = fakePatrols();
+      patrols.change.mockResolvedValueOnce({ ok: false, reason: 'a script Patrol is changed only in its file' });
+      createNode({ patrols });
+      const { conn } = await hello();
+      conn.socket.send(JSON.stringify({ kind: 'patrol-run-now', patrol: 'sweep' }));
+      await vi.waitFor(() => expect(patrols.runNow).toHaveBeenCalledWith('sweep'));
+      const requestId = randomUUID();
+      conn.socket.send(JSON.stringify({ kind: 'patrol-change', requestId, patrol: 'sweep', change: { op: 'pause' } }));
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'patrol-changed')).toEqual({
+        kind: 'patrol-changed',
+        requestId,
+        ok: false,
+        reason: 'a script Patrol is changed only in its file',
+      });
+      expect(patrols.change).toHaveBeenCalledWith('sweep', { op: 'pause' });
+    });
+
+    it('answers a change that threw, with why', async () => {
+      const patrols = fakePatrols();
+      patrols.change.mockRejectedValueOnce(new Error('disk full'));
+      createNode({ patrols });
+      const { conn } = await hello();
+      const requestId = randomUUID();
+      conn.socket.send(JSON.stringify({ kind: 'patrol-change', requestId, patrol: 'sweep', change: { op: 'delete' } }));
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'patrol-changed')).toEqual({
+        kind: 'patrol-changed',
+        requestId,
+        ok: false,
+        reason: 'the change failed: disk full',
+      });
+    });
+
+    it('starts a Patrol’s Quest marked with its run, and reports how its first turn ended, once', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      const { conn } = await hello();
+      const started = await crystal.startPatrolQuest(start);
+      expect(started.ok).toBe(true);
+      const session = started.ok ? started.session : '';
+      const frame = await waitForFrame(conn, (f) => f.type === 'session.started');
+      expect(frame.session).toBe(session);
+      expect(frame.payload).toMatchObject({ cwd: '/repo', prompt: 'Sweep the deps.', mode: 'auto', effort: 'high' });
+      expect((frame.payload as { patrol: unknown }).patrol).toEqual({ patrol: 'sweep', run: RUN });
+      const fake = created.at(-1)!.fake;
+      expect(fake.start).toHaveBeenCalledWith('Sweep the deps.');
+      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'success' } });
+      expect(patrols.questEnded).toHaveBeenCalledWith(session, { outcome: 'finished' });
+      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'error' } });
+      expect(patrols.questEnded).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails the run when its Quest’s turn errs, or the Quest ends before a turn does', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      await hello();
+      const first = await crystal.startPatrolQuest(start);
+      created.at(-1)!.fake.emit('event', { type: 'turn.finished', payload: { outcome: 'error' } });
+      const second = await crystal.startPatrolQuest(start);
+      created
+        .at(-1)!
+        .fake.emit('event', { type: 'session.ended', payload: { exitCode: 1, signal: null, reason: 'error' } });
+      expect(patrols.questEnded.mock.calls).toEqual([
+        [first.ok && first.session, { outcome: 'failed', reason: 'the Quest’s turn ended in an error' }],
+        [second.ok && second.session, { outcome: 'failed', reason: 'the Quest ended before its turn did' }],
+      ]);
+    });
+
+    it('denies a prompt nobody answers in time, ends the turn, and records the run as needing you', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      const { conn } = await hello();
+      const started = await crystal.startPatrolQuest({ ...start, waitForYouMs: 50 });
+      const session = started.ok ? started.session : '';
+      const fake = created.at(-1)!.fake;
+      const decision = node!.handlePermissionRequest({
+        session,
+        requestId: randomUUID(),
+        toolName: 'Bash',
+        input: { command: 'touch x' },
+      });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      const answer = await decision;
+      expect(answer.behavior).toBe('deny');
+      expect(answer.behavior === 'deny' && answer.message).toMatch(/nobody answered/i);
+      expect(fake.interrupt).toHaveBeenCalled();
+      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'interrupted' } });
+      expect(patrols.questEnded).toHaveBeenCalledWith(session, {
+        outcome: 'needs-you',
+        reason: expect.stringMatching(/nobody to answer it; send the Quest a message to carry on$/),
+      });
+    });
+
+    it('says nothing of a Patrol’s Quest that ends because the node is closing', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      await hello();
+      await crystal.startPatrolQuest(start);
+      const fake = created.at(-1)!.fake;
+      fake.close.mockImplementation(() =>
+        fake.emit('event', { type: 'session.ended', payload: { exitCode: null, signal: 'SIGTERM', reason: 'exit' } }),
+      );
+      await node!.close();
+      expect(patrols.questEnded).not.toHaveBeenCalled();
+    });
+
+    it('lets a prompt answered in time through, and stops timing prompts after the first turn', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      const { conn } = await hello();
+      const started = await crystal.startPatrolQuest({ ...start, waitForYouMs: 80 });
+      const session = started.ok ? started.session : '';
+      const fake = created.at(-1)!.fake;
+      const requestId = randomUUID();
+      const decision = node!.handlePermissionRequest({ session, requestId, toolName: 'Bash', input: {} });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      conn.socket.send(JSON.stringify({ type: 'permission.answer', session, requestId, behavior: 'allow' }));
+      expect(await decision).toEqual({ behavior: 'allow' });
+      await delay(150);
+      expect(fake.interrupt).not.toHaveBeenCalled();
+      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'success' } });
+      // Now the user's Quest: a prompt waits for them as long as it takes.
+      let settled = false;
+      void node!.handlePermissionRequest({ session, requestId: randomUUID(), toolName: 'Bash', input: {} }).then(() => {
+        settled = true;
+      });
+      await delay(150);
+      expect(settled).toBe(false);
+      expect(fake.interrupt).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Scouts', () => {
     const scout = {
       id: 'quest-board',
