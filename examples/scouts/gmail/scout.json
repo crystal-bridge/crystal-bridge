@@ -15,7 +15,14 @@
     "maxBudgetUsd": 1
   },
   "view": "list",
-  "summary": [{ "label": "Unread", "field": "unread" }],
+  "summary": [{ "label": "Unread", "field": "unread", "icon": "envelope", "tone": "orange" }],
+  "groups": {
+    "Primary": { "icon": "star", "tone": "violet" },
+    "Updates": { "icon": "bell", "tone": "sky" },
+    "Social": { "icon": "users", "tone": "emerald" },
+    "Forums": { "icon": "chat", "tone": "teal" },
+    "Promotions": { "icon": "tag", "tone": "fuchsia" }
+  },
   "show": { "who": "from", "whoKey": "fromAddress", "when": "date", "unread": "unread", "preview": "body" },
   "actions": {
     "open": {

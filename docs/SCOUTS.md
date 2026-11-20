@@ -103,10 +103,20 @@ whose `field` is set to anything but `false`, `0` or empty. `show` names the fie
 does: `who`, `when` (an ISO date or a count of seconds or milliseconds), `unread` and `preview`. `whoKey` names a field
 that identifies the sender for good, such as an address: each sender gets a colour of its own, the same on every visit,
 keyed on that field, or on the name shown without it. A malformed `summary`,
-`show` or `icon` is dropped, never failing the Scout.
+`show`, `groups` or `icon` is dropped, never failing the Scout.
 
 A `summary` entry may also name an `icon` and a `tone`, which its banner tile wears; the built-in tiles have their own.
-The names are the Board mark icons and tones in [the theme](./THEME.md#inventory).
+`groups` does the same for group headers, keyed by the group's name:
+
+```json
+"groups": { "Primary": { "icon": "star", "tone": "violet" }, "Updates": { "icon": "bell", "tone": "sky" } }
+```
+
+Each group's header is a band in its tone, with its icon and, where `show` names `unread`, how many are unread. A group
+the map doesn't list, or one whose look the app doesn't know, gets a neutral band with no icon; items with no group are
+under "Other". It takes up to 20 groups of up to 80 characters each; a bad entry drops alone, and more than 20 drop the
+map. Leave `blue` to the app, which keeps it for something waiting on you. The names are the Board mark icons and tones
+in [the theme](./THEME.md#inventory).
 
 `view` is `list`, `checklist`, `table` or `projects`. The `projects` view groups items by project and draws each row
 from its `fields`, so the manifest says how, in a `projects` block. `kind` picks the row's icon, `marks` (up to four)
@@ -245,8 +255,9 @@ Boards and their tabs show on wide screens only for now.
   item done, or a `table` with a column per field. Opening the Board marks new items seen; their New mark stays until
   you leave.
 - **A list reads like a mail client** when `show` names the fields: an avatar and who it's from, the time, the title
-  with a line of preview, bold while unread, then the summary. With a `when` field, each group lists newest first, and
-  the ranking moves to Counsel. A row's buttons appear on hover or keyboard focus; at rest it tags the suggested action.
+  with a line of preview, then the summary. An unread row has a gold bar and dot and is bold; a read one steps back in
+  grey. With a `when` field, each group lists newest first, and the ranking moves to Counsel. A row's buttons appear on
+  hover or keyboard focus; at rest it tags the suggested action.
 - **The projects view** (`view: "projects"`) has two modes, switched beside Run now and remembered per device per Board.
   - **Projects** (the default) has a section per project: ones with items that need you first, then the latest
     activity. A section folds, and the fold is remembered on this device. It shows eight rows, then "Show N more". A row

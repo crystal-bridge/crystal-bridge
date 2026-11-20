@@ -145,6 +145,28 @@ export const ScoutManifest = z.object({
     .optional()
     .catch(undefined),
   /**
+   * An icon and a tone for a group's header, by the group's name (`{ "Primary": { "icon": "star", "tone": "violet" } }`),
+   * from the app's Board sets. A bad group name or look name drops alone, a look left with nothing goes, and a malformed
+   * map or one of more than 20 groups is dropped, never failing the Scout.
+   */
+  groups: z
+    .record(
+      z.string(),
+      z.object({ icon: lookName.optional().catch(undefined), tone: lookName.optional().catch(undefined) }).catch({}),
+    )
+    .refine((looks) => Object.keys(looks).length <= 20)
+    .transform((looks) => {
+      const kept: Record<string, { icon?: string; tone?: string }> = Object.create(null);
+      for (const [group, { icon, tone }] of Object.entries(looks)) {
+        // An empty name, one longer than an item's `group` can be, or a look left with nothing goes alone.
+        if (group.length < 1 || group.length > 80 || (icon === undefined && tone === undefined)) continue;
+        kept[group] = { ...(icon !== undefined ? { icon } : {}), ...(tone !== undefined ? { tone } : {}) };
+      }
+      return { ...kept };
+    })
+    .optional()
+    .catch(undefined),
+  /**
    * Which of an item's `fields` fill a `list` row's slots, like a mail client's: who it's from, when, whether it's
    * unread, and a line of preview. Without it, a row shows the title and subtitle. Dropped when malformed.
    */

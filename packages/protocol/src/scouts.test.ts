@@ -114,6 +114,24 @@ describe('ScoutManifest', () => {
     expect(ScoutManifest.parse({ ...manifest, summary: tooMany }).summary).toBeUndefined();
   });
 
+  it('takes an icon and a tone per group, and drops a bad one alone', () => {
+    const groups = (value: unknown) => ScoutManifest.parse({ ...manifest, groups: value }).groups;
+    expect(groups({ Primary: { icon: 'star', tone: 'violet' } })).toEqual({
+      Primary: { icon: 'star', tone: 'violet' },
+    });
+    // A bad name costs only that name, and a look with nothing left goes, leaving the rest.
+    expect(groups({ Primary: { icon: 'Star!', tone: 'violet' }, Updates: 5, Social: {} })).toEqual({
+      Primary: { tone: 'violet' },
+    });
+    const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`G${i}`, { tone: 'sky' }]));
+    expect(groups(many)).toBeUndefined();
+    expect(groups('Primary')).toBeUndefined();
+    // An empty or too-long name drops alone too, not the whole map.
+    expect(groups({ '': { tone: 'red' }, ['x'.repeat(81)]: { tone: 'red' }, Updates: { tone: 'sky' } })).toEqual({
+      Updates: { tone: 'sky' },
+    });
+  });
+
   it('keeps fields a newer Kingdom adds out of the way rather than refusing the Scout', () => {
     expect(ScoutManifest.safeParse({ ...manifest, triggers: [] }).success).toBe(true);
   });

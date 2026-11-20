@@ -351,12 +351,15 @@ export function Avatar({
   whoKey,
   small = false,
   named = false,
+  faded = false,
 }: {
   who: string;
   whoKey?: string;
   small?: boolean;
   /** Says who in its tooltip, where nothing beside it does. */
   named?: boolean;
+  /** Steps back, for a message already read. */
+  faded?: boolean;
 }) {
   const tone = senderTone(whoKey ?? who);
   return (
@@ -364,7 +367,7 @@ export function Avatar({
       data-avatar
       data-tone={tone}
       {...(named ? { title: who } : { 'aria-hidden': true })}
-      className={`flex shrink-0 items-center justify-center rounded-full font-bold ${small ? 'h-[22px] w-[22px] text-[11px]' : 'mt-0.5 h-8 w-8 text-sm'} ${SENDER_CLASSES[tone].avatar}`}
+      className={`flex shrink-0 items-center justify-center rounded-full font-bold ${small ? 'h-[22px] w-[22px] text-[11px]' : 'mt-0.5 h-8 w-8 text-sm'} ${SENDER_CLASSES[tone].avatar}${faded ? ' opacity-50 saturate-50' : ''}`}
     >
       {monogram(who)}
     </span>

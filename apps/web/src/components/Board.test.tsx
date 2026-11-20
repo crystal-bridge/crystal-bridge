@@ -301,6 +301,75 @@ describe('BoardPage', () => {
       expect(within(row).getByText('Ada Lovelace').className).toMatch(/font-semibold/);
     });
 
+    it('bands each group, with the icon and tone the Scout names and its unread count', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, groups: { Primary: { icon: 'star', tone: 'violet' } } } }),
+        items: [
+          item({ id: 'a', group: 'Primary', fields: { from: 'Ada', date: today, unread: true } }),
+          item({ id: 'b', group: 'Primary', fields: { from: 'Bo', date: today, unread: false } }),
+          item({ id: 'c', group: 'Updates', fields: { from: 'Cy', date: today, unread: false } }),
+        ],
+      });
+      const band = (name: string) => screen.getByRole('heading', { name }).closest('[data-band]')!;
+      expect(band('Primary').getAttribute('data-tone')).toBe('violet');
+      expect(band('Primary').querySelector('svg')).not.toBeNull();
+      expect(band('Primary').textContent).toMatch(/1 unread · 2$/);
+      // A group the Scout gives no look still gets a band, in a neutral shade and without an icon.
+      expect(band('Updates').getAttribute('data-tone')).toBe('neutral');
+      expect(band('Updates').querySelector('svg')).toBeNull();
+      expect(band('Updates').textContent).toMatch(/1$/);
+      // A long name truncates, so the heading says it in full on hover.
+      expect(screen.getByRole('heading', { name: 'Primary' }).getAttribute('title')).toBe('Primary');
+    });
+
+    it('draws a neutral band for a look the app does not know', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, groups: { Primary: { icon: 'nope', tone: 'nope' } } } }),
+        items: [item({ id: 'a', group: 'Primary', fields: { from: 'Ada', date: today, unread: true } })],
+      });
+      const band = screen.getByRole('heading', { name: 'Primary' }).closest('[data-band]')!;
+      expect(band.getAttribute('data-tone')).toBe('neutral');
+      expect(band.querySelector('svg')).toBeNull();
+    });
+
+    it('marks nothing unread or read where the Scout does not say what unread is', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, show: { who: 'from', when: 'date' } } }),
+        items: [
+          item({ id: 'a', group: 'Inbox', state: 'seen', fields: { from: 'Ada', date: today } }),
+          // A field named unread means nothing unless `show` names it.
+          item({ id: 'b', group: 'Inbox', state: 'seen', fields: { from: 'Bo', date: today, unread: true } }),
+        ],
+      });
+      const row = screen.getByText('Ada').closest('li')!;
+      expect(row.querySelector('[data-unread-bar]')).toBeNull();
+      expect(row.querySelector('[data-avatar]')?.className).not.toMatch(/opacity-50/);
+      expect(screen.getByText('Ada').className).not.toMatch(/text-neutral-500/);
+      const band = screen.getByRole('heading', { name: 'Inbox' }).closest('[data-band]')!;
+      expect(band.textContent).not.toMatch(/unread/);
+    });
+
+    it('marks an unread row in gold, never blue, and fades a read one', () => {
+      show({
+        scout: mailScout(),
+        items: [
+          item({ id: 'a', fields: { from: 'Ada', date: today, unread: true } }),
+          item({ id: 'b', fields: { from: 'Bo', date: today, unread: false } }),
+        ],
+      });
+      const unread = screen.getByText('Ada').closest('li')!;
+      const read = screen.getByText('Bo').closest('li')!;
+      // Blue is kept for something waiting on you.
+      const dot = within(unread).getByText('Unread', { selector: '.sr-only' }).parentElement!;
+      expect(dot.className).toMatch(/bg-gold/);
+      expect(dot.className).not.toMatch(/blue/);
+      expect(unread.querySelector('[data-unread-bar]')).not.toBeNull();
+      expect(read.querySelector('[data-unread-bar]')).toBeNull();
+      expect(read.querySelector('[data-avatar]')?.className).toMatch(/opacity-50/);
+      // Grey that still reads on the dark page.
+      expect(screen.getByText('Bo').className).toMatch(/text-neutral-500 dark:text-neutral-400/);
+    });
+
     it('keeps a read message in plain weight, though it is new on this visit', () => {
       show({
         scout: mailScout(),
