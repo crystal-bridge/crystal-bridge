@@ -88,7 +88,7 @@ export interface InteractiveSessionOptions {
   chrome?: boolean;
   /** `--effort` for every process this session starts; unset leaves the CLI's default. */
   effort?: Effort;
-  /** Folders outside `cwd` the agent may read without asking (`--add-dir`), e.g. its attached files. */
+  /** Folders outside `cwd` the agent may read without asking (`permissions.additionalDirectories`), e.g. its attached files. */
   addDirs?: readonly string[];
   forkFrom?: string;
   claudeBin?: string;
@@ -517,8 +517,6 @@ export class InteractiveSession extends EventEmitter {
       this.mode === 'manual' ? 'default' : this.mode,
       ...(this.opts.chrome ? ['--chrome'] : []),
       ...(this.effort ? ['--effort', this.effort] : []),
-      // One folder per flag, each followed by another flag: --add-dir takes a list.
-      ...(this.opts.addDirs ?? []).flatMap((dir) => ['--add-dir', dir]),
       // Only for the `summon` tool: this engine's approvals come through hooks, not `approve`.
       ...(this.opts.permissionUrl ? ['--mcp-config', mcpConfig(this.opts.permissionUrl)] : []),
       '--settings',
@@ -573,7 +571,11 @@ export class InteractiveSession extends EventEmitter {
     };
     // Here, not once at the start: a temp cleaner can take the folder while a Quest sits idle.
     mkdirSync(dirname(this.settingsFile), { recursive: true });
-    writeFileSync(this.settingsFile, JSON.stringify({ hooks, statusLine }), { mode: 0o600 });
+    // Extra folders go in the settings, not `--add-dir`: by CLI 2.1.329 the interactive CLI stops on a trust prompt for
+    // each `--add-dir` folder, with "No, exit" chosen (#297). The documented setting grants the same access, unasked.
+    const addDirs = this.opts.addDirs ?? [];
+    const permissions = addDirs.length ? { permissions: { additionalDirectories: addDirs } } : {};
+    writeFileSync(this.settingsFile, JSON.stringify({ hooks, statusLine, ...permissions }), { mode: 0o600 });
   }
 
   /**

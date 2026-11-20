@@ -40,6 +40,8 @@ one entry.
 
 ### Fixed
 
+- An interactive Quest no longer stops before its first message at a prompt to trust its folder for attached files,
+  which Claude Code 2.1.329 asks about.
 - A Cast on a machine whose `tail` can't watch files, such as Ubuntu 26.04's when it has no inotify left, no
   longer finishes before its last lines are read.
 - A link or reload that opens a Board, a Castle, New Quest or the Airship stays there, instead of jumping to a saved
