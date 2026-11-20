@@ -30,6 +30,8 @@ one entry.
   See [Releases](docs/OPERATIONS.md#releases).
 - A Quest that finishes or fails while you aren't looking stays marked until you open it, on every device. The Tavern
   lists those Quests after what needs you, and the Airship's Kingdom cards sort Quests by attention.
+- Scouts take a `rule` schedule (an RFC 5545 recurrence rule, for every other Tuesday or the last weekday of the month)
+  and a `once` schedule besides cron. See [Scouts and Boards](docs/SCOUTS.md#keep-the-watch-schedules).
 
 ### Changed
 

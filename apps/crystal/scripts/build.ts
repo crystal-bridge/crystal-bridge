@@ -22,6 +22,8 @@ await build({
   platform: 'node',
   format: 'esm',
   target: 'node22',
+  // Bundled workspace code imports these at run time, so the Kingdom declares them: croner stays here because
+  // packages/protocol/src/recurrence.ts imports it, though no Kingdom file does.
   external: Object.keys(manifest.dependencies),
   banner: { js: '#!/usr/bin/env node' },
   define: { __KINGDOM_VERSION__: JSON.stringify(manifest.version) },
