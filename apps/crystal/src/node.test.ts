@@ -427,6 +427,7 @@ describe('startNode', () => {
       prompt: 'Sweep the deps.',
       mode: 'auto' as const,
       effort: 'high' as const,
+      session: randomUUID(),
       link: { patrol: 'sweep', run: RUN },
       waitForYouMs: 60_000,
     };
@@ -494,7 +495,7 @@ describe('startNode', () => {
       const patrols = fakePatrols();
       const crystal = createNode({ patrols });
       const { conn } = await hello();
-      const started = await crystal.startPatrolQuest(start);
+      const started = await crystal.startPatrolQuest({ ...start, session: randomUUID() });
       expect(started.ok).toBe(true);
       const session = started.ok ? started.session : '';
       const frame = await waitForFrame(conn, (f) => f.type === 'session.started');
@@ -513,9 +514,9 @@ describe('startNode', () => {
       const patrols = fakePatrols();
       const crystal = createNode({ patrols });
       await hello();
-      const first = await crystal.startPatrolQuest(start);
+      const first = await crystal.startPatrolQuest({ ...start, session: randomUUID() });
       created.at(-1)!.fake.emit('event', { type: 'turn.finished', payload: { outcome: 'error' } });
-      const second = await crystal.startPatrolQuest(start);
+      const second = await crystal.startPatrolQuest({ ...start, session: randomUUID() });
       created
         .at(-1)!
         .fake.emit('event', { type: 'session.ended', payload: { exitCode: 1, signal: null, reason: 'error' } });
@@ -529,7 +530,7 @@ describe('startNode', () => {
       const patrols = fakePatrols();
       const crystal = createNode({ patrols });
       const { conn } = await hello();
-      const started = await crystal.startPatrolQuest({ ...start, waitForYouMs: 50 });
+      const started = await crystal.startPatrolQuest({ ...start, session: randomUUID(), waitForYouMs: 50 });
       const session = started.ok ? started.session : '';
       const fake = created.at(-1)!.fake;
       const decision = node!.handlePermissionRequest({
@@ -550,11 +551,46 @@ describe('startNode', () => {
       });
     });
 
+    it('still records needing you when a turn it ended stops without a result', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      const { conn } = await hello();
+      const started = await crystal.startPatrolQuest({ ...start, session: randomUUID(), waitForYouMs: 30 });
+      const session = started.ok ? started.session : '';
+      void node!.handlePermissionRequest({ session, requestId: randomUUID(), toolName: 'Bash', input: {} });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      await vi.waitFor(() => expect(created.at(-1)!.fake.interrupt).toHaveBeenCalled());
+      created
+        .at(-1)!
+        .fake.emit('event', { type: 'session.ended', payload: { exitCode: null, signal: 'SIGINT', reason: 'exit' } });
+      expect(patrols.questEnded).toHaveBeenCalledWith(session, expect.objectContaining({ outcome: 'needs-you' }));
+    });
+
+    it('waits a long waitForYou out rather than denying at once', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      const { conn } = await hello();
+      const started = await crystal.startPatrolQuest({
+        ...start,
+        session: randomUUID(),
+        waitForYouMs: 30 * 86_400_000,
+      });
+      const session = started.ok ? started.session : '';
+      let settled = false;
+      void node!.handlePermissionRequest({ session, requestId: randomUUID(), toolName: 'Bash', input: {} }).then(() => {
+        settled = true;
+      });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      await delay(100);
+      expect(settled).toBe(false);
+      expect(created.at(-1)!.fake.interrupt).not.toHaveBeenCalled();
+    });
+
     it('says nothing of a Patrol’s Quest that ends because the node is closing', async () => {
       const patrols = fakePatrols();
       const crystal = createNode({ patrols });
       await hello();
-      await crystal.startPatrolQuest(start);
+      await crystal.startPatrolQuest({ ...start, session: randomUUID() });
       const fake = created.at(-1)!.fake;
       fake.close.mockImplementation(() =>
         fake.emit('event', { type: 'session.ended', payload: { exitCode: null, signal: 'SIGTERM', reason: 'exit' } }),
@@ -567,7 +603,7 @@ describe('startNode', () => {
       const patrols = fakePatrols();
       const crystal = createNode({ patrols });
       const { conn } = await hello();
-      const started = await crystal.startPatrolQuest({ ...start, waitForYouMs: 80 });
+      const started = await crystal.startPatrolQuest({ ...start, session: randomUUID(), waitForYouMs: 80 });
       const session = started.ok ? started.session : '';
       const fake = created.at(-1)!.fake;
       const requestId = randomUUID();

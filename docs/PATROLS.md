@@ -127,8 +127,9 @@ a Quest's run says its Quest can be carried on.
 
 - A Quest Patrol runs in its `mode`, or the Kingdom's default mode. Like the example Scout Quests, the prompt says what
   the Quest may and may not do.
-- A permission prompt notifies as usual and waits up to `waitForYou` (default `30m`). Then the Kingdom denies the
-  prompt, the turn ends, and the run is recorded as `needs-you`. The Quest stays open: send it a message to carry on.
+- A permission prompt notifies as usual and waits up to `waitForYou` (default `30m`; anything past about 24 days waits
+  that long). Then the Kingdom denies the prompt, the turn ends, and the run is recorded as `needs-you`. The Quest stays
+  open: send it a message to carry on. Only the first turn is timed: after it, the Quest is yours.
 - The Quest appears in the Kingdom's list like any other, marked with its Patrol, as a Scout's Quest is marked with its
   item.
 - A run's outcome says how the run ended, not whether the work succeeded. The run record and the Board item keep that
@@ -137,7 +138,7 @@ a Quest's run says its Quest can be carried on.
 | Outcome     | Quest Patrol                          | Script Patrol                  |
 | ----------- | ------------------------------------- | ------------------------------ |
 | `finished`  | the turn ended normally               | exit code 0                    |
-| `failed`    | the turn ended in an error            | any other exit code            |
+| `failed`    | the turn ended in an error or was stopped, or the Quest never started | any other exit code, or it didn't start |
 | `timed-out` | not used                              | killed after `timeoutSeconds`  |
 | `needs-you` | a permission prompt outwaited `waitForYou` | not used                  |
 | `skipped`   | the last run was still out            | the last run was still out     |
@@ -156,14 +157,19 @@ at all, so it comes only from a file written on the Kingdom. The app can pause, 
 create one or change its command.
 
 Deleting a Patrol moves its folder into `.deleted/` inside the patrols folder, named with the time, so a delete from the
-app never loses a file someone wrote; a script still running is stopped. A Quest still out carries on as an ordinary
-Quest, and its run is no longer reported.
+app never loses a file someone wrote. A run still out ends as `failed`, saying so: a script is stopped, and a Quest
+carries on as an ordinary Quest. A folder that goes away by other means ends its run the same way, and a folder that's
+only away for a moment keeps its pause and failure count.
+
+The app never saves over a script Patrol, even one whose `patrol.json` doesn't load at the moment: it may save over a
+folder only when its `patrol.json` is missing or loads as a Quest Patrol.
 
 `CRYSTAL_PATROLS_FROM_APP=off` goes further for a Kingdom that wants the Scouts' line, where only what's already in a
 folder can run: the app can't create or edit any Patrol there, but pause, resume, delete and Run now still work.
 
 A Patrol saved from the app stays on the Kingdom's disk and keeps running after the login that made it is removed. After
-removing a login you don't trust, check each Kingdom's Watchtower. The [security model](SECURITY-MODEL.md) has a
+removing a login you don't trust, check each Kingdom's Patrols: its patrols folder, or the hub's
+`/api/nodes/<kingdom>/patrols` until the Watchtower is built. The [security model](SECURITY-MODEL.md) has a
 Patrols row.
 
 ## Post to a Board

@@ -263,6 +263,9 @@ interface PatrolQuest {
   timedOut?: boolean;
 }
 
+/** The longest delay `setTimeout` keeps: 2^31 - 1 ms, about 24.8 days. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
 /** `waitForYou` as the run's reason says it: `30m`, `2h`, or seconds for a short one. */
 function waitedFor(ms: number): string {
   if (ms >= 2 * 3_600_000 && ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
@@ -540,7 +543,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   async function startPatrolQuest(
     start: PatrolQuestStart,
   ): Promise<{ ok: true; session: string } | { ok: false; reason: string }> {
-    const session = randomUUID();
+    const session = start.session;
     let started: Awaited<ReturnType<typeof startSession>>;
     try {
       started = await startSession(
@@ -579,14 +582,15 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     const watched = patrolQuests.get(session);
     if (!watched) return;
     let ended: QuestEnded;
-    if (event.type === 'turn.finished') {
+    if (watched.timedOut && (event.type === 'turn.finished' || event.type === 'session.ended')) {
+      ended = {
+        outcome: 'needs-you',
+        reason: `a permission prompt waited ${waitedFor(watched.waitForYouMs)} with nobody to answer it; send the Quest a message to carry on`,
+      };
+    } else if (event.type === 'turn.finished') {
       const outcome = event.payload.outcome;
-      ended = watched.timedOut
-        ? {
-            outcome: 'needs-you',
-            reason: `a permission prompt waited ${waitedFor(watched.waitForYouMs)} with nobody to answer it; send the Quest a message to carry on`,
-          }
-        : outcome === 'success'
+      ended =
+        outcome === 'success'
           ? { outcome: 'finished' }
           : outcome === 'error'
             ? { outcome: 'failed', reason: 'the Quest’s turn ended in an error' }
@@ -602,21 +606,25 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   function timePatrolPrompt(requestId: string, session: string): (() => void) | undefined {
     const watched = patrolQuests.get(session);
     if (!watched) return undefined;
-    const timer = setTimeout(() => {
-      const pending = pendingPermissions.get(requestId);
-      if (!pending || patrolQuests.get(session) !== watched) return;
-      pendingPermissions.delete(requestId);
-      watched.timedOut = true;
-      pending.resolve(
-        'deny',
-        `Nobody answered this within ${waitedFor(watched.waitForYouMs)}: this scheduled run stops here. Don't retry; end your turn.`,
-      );
-      try {
-        sessions.get(session)?.runtime.interrupt();
-      } catch (error) {
-        log(`could not end the turn of ${session}`, error);
-      }
-    }, watched.waitForYouMs);
+    const timer = setTimeout(
+      () => {
+        const pending = pendingPermissions.get(requestId);
+        if (!pending || patrolQuests.get(session) !== watched) return;
+        pendingPermissions.delete(requestId);
+        watched.timedOut = true;
+        pending.resolve(
+          'deny',
+          `Nobody answered this within ${waitedFor(watched.waitForYouMs)}: this scheduled run stops here. Don't retry; end your turn.`,
+        );
+        try {
+          sessions.get(session)?.runtime.interrupt();
+        } catch (error) {
+          log(`could not end the turn of ${session}`, error);
+        }
+      },
+      // A longer delay than a timer holds would fire at once; past about 24 days it waits that long instead.
+      Math.min(watched.waitForYouMs, MAX_TIMER_MS),
+    );
     timer.unref?.();
     return () => clearTimeout(timer);
   }

@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Patrol, PatrolRun } from '@crystal-bridge/protocol';
@@ -39,7 +48,9 @@ describe('Patrols', () => {
   let sent: Sent[];
   let pending: Pending[];
   let quests: PatrolQuestStart[];
-  let questAnswer: { ok: true; session: string } | { ok: false; reason: string };
+  let questAnswer: { ok: true } | { ok: false; reason: string };
+  let onQuest: ((start: PatrolQuestStart) => void) | undefined;
+  let logs: string[];
   let fromApp: boolean;
   let patrols: Patrols | undefined;
 
@@ -53,7 +64,9 @@ describe('Patrols', () => {
     sent = [];
     pending = [];
     quests = [];
-    questAnswer = { ok: true, session: '00000000-0000-4000-8000-000000000001' };
+    questAnswer = { ok: true };
+    onQuest = undefined;
+    logs = [];
     fromApp = true;
   });
 
@@ -107,11 +120,12 @@ describe('Patrols', () => {
       },
       startQuest: async (start) => {
         quests.push(start);
+        onQuest?.(start);
         return questAnswer;
       },
       onPatrols: (list) => lists.push(list),
       onRun: (patrol, run) => sent.push({ patrol, run }),
-      log: () => {},
+      log: (line) => logs.push(line),
     });
     return patrols;
   }
@@ -324,6 +338,27 @@ describe('Patrols', () => {
       expect(pending).toHaveLength(0);
     });
 
+    it('keeps its pause when its folder is away for a moment', async () => {
+      patrolFolder('backup');
+      make();
+      await patrols!.tick();
+      await patrols!.change('backup', { op: 'pause' });
+      renameSync(join(dir, 'backup'), join(home, 'away'));
+      await patrols!.tick();
+      expect(listed()).toBeUndefined();
+      renameSync(join(home, 'away'), join(dir, 'backup'));
+      await patrols!.tick();
+      expect(listed()?.paused).toMatch(/by hand/);
+    });
+
+    it('says so when its state file can’t be read', async () => {
+      writeFileSync(join(home, 'patrols-state.json'), '{ trunc');
+      patrolFolder('backup');
+      make();
+      await patrols!.tick();
+      expect(logs.some((line) => /state/.test(line))).toBe(true);
+    });
+
     it('keeps its next time and pause across a restart', async () => {
       patrolFolder('backup');
       make();
@@ -359,7 +394,7 @@ describe('Patrols', () => {
         waitForYouMs: 30 * MINUTE,
       });
       expect(quests[0]!.link).toEqual({ patrol: 'sweep', run: sent[0]!.run.id });
-      expect(sent[0]?.run).toMatchObject({ outcome: 'running', session: questAnswer.ok && questAnswer.session });
+      expect(sent[0]?.run).toMatchObject({ outcome: 'running', session: quests[0]!.session });
     });
 
     it('takes the prompt itself, and the Kingdom’s defaults for what it leaves out', async () => {
@@ -372,6 +407,7 @@ describe('Patrols', () => {
         cwd: join(home, 'code', 'app'),
         prompt: 'Look around.',
         waitForYouMs: 2 * HOUR,
+        session: sent[0]!.run.session,
         link: { patrol: 'sweep', run: sent[0]!.run.id },
       });
     });
@@ -386,7 +422,7 @@ describe('Patrols', () => {
       await patrols!.idle();
       expect(quests).toHaveLength(1);
       expect(ended('sweep')[0]?.run.outcome).toBe('skipped');
-      const session = questAnswer.ok ? questAnswer.session : '';
+      const session = quests[0]!.session;
       patrols!.questEnded(session, { outcome: 'needs-you', reason: 'nobody answered within 30m' });
       expect(ended('sweep')[1]?.run).toMatchObject({
         id: sent[0]!.run.id,
@@ -415,6 +451,38 @@ describe('Patrols', () => {
       expect(quests).toHaveLength(1);
     });
 
+    it('takes the end of a Quest that ends while it is still starting', async () => {
+      patrolFolder('sweep', quest(), { 'sweep.md': 'Sweep.' });
+      onQuest = (start) => patrols!.questEnded(start.session, { outcome: 'failed', reason: 'claude could not start' });
+      make();
+      await patrols!.tick();
+      patrols!.runNow('sweep');
+      await patrols!.idle();
+      expect(ended('sweep')[0]?.run).toMatchObject({ outcome: 'failed', reason: 'claude could not start' });
+      onQuest = undefined;
+      patrols!.runNow('sweep');
+      await patrols!.idle();
+      expect(quests).toHaveLength(2);
+      expect(ended('sweep')).toHaveLength(1);
+    });
+
+    it('ends a run left out by a stop once its Patrol loads again, even if it didn’t at first', async () => {
+      patrolFolder('sweep', quest(), { 'sweep.md': 'Sweep.' });
+      make();
+      await patrols!.tick();
+      patrols!.runNow('sweep');
+      await patrols!.idle();
+      await patrols!.close();
+      writeFileSync(join(dir, 'sweep', 'patrol.json'), '{ broken');
+      sent = [];
+      make();
+      await patrols!.tick();
+      expect(sent).toHaveLength(0);
+      patrolFolder('sweep', quest(), { 'sweep.md': 'Sweep.' });
+      await patrols!.tick();
+      expect(sent[0]?.run).toMatchObject({ outcome: 'failed', reason: expect.stringMatching(/Crystal stopped/) });
+    });
+
     it('leaves a run out when its Quest ends because Crystal is stopping', async () => {
       patrolFolder('sweep', quest(), { 'sweep.md': 'Sweep.' });
       make();
@@ -422,7 +490,7 @@ describe('Patrols', () => {
       patrols!.runNow('sweep');
       await patrols!.idle();
       const closing = patrols!.close();
-      patrols!.questEnded(questAnswer.ok ? questAnswer.session : '', { outcome: 'failed' });
+      patrols!.questEnded(quests[0]!.session, { outcome: 'failed' });
       await closing;
       expect(ended('sweep')).toHaveLength(0);
       make();
@@ -499,6 +567,26 @@ describe('Patrols', () => {
       expect(existsSync(join(dir, 'new'))).toBe(false);
     });
 
+    it('never saves over a script Patrol whose patrol.json doesn’t load, even one it has never loaded', async () => {
+      patrolFolder('backup');
+      make();
+      await patrols!.tick();
+      writeFileSync(
+        join(dir, 'backup', 'patrol.json'),
+        JSON.stringify(script({ script: { command: ['./check.sh'], timeoutSeconds: -5 } })),
+      );
+      const save = () => patrols!.change('backup', { op: 'save', manifest: manifest as never, prompt: 'replaced' });
+      expect(await save()).toMatchObject({ ok: false, reason: expect.stringMatching(/script/) });
+      await patrols!.close();
+      make();
+      await patrols!.tick();
+      expect(listed()?.manifest).toBeUndefined();
+      expect(await save()).toMatchObject({ ok: false, reason: expect.stringMatching(/doesn’t load/) });
+      writeFileSync(join(dir, 'backup', 'patrol.json'), '{ broken');
+      expect(await save()).toMatchObject({ ok: false, reason: expect.stringMatching(/doesn’t load/) });
+      expect(existsSync(join(dir, 'backup', 'sweep.md'))).toBe(false);
+    });
+
     it('deletes a Patrol by moving its folder aside, stopping a run that is out', async () => {
       patrolFolder('backup');
       make();
@@ -508,12 +596,26 @@ describe('Patrols', () => {
       expect(pending[0]?.stopped).toBe(true);
       await patrols!.idle();
       expect(patrols!.list()).toEqual([]);
+      // Its run is ended before the list drops it, so the hub doesn't keep it out for good.
+      expect(ended()[0]?.run).toMatchObject({ outcome: 'failed', reason: expect.stringMatching(/deleted/) });
+      expect(lists.at(-1)).toEqual([]);
       expect(existsSync(join(dir, 'backup'))).toBe(false);
       const aside = readdirSync(join(dir, '.deleted'));
       expect(aside).toHaveLength(1);
       expect(aside[0]).toMatch(/^backup-/);
       expect(existsSync(join(dir, '.deleted', aside[0]!, 'patrol.json'))).toBe(true);
       expect(await patrols!.change('backup', { op: 'pause' })).toMatchObject({ ok: false });
+    });
+
+    it('leaves a run alone when its folder can’t be moved aside', async () => {
+      patrolFolder('backup');
+      writeFileSync(join(dir, '.deleted'), 'in the way');
+      make();
+      await patrols!.tick();
+      patrols!.runNow('backup');
+      expect(await patrols!.change('backup', { op: 'delete' })).toMatchObject({ ok: false });
+      expect(pending[0]?.stopped).toBe(false);
+      expect(listed()).toBeDefined();
     });
 
     it('pauses, resumes and deletes even where the app may not save', async () => {
@@ -539,6 +641,6 @@ describe('Patrols', () => {
     expect(recent.every((frame) => frame.kind === 'patrol-run' && frame.patrol === 'backup')).toBe(true);
     expect(recent.at(-1)?.run.outcome).toBe('finished');
     expect(new Set(recent.map((frame) => frame.run.id)).size).toBe(recent.length);
-    expect(recent.length).toBeLessThanOrEqual(10);
+    expect(recent).toHaveLength(5);
   });
 });

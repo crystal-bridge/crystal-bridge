@@ -62,6 +62,8 @@ export interface PatrolQuestStart {
   effort?: Effort;
   engine?: Engine;
   worktree?: boolean;
+  /** The Quest's session id, chosen here so an end that comes while it's still starting finds its run. */
+  session: string;
   /** The run it's for, so the Quest links back to it. */
   link: PatrolLink;
   /** How long a permission prompt waits before the turn ends as `needs-you`. */
@@ -90,7 +92,7 @@ export interface PatrolsOptions {
   /** Runs a script; `spawnCollector` in production. */
   collect?: (request: CollectRequest) => Collector;
   /** Starts a Patrol's Quest through the node link, or says why it couldn't. */
-  startQuest(start: PatrolQuestStart): Promise<{ ok: true; session: string } | { ok: false; reason: string }>;
+  startQuest(start: PatrolQuestStart): Promise<{ ok: true } | { ok: false; reason: string }>;
   now?: () => number;
   /** The Patrols changed: their list, a definition, an error, a pause or a next run. */
   onPatrols(patrols: Patrol[]): void;
@@ -149,6 +151,13 @@ interface Entry {
 const DURATION_MS = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
 /** `30m`, `6h` or `2d` in milliseconds. */
+/** Why a late run was recorded as missed rather than run. */
+function missedWhy(catchUp: string | undefined): string {
+  return catchUp === 'never'
+    ? 'it was late (the Kingdom was asleep or Crystal was down), and catchUp is never'
+    : `it was more than ${catchUp ?? '6h'} late, its catchUp window: the Kingdom was asleep or Crystal was down`;
+}
+
 export function durationMs(text: string): number {
   const unit = text.slice(-1) as keyof typeof DURATION_MS;
   return Number(text.slice(0, -1)) * DURATION_MS[unit];
@@ -187,8 +196,6 @@ export function createPatrols(options: PatrolsOptions): Patrols {
   let closed = false;
   let ticking: Promise<void> | undefined;
   let scanError: string | undefined;
-  /** Runs still out when Crystal last stopped, ended once on the first tick, after the hub link is up. */
-  let leftOut = true;
 
   function readSaved(): Record<string, Saved> {
     try {
@@ -200,18 +207,25 @@ export function createPatrols(options: PatrolsOptions): Patrols {
           return one.success ? [[id, one.data]] : [];
         }),
       );
-    } catch {
+    } catch (error) {
+      // No file yet is a first start. Anything else loses pauses and failure counts, so it's said.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        log(`could not read the Patrols' state, starting afresh: ${messageOf(error)}`);
       return {};
     }
   }
 
+  /** Writes what's kept across restarts. A Patrol whose folder is away for now keeps its state; a delete clears it. */
   function save(): void {
-    saved = Object.fromEntries(
-      [...entries].flatMap(([id, entry]) => {
-        const kept = entry.saved ?? saved[id];
-        return kept ? [[id, kept]] : [];
-      }),
-    );
+    saved = {
+      ...saved,
+      ...Object.fromEntries(
+        [...entries].flatMap(([id, entry]) => {
+          const kept = entry.saved ?? saved[id];
+          return kept ? [[id, kept]] : [];
+        }),
+      ),
+    };
     const json = JSON.stringify(saved, null, 2);
     if (json === written) return;
     try {
@@ -325,10 +339,9 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       log(`found ${names.length} Patrols; only the first ${MAX_PATROLS} by name are used`);
       names = names.slice(0, MAX_PATROLS);
     }
-    for (const id of [...entries.keys()]) {
+    for (const [id, entry] of [...entries]) {
       if (names.includes(id)) continue;
-      // Gone: a script stops; a Quest is the user's now, and its run is no longer reported.
-      entries.get(id)?.out?.script?.stop();
+      letGo(entry, 'its folder went away');
       entries.delete(id);
     }
     const fresh = new Map<string, Entry>();
@@ -391,6 +404,26 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       kept.paused = `stood down after ${kept.failures} failed runs in a row: run it now to try again`;
       kept.pausedBy = 'failures';
     }
+  }
+
+  /**
+   * A Patrol that's going while a run is out: the run ends now, before the list drops the Patrol (the hub keeps runs
+   * only for Patrols it lists). A script stops; a Quest carries on as the user's own.
+   */
+  function letGo(entry: Entry, why: string): void {
+    const out = entry.out;
+    if (!out) return;
+    entry.out = undefined;
+    if (entry.saved) delete entry.saved.out;
+    out.script?.stop();
+    send(entry, {
+      ...out.run,
+      outcome: 'failed',
+      finishedAt: now(),
+      reason: out.session
+        ? `${why} while this run was out; its Quest carries on as an ordinary Quest`
+        : `${why} while this run was out, so the script was stopped`,
+    });
   }
 
   /** Ends the run still out with its outcome, if it's the one asked about. */
@@ -501,6 +534,11 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       });
       return;
     }
+    // Known before the Quest starts, so an end that comes while it's starting still finds this run.
+    const session = randomUUID();
+    const withQuest: PatrolRun = { ...run, session };
+    setOut(entry, withQuest, false);
+    entry.out!.session = session;
     const start: PatrolQuestStart = {
       cwd: folder.cwd,
       prompt: prompt.prompt,
@@ -508,6 +546,7 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       ...(quest.effort ? { effort: quest.effort } : {}),
       ...(quest.engine ? { engine: quest.engine } : {}),
       ...(quest.worktree ? { worktree: true } : {}),
+      session,
       link: { patrol: entry.id, run: run.id },
       waitForYouMs: quest.waitForYou ? durationMs(quest.waitForYou) : DEFAULT_WAIT_FOR_YOU_MS,
     };
@@ -519,8 +558,7 @@ export function createPatrols(options: PatrolsOptions): Patrols {
           end(entry, run.id, { outcome: 'failed', reason: started.reason });
           return;
         }
-        entry.out.session = started.session;
-        setOut(entry, { ...run, session: started.session });
+        send(entry, withQuest);
       })
       .finally(() => working.delete(done));
     working.add(done);
@@ -542,9 +580,11 @@ export function createPatrols(options: PatrolsOptions): Patrols {
     announce();
   }
 
-  /** Runs that were out when Crystal stopped: they ended then, and nothing will say how. Not counted as failures. */
+  /**
+   * Runs that were out when Crystal stopped: they ended then, and nothing will say how. Not counted as failures. Checked
+   * on every tick, so a Patrol that only loads later still has its run ended.
+   */
   function endLeftOut(): void {
-    leftOut = false;
     for (const entry of entries.values()) {
       const out = entry.saved?.out;
       if (!out || entry.out) continue;
@@ -563,7 +603,7 @@ export function createPatrols(options: PatrolsOptions): Patrols {
   async function tick(): Promise<void> {
     if (closed) return;
     scan();
-    if (leftOut) endLeftOut();
+    endLeftOut();
     const at = now();
     for (const entry of entries.values()) {
       const kept = entry.saved;
@@ -583,14 +623,7 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       const window = catchUp === 'never' ? 0 : typeof catchUp === 'number' ? catchUp : durationMs(catchUp);
       const trigger = late > ON_TIME_MS ? 'catch-up' : 'schedule';
       if (late > ON_TIME_MS && late > window) {
-        const said = typeof entry.manifest.catchUp === 'string' ? entry.manifest.catchUp : '6h';
-        record(
-          entry,
-          'schedule',
-          'missed',
-          `the Kingdom was asleep or Crystal was down; older than catchUp (${said})`,
-          slot,
-        );
+        record(entry, 'schedule', 'missed', missedWhy(entry.manifest.catchUp), slot);
       } else if (entry.out) {
         record(entry, trigger, 'skipped', 'the last run was still out', slot);
       } else {
@@ -608,13 +641,14 @@ export function createPatrols(options: PatrolsOptions): Patrols {
     const entry = entries.get(id);
     if (!entry) return { ok: false, reason: `no Patrol "${id}" on this Kingdom` };
     if (request.op === 'delete') {
-      entry.out?.script?.stop();
+      // Moved first: if it can't be, nothing else changes.
       try {
         mkdirSync(join(dir, DELETED), { recursive: true });
         renameSync(join(dir, id), join(dir, DELETED, `${id}-${new Date(now()).toISOString().replace(/[:.]/g, '-')}`));
       } catch (error) {
         return { ok: false, reason: `could not delete it: ${messageOf(error)}` };
       }
+      letGo(entry, 'the Patrol was deleted');
       entries.delete(id);
       delete saved[id];
     } else if (!entry.saved) {
@@ -646,13 +680,27 @@ export function createPatrols(options: PatrolsOptions): Patrols {
     if (manifest.script || !manifest.quest)
       return { ok: false, reason: 'the app saves Quest Patrols only; a script Patrol is written on its Kingdom' };
     const folder = join(dir, id);
-    // The hub only knows what this Kingdom last told it; the file on disk is what counts.
+    // A script Patrol is never replaced from the app, even while its file doesn't load: only a folder with no
+    // patrol.json, or one that loads as a Quest Patrol, may be saved over.
+    if (entries.get(id)?.manifest?.script)
+      return { ok: false, reason: 'a script Patrol is changed only in its file on the Kingdom' };
+    let onDisk: string | undefined;
     try {
-      const onDisk = PatrolManifest.safeParse(JSON.parse(readFileSync(join(folder, 'patrol.json'), 'utf8')));
-      if (onDisk.success && onDisk.data.script)
-        return { ok: false, reason: 'a script Patrol is changed only in its file on the Kingdom' };
-    } catch {
-      // No file yet, or one that doesn't load: saving replaces it.
+      onDisk = readFileSync(join(folder, 'patrol.json'), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        return { ok: false, reason: `could not read its patrol.json: ${messageOf(error)}` };
+    }
+    if (onDisk !== undefined) {
+      let current: PatrolManifest | undefined;
+      try {
+        const loaded = PatrolManifest.safeParse(JSON.parse(onDisk));
+        if (loaded.success) current = loaded.data;
+      } catch {
+        // Not JSON: refused below.
+      }
+      if (!current) return { ok: false, reason: 'its patrol.json doesn’t load: fix or remove it on the Kingdom first' };
+      if (current.script) return { ok: false, reason: 'a script Patrol is changed only in its file on the Kingdom' };
     }
     const recurrence = recurrenceOf(manifest.schedule);
     if (typeof recurrence === 'string') return { ok: false, reason: recurrence };
