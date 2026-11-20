@@ -829,6 +829,12 @@ export function BoardPage({
                   {scout?.nextRunAt !== undefined && !scout.paused && (
                     <span> · next {new Date(scout.nextRunAt).toLocaleString()}</span>
                   )}
+                  {manifest && scout?.nextRunAt === undefined && !scout?.paused && !scout?.error && (
+                    <span title="a one-off that has run, or a rule that has ended: Run now still works">
+                      {' '}
+                      · no more runs
+                    </span>
+                  )}
                 </p>
                 {lastRun?.outcome === 'succeeded' && lastRun.items !== undefined && (
                   <p className="text-sm" title={scoutReturnLine(lastRun.items).plain}>

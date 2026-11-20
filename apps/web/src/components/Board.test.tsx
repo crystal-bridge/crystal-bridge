@@ -488,6 +488,17 @@ describe('BoardPage', () => {
       ).toBe('not yet');
     });
 
+    it('says when a schedule has no more runs, rather than looking idle', () => {
+      const once: ScoutManifest = { ...mail, schedule: { once: '2026-11-17T13:00', timezone: 'UTC' } };
+      show({ scout: mailScout({ manifest: once }) });
+      const banner = screen.getByRole('region', { name: 'Summary' });
+      expect(within(banner).getByText(/once at 2026-11-17 13:00 \(UTC\)/)).toBeTruthy();
+      expect(within(banner).getByText(/no more runs/)).toBeTruthy();
+      cleanup();
+      show({ scout: mailScout({ manifest: once, paused: 'Failed 3 times in a row.' }) });
+      expect(within(screen.getByRole('region', { name: 'Summary' })).queryByText(/no more runs/)).toBeNull();
+    });
+
     it('leaves Counsel out for a Scout that neither synthesizes nor suggests, and the list takes the width', () => {
       const plain: ScoutManifest = { ...mail };
       delete plain.synthesize;
