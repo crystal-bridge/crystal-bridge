@@ -366,8 +366,9 @@ function datesOf(rule: Rule, start: Wall, k: number): { y: number; mo: number; d
     }
     case 'YEARLY': {
       const y = start.y + step;
-      if (rule.byDay && !rule.byMonth && !rule.byMonthDay) {
-        // Weekdays counted through the whole year, such as 20MO.
+      if (rule.byDay && !rule.byMonth) {
+        // Without BYMONTH, weekdays count through the whole year (20MO, or -1MO for the year's last Monday), and
+        // BYMONTHDAY only limits them (RFC 5545 3.3.10).
         const dates: { y: number; mo: number; d: number }[] = [];
         const first = dayNumber(y, 1, 1);
         const length = dayNumber(y + 1, 1, 1) - first;
@@ -383,7 +384,15 @@ function datesOf(rule: Rule, start: Wall, k: number): { y: number; mo: number; d
             if (date) dates.push(date);
           }
         }
-        return dates.sort((a, b) => dayNumber(a.y, a.mo, a.d) - dayNumber(b.y, b.mo, b.d));
+        const limited = rule.byMonthDay
+          ? dates.filter((date) => {
+              const length = daysIn(date.y, date.mo);
+              return rule.byMonthDay!.some((n) => (n > 0 ? n : length + 1 + n) === date.d);
+            })
+          : dates;
+        return [...new Map(limited.map((date) => [dayNumber(date.y, date.mo, date.d), date])).values()].sort(
+          (a, b) => dayNumber(a.y, a.mo, a.d) - dayNumber(b.y, b.mo, b.d),
+        );
       }
       const months = rule.byMonth ?? (rule.byMonthDay ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [start.mo]);
       return [...months]
@@ -434,12 +443,17 @@ function ruleRecurrence(rule: Rule, start: Wall, timezone: string, except: Set<s
       rule.count === undefined && after > startAt
         ? Math.max(0, Math.floor(periodsBetween(rule, start, wallAt(timezone, after)) / rule.interval) - 1)
         : 0;
+    // A rule with COUNT walks from the start on every call; dense ones started long ago cost more, but stay bounded.
     const limit = first + Math.ceil(SEARCH[rule.freq] / rule.interval) + 1;
     let counted = 0;
     let last = -Infinity;
     for (let k = first; k <= limit; k++) {
-      for (const wall of wallsOf(rule, start, k)) {
-        const when = instantOf(timezone, wall);
+      // A time a clock change skips moves forward, possibly past a real time later in the same period, so a period's
+      // runs are put in time order before UNTIL and COUNT see them.
+      const runs = wallsOf(rule, start, k)
+        .map((wall) => ({ wall, when: instantOf(timezone, wall) }))
+        .sort((a, b) => a.when - b.when);
+      for (const { wall, when } of runs) {
         if (when < startAt || when <= last) continue;
         if (rule.until !== undefined && when > rule.until) return undefined;
         last = when;

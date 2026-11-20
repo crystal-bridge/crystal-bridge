@@ -141,6 +141,19 @@ describe('a recurrence rule', () => {
       ]);
     });
 
+    it('counts a numbered weekday through the year when there is no BYMONTH, and lets BYMONTHDAY limit it', () => {
+      const lastMonday = rule('FREQ=YEARLY;BYDAY=-1MO;BYMONTHDAY=25,26,27,28,29,30,31', '2027-01-01T09:00');
+      expect(upcoming(lastMonday, '2027-01-01T00:00:00Z', 2)).toEqual([
+        '2027-12-27T09:00:00.000Z',
+        '2028-12-25T09:00:00.000Z',
+      ]);
+      const firstMonday = rule('FREQ=YEARLY;BYDAY=1MO;BYMONTHDAY=1,2,3,4,5,6,7', '2027-01-01T09:00');
+      expect(upcoming(firstMonday, '2027-01-01T00:00:00Z', 2)).toEqual([
+        '2027-01-04T09:00:00.000Z',
+        '2028-01-03T09:00:00.000Z',
+      ]);
+    });
+
     it('runs yearly in the months BYMONTH names', () => {
       expect(
         upcoming(rule('FREQ=YEARLY;BYMONTH=1,7;BYMONTHDAY=1', '2027-01-01T09:00'), '2027-01-01T00:00:00Z', 3),
@@ -192,6 +205,36 @@ describe('a recurrence rule', () => {
         '2027-04-03T15:30:00.000Z',
         '2027-04-04T16:30:00.000Z',
       ]);
+    });
+
+    describe('Australia/Lord_Howe, whose clocks jump half an hour', () => {
+      // 2027-10-03: 02:00 (+10:30) jumps to 02:30 (+11). 02:15 doesn't exist and lands at 02:45, after the real 02:40.
+      const schedule = (extra = '') =>
+        rule(`FREQ=DAILY;BYHOUR=2;BYMINUTE=15,40${extra}`, '2027-10-01T00:00', 'Australia/Lord_Howe');
+
+      it('keeps the real time that a moved one passes', () => {
+        expect(upcoming(schedule(), '2027-10-02T00:00:00Z', 2)).toEqual([
+          '2027-10-02T15:40:00.000Z',
+          '2027-10-02T15:45:00.000Z',
+        ]);
+      });
+
+      it('counts them in time order', () => {
+        expect(upcoming(schedule(';COUNT=6'), '2027-09-01T00:00:00Z', 9)).toEqual([
+          '2027-09-30T15:45:00.000Z',
+          '2027-09-30T16:10:00.000Z',
+          '2027-10-01T15:45:00.000Z',
+          '2027-10-01T16:10:00.000Z',
+          '2027-10-02T15:40:00.000Z',
+          '2027-10-02T15:45:00.000Z',
+        ]);
+      });
+
+      it('ends at UNTIL by time, not by the order of the wall times', () => {
+        const runs = upcoming(schedule(';UNTIL=20271002T154200Z'), '2027-09-01T00:00:00Z', 9);
+        expect(runs).toHaveLength(5);
+        expect(runs.at(-1)).toBe('2027-10-02T15:40:00.000Z');
+      });
     });
 
     it('keeps a weekly time of day across the change', () => {
