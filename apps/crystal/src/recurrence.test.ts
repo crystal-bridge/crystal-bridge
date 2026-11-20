@@ -1,6 +1,6 @@
 import type { Schedule } from '@crystal-bridge/protocol';
 import { describe, expect, it } from 'vitest';
-import { recurrenceOf, scheduleKey, upcoming, type Recurrence } from './recurrence.js';
+import { preview, previewOf, recurrenceOf, scheduleKey, upcoming, type Recurrence } from './recurrence.js';
 
 const at = (iso: string) => Date.parse(iso);
 const iso = (times: number[]) => times.map((time) => new Date(time).toISOString());
@@ -253,5 +253,40 @@ describe('one-off schedules', () => {
       ].map((schedule) => scheduleKey(schedule)),
     );
     expect(keys.size).toBe(4);
+  });
+});
+
+describe('preview', () => {
+  it('gives the next times after now, fewer once the schedule ends', () => {
+    expect(preview({ cron: '0 9 * * *', timezone: 'UTC' }, 2, at('2026-11-20T10:00:00Z'))).toEqual({
+      times: [at('2026-11-21T09:00:00Z'), at('2026-11-22T09:00:00Z')],
+    });
+    expect(preview({ once: '2026-12-01T09:00', timezone: 'UTC' }, 5, at('2026-11-20T10:00:00Z'))).toEqual({
+      times: [at('2026-12-01T09:00:00Z')],
+    });
+  });
+
+  it('says why a schedule gives no times, in the words a file would get', () => {
+    expect(preview({ cron: '0 9 * * *', timezone: 'Mars/Base' }, 3, 0)).toEqual({
+      reason: expect.stringMatching(/no time zone/),
+    });
+  });
+
+  it('says a rule that never comes round, as a file with it would hear', () => {
+    const never = chicago('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30', '2026-01-01T09:00');
+    expect(preview(never, 3, at('2026-11-20T10:00:00Z'))).toEqual({
+      reason: expect.stringMatching(/never comes round/),
+    });
+  });
+
+  it('turns an engine that gives up partway into a reason, not a throw', () => {
+    let calls = 0;
+    const givesUp: Recurrence = {
+      next: (after) => {
+        if (++calls > 1) throw new Error('looked through 10000 times without finding the next one');
+        return after + 1;
+      },
+    };
+    expect(previewOf(givesUp, 3, 0)).toEqual({ reason: 'looked through 10000 times without finding the next one' });
   });
 });

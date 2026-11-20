@@ -41,11 +41,14 @@ import {
   NodeScoutRun,
   NodeScouts,
   type HubPatrolChange,
+  type HubPatrolPreview,
   type HubPatrolRunNow,
   NodePatrolChanged,
+  NodePatrolPreviewed,
   NodePatrolRun,
   NodePatrols,
   PatrolChangeRequest,
+  PatrolPreviewRequest,
   PatrolId,
   type Cast,
   type Resume,
@@ -171,6 +174,15 @@ const MAX_CLIENT_BACKLOG = 32 * 1024 * 1024;
 const FILE_TIMEOUT_MS = 15_000;
 /** A little past the node's own limit on the update, so the node's answer normally comes first. */
 const CLI_UPDATE_WAIT_MS = 6 * 60 * 1000;
+
+/** A Kingdom's answer to a Board action, a Patrol change or a preview; `refused` marks a reason the Kingdom gave. */
+interface KingdomAnswer {
+  ok: boolean;
+  reason?: string;
+  session?: string;
+  times?: number[];
+  refused?: boolean;
+}
 /** A Kingdom lists within 15 seconds or says it can't, so this only meets one that stopped answering. */
 const INVENTORY_WAIT_MS = 20_000;
 /** How long a Board's quest or run action waits for its Kingdom: a script there may take two minutes. */
@@ -465,15 +477,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   /** Kingdoms that run Patrols, and those of them that take Patrols from the app (docs/PATROLS.md). */
   const patrolNodes = new Set<string>();
   const patrolEditNodes = new Set<string>();
+  /** Kingdoms that work out a schedule's next run times for the Patrol form. */
+  const patrolPreviewNodes = new Set<string>();
   const inventoryLists = new Map<
     string,
     { node: string; finish: (events: NodeInventoryListed['events'], error?: string) => void }
   >();
   // Board actions and Patrol changes in flight, by request: only the asked node's answer ends one.
-  const kingdomAsks = new Map<
-    string,
-    { node: string; finish: (answer: { ok: boolean; reason?: string; session?: string }) => void }
-  >();
+  const kingdomAsks = new Map<string, { node: string; finish: (answer: KingdomAnswer) => void }>();
   // Every connected client, for errors that aren't about one session.
   const clients = new Set<WebSocket>();
   // Each client's tailnet login, so a user's appearance change reaches only their own other tabs.
@@ -1177,6 +1188,23 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const { node, patrol } = request.params as { node: string; patrol: string };
     return changePatrol(node, patrol, { op: 'delete' }, reply);
   });
+  // The next run times of a schedule not yet saved, from the Kingdom, so they use its clock and time zone data.
+  app.post('/api/nodes/:node/patrol-preview', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = PatrolPreviewRequest.safeParse(request.body);
+    if (!wanted.success) {
+      const issue = wanted.error.issues[0];
+      return reply.code(400).send({ error: issue ? issue.message : 'expected { schedule, count? }' });
+    }
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!patrolPreviewNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    const answer = await askKingdom(socket, node, { kind: 'patrol-preview', requestId: randomUUID(), ...wanted.data });
+    if (answer.times) return { times: answer.times };
+    // The Kingdom's own reason is about the schedule; otherwise it went offline or didn't answer in time.
+    return reply.code(answer.refused ? 400 : 409).send({ error: answer.reason ?? 'the Kingdom gave no times' });
+  });
   for (const op of ['pause', 'resume'] as const) {
     app.post(`/api/nodes/:node/patrols/:patrol/${op}`, async (request, reply) => {
       const { node, patrol } = request.params as { node: string; patrol: string };
@@ -1185,16 +1213,16 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   }
 
   /**
-   * Sends a Board's request or a Patrol change to its Kingdom and waits for its answer (`scout-acted` or
-   * `patrol-changed`), or says it didn't answer in time.
+   * Sends a Board's request, a Patrol change or a preview to its Kingdom and waits for its answer (`scout-acted`,
+   * `patrol-changed` or `patrol-previewed`), or says it didn't answer in time.
    */
   function askKingdom(
     socket: WebSocket,
     node: string,
-    frame: HubScoutAction | HubScoutQuest | HubPatrolChange,
-  ): Promise<{ ok: boolean; reason?: string; session?: string }> {
+    frame: HubScoutAction | HubScoutQuest | HubPatrolChange | HubPatrolPreview,
+  ): Promise<KingdomAnswer> {
     return new Promise((resolve) => {
-      const finish = (result: { ok: boolean; reason?: string; session?: string }) => {
+      const finish = (result: KingdomAnswer) => {
         clearTimeout(timer);
         kingdomAsks.delete(frame.requestId);
         resolve(result);
@@ -1439,6 +1467,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else patrolNodes.delete(helloNode);
           if (hello.data.patrols && hello.data.patrolsFromApp) patrolEditNodes.add(helloNode);
           else patrolEditNodes.delete(helloNode);
+          if (hello.data.patrols && hello.data.patrolPreview) patrolPreviewNodes.add(helloNode);
+          else patrolPreviewNodes.delete(helloNode);
           selfUpdates.delete(helloNode);
           selfUpdaters.delete(helloNode);
           if (hello.data.selfUpdate) {
@@ -1522,6 +1552,20 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           }
           const { ok, reason } = patrolChanged.data;
           waiting.finish({ ok, ...(reason ? { reason } : {}) });
+          return;
+        }
+
+        const previewed = NodePatrolPreviewed.safeParse(parsed);
+        if (previewed.success) {
+          const waiting = kingdomAsks.get(previewed.data.requestId);
+          if (waiting?.node !== helloNode) {
+            app.log.warn({ node: helloNode }, 'dropped a Patrol preview nobody is waiting for from this node');
+            return;
+          }
+          const { times, reason } = previewed.data;
+          waiting.finish(
+            times ? { ok: true, times } : { ok: false, refused: true, reason: reason ?? 'the Kingdom gave no times' },
+          );
           return;
         }
 
@@ -1691,6 +1735,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           scoutQuestNodes.delete(helloNode);
           patrolNodes.delete(helloNode);
           patrolEditNodes.delete(helloNode);
+          patrolPreviewNodes.delete(helloNode);
           for (const waiting of [...inventoryLists.values()]) {
             if (waiting.node === helloNode) waiting.finish(undefined, 'the Kingdom went offline');
           }

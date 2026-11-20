@@ -5,11 +5,13 @@ import {
   HubListInventory,
   HubKingdomVersion,
   HubPatrolChange,
+  HubPatrolPreview,
   HubPatrolRunNow,
   HubScoutAction,
   HubScoutQuest,
   HubScoutRunNow,
   type NodePatrolChanged,
+  type NodePatrolPreviewed,
   type NodePatrolRun,
   type NodePatrols,
   type Patrol,
@@ -59,6 +61,7 @@ import type { ReplayEvent } from './transcripts.js';
 import type { ClaudeSessionEvent } from './session.js';
 import type { ActResult, QuestStart } from './scouts.js';
 import type { ChangeResult, PatrolQuestStart, QuestEnded } from './patrols.js';
+import { preview } from './recurrence.js';
 
 /** The subset of `ClaudeSession` the node link drives, so tests can supply a fake. */
 export interface SessionLike {
@@ -1072,6 +1075,24 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const patrolPreview = HubPatrolPreview.safeParse(parsed);
+    if (patrolPreview.success) {
+      const { requestId, schedule, count } = patrolPreview.data;
+      const answer = options.patrols
+        ? preview(schedule, count, Date.now())
+        : { reason: 'this Kingdom runs no Patrols' };
+      wsSend(
+        ('times' in answer
+          ? { kind: 'patrol-previewed', requestId, times: answer.times }
+          : {
+              kind: 'patrol-previewed',
+              requestId,
+              reason: answer.reason.slice(0, 2000),
+            }) satisfies NodePatrolPreviewed,
+      );
+      return;
+    }
+
     const patrolChange = HubPatrolChange.safeParse(parsed);
     if (patrolChange.success) {
       void handlePatrolChange(patrolChange.data);
@@ -1122,7 +1143,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.listInventory ? { inventory: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
           ...(options.scouts ? { scouts: true, scoutQuests: true } : {}),
-          ...(options.patrols ? { patrols: true, patrolsFromApp: options.patrols.fromApp() } : {}),
+          ...(options.patrols ? { patrols: true, patrolsFromApp: options.patrols.fromApp(), patrolPreview: true } : {}),
         }),
       );
       resendUnacked();

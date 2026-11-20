@@ -227,3 +227,25 @@ function basic(wall: Temporal.PlainDateTime): string {
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * A schedule's next `count` times after `now`, for the Patrol form's preview, or why it gives none: the reason a file
+ * with this schedule would get, or the engine giving up on a rule it can't place.
+ */
+export function preview(schedule: Schedule, count: number, now: number): { times: number[] } | { reason: string } {
+  const recurrence = recurrenceOf(schedule);
+  return typeof recurrence === 'string' ? { reason: recurrence } : previewOf(recurrence, count, now);
+}
+
+/** As `preview`, for a schedule already turned into its times: `next()` throws when it can't tell, and that's a reason. */
+export function previewOf(
+  recurrence: Recurrence,
+  count: number,
+  now: number,
+): { times: number[] } | { reason: string } {
+  try {
+    return { times: upcoming(recurrence, now, count) };
+  } catch (error) {
+    return { reason: messageOf(error) };
+  }
+}

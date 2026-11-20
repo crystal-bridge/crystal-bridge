@@ -588,11 +588,11 @@ describe('airship server', () => {
       ...extra,
     });
 
-    async function patrollingNode(patrols = true, patrolsFromApp = patrols) {
+    async function patrollingNode(patrols = true, patrolsFromApp = patrols, patrolPreview = patrols) {
       const socket = await openSocket(`${wsUrl}/node`);
       sockets.push(socket);
       const frames = new FrameRecorder(socket);
-      send(socket, { kind: 'hello', node: 'node-a', patrols, patrolsFromApp });
+      send(socket, { kind: 'hello', node: 'node-a', patrols, patrolsFromApp, patrolPreview });
       send(socket, {
         kind: 'patrols',
         patrols: [
@@ -751,6 +751,51 @@ describe('airship server', () => {
       await node.frames.waitFor((frame) => frame.kind === 'patrol-change');
       node.socket.close();
       expect(await json(await pausing)).toEqual({ status: 409, body: { error: 'the Kingdom went offline' } });
+    });
+
+    it('previews a schedule on its Kingdom, which works out the times', async () => {
+      const node = await patrollingNode();
+      await listed();
+      const schedule = { cron: '0 9 * * 1', timezone: 'Europe/Berlin' };
+      const asking = call('POST', '/api/nodes/node-a/patrol-preview', { schedule, count: 3 });
+      const frame = await node.frames.waitFor((frame) => frame.kind === 'patrol-preview');
+      expect(frame).toMatchObject({ schedule, count: 3 });
+      send(node.socket, { kind: 'patrol-previewed', requestId: frame.requestId, times: [1, 2, 3] });
+      expect(await json(await asking)).toEqual({ status: 200, body: { times: [1, 2, 3] } });
+
+      const refused = call('POST', '/api/nodes/node-a/patrol-preview', {
+        schedule: { ...schedule, timezone: 'Mars/Base' },
+      });
+      const second = await node.frames.waitFor(
+        (frame) => frame.kind === 'patrol-preview' && (frame.schedule as { timezone: string }).timezone === 'Mars/Base',
+      );
+      send(node.socket, { kind: 'patrol-previewed', requestId: second.requestId, reason: 'no such zone' });
+      expect(await json(await refused)).toEqual({ status: 400, body: { error: 'no such zone' } });
+
+      // Going offline mid-ask isn't the schedule's fault, so it isn't a 400.
+      const dropped = call('POST', '/api/nodes/node-a/patrol-preview', { schedule });
+      await node.frames.waitFor((frame) => frame.kind === 'patrol-preview' && frame.count === 5);
+      node.socket.close();
+      expect(await json(await dropped)).toEqual({ status: 409, body: { error: 'the Kingdom went offline' } });
+    });
+
+    it('refuses a preview it can check itself, or a Kingdom that can’t give one', async () => {
+      const old = await patrollingNode(true, true, false);
+      await listed();
+      const schedule = { cron: '0 9 * * 1', timezone: 'Europe/Berlin' };
+      expect((await call('POST', '/api/nodes/node-a/patrol-preview', { schedule })).status).toBe(409);
+      old.socket.close();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect((await call('POST', '/api/nodes/node-a/patrol-preview', { schedule })).status).toBe(404);
+
+      const node = await patrollingNode();
+      await listed();
+      const bad = await json(
+        await call('POST', '/api/nodes/node-a/patrol-preview', { schedule: { cron: '0 9 * * 1' } }),
+      );
+      expect(bad.status).toBe(400);
+      expect((bad.body as { error: string }).error).toMatch(/timezone/);
+      expect(node.frames.frames.filter((frame) => frame.kind === 'patrol-preview')).toHaveLength(0);
     });
 
     it('forgets a removed Kingdom’s Patrols with its Quests', async () => {
