@@ -13,6 +13,8 @@ import {
   type Envelope,
   PushPrefs,
   PushSubscriptionJson,
+  SessionTitled,
+  type TitledBy,
   UsagePayload,
 } from '@crystal-bridge/protocol';
 
@@ -25,6 +27,10 @@ export interface SessionRow {
   label: string;
   status: SessionStatus;
   createdAt: number;
+  /** The title in the theme's voice, when the Quest named itself (session.titled). */
+  themedLabel?: string;
+  /** Who gave the current title, once anyone has; a title you gave holds against the Quest's own. */
+  titledBy?: TitledBy;
 }
 
 /** A session as listed: its row plus the time of its latest event, for telling recent work from old. */
@@ -204,6 +210,8 @@ interface SessionTableRow {
   label: string;
   status: string;
   created_at: number;
+  themed_label: string | null;
+  titled_by: string | null;
 }
 
 /** One row of `unseenStmt`: a Quest, what this login has seen of it, its latest finished turn and latest process end. */
@@ -296,6 +304,11 @@ export function openStore(path: string): Store {
   );
   const lastActivityStmt = db.prepare(`SELECT ts FROM events WHERE session = ? ORDER BY seq DESC LIMIT 1`);
   const setStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`);
+  // A title from the Quest never replaces one you gave; yours always does.
+  const setTitleStmt = db.prepare(
+    `UPDATE sessions SET label = @title, themed_label = @themed, titled_by = @by
+     WHERE id = @session AND (@by = 'you' OR titled_by IS NULL OR titled_by != 'you')`,
+  );
   // A closed Quest is done for good: its process ending (or a stray resume) arrives after the close and mustn't reopen it.
   const setOpenStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ? AND status != 'closed'`);
   const eventsSinceStmt = db.prepare(
@@ -303,7 +316,7 @@ export function openStore(path: string): Store {
   );
   const listSessionsStmt = db.prepare(
     // The latest event is the highest seq; the events primary key makes that lookup one index probe per session.
-    `SELECT id, node, cwd, label, status, created_at,
+    `SELECT id, node, cwd, label, status, created_at, themed_label, titled_by,
        COALESCE((SELECT ts FROM events WHERE session = sessions.id ORDER BY seq DESC LIMIT 1), created_at) AS last_activity,
        COALESCE((SELECT bytes FROM relay WHERE session = sessions.id), 0) AS relayed_bytes,
        (SELECT json_extract(payload, '$.summary') FROM events
@@ -395,7 +408,9 @@ export function openStore(path: string): Store {
   const startedPayloadStmt = db.prepare(
     `SELECT payload FROM events WHERE session = ? AND type = 'session.started' ORDER BY seq LIMIT 1`,
   );
-  const getSessionStmt = db.prepare(`SELECT id, node, cwd, label, status, created_at FROM sessions WHERE id = ?`);
+  const getSessionStmt = db.prepare(
+    `SELECT id, node, cwd, label, status, created_at, themed_label, titled_by FROM sessions WHERE id = ?`,
+  );
 
   const maxSeqStmt = db.prepare(`SELECT MAX(seq) AS seq FROM events WHERE session = ?`);
   const searchQuestsStmt = db.prepare(
@@ -459,6 +474,13 @@ export function openStore(path: string): Store {
         payload.adopted ? 'idle' : 'running',
         event.ts,
       );
+    } else if (event.type === 'session.titled') {
+      // Stored like any event either way; an unreadable title just doesn't rename the Quest.
+      const titled = SessionTitled.safeParse(event.payload);
+      if (titled.success) {
+        const { title, themed, by } = titled.data;
+        setTitleStmt.run({ session: event.session, title, themed: themed ?? null, by });
+      }
     } else if (event.type === 'session.ended') {
       const reason = SessionEndedPayload.safeParse(event.payload).data?.reason;
       setOpenStatusStmt.run(reason === 'idle' || reason === 'restart' ? 'idle' : 'ended', event.session);
@@ -496,6 +518,8 @@ export function openStore(path: string): Store {
       label: row.label,
       status: row.status as SessionStatus,
       createdAt: row.created_at,
+      ...(row.themed_label ? { themedLabel: row.themed_label } : {}),
+      ...(row.titled_by === 'quest' || row.titled_by === 'you' ? { titledBy: row.titled_by } : {}),
     };
   }
 

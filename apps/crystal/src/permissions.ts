@@ -3,7 +3,28 @@ import type { Server as HttpServer } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
+import { TITLE_TOOL_DESCRIPTION, TITLE_VOICE, TitleToolInput } from '@crystal-bridge/protocol';
 import { z } from 'zod';
+
+/** Crystal's `title` tool as the CLI names it. It only names the Quest, so the node allows it without asking. */
+export const TITLE_TOOL = 'mcp__crystal__title';
+
+/**
+ * The MCP server's instructions, which the CLI puts in the system prompt even when it defers the tool behind its tool
+ * search, so a Quest knows to name itself without being told each time. The CLI's own words live here, by the tool's
+ * CLI name; the voice comes from the protocol's `TITLE_VOICE`.
+ */
+export const TITLE_INSTRUCTIONS =
+  'This session runs in Crystal Bridge, which shows it as a tab. Once you understand what the user is asking for, call ' +
+  `the \`${TITLE_TOOL}\` tool once (load it with your tool search if it is deferred) to name the session, in the ` +
+  `voice of ${TITLE_VOICE} quest and in plain words. Call it again only if the work changes course. It needs no ` +
+  'approval.';
+
+/**
+ * The `title` tool's work: names the Quest and returns what to tell it. Throws for a session this node doesn't run or a
+ * title it can't use.
+ */
+export type TitleTool = (session: string, args: Record<string, unknown>) => string;
 
 /**
  * The documented `--permission-prompt-tool` decision shape: a single text content
@@ -47,6 +68,8 @@ export interface CreatePermissionServerOptions {
   onRequest: OnPermissionRequest;
   /** Offers Quests the `summon` tool. */
   summon?: SummonTool;
+  /** Offers Quests the `title` tool, so a Quest can name itself. */
+  title?: TitleTool;
   /** Served on `GET /status` (localhost only), e.g. so a deploy can wait until no session is mid-turn. */
   status?: () => unknown;
   /** Hook calls other than PermissionRequest from interactive sessions (SessionStart, Stop, Notification). */
@@ -80,8 +103,16 @@ const SummonInputShape = {
   cast: z.string().optional().describe('status: one Cast, or leave it out for all of this Quest; cancel: which Cast'),
 };
 
-function buildMcpServer(session: string, onRequest: OnPermissionRequest, summon?: SummonTool): McpServer {
-  const server = new McpServer({ name: 'crystal-permissions', version: '0.0.0' });
+function buildMcpServer(
+  session: string,
+  onRequest: OnPermissionRequest,
+  summon?: SummonTool,
+  title?: TitleTool,
+): McpServer {
+  const server = new McpServer(
+    { name: 'crystal-permissions', version: '0.0.0' },
+    title ? { instructions: TITLE_INSTRUCTIONS } : undefined,
+  );
 
   server.registerTool(
     'approve',
@@ -125,6 +156,21 @@ function buildMcpServer(session: string, onRequest: OnPermissionRequest, summon?
     );
   }
 
+  if (title) {
+    server.registerTool(
+      'title',
+      { description: TITLE_TOOL_DESCRIPTION, inputSchema: TitleToolInput.shape },
+      async (args) => {
+        try {
+          return { content: [{ type: 'text' as const, text: title(session, args) }] };
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          return { content: [{ type: 'text' as const, text }], isError: true };
+        }
+      },
+    );
+  }
+
   return server;
 }
 
@@ -149,7 +195,7 @@ export async function createPermissionServer(options: CreatePermissionServerOpti
 
   app.post('/mcp/:session', async (req, res) => {
     const session = req.params.session as string;
-    const mcpServer = buildMcpServer(session, onRequest, options.summon);
+    const mcpServer = buildMcpServer(session, onRequest, options.summon, options.title);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {

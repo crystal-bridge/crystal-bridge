@@ -900,6 +900,7 @@ describe('airship server', () => {
       ['session.send', { text: 'one more thing' }],
       ['session.mode', { mode: 'manual' }],
       ['session.effort', { effort: 'low' }],
+      ['session.title', { title: 'Mine' }],
     ])('refuses %s from a stale tab, so no turn runs behind a closed status', async (type, fields) => {
       const { session, node, tab } = await closedQuest();
 
@@ -1663,6 +1664,44 @@ describe('airship server', () => {
     expect(await frames.waitFor((f) => f.type === 'session.effort')).toMatchObject({
       effort: 'low',
       resume: { cwd: '/w', nextSeq: 1, effort: 'high' },
+    });
+  });
+
+  it('passes a rename to the node with what it needs to rebuild, saying whether you named the Quest', async () => {
+    const session = randomUUID();
+    const { socket, frames } = await connectNode('node-a');
+    send(
+      socket,
+      makeEnvelope({
+        session,
+        seq: 0,
+        node: 'node-a',
+        type: 'session.started',
+        payload: { cwd: '/w', prompt: 'p', label: 'p' },
+      }),
+    );
+    send(
+      socket,
+      makeEnvelope({
+        session,
+        seq: 1,
+        node: 'node-a',
+        type: 'session.titled',
+        payload: { title: 'Earlier', by: 'you' },
+      }),
+    );
+    const client = await openSocket(`${wsUrl}/client`);
+    sockets.push(client);
+    const start = Date.now();
+    const labelOf = async () =>
+      ((await (await fetch(`${baseUrl}/api/sessions`)).json()) as { label: string; titledBy?: string }[])[0];
+    while ((await labelOf())?.label !== 'Earlier' && Date.now() - start < 2000)
+      await new Promise((r) => setTimeout(r, 10));
+    expect(await labelOf()).toMatchObject({ label: 'Earlier', titledBy: 'you' });
+    send(client, { kind: 'command', command: { type: 'session.title', session, title: 'Mine' } });
+    expect(await frames.waitFor((f) => f.type === 'session.title')).toMatchObject({
+      title: 'Mine',
+      resume: { cwd: '/w', nextSeq: 2, titledByYou: true },
     });
   });
 

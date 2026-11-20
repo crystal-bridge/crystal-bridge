@@ -76,6 +76,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Kingdom** | a node and its Claude account | Its dashboard is the **Castle**. |
 | **Crystal** | the agent that runs a Kingdom | Operators see this word; users add and pick Kingdoms. The package is `@crystal-bridge/kingdom`. |
 | **Quest** | a session | |
+| **The Bard names it** | a session's title | Once a Quest understands its task, it names itself through Crystal's `title` tool, in the theme's voice ("The Siege of the Flaky Smoke Test") and in plain words. The Classic theme shows the plain name. A tab's tooltip says "The Bard named this Quest" (Classic: Named by the session). A name you give from the tab's right-click menu (Rename) stays: the Quest's own names don't replace it. The voice is `TITLE_VOICE` in `packages/protocol/src/titles.ts`, the one themed string outside `words.ts`, since the Kingdom tells the model: a fork with another theme swaps it there. |
 | **Hero** | an agent | The session's main agent is the **party leader**; subagents are Heroes who join for a task and leave. The party is whoever is active, so it isn't declared. |
 | **Class** | agent type | Matched from the agent's name by role; see Hero Classes below. Gives a Hero its look. |
 | **Side Quest** | background task or monitor | Runs alongside its Quest. |

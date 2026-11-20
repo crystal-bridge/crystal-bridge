@@ -156,6 +156,7 @@ async function main(): Promise<void> {
         return summonCall(summons, session, args);
       },
     },
+    title: (session, args) => node.retitle(session, args),
     status: () => node.status(),
     onHook: (session, event, body) => hooks.dispatch(session, event, body),
   });

@@ -1,6 +1,6 @@
 import type { SessionSummary } from './components/SessionList.js';
 import { QUIET_MS } from './heroes.js';
-import { hint } from './theme/words.js';
+import { gameLook, hint, w } from './theme/words.js';
 
 /** A Quest that had activity this recently is still active, whatever its process is doing. */
 export const RECENT_MS = 24 * 60 * 60_000;
@@ -110,7 +110,22 @@ export function savePutAway(all: PutAway, storage: Storage | undefined = globalT
   }
 }
 
+/**
+ * A Quest's name as this theme shows it: the one in the theme's voice when the Quest named itself, else the plain one
+ * (always, in the Classic theme), else its id.
+ */
+export function questName(
+  session: Pick<SessionSummary, 'id' | 'label' | 'themedLabel'>,
+  themed: boolean = gameLook,
+): string {
+  return (themed && session.themedLabel) || session.label || session.id;
+}
+
 /** The plain label for a Quest's tab, its folder and status, for tooltips. */
 export function questTitle(session: SessionSummary): string {
-  return `${hint('quest')} · ${session.label || session.id} · ${projectName(session.cwd)} · ${session.status}`;
+  const plain = session.label || session.id;
+  const name = questName(session);
+  const both = name === plain ? plain : `${name} (${plain})`;
+  const named = session.titledBy === 'quest' ? ` · ${w('questNamed')}` : '';
+  return `${hint('quest')} · ${both}${named} · ${projectName(session.cwd)} · ${session.status}`;
 }

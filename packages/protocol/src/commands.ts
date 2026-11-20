@@ -3,6 +3,7 @@ import { Appearance } from './appearance.js';
 import { Envelope } from './envelope.js';
 import { PermissionMode } from './mode.js';
 import { BoardFrame, BoardItemsFrame, ScoutsFrame } from './scouts.js';
+import { QuestTitle } from './titles.js';
 
 export { PermissionMode } from './mode.js';
 
@@ -49,6 +50,8 @@ export const Resume = z.object({
   effort: Effort.optional(),
   /** The mode the session was last in; unset is a session from before it was recorded, on the node's default. */
   mode: PermissionMode.optional(),
+  /** You named the session in the app, so the Quest's own `title` calls leave its name alone. */
+  titledByYou: z.boolean().optional(),
 });
 export type Resume = z.infer<typeof Resume>;
 
@@ -109,6 +112,14 @@ export const NodeCommand = z.discriminatedUnion('type', [
     session: z.uuid(),
     /** The engine its follow-ups resume on; unset is `stream`. A node adopts only on engines its hello lists. */
     engine: Engine.optional(),
+  }),
+  z.object({
+    /** Names a session from the app. The node records it as `session.titled` by `you`, which the Quest can't change. */
+    type: z.literal('session.title'),
+    session: z.uuid(),
+    title: QuestTitle,
+    /** Filled in by the hub from its store, never by clients; see `Resume`. */
+    resume: Resume.optional(),
   }),
   z.object({
     type: z.literal('session.interrupt'),

@@ -190,6 +190,50 @@ describe('store', () => {
     });
   });
 
+  describe('Quest titles', () => {
+    const titled = (session: string, seq: number, payload: unknown) =>
+      makeEnvelope({ session, seq, type: 'session.titled', payload });
+    const start = (session: string) =>
+      store.appendEvent(
+        makeEnvelope({ session, type: 'session.started', payload: { cwd: '/w', prompt: 'fix it', label: 'fix it' } }),
+      );
+
+    it('takes the name a Quest gives itself, plain as the label and themed beside it', () => {
+      const session = randomUUID();
+      start(session);
+      store.appendEvent(titled(session, 1, { title: 'Fix the smoke test', themed: 'The Siege of Smoke', by: 'quest' }));
+      expect(store.listSessions()[0]).toMatchObject({
+        label: 'Fix the smoke test',
+        themedLabel: 'The Siege of Smoke',
+        titledBy: 'quest',
+      });
+      expect(store.getSession(session)).toMatchObject({ label: 'Fix the smoke test', titledBy: 'quest' });
+    });
+
+    it('keeps a name you gave: the Quest’s own titles after it change nothing', () => {
+      const session = randomUUID();
+      start(session);
+      store.appendEvent(titled(session, 1, { title: 'Fix the smoke test', themed: 'The Siege of Smoke', by: 'quest' }));
+      store.appendEvent(titled(session, 2, { title: 'My smoke fix', by: 'you' }));
+      store.appendEvent(titled(session, 3, { title: 'Something else', themed: 'Another Saga', by: 'quest' }));
+      const [listed] = store.listSessions();
+      expect(listed).toMatchObject({ label: 'My smoke fix', titledBy: 'you' });
+      expect(listed).not.toHaveProperty('themedLabel');
+      store.appendEvent(titled(session, 4, { title: 'Renamed again', by: 'you' }));
+      expect(store.getSession(session)?.label).toBe('Renamed again');
+    });
+
+    it('ignores a title it can’t read, and leaves an untitled Quest as it was', () => {
+      const session = randomUUID();
+      start(session);
+      store.appendEvent(titled(session, 1, { title: 'two\nlines', by: 'quest' }));
+      const [listed] = store.listSessions();
+      expect(listed?.label).toBe('fix it');
+      expect(listed).not.toHaveProperty('themedLabel');
+      expect(listed).not.toHaveProperty('titledBy');
+    });
+  });
+
   it('marks an idle stop as idle, and running again on session.resumed', () => {
     const session = randomUUID();
     store.appendEvent(

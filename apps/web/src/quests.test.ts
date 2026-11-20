@@ -6,6 +6,8 @@ import {
   loadPutAway,
   projectName,
   putAway,
+  questName,
+  questTitle,
   questTabs,
   RECENT_MS,
   savePutAway,
@@ -140,5 +142,31 @@ describe('projectName', () => {
   it('keeps what is left for a root or an empty path', () => {
     expect(projectName('/')).toBe('/');
     expect(projectName('')).toBe('');
+  });
+});
+
+describe('questName', () => {
+  const quest = { id: 'q1', label: 'Fix the smoke test', themedLabel: 'The Siege of Smoke' };
+
+  it('shows the name in the theme’s voice when the Quest gave one, and the plain one in the Classic theme', () => {
+    expect(questName(quest, true)).toBe('The Siege of Smoke');
+    expect(questName(quest, false)).toBe('Fix the smoke test');
+  });
+
+  it('falls back to the plain name, then the id', () => {
+    expect(questName({ id: 'q1', label: 'Fix it' }, true)).toBe('Fix it');
+    expect(questName({ id: 'q1', label: '' }, true)).toBe('q1');
+  });
+});
+
+describe('questTitle', () => {
+  const quest: SessionSummary = { id: 'q1', node: 'k', cwd: '/r/app', label: 'Fix it', status: 'idle', createdAt: 1 };
+
+  it('says when the Quest named itself, in the theme’s words', () => {
+    expect(questTitle({ ...quest, themedLabel: 'The Siege', titledBy: 'quest' })).toContain(
+      'The Bard named this Quest',
+    );
+    expect(questTitle({ ...quest, titledBy: 'you' })).not.toContain('Bard');
+    expect(questTitle(quest)).not.toContain('Bard');
   });
 });

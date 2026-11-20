@@ -26,6 +26,8 @@ const RESULT_TIMEOUT_MS = 120_000;
 const CHANGES_TIMEOUT_MS = 5_000;
 const MAX_RECENT = 10;
 const MAX_EVENT_CHARS = 400;
+/** Crystal's own tool every Quest is started with (#287). Whether the model calls it is its choice; that it's there isn't. */
+const TITLE_TOOL = 'mcp__crystal__title';
 
 type Obj = Record<string, unknown>;
 
@@ -83,6 +85,8 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
   return new Promise<WaitOutcome>((resolve) => {
     let settled = false;
     let changesTimer: NodeJS.Timeout | undefined;
+    // The stream engine reports the tools a process starts with in `system/init`; the interactive one doesn't relay it.
+    let titleTool = ENGINE === 'interactive';
     const socket = new WebSocket(clientUrl);
 
     const timer = setTimeout(() => {
@@ -152,11 +156,16 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
 
       if (envelope.type === 'claude.event' && isObj(payload) && isObj(payload.raw)) {
         const { raw } = payload;
+        if (raw.type === 'system' && raw.subtype === 'init' && Array.isArray(raw.tools)) {
+          titleTool ||= raw.tools.includes(TITLE_TOOL);
+        }
         // A shell made the change, so this line shows the node saw it without any file tool.
         if (raw.type === 'system' && raw.subtype === 'turn_changes') {
           clearTimeout(changesTimer);
           const seen = Array.isArray(raw.files) && raw.files.includes('crystal.txt');
-          finish(seen ? { ok: true } : { ok: false, message: `turn_changes missed crystal.txt: ${String(raw.files)}` });
+          if (!seen) finish({ ok: false, message: `turn_changes missed crystal.txt: ${String(raw.files)}` });
+          else if (!titleTool) finish({ ok: false, message: `system/init didn't list ${TITLE_TOOL}` });
+          else finish({ ok: true });
           return;
         }
         if (raw.type === 'result') {

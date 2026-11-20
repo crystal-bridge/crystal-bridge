@@ -1562,3 +1562,71 @@ describe('App: done until viewed', () => {
     await waitFor(() => expect(seenPosts()).toHaveLength(2));
   });
 });
+
+describe('App renaming a Quest', () => {
+  const QUEST = '11111111-1111-4111-8111-111111111111';
+
+  function errorsHub() {
+    const errors = new Set<(message: string, notSent?: boolean) => void>();
+    const hub = {
+      ...fakeHub(),
+      onError: (listener: (message: string, notSent?: boolean) => void) => {
+        errors.add(listener);
+        return () => errors.delete(listener);
+      },
+    } as unknown as HubClient;
+    return {
+      hub,
+      fail: (message: string) =>
+        act(() => {
+          for (const listener of errors) listener(message);
+        }),
+    };
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const quests = [{ ...sessions[0], lastActivity: Date.now() }];
+        const body = url === '/api/nodes' ? ['node-b'] : url === '/api/sessions' ? quests : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    window.history.replaceState(null, '', '/#/k/node-b');
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  async function rename(hub: HubClient, title: string) {
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /fix the build/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    const box = screen.getByRole('textbox', { name: /Rename/ });
+    fireEvent.change(box, { target: { value: title } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+  }
+
+  it('shows the new name at once and asks the hub to record it', async () => {
+    const { hub } = errorsHub();
+    await rename(hub, 'Build fix');
+    expect(screen.getByRole('tab', { name: /Build fix/ })).toBeTruthy();
+    expect(hub.send).toHaveBeenCalledWith({ type: 'session.title', session: QUEST, title: 'Build fix' });
+  });
+
+  it('puts the old name back and says why when the hub refuses', async () => {
+    const { hub, fail } = errorsHub();
+    await rename(hub, 'Build fix');
+    fail('node offline');
+    expect(screen.getByText(/node offline/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('tab', { name: /fix the build/ })).toBeTruthy());
+    expect(screen.queryByRole('tab', { name: /Build fix/ })).toBeNull();
+  });
+});

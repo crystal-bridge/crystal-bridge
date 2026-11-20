@@ -273,6 +273,77 @@ describe('startNode', () => {
     });
   });
 
+  describe('Quest titles', () => {
+    const SESSION = '55555555-5555-4555-8555-555555555555';
+    const started = async () => {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      conn.socket.send(
+        JSON.stringify({ type: 'session.start', node: 'test', session: SESSION, cwd: tmpdir(), prompt: 'p' }),
+      );
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      return conn;
+    };
+    const titles = (conn: Awaited<ReturnType<typeof started>>) =>
+      conn.frames.filter((frame) => frame.type === 'session.titled').map((frame) => frame.payload);
+
+    it('records the name a Quest gives itself', async () => {
+      const conn = await started();
+      expect(node!.retitle(SESSION, { themed: 'The Siege of Smoke', plain: 'Fix the smoke test' })).toMatch(/named/i);
+      expect(await waitForFrame(conn, (frame) => frame.type === 'session.titled')).toMatchObject({
+        session: SESSION,
+        payload: { title: 'Fix the smoke test', themed: 'The Siege of Smoke', by: 'quest' },
+      });
+    });
+
+    it('keeps a name you gave: the Quest’s own titles after it are refused', async () => {
+      const conn = await started();
+      conn.socket.send(JSON.stringify({ type: 'session.title', session: SESSION, title: 'My smoke fix' }));
+      expect(await waitForFrame(conn, (frame) => frame.type === 'session.titled')).toMatchObject({
+        payload: { title: 'My smoke fix', by: 'you' },
+      });
+      expect(node!.retitle(SESSION, { themed: 'Another Saga', plain: 'Something else' })).toMatch(/user named/i);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(titles(conn)).toEqual([{ title: 'My smoke fix', by: 'you' }]);
+    });
+
+    it('remembers your name across a restart, from the hub’s resume', async () => {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      conn.socket.send(
+        JSON.stringify({
+          type: 'session.title',
+          session: SESSION,
+          title: 'Again mine',
+          resume: { cwd: tmpdir(), nextSeq: 4, titledByYou: true },
+        }),
+      );
+      expect(await waitForFrame(conn, (frame) => frame.type === 'session.titled')).toMatchObject({ seq: 4 });
+      expect(node!.retitle(SESSION, { themed: 'X', plain: 'Y' })).toMatch(/user named/i);
+    });
+
+    it('refuses a title for a session it doesn’t hold, and an unreadable one', async () => {
+      await started();
+      expect(() => node!.retitle(randomUUID(), { themed: 'X', plain: 'Y' })).toThrow(/not running/);
+      expect(() => node!.retitle(SESSION, { themed: 'X', plain: 'two\nlines' })).toThrow();
+    });
+
+    it('allows its own title tool without asking anyone', async () => {
+      const conn = await started();
+      const decision = await node!.handlePermissionRequest({
+        session: SESSION,
+        requestId: randomUUID(),
+        toolName: 'mcp__crystal__title',
+        input: { themed: 'X', plain: 'Y' },
+      });
+      expect(decision.behavior).toBe('allow');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(conn.frames.some((frame) => frame.type === 'permission.request')).toBe(false);
+    });
+  });
+
   describe('answering a terminal', () => {
     const SESSION = '22222222-2222-4222-8222-222222222222';
 

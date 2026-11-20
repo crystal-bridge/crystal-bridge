@@ -17,7 +17,8 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 - **Every machine in one app:** a tab per machine, each with its own sessions, plan usage, projects and history. Rename,
   re-colour, re-icon or hide each one per device.
 - **Full sessions in the browser:** streaming replies, diff and command cards, approval and question cards, follow-ups
-  that resume a stopped session, fork, close, and a permission mode per session.
+  that resume a stopped session, fork, close, and a permission mode per session. A session names its own tab once it
+  understands the task, and you can rename it.
 - **One view of what needs you:** an overview of everything waiting on you across machines, and a dashboard per machine
   with today's totals, active sessions and recent folders.
 - **Side panels:** status, context and cost meters, files changed, background tasks, and an inventory of the skills,

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { questName } from '../quests.js';
 export interface SessionSummary {
   id: string;
   node: string;
@@ -12,6 +13,10 @@ export interface SessionSummary {
   relayedBytes?: number;
   /** The start of its latest finished turn's reply. */
   preview?: string;
+  /** Its name in the theme's voice, when the Quest named itself; `label` is the plain one. */
+  themedLabel?: string;
+  /** Who gave its current name, once anyone has. */
+  titledBy?: 'quest' | 'you';
 }
 
 export interface SessionListProps {
@@ -75,7 +80,7 @@ export function SessionList({
                   className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[session.status]}`}
                   title={session.status}
                 />
-                <span className="truncate font-medium">{session.label || session.id}</span>
+                <span className="truncate font-medium">{questName(session)}</span>
                 {waiting?.has(session.id) && (
                   <span
                     data-waiting

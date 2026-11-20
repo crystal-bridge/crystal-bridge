@@ -1,7 +1,8 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import type { BoardTab } from '../boards.js';
 import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
-import { projectName, questTitle } from '../quests.js';
+import { MAX_QUEST_TITLE } from '@crystal-bridge/protocol';
+import { projectName, questName, questTitle } from '../quests.js';
 import { reorderHandlers } from '../tabOrder.js';
 import { keyHint } from '../hotkeys.js';
 import { boardIcon } from '../theme/boardIcons.js';
@@ -39,6 +40,8 @@ export interface QuestStripProps {
   onUnpin?: (id: string) => void;
   /** Moves a pinned Board among the pinned Boards. */
   onMoveBoard?: (id: string, index: number) => void;
+  /** Names a Quest, from its tab's right-click menu. A name you give stays: the Quest's own names don't replace it. */
+  onRename?: (id: string, title: string) => void;
 }
 
 const TAB =
@@ -67,11 +70,19 @@ export function QuestStrip({
   onBoard,
   onUnpin,
   onMoveBoard,
+  onRename,
 }: QuestStripProps) {
   const leaderOf = useContext(LeaderContext);
   const ids = quests.map((quest) => quest.id);
   const boardIds = boards.map((board) => board.id);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number; tab: HTMLElement } | null>(null);
+  const [menu, setMenu] = useState<{
+    kind: 'board' | 'quest';
+    id: string;
+    x: number;
+    y: number;
+    tab: HTMLElement;
+  } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <div
       role="tablist"
@@ -98,27 +109,54 @@ export function QuestStrip({
               board={board}
               selected={currentBoard === board.id}
               onOpen={() => onBoard(board.id)}
-              onMenu={onUnpin ? (x, y, tab) => setMenu({ id: board.id, x, y, tab }) : undefined}
+              onMenu={onUnpin ? (x, y, tab) => setMenu({ kind: 'board', id: board.id, x, y, tab }) : undefined}
               reorder={reorderHandlers(boardIds, board.id, onMoveBoard)}
             />
           ))}
         </div>
       )}
-      {menu && onUnpin && boardIds.includes(menu.id) && (
+      {menu && menu.kind === 'board' && onUnpin && boardIds.includes(menu.id) && (
         <TabMenu
           x={menu.x}
           y={menu.y}
           tab={menu.tab}
           onClose={() => setMenu(null)}
-          onUnpin={() => {
+          label="Unpin from tab strip"
+          onSelect={() => {
             setMenu(null);
             onUnpin(menu.id);
           }}
         />
       )}
+      {menu && menu.kind === 'quest' && onRename && ids.includes(menu.id) && (
+        <TabMenu
+          x={menu.x}
+          y={menu.y}
+          tab={menu.tab}
+          onClose={() => setMenu(null)}
+          label="Rename"
+          onSelect={() => {
+            setMenu(null);
+            setRenaming(menu.id);
+          }}
+        />
+      )}
       {quests.map((quest) => {
         const selected = current === quest.id;
-        const label = quest.label || quest.id;
+        const label = questName(quest);
+        if (renaming === quest.id && onRename) {
+          return (
+            <div key={quest.id} data-quest={quest.id} className={`${TAB} max-w-60 ${selected ? ON : OFF}`}>
+              <RenameBox
+                quest={quest}
+                onDone={(title) => {
+                  setRenaming(null);
+                  if (title !== undefined && title !== quest.label) onRename(quest.id, title);
+                }}
+              />
+            </div>
+          );
+        }
         return (
           // The tab and its put-away button are siblings: a button can't hold another button.
           <div key={quest.id} data-quest={quest.id} className={`${TAB} max-w-60 pr-1.5 ${selected ? ON : OFF}`}>
@@ -128,6 +166,21 @@ export function QuestStrip({
               aria-selected={selected}
               title={questTitle(quest)}
               onClick={() => onSelect(quest.id)}
+              onContextMenu={
+                // A closed Quest takes no more commands, so it has nothing to rename.
+                onRename && quest.status !== 'closed'
+                  ? (event) => {
+                      event.preventDefault();
+                      setMenu({
+                        kind: 'quest',
+                        id: quest.id,
+                        x: event.clientX,
+                        y: event.clientY,
+                        tab: event.currentTarget,
+                      });
+                    }
+                  : undefined
+              }
               {...reorderHandlers(ids, quest.id, onMove)}
               className="flex min-w-0 items-center gap-2"
             >
@@ -265,7 +318,36 @@ function BoardTabButton({
 }
 
 /**
- * A pinned tab's right-click menu, at the pointer. Escape closes it and returns focus to the tab; a click elsewhere or
+ * Names a Quest in place of its tab's title. Enter keeps the trimmed name (none if it's empty); Escape or leaving the box
+ * keeps the old one.
+ */
+function RenameBox({ quest, onDone }: { quest: SessionSummary; onDone: (title?: string) => void }) {
+  const done = useRef(false);
+  const finish = (title?: string) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(title);
+  };
+  return (
+    <input
+      type="text"
+      aria-label={`Rename ${questName(quest)}`}
+      defaultValue={quest.label}
+      maxLength={MAX_QUEST_TITLE}
+      autoFocus
+      onFocus={(event) => event.currentTarget.select()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') finish(event.currentTarget.value.trim() || undefined);
+        else if (event.key === 'Escape') finish();
+      }}
+      onBlur={() => finish()}
+      className="w-48 rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-sm text-neutral-950 dark:border-neutral-600 dark:bg-neutral-950 dark:text-white"
+    />
+  );
+}
+
+/**
+ * A tab's right-click menu, at the pointer. Escape closes it and returns focus to the tab; a click elsewhere or
  * focus moving out closes it too.
  */
 function TabMenu({
@@ -273,13 +355,15 @@ function TabMenu({
   y,
   tab,
   onClose,
-  onUnpin,
+  label,
+  onSelect,
 }: {
   x: number;
   y: number;
   tab: HTMLElement;
   onClose: () => void;
-  onUnpin: () => void;
+  label: string;
+  onSelect: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // The caller passes a new function each draw; the listener and the first focus belong to the menu being open.
@@ -311,10 +395,10 @@ function TabMenu({
       <button
         type="button"
         role="menuitem"
-        onClick={onUnpin}
+        onClick={onSelect}
         className="block w-full px-3 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 focus:outline-none dark:hover:bg-neutral-800 dark:focus:bg-neutral-800"
       >
-        Unpin from tab strip
+        {label}
       </button>
     </div>
   );

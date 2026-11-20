@@ -84,6 +84,12 @@ export const MIGRATIONS: readonly string[] = [
   CREATE TABLE seen_floor (at INTEGER NOT NULL);
   INSERT INTO seen_floor VALUES (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
   `,
+  // 10: Quest titles (session.titled). `label` stays the plain title; the themed one and who gave the name sit beside
+  // it, so a name you gave holds against the Quest's own.
+  `
+  ALTER TABLE sessions ADD COLUMN themed_label TEXT;
+  ALTER TABLE sessions ADD COLUMN titled_by TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

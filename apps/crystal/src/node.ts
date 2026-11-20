@@ -41,11 +41,13 @@ import {
   type ScoutItem,
   type ScoutLink,
   type ScoutRun,
+  type SessionTitled,
+  TitleToolInput,
 } from '@crystal-bridge/protocol';
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
 import { readSessionFile } from './files.js';
-import type { PermissionDecision, PermissionRequest } from './permissions.js';
+import { type PermissionDecision, type PermissionRequest, TITLE_TOOL } from './permissions.js';
 import type { ReplayEvent } from './transcripts.js';
 import type { ClaudeSessionEvent } from './session.js';
 import type { ActResult, QuestStart } from './scouts.js';
@@ -172,6 +174,11 @@ export interface CrystalNode {
   /** Whether a session is open here, so only a real Quest can use the `summon` tool. */
   holds(session: string): boolean;
   /**
+   * A Quest names itself through Crystal's `title` tool. Throws for a session this node doesn't run or a title it
+   * can't use; returns what to tell the Quest, which is that the name stays when you named the Quest yourself.
+   */
+  retitle(session: string, input: unknown): string;
+  /**
    * Closes every session, stops reconnecting and closes the socket. Resolves once the sessions' processes have
    * stopped (each engine escalates to SIGTERM after its grace period), or after `CLOSE_WAIT_MS` regardless, so a
    * shutting-down Crystal doesn't exit leaving its claude processes orphaned.
@@ -202,6 +209,8 @@ interface SessionState {
   cwd: string;
   /** Closed on purpose: kept only so its last envelopes still get acked; takes no more commands. */
   closed?: boolean;
+  /** You named it in the app, so its own `title` calls change nothing. */
+  titledByYou?: boolean;
 }
 
 /** Stands in for the runtime of a session closed after a restart, when there is no process to drive. */
@@ -522,7 +531,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   function sessionFor({ session, resume }: { session: string; resume?: Resume | undefined }): SessionState | undefined {
     let state = sessions.get(session);
     if (!state && resume) {
-      const { cwd, nextSeq, engine, effort, mode } = resume;
+      const { cwd, nextSeq, engine, effort, mode, titledByYou } = resume;
       // Resuming on another engine would quietly lose what the Quest was started for (e.g. artifacts).
       if (!runs(engine)) {
         sendNodeError(session, `this node no longer runs the ${engine} engine this session started on`);
@@ -531,6 +540,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       log(`rebuilding session ${session} in ${cwd} from seq ${nextSeq}`);
       createSession(session, cwd, nextSeq, mode, undefined, engine, effort);
       state = sessions.get(session);
+      if (state && titledByYou) state.titledByYou = true;
     }
     if (!state) {
       sendNodeError(session, `unknown session: ${session}`);
@@ -801,6 +811,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           }
           break;
         }
+        case 'session.title': {
+          const state = sessionFor(cmd);
+          if (state) {
+            state.titledByYou = true;
+            sendEnvelope(cmd.session, 'session.titled', { title: cmd.title, by: 'you' } satisfies SessionTitled);
+          }
+          break;
+        }
         case 'session.adopt':
           handleSessionAdopt(cmd).catch((error: unknown) => failSession(cmd.session, error));
           break;
@@ -977,6 +995,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       log(`denied a permission request for a session this node does not run: ${request.session}`);
       return Promise.resolve({ behavior: 'deny', message: 'This session is not running on this node.' });
     }
+    // Crystal's own `title` tool only names the Quest: nothing to ask anyone about.
+    if (request.toolName === TITLE_TOOL) return Promise.resolve({ behavior: 'allow' });
     return new Promise<PermissionDecision>((resolve) => {
       pendingPermissions.set(request.requestId, {
         session: request.session,
@@ -1080,6 +1100,15 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     return state !== undefined && !state.closed;
   }
 
+  function retitle(session: string, input: unknown): string {
+    const state = sessions.get(session);
+    if (!state || state.closed) throw new Error('This session is not running on this node.');
+    const { themed, plain } = TitleToolInput.parse(input);
+    if (state.titledByYou) return 'The user named this session themselves, so their name stays. Carry on.';
+    sendEnvelope(session, 'session.titled', { title: plain, themed, by: 'quest' } satisfies SessionTitled);
+    return `Named: ${themed} (${plain}).`;
+  }
+
   return {
     handlePermissionRequest,
     status,
@@ -1089,6 +1118,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     reportScouts,
     reportScoutRun,
     holds,
+    retitle,
     close,
   };
 }
