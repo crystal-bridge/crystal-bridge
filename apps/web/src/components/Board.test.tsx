@@ -75,6 +75,20 @@ function show(props: Partial<BoardPageProps> & { items?: BoardItem[]; runs?: Sco
 describe('BoardPage', () => {
   afterEach(() => cleanup());
 
+  it('shows the schedule in whichever form the Scout gives it, with its zone', () => {
+    const scheduled = (schedule: ScoutManifest['schedule']) => {
+      show({ scout: { id: 'quest-board', fresh: 0, manifest: { ...manifest, schedule } } });
+      const text = screen.getByTitle('its schedule, in its time zone').textContent;
+      cleanup();
+      return text?.trim();
+    };
+    expect(scheduled(manifest.schedule)).toBe('· */15 8-20 * * 1-5 (America/Chicago)');
+    expect(scheduled({ rule: 'FREQ=WEEKLY;BYDAY=TU', start: '2026-12-01T09:00', timezone: 'UTC' })).toBe(
+      '· FREQ=WEEKLY;BYDAY=TU from 2026-12-01T09:00 (UTC)',
+    );
+    expect(scheduled({ once: '2026-12-04T15:00', timezone: 'UTC' })).toBe('· once at 2026-12-04T15:00 (UTC)');
+  });
+
   it('lists open items under their groups, with the buttons each one offers', () => {
     show({ items: [item(), item({ id: '2', title: 'Answer the review', group: 'Waiting on you' })] });
     const groups = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);

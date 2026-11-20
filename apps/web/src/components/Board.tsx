@@ -89,6 +89,13 @@ const OUTCOME_DOT: Record<string, string> = {
   skipped: 'bg-neutral-400',
 };
 
+/** A Scout's schedule as its scout.json gives it, without the zone. */
+function scheduleText(schedule: ScoutManifest['schedule']): string {
+  if (schedule.cron !== undefined) return schedule.cron;
+  if (schedule.rule !== undefined) return `${schedule.rule} from ${schedule.start ?? '?'}`;
+  return `once at ${schedule.once ?? '?'}`;
+}
+
 /** A field's value as a cell or a line shows it. */
 function shown(value: string | number | boolean | null | undefined): string {
   if (value === true) return 'yes';
@@ -828,7 +835,7 @@ export function BoardPage({
                   {manifest && (
                     <span title="its schedule, in its time zone">
                       {' '}
-                      · {manifest.schedule.cron} ({manifest.schedule.timezone})
+                      · {scheduleText(manifest.schedule)} ({manifest.schedule.timezone})
                     </span>
                   )}
                   {scout?.nextRunAt !== undefined && !scout.paused && (

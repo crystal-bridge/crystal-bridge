@@ -219,6 +219,47 @@ describe('Scouts', () => {
       // 18:00 in Chicago in November is 00:00 UTC the next day.
       expect(listed()?.nextRunAt).toBe(Date.parse('2026-11-18T00:00:00Z') + jitterOf('quest-board'));
     });
+
+    it('runs on a recurrence rule, in its zone', async () => {
+      const schedule = {
+        rule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU',
+        start: '2026-11-17T09:00',
+        timezone: 'America/Chicago',
+      };
+      scoutFolder('quest-board', manifest({ schedule }));
+      make();
+      await scouts!.tick();
+      // 09:00 in Chicago that Tuesday is 15:00 UTC, still ahead of noon UTC.
+      const first = Date.parse('2026-11-17T15:00:00Z') + jitterOf('quest-board');
+      expect(listed()?.nextRunAt).toBe(first);
+      now = first;
+      await scouts!.tick();
+      expect(pending).toHaveLength(1);
+      // Two weeks on.
+      expect(listed()?.nextRunAt).toBe(Date.parse('2026-12-01T15:00:00Z') + jitterOf('quest-board'));
+    });
+
+    it('runs a once schedule once, and a past one never, without calling either an error', async () => {
+      scoutFolder('soon', manifest({ schedule: { once: '2026-11-17T13:00', timezone: 'UTC' } }));
+      scoutFolder('gone', manifest({ schedule: { once: '2026-01-01T09:00', timezone: 'UTC' } }));
+      make();
+      await scouts!.tick();
+      expect(listed('gone')).toMatchObject({ id: 'gone' });
+      expect(listed('gone')?.error).toBeUndefined();
+      expect(listed('gone')?.nextRunAt).toBeUndefined();
+      now = Date.parse('2026-11-17T13:00:00Z') + jitterOf('soon');
+      await scouts!.tick();
+      expect(pending.map((one) => one.request.cwd)).toEqual([join(dir, 'soon')]);
+      expect(listed('soon')?.nextRunAt).toBeUndefined();
+    });
+
+    it('says what’s wrong with a rule it can’t read', async () => {
+      const schedule = { rule: 'FREQ=WEEKLY;BYWEEKNO=2', start: '2026-11-17T09:00', timezone: 'UTC' };
+      scoutFolder('quest-board', manifest({ schedule }));
+      make();
+      await scouts!.tick();
+      expect(listed()?.error).toMatch(/^scout\.json: schedule: .*BYWEEKNO/);
+    });
   });
 
   describe('the schedule', () => {

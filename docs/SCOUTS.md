@@ -400,8 +400,21 @@ shows the code and the end of stderr on the Board. A script has two minutes. Wha
 
 ## Keep the watch: schedules
 
-- **Cron, five fields, with a time zone.** The time zone is required, so a Scout means the same thing on every machine.
-  `Run now` on the Board runs it at once.
+- **One of three forms, always with a time zone.** The time zone is required, so a Scout means the same thing on every
+  machine. `Run now` on the Board runs it at once.
+  - `cron`: five fields, such as `"*/15 8-20 * * 1-5"`.
+  - `rule`: a recurrence rule as calendar apps write it (RFC 5545), from a `start`, for what cron can't say: every other
+    Tuesday, the last weekday of the month, ten times then stop. For example
+    `{ "rule": "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1", "start": "2026-12-01T17:00", "timezone": "Europe/Berlin" }`.
+    It takes `FREQ` of `DAILY`, `WEEKLY`, `MONTHLY` or `YEARLY` (cron covers anything more often), with `INTERVAL`,
+    `COUNT`, `UNTIL`, `WKST`, `BYMONTH`, `BYMONTHDAY`, `BYDAY`, `BYHOUR`, `BYMINUTE` and `BYSETPOS`. `start` is the
+    earliest time it can run and sets the time of day; `except` lists dates (`2026-12-24`) or single runs
+    (`2026-12-24T17:00`) to skip, which still count towards `COUNT`. `UNTIL` ending in `Z` is UTC; without it, it's
+    the Scout's zone.
+  - `once`: a single date and time, such as `"2026-12-04T15:00"`. A time already past never runs.
+- **Clock changes follow the zone.** A `rule` time that a spring night skips runs as far after it as the clocks jumped
+  (02:30 runs at 03:30, as calendar apps do), and a time an autumn night repeats runs once. A `cron` time keeps its own
+  rule: a skipped 02:30 runs at 03:00, and a repeated one runs once.
 - **A missed run catches up once.** After a laptop sleeps through several, the Scout runs once when it wakes, not once
   per missed slot.
 - **No overlap.** A run that's due while the last one is still going is skipped and recorded as skipped.

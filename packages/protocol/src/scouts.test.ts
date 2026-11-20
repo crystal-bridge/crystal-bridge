@@ -76,6 +76,20 @@ describe('ScoutManifest', () => {
     expect(at({ cron: '0 0 9 * * *', timezone: 'UTC' })).toBe(false);
   });
 
+  it('takes a recurrence rule from a start, or one time, instead of a cron, but only one of them', () => {
+    const at = (schedule: unknown) => ScoutManifest.safeParse({ ...manifest, schedule }).success;
+    const rule = { rule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU', start: '2026-12-01T09:00', timezone: 'UTC' };
+    expect(at(rule)).toBe(true);
+    expect(at({ ...rule, except: ['2026-12-15', '2026-12-29T09:00'] })).toBe(true);
+    expect(at({ once: '2026-12-04T15:00', timezone: 'UTC' })).toBe(true);
+    expect(at({ rule: rule.rule, timezone: 'UTC' })).toBe(false);
+    expect(at({ ...rule, cron: '0 9 * * *' })).toBe(false);
+    expect(at({ timezone: 'UTC' })).toBe(false);
+    expect(at({ cron: '0 9 * * *', start: '2026-12-01T09:00', timezone: 'UTC' })).toBe(false);
+    expect(at({ ...rule, start: '1 December' })).toBe(false);
+    expect(at({ ...rule, rule: 'BYDAY=TU' })).toBe(false);
+  });
+
   it('takes only the action kinds it knows, under short lower-case keys', () => {
     const withActions = (actions: unknown) => ScoutManifest.safeParse({ ...manifest, actions }).success;
     expect(withActions({ archive: { kind: 'run', label: 'Archive', command: ['./act.sh', 'archive'] } })).toBe(true);
