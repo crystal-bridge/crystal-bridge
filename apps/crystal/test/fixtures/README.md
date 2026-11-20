@@ -381,6 +381,18 @@ Not a recording: real Quests against a real SSH target, while building #126.
 - Stream engine, `auto`: the same, no approval.
 - Interactive engine in `manual` wasn't checked.
 
+## The `title` tool (live check, CLI 2.1.329)
+
+Not a recording: real Quests on a throwaway hub and Crystal, while building #287.
+
+- `system/init.tools` lists `mcp__crystal__title` beside `ToolSearch`, so the CLI defers it: the model sees the name
+  but not the description. With only the tool, a Quest never called it.
+- The MCP server's `instructions` reach the model even then. With them, a Quest called the tool once in its first turn,
+  on both engines, in `manual`, and the node allowed it without a permission card (no `permission.request`).
+- Interactive engine: the first turn of a new Quest stops on the CLI's prompt to trust the `--add-dir` attachments
+  folder, raised as a terminal card. That is not the title tool's doing; `SMOKE_ENGINE=interactive pnpm smoke` stops
+  there too, since nothing answers the card.
+
 ### A resumed session keeps the description it loaded (2.1.316)
 
 A deferred MCP tool's description goes into the transcript when it's loaded, as a `deferred_tools_record` attachment. On

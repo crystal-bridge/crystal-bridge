@@ -3,7 +3,7 @@ import type { Server as HttpServer } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { TITLE_TOOL_DESCRIPTION, TitleToolInput } from '@crystal-bridge/protocol';
+import { TITLE_INSTRUCTIONS, TITLE_TOOL_DESCRIPTION, TitleToolInput } from '@crystal-bridge/protocol';
 import { z } from 'zod';
 
 /** Crystal's `title` tool as the CLI names it. It only names the Quest, so the node allows it without asking. */
@@ -98,7 +98,10 @@ function buildMcpServer(
   summon?: SummonTool,
   title?: TitleTool,
 ): McpServer {
-  const server = new McpServer({ name: 'crystal-permissions', version: '0.0.0' });
+  const server = new McpServer(
+    { name: 'crystal-permissions', version: '0.0.0' },
+    title ? { instructions: TITLE_INSTRUCTIONS } : undefined,
+  );
 
   server.registerTool(
     'approve',

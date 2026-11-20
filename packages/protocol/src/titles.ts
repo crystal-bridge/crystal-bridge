@@ -43,3 +43,12 @@ export const TITLE_TOOL_DESCRIPTION =
   'and again only if the work changes course. Give a short title (a few words) in two forms: `themed`, in the voice ' +
   'of a retro fantasy RPG quest, and `plain`, saying the same in plain words. Both must say what the work actually ' +
   'is. It needs no approval. If the user has named the session themselves, their name stays.';
+
+/**
+ * The MCP server's instructions, which the CLI puts in the system prompt even when it defers the tool behind its tool
+ * search, so a Quest knows to name itself without being told each time.
+ */
+export const TITLE_INSTRUCTIONS =
+  'This session runs in Crystal Bridge, which shows it as a tab. Once you understand what the user is asking for, call ' +
+  'the `mcp__crystal__title` tool once (load it with your tool search if it is deferred) to name the session, in a ' +
+  'retro fantasy RPG voice and in plain words. Call it again only if the work changes course. It needs no approval.';

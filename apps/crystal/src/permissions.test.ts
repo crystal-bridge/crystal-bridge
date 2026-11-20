@@ -392,6 +392,18 @@ describe('the title tool', () => {
     expect(Object.keys(title?.inputSchema.properties ?? {}).sort()).toEqual(['plain', 'themed']);
   });
 
+  it('tells the Quest about it in the server’s instructions, which the CLI shows even when the tool is deferred', () => {
+    expect(client.getInstructions()).toMatch(/mcp__crystal__title/);
+  });
+
+  it('gives no instructions on a Kingdom that doesn’t offer it', async () => {
+    const bare = await createPermissionServer({ port: 0, onRequest: async () => ({ behavior: 'allow' }) });
+    const bareClient = await connectClient(bare, 'quest-2');
+    expect(bareClient.getInstructions()).toBeUndefined();
+    await bareClient.close();
+    await bare.close();
+  });
+
   it('passes a call on with the Quest it came from, and answers in words', async () => {
     const result = await client.callTool({ name: 'title', arguments: { themed: 'The Siege', plain: 'Fix it' } });
     expect(calls).toEqual([{ session: 'quest-1', args: { themed: 'The Siege', plain: 'Fix it' } }]);
