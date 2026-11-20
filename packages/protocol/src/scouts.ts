@@ -146,26 +146,24 @@ export const ScoutManifest = z.object({
     .catch(undefined),
   /**
    * An icon and a tone for a group's header, by the group's name (`{ "Primary": { "icon": "star", "tone": "violet" } }`),
-   * from the app's Board sets. A bad name drops alone, a look left with nothing goes, and a malformed map is dropped,
-   * never failing the Scout.
+   * from the app's Board sets. A bad group name or look name drops alone, a look left with nothing goes, and a malformed
+   * map or one of more than 20 groups is dropped, never failing the Scout.
    */
   groups: z
     .record(
-      z.string().min(1).max(80),
+      z.string(),
       z.object({ icon: lookName.optional().catch(undefined), tone: lookName.optional().catch(undefined) }).catch({}),
     )
     .refine((looks) => Object.keys(looks).length <= 20)
-    .transform(
-      (looks) =>
-        Object.fromEntries(
-          Object.entries(looks)
-            .map(([group, look]) => [
-              group,
-              Object.fromEntries(Object.entries(look).filter(([, v]) => v !== undefined)),
-            ])
-            .filter(([, look]) => Object.keys(look as object).length > 0),
-        ) as Record<string, { icon?: string; tone?: string }>,
-    )
+    .transform((looks) => {
+      const kept: Record<string, { icon?: string; tone?: string }> = {};
+      for (const [group, { icon, tone }] of Object.entries(looks)) {
+        // A name no item's `group` could carry, or a look left with nothing, goes alone.
+        if (group.length < 1 || group.length > 80 || (icon === undefined && tone === undefined)) continue;
+        kept[group] = { ...(icon !== undefined ? { icon } : {}), ...(tone !== undefined ? { tone } : {}) };
+      }
+      return kept;
+    })
     .optional()
     .catch(undefined),
   /**

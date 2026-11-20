@@ -318,6 +318,34 @@ describe('BoardPage', () => {
       expect(band('Updates').getAttribute('data-tone')).toBe('neutral');
       expect(band('Updates').querySelector('svg')).toBeNull();
       expect(band('Updates').textContent).toMatch(/1$/);
+      // A long name truncates, so the heading says it in full on hover.
+      expect(screen.getByRole('heading', { name: 'Primary' }).getAttribute('title')).toBe('Primary');
+    });
+
+    it('draws a neutral band for a look the app does not know', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, groups: { Primary: { icon: 'nope', tone: 'nope' } } } }),
+        items: [item({ id: 'a', group: 'Primary', fields: { from: 'Ada', date: today, unread: true } })],
+      });
+      const band = screen.getByRole('heading', { name: 'Primary' }).closest('[data-band]')!;
+      expect(band.getAttribute('data-tone')).toBe('neutral');
+      expect(band.querySelector('svg')).toBeNull();
+    });
+
+    it('marks nothing unread or read where the Scout does not say what unread is', () => {
+      show({
+        scout: mailScout({ manifest: { ...mail, show: { who: 'from', when: 'date' } } }),
+        items: [
+          item({ id: 'a', group: 'Inbox', state: 'seen', fields: { from: 'Ada', date: today } }),
+          item({ id: 'b', group: 'Inbox', state: 'seen', fields: { from: 'Bo', date: today } }),
+        ],
+      });
+      const row = screen.getByText('Ada').closest('li')!;
+      expect(row.querySelector('[data-unread-bar]')).toBeNull();
+      expect(row.querySelector('[data-avatar]')?.className).not.toMatch(/opacity-50/);
+      expect(screen.getByText('Ada').className).not.toMatch(/text-neutral-500/);
+      const band = screen.getByRole('heading', { name: 'Inbox' }).closest('[data-band]')!;
+      expect(band.textContent).not.toMatch(/unread/);
     });
 
     it('marks an unread row in gold, never blue, and fades a read one', () => {
@@ -337,7 +365,8 @@ describe('BoardPage', () => {
       expect(unread.querySelector('[data-unread-bar]')).not.toBeNull();
       expect(read.querySelector('[data-unread-bar]')).toBeNull();
       expect(read.querySelector('[data-avatar]')?.className).toMatch(/opacity-50/);
-      expect(screen.getByText('Bo').className).toMatch(/text-neutral-500/);
+      // Grey that still reads on the dark page.
+      expect(screen.getByText('Bo').className).toMatch(/text-neutral-500 dark:text-neutral-400/);
     });
 
     it('keeps a read message in plain weight, though it is new on this visit', () => {

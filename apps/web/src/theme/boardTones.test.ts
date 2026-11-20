@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   actionTone,
+  BAND_CLASSES,
+  bandTone,
   CHIP_CLASSES,
   markToneClass,
   MARK_TONES,
@@ -65,5 +67,15 @@ describe('tileTones', () => {
       'rose',
       'indigo',
     ]);
+  });
+});
+
+describe('group bands', () => {
+  it('has a band for every tone a look can name, and neutral for anything else', () => {
+    for (const tone of MARK_TONES) {
+      expect(BAND_CLASSES[tone]?.band, tone).toBeTruthy();
+      expect(bandTone(tone)).toBe(tone);
+    }
+    for (const odd of [undefined, 'nope', 'constructor', '__proto__']) expect(bandTone(odd)).toBe('neutral');
   });
 });

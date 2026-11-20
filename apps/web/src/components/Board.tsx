@@ -250,7 +250,7 @@ function MailRow({
             : marked && <NewMark />}
           <span
             {...(tone ? { 'data-tone': tone } : {})}
-            className={`truncate ${strong ? 'font-semibold' : ''} ${read ? 'text-neutral-500' : tone ? SENDER_CLASSES[tone].text : ''}`}
+            className={`truncate ${strong ? 'font-semibold' : ''} ${read ? 'text-neutral-500 dark:text-neutral-400' : tone ? SENDER_CLASSES[tone].text : ''}`}
             title={view.who ?? titleNote(item)}
           >
             {view.who ?? item.title}
@@ -279,7 +279,11 @@ function MailRow({
           <span className="block truncate text-sm">
             <span
               className={
-                strong ? 'font-semibold' : read ? 'text-neutral-500' : 'text-neutral-700 dark:text-neutral-300'
+                strong
+                  ? 'font-semibold'
+                  : read
+                    ? 'text-neutral-500 dark:text-neutral-400'
+                    : 'text-neutral-700 dark:text-neutral-300'
               }
               title={titleNote(item)}
             >
@@ -337,7 +341,9 @@ function GroupBand({
           <Icon name={mark} size={20} />
         </span>
       )}
-      <h3 className="truncate font-display text-2xl leading-none">{name}</h3>
+      <h3 title={name} className="cb-display truncate text-2xl leading-none">
+        {name}
+      </h3>
       <span className="ml-auto shrink-0 text-xs tabular-nums text-neutral-600 dark:text-neutral-300">
         {unread > 0 && <b className="text-amber-700 dark:text-amber-300">{`${unread} unread · `}</b>}
         {items.length}

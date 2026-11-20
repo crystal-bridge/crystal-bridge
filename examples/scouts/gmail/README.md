@@ -59,7 +59,7 @@ back as new; reading it elsewhere doesn't. A thread you archive in Gmail leaves 
 one down takes its place.
 
 The Board reads like a mail list, from `show` in `scout.json`: the sender, the time, the subject with the start of the
-message, newest first in each category, and a gold bar and dot on unread threads. Each category has a band with its own
+message, newest first in each category, a gold bar and dot on unread threads, and read ones in grey. Each category has a band with its own
 icon and colour (`groups`). Its banner counts what's unread (`summary`), and
 Counsel beside the list gathers the suggestions from the last Run now under each button.
 
