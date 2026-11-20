@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Effort, Engine, PermissionMode } from './mode.js';
+import { Schedule } from './schedule.js';
 import { ScoutId } from './scouts.js';
 
 /**
@@ -15,40 +16,9 @@ export type PatrolId = z.infer<typeof PatrolId>;
 export const PatrolDuration = z.string().regex(/^[1-9][0-9]{0,4}[smhd]$/);
 export type PatrolDuration = z.infer<typeof PatrolDuration>;
 
-const timezone = z.string().min(1).max(64);
-/** A local date-time in the schedule's time zone, such as `2026-12-01T09:00`; the Kingdom's engine reads it (#281). */
-const localTime = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/);
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-
-/**
- * When a Patrol sets out: an RFC 5545 recurrence rule from a start, five-field cron, or a single time, each with the time
- * zone it means. Only the shape is checked here; whether a rule makes sense is the recurrence engine's call (#281).
- * Each form is strict, so a schedule naming two forms, or a form this hub doesn't know, fails its Patrol alone.
- */
-export const PatrolSchedule = z.union([
-  z.strictObject({
-    rule: z
-      .string()
-      .max(500)
-      .regex(/(^|[:;])FREQ=/),
-    start: localTime,
-    timezone,
-    /** Days the rule would give that are skipped. */
-    except: z
-      .array(z.union([localDate, localTime]))
-      .max(366)
-      .optional(),
-  }),
-  z.strictObject({
-    cron: z
-      .string()
-      .max(200)
-      .regex(/^\s*\S+(\s+\S+){4}\s*$/),
-    timezone,
-  }),
-  z.strictObject({ once: localTime, timezone }),
-]);
-export type PatrolSchedule = z.infer<typeof PatrolSchedule>;
+/** When a Patrol sets out: the schedule forms Scouts take too (`schedule.ts`). */
+export const PatrolSchedule = Schedule;
+export type PatrolSchedule = Schedule;
 
 /**
  * A file in the Patrol's folder, such as a prompt: a plain name, so it can't reach outside the folder. Never

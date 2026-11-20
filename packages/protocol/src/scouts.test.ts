@@ -76,6 +76,13 @@ describe('ScoutManifest', () => {
     expect(at({ cron: '0 0 9 * * *', timezone: 'UTC' })).toBe(false);
   });
 
+  it('takes the Patrols’ schedule forms too: a recurrence rule or a single time', () => {
+    const at = (schedule: unknown) => ScoutManifest.safeParse({ ...manifest, schedule }).success;
+    expect(at({ rule: 'FREQ=WEEKLY;BYDAY=MO', start: '2026-12-01T09:00', timezone: 'UTC' })).toBe(true);
+    expect(at({ once: '2026-12-01T09:00', timezone: 'UTC' })).toBe(true);
+    expect(at({ cron: '0 9 * * *', once: '2026-12-01T09:00', timezone: 'UTC' })).toBe(false);
+  });
+
   it('takes only the action kinds it knows, under short lower-case keys', () => {
     const withActions = (actions: unknown) => ScoutManifest.safeParse({ ...manifest, actions }).success;
     expect(withActions({ archive: { kind: 'run', label: 'Archive', command: ['./act.sh', 'archive'] } })).toBe(true);
