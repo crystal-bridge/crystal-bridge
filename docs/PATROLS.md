@@ -158,8 +158,8 @@ create one or change its command.
 
 Deleting a Patrol moves its folder into `.deleted/` inside the patrols folder, named with the time, so a delete from the
 app never loses a file someone wrote. A run still out ends as `failed`, saying so: a script is stopped, and a Quest
-carries on as an ordinary Quest. A folder that goes away by other means ends its run the same way, and a folder that's
-only away for a moment keeps its pause and failure count.
+carries on as an ordinary Quest. A folder that goes away by other means ends its run the same way. When it comes back
+it keeps its pause and failure count, and waits for its first time, as a new Patrol does.
 
 The app never saves over a script Patrol, even one whose `patrol.json` doesn't load at the moment: it may save over a
 folder only when its `patrol.json` is missing or loads as a Quest Patrol.

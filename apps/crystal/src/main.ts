@@ -158,6 +158,7 @@ async function main(): Promise<void> {
     startQuest: (start) => node.startPatrolQuest(start),
     onPatrols: (list) => node.reportPatrols(list),
     onRun: (patrol, run) => node.reportPatrolRun(patrol, run),
+    forgetQuest: (session) => node.forgetPatrolQuest(session),
   });
 
   const permissionServer = await createPermissionServer({

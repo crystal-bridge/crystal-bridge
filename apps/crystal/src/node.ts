@@ -199,6 +199,8 @@ export interface CrystalNode {
    * and until then a permission prompt nobody answers within `waitForYouMs` is denied and the turn ended.
    */
   startPatrolQuest(start: PatrolQuestStart): Promise<{ ok: true; session: string } | { ok: false; reason: string }>;
+  /** Stops treating a Quest as its Patrol's: its prompts wait as long as any Quest's, and its end reports nothing. */
+  forgetPatrolQuest(session: string): void;
   /** Whether a session is open here, so only a real Quest can use the `summon` tool. */
   holds(session: string): boolean;
   /**
@@ -585,7 +587,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     if (watched.timedOut && (event.type === 'turn.finished' || event.type === 'session.ended')) {
       ended = {
         outcome: 'needs-you',
-        reason: `a permission prompt waited ${waitedFor(watched.waitForYouMs)} with nobody to answer it; send the Quest a message to carry on`,
+        reason: `a permission prompt waited ${waitedFor(Math.min(watched.waitForYouMs, MAX_TIMER_MS))} with nobody to answer it; send the Quest a message to carry on`,
       };
     } else if (event.type === 'turn.finished') {
       const outcome = event.payload.outcome;
@@ -614,7 +616,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
         watched.timedOut = true;
         pending.resolve(
           'deny',
-          `Nobody answered this within ${waitedFor(watched.waitForYouMs)}: this scheduled run stops here. Don't retry; end your turn.`,
+          `Nobody answered this within ${waitedFor(Math.min(watched.waitForYouMs, MAX_TIMER_MS))}: this scheduled run stops here. Don't retry; end your turn.`,
         );
         try {
           sessions.get(session)?.runtime.interrupt();
@@ -1285,6 +1287,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     reportPatrols,
     reportPatrolRun,
     startPatrolQuest,
+    forgetPatrolQuest: (session: string) => void patrolQuests.delete(session),
     holds,
     close,
   };

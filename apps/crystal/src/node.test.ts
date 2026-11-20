@@ -586,6 +586,24 @@ describe('startNode', () => {
       expect(created.at(-1)!.fake.interrupt).not.toHaveBeenCalled();
     });
 
+    it('stops timing a Patrol Quest’s prompts once the Patrol lets it go', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      const { conn } = await hello();
+      const started = await crystal.startPatrolQuest({ ...start, session: randomUUID(), waitForYouMs: 40 });
+      const session = started.ok ? started.session : '';
+      crystal.forgetPatrolQuest(session);
+      let settled = false;
+      void node!.handlePermissionRequest({ session, requestId: randomUUID(), toolName: 'Bash', input: {} }).then(() => {
+        settled = true;
+      });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      await delay(120);
+      expect(settled).toBe(false);
+      created.at(-1)!.fake.emit('event', { type: 'turn.finished', payload: { outcome: 'success' } });
+      expect(patrols.questEnded).not.toHaveBeenCalled();
+    });
+
     it('says nothing of a Patrol’s Quest that ends because the node is closing', async () => {
       const patrols = fakePatrols();
       const crystal = createNode({ patrols });

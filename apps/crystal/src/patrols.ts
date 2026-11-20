@@ -99,6 +99,8 @@ export interface PatrolsOptions {
   /** A run set out or ended. */
   onRun(patrol: string, run: PatrolRun): void;
   log?: (line: string) => void;
+  /** A Patrol let its Quest go (deleted, or its folder went): from now on it's an ordinary Quest. */
+  forgetQuest?: (session: string) => void;
 }
 
 export interface Patrols {
@@ -343,6 +345,16 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       if (names.includes(id)) continue;
       letGo(entry, 'its folder went away');
       entries.delete(id);
+      // Kept: its pause and failures, so a folder away for a while doesn't lose them. Its next time isn't: back, it
+      // waits for its first time, as a new Patrol does.
+      const kept = entry.saved;
+      if (kept)
+        saved[id] = {
+          schedule: '',
+          failures: kept.failures,
+          ...(kept.paused ? { paused: kept.paused } : {}),
+          ...(kept.pausedBy ? { pausedBy: kept.pausedBy } : {}),
+        };
     }
     const fresh = new Map<string, Entry>();
     for (const id of names) {
@@ -352,6 +364,9 @@ export function createPatrols(options: PatrolsOptions): Patrols {
     }
     entries.clear();
     for (const [id, entry] of fresh) entries.set(id, entry);
+    // A run left out by a stop is ended as soon as its Patrol loads, before anything can start a run in its place.
+    endLeftOut();
+    save();
   }
 
   /** Reports a run, keeping its latest state among the Patrol's recent runs. */
@@ -416,6 +431,7 @@ export function createPatrols(options: PatrolsOptions): Patrols {
     entry.out = undefined;
     if (entry.saved) delete entry.saved.out;
     out.script?.stop();
+    if (out.session) options.forgetQuest?.(out.session);
     send(entry, {
       ...out.run,
       outcome: 'failed',
@@ -555,6 +571,9 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       .then((started) => {
         if (closed || entry.out?.run.id !== run.id) return;
         if (!started.ok) {
+          // No Quest exists, so the run names none.
+          entry.out.run = run;
+          entry.out.session = undefined;
           end(entry, run.id, { outcome: 'failed', reason: started.reason });
           return;
         }
@@ -603,7 +622,6 @@ export function createPatrols(options: PatrolsOptions): Patrols {
   async function tick(): Promise<void> {
     if (closed) return;
     scan();
-    endLeftOut();
     const at = now();
     for (const entry of entries.values()) {
       const kept = entry.saved;
