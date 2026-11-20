@@ -17,6 +17,7 @@ export type Concept =
   | 'castle'
   | 'quest'
   | 'quests'
+  | 'questNamed'
   | 'newQuest'
   | 'activeQuests'
   | 'needsYou'
@@ -93,6 +94,7 @@ export const CRYSTAL: Words = {
   castle: { themed: 'Castle', plain: "this node's home" },
   quest: { themed: 'Quest', plain: 'session' },
   quests: { themed: 'Quests', plain: 'sessions' },
+  questNamed: { themed: 'The Bard named this Quest', plain: 'Named by the Quest' },
   newQuest: { themed: 'New Quest', plain: 'start a session' },
   activeQuests: { themed: 'Active Quests', plain: 'sessions running or active in the last day' },
   needsYou: { themed: 'Needs you', plain: 'waiting on an approval or a question' },
@@ -168,6 +170,7 @@ export const CLASSIC: Words = {
   castle: { themed: 'Overview', plain: 'Overview' },
   quest: { themed: 'Session', plain: 'Session' },
   quests: { themed: 'Sessions', plain: 'Sessions' },
+  questNamed: { themed: 'Named by the session', plain: 'Named by the session' },
   newQuest: { themed: 'New session', plain: 'New session' },
   activeQuests: { themed: 'Active sessions', plain: 'Active sessions' },
   needsYou: { themed: 'Needs you', plain: 'Needs you' },

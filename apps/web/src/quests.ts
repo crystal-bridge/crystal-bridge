@@ -1,6 +1,6 @@
 import type { SessionSummary } from './components/SessionList.js';
 import { QUIET_MS } from './heroes.js';
-import { gameLook, hint } from './theme/words.js';
+import { gameLook, hint, w } from './theme/words.js';
 
 /** A Quest that had activity this recently is still active, whatever its process is doing. */
 export const RECENT_MS = 24 * 60 * 60_000;
@@ -126,5 +126,6 @@ export function questTitle(session: SessionSummary): string {
   const plain = session.label || session.id;
   const name = questName(session);
   const both = name === plain ? plain : `${name} (${plain})`;
-  return `${hint('quest')} · ${both} · ${projectName(session.cwd)} · ${session.status}`;
+  const named = session.titledBy === 'quest' ? ` · ${w('questNamed')}` : '';
+  return `${hint('quest')} · ${both}${named} · ${projectName(session.cwd)} · ${session.status}`;
 }

@@ -1,9 +1,12 @@
 import { EventEmitter } from 'node:events';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HookBus, InteractiveSession, type PtyLike, type PtySpawn } from './interactive.js';
+import { createPermissionServer } from './permissions.js';
 import type { ClaudeSessionEvent } from './session.js';
 import { liveTranscriptEvent } from './transcripts.js';
 
@@ -178,6 +181,26 @@ describe('InteractiveSession', () => {
     expect(config.mcpServers.crystal.timeout).toBe(86_400_000);
     expect(args).not.toContain('--permission-prompt-tool');
     expect(args[args.indexOf('--mcp-config') + 2]).toMatch(/^--/); // the flag takes a list
+  });
+
+  it('points claude at a Crystal server that offers the title tool', async () => {
+    const server = await createPermissionServer({
+      port: 0,
+      onRequest: async () => ({ behavior: 'allow' }),
+      title: () => 'Named.',
+    });
+    try {
+      const { session, spawned } = harness({ permissionUrl: server.url('quest-1') });
+      session.start('hello');
+      const { args } = spawned[0]!;
+      const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]!);
+      const client = new Client({ name: 'crystal-test-client', version: '0.0.0' });
+      await client.connect(new StreamableHTTPClientTransport(new URL(config.mcpServers.crystal.url)));
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain('title');
+      await client.close();
+    } finally {
+      await server.close();
+    }
   });
 
   it('runs the interactive claude with Crystal hooks in a generated settings file, and a clean environment', () => {

@@ -8,7 +8,9 @@ import {
   type PermissionDecision,
   type PermissionRequest,
   type PermissionServer,
+  TITLE_TOOL,
 } from './permissions.js';
+import { TITLE_VOICE } from '@crystal-bridge/protocol';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -393,7 +395,8 @@ describe('the title tool', () => {
   });
 
   it('tells the Quest about it in the server’s instructions, which the CLI shows even when the tool is deferred', () => {
-    expect(client.getInstructions()).toMatch(/mcp__crystal__title/);
+    expect(client.getInstructions()).toContain(TITLE_TOOL);
+    expect(client.getInstructions()).toContain(TITLE_VOICE);
   });
 
   it('gives no instructions on a Kingdom that doesn’t offer it', async () => {

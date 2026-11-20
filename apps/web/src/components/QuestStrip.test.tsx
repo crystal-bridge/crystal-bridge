@@ -288,6 +288,12 @@ describe('QuestStrip', () => {
       expect(onRename).not.toHaveBeenCalled();
     });
 
+    it('offers no Rename for a closed Quest, which can’t be renamed', () => {
+      renderStrip({ onRename: vi.fn(), quests: [{ ...quests[0]!, status: 'closed' }] });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      expect(screen.queryByRole('menuitem', { name: 'Rename' })).toBeNull();
+    });
+
     it('offers no menu on a Quest tab when renaming isn’t wired', () => {
       renderStrip();
       fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));

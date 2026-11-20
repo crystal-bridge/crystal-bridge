@@ -167,7 +167,8 @@ export function QuestStrip({
               title={questTitle(quest)}
               onClick={() => onSelect(quest.id)}
               onContextMenu={
-                onRename
+                // A closed Quest takes no more commands, so it has nothing to rename.
+                onRename && quest.status !== 'closed'
                   ? (event) => {
                       event.preventDefault();
                       setMenu({

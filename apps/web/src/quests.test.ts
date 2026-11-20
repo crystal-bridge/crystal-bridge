@@ -7,6 +7,7 @@ import {
   projectName,
   putAway,
   questName,
+  questTitle,
   questTabs,
   RECENT_MS,
   savePutAway,
@@ -155,5 +156,17 @@ describe('questName', () => {
   it('falls back to the plain name, then the id', () => {
     expect(questName({ id: 'q1', label: 'Fix it' }, true)).toBe('Fix it');
     expect(questName({ id: 'q1', label: '' }, true)).toBe('q1');
+  });
+});
+
+describe('questTitle', () => {
+  const quest: SessionSummary = { id: 'q1', node: 'k', cwd: '/r/app', label: 'Fix it', status: 'idle', createdAt: 1 };
+
+  it('says when the Quest named itself, in the theme’s words', () => {
+    expect(questTitle({ ...quest, themedLabel: 'The Siege', titledBy: 'quest' })).toContain(
+      'The Bard named this Quest',
+    );
+    expect(questTitle({ ...quest, titledBy: 'you' })).not.toContain('Bard');
+    expect(questTitle(quest)).not.toContain('Bard');
   });
 });

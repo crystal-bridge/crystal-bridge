@@ -3,11 +3,22 @@ import type { Server as HttpServer } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { TITLE_INSTRUCTIONS, TITLE_TOOL_DESCRIPTION, TitleToolInput } from '@crystal-bridge/protocol';
+import { TITLE_TOOL_DESCRIPTION, TITLE_VOICE, TitleToolInput } from '@crystal-bridge/protocol';
 import { z } from 'zod';
 
 /** Crystal's `title` tool as the CLI names it. It only names the Quest, so the node allows it without asking. */
 export const TITLE_TOOL = 'mcp__crystal__title';
+
+/**
+ * The MCP server's instructions, which the CLI puts in the system prompt even when it defers the tool behind its tool
+ * search, so a Quest knows to name itself without being told each time. The CLI's own words live here, by the tool's
+ * CLI name; the voice comes from the protocol's `TITLE_VOICE`.
+ */
+export const TITLE_INSTRUCTIONS =
+  'This session runs in Crystal Bridge, which shows it as a tab. Once you understand what the user is asking for, call ' +
+  `the \`${TITLE_TOOL}\` tool once (load it with your tool search if it is deferred) to name the session, in the ` +
+  `voice of ${TITLE_VOICE} quest and in plain words. Call it again only if the work changes course. It needs no ` +
+  'approval.';
 
 /**
  * The `title` tool's work: names the Quest and returns what to tell it. Throws for a session this node doesn't run or a
