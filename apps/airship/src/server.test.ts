@@ -575,6 +575,11 @@ describe('airship server', () => {
       schedule: { cron: '30 3 * * *', timezone: 'UTC' },
       script: { command: ['./check.sh'] },
     };
+    const questManifest = {
+      name: 'Dependency sweep',
+      schedule: { cron: '0 9 * * 2', timezone: 'UTC' },
+      quest: { project: '~/code/app', promptText: 'Update the dependencies.' },
+    };
     const run = (extra: Record<string, unknown> = {}) => ({
       id: RUN,
       startedAt: 1,
@@ -588,7 +593,13 @@ describe('airship server', () => {
       sockets.push(socket);
       const frames = new FrameRecorder(socket);
       send(socket, { kind: 'hello', node: 'node-a', patrols, patrolsFromApp });
-      send(socket, { kind: 'patrols', patrols: [{ id: 'backup-check', manifest, failures: 0 }] });
+      send(socket, {
+        kind: 'patrols',
+        patrols: [
+          { id: 'backup-check', manifest, failures: 0 },
+          { id: 'sweep', manifest: questManifest, failures: 0 },
+        ],
+      });
       return { socket, frames };
     }
 
@@ -621,7 +632,11 @@ describe('airship server', () => {
       const client = await connectClient();
       const node = await patrollingNode();
       const listed = await client.frames.waitFor((frame) => frame.kind === 'patrols');
-      expect(listed).toMatchObject({ node: 'node-a', editable: true, patrols: [{ id: 'backup-check' }] });
+      expect(listed).toMatchObject({
+        node: 'node-a',
+        editable: true,
+        patrols: [{ id: 'backup-check' }, { id: 'sweep' }],
+      });
 
       send(node.socket, { kind: 'patrol-run', patrol: 'backup-check', run: run() });
       await client.frames.waitFor((frame) => frame.kind === 'patrol-runs');
@@ -638,7 +653,7 @@ describe('airship server', () => {
 
       expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/patrols`))).body).toMatchObject({
         editable: true,
-        patrols: [{ id: 'backup-check', lastRun: { id: RUN, outcome: 'failed' } }],
+        patrols: [{ id: 'backup-check', lastRun: { id: RUN, outcome: 'failed' } }, { id: 'sweep' }],
       });
       expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/patrols/backup-check`))).body).toMatchObject({
         patrol: { id: 'backup-check' },
@@ -670,8 +685,11 @@ describe('airship server', () => {
       const node = await patrollingNode();
       await listed();
 
-      const saving = call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest });
-      expect(await answer(node)).toMatchObject({ patrol: 'new-one', change: { op: 'save', manifest } });
+      const saving = call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest: questManifest });
+      expect(await answer(node)).toMatchObject({
+        patrol: 'new-one',
+        change: { op: 'save', manifest: questManifest },
+      });
       expect((await saving).status).toBe(200);
 
       for (const op of ['pause', 'resume'] as const) {
@@ -692,21 +710,27 @@ describe('airship server', () => {
       expect(
         (await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest, prompt: 'no file named' })).status,
       ).toBe(400);
-      expect((await call('PUT', '/api/nodes/node-a/patrols/Bad!', { manifest })).status).toBe(400);
+      expect((await call('PUT', '/api/nodes/node-a/patrols/Bad!', { manifest: questManifest })).status).toBe(400);
+      expect((await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest })).status).toBe(400);
+      expect(
+        await json(await call('PUT', '/api/nodes/node-a/patrols/backup-check', { manifest: questManifest })),
+      ).toEqual({ status: 409, body: { error: 'a script Patrol is changed only in its file on the Kingdom' } });
       expect((await call('DELETE', '/api/nodes/node-a/patrols/nope')).status).toBe(404);
       expect((await call('POST', '/api/nodes/node-a/patrols/nope/pause')).status).toBe(404);
       expect(node.frames.frames.filter((frame) => frame.kind === 'patrol-change')).toHaveLength(0);
     });
 
-    it('keeps a Kingdom that takes Patrols only from files read-only, but still runs and pauses them', async () => {
+    it('refuses saves on a Kingdom that takes Patrols only from files, but still deletes, runs and pauses them', async () => {
       const client = await connectClient();
       const node = await patrollingNode(true, false);
       expect(await client.frames.waitFor((frame) => frame.kind === 'patrols')).toMatchObject({ editable: false });
-      expect(await json(await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest }))).toEqual({
+      expect(await json(await call('PUT', '/api/nodes/node-a/patrols/new-one', { manifest: questManifest }))).toEqual({
         status: 409,
         body: { error: 'this Kingdom takes Patrols only from files' },
       });
-      expect((await call('DELETE', '/api/nodes/node-a/patrols/backup-check')).status).toBe(409);
+      const deleting = call('DELETE', '/api/nodes/node-a/patrols/backup-check');
+      await answer(node);
+      expect((await deleting).status).toBe(200);
       const pausing = call('POST', '/api/nodes/node-a/patrols/backup-check/pause');
       await answer(node);
       expect((await pausing).status).toBe(200);

@@ -1149,9 +1149,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
     if (!patrolNodes.has(node))
       return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
-    const writes = change.op === 'save' || change.op === 'delete';
-    if (writes && !patrolEditNodes.has(node))
+    // Deleting, pausing and resuming only ever stop a Patrol, so they work on every Kingdom; saving needs one that takes it.
+    if (change.op === 'save' && !patrolEditNodes.has(node))
       return reply.code(409).send({ error: 'this Kingdom takes Patrols only from files' });
+    if (change.op === 'save' && store.patrols(node).some((listed) => listed.id === patrol && listed.manifest?.script))
+      return reply.code(409).send({ error: 'a script Patrol is changed only in its file on the Kingdom' });
     if (change.op !== 'save' && !store.hasPatrol(node, patrol))
       return reply.code(404).send({ error: 'no such Patrol on that Kingdom' });
     const answer = await askKingdom(socket, node, {

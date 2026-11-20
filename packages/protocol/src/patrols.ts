@@ -189,6 +189,10 @@ export const PatrolChangeRequest = z.discriminatedUnion('op', [
     })
     .refine((save) => save.prompt === undefined || save.manifest.quest?.prompt !== undefined, {
       message: 'prompt text goes with a manifest that names a prompt file',
+    })
+    // A script runs with no approval, so the app may only save Quest Patrols (docs/PATROLS.md, Edit from the app).
+    .refine((save) => save.manifest.script === undefined, {
+      message: 'the app saves Quest Patrols only; a script Patrol is written on its Kingdom',
     }),
   z.object({ op: z.literal('delete') }),
   z.object({ op: z.literal('pause') }),

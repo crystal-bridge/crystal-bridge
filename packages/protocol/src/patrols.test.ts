@@ -137,8 +137,8 @@ describe('PatrolRun', () => {
 });
 
 describe('changing a Patrol from the app', () => {
-  it('saves a manifest with an optional prompt file, deletes, pauses and resumes', () => {
-    expect(PatrolChangeRequest.safeParse({ op: 'save', manifest: scriptPatrol }).success).toBe(true);
+  it('saves a Quest manifest with an optional prompt file, deletes, pauses and resumes', () => {
+    expect(PatrolChangeRequest.safeParse({ op: 'save', manifest: questPatrol }).success).toBe(true);
     expect(
       PatrolChangeRequest.safeParse({ op: 'save', manifest: questPatrol, prompt: 'Update the dependencies.' }).success,
     ).toBe(true);
@@ -146,7 +146,13 @@ describe('changing a Patrol from the app', () => {
   });
 
   it('refuses prompt text for a manifest that names no prompt file', () => {
-    expect(PatrolChangeRequest.safeParse({ op: 'save', manifest: scriptPatrol, prompt: 'Hi' }).success).toBe(false);
+    const inline = { ...questPatrol, quest: { project: '~/code/app', promptText: 'Sweep.' } };
+    expect(PatrolChangeRequest.safeParse({ op: 'save', manifest: inline }).success).toBe(true);
+    expect(PatrolChangeRequest.safeParse({ op: 'save', manifest: inline, prompt: 'Hi' }).success).toBe(false);
+  });
+
+  it('refuses a script Patrol: one runs with no approval, so it comes only from a file on the Kingdom', () => {
+    expect(PatrolChangeRequest.safeParse({ op: 'save', manifest: scriptPatrol }).success).toBe(false);
   });
 
   it('goes to the Kingdom with a request id, and comes back answered', () => {
