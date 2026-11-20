@@ -126,7 +126,7 @@ describe('ScoutManifest', () => {
     const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`G${i}`, { tone: 'sky' }]));
     expect(groups(many)).toBeUndefined();
     expect(groups('Primary')).toBeUndefined();
-    // A name no item could carry drops alone too, not the whole map.
+    // An empty or too-long name drops alone too, not the whole map.
     expect(groups({ '': { tone: 'red' }, ['x'.repeat(81)]: { tone: 'red' }, Updates: { tone: 'sky' } })).toEqual({
       Updates: { tone: 'sky' },
     });

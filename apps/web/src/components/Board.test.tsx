@@ -337,7 +337,8 @@ describe('BoardPage', () => {
         scout: mailScout({ manifest: { ...mail, show: { who: 'from', when: 'date' } } }),
         items: [
           item({ id: 'a', group: 'Inbox', state: 'seen', fields: { from: 'Ada', date: today } }),
-          item({ id: 'b', group: 'Inbox', state: 'seen', fields: { from: 'Bo', date: today } }),
+          // A field named unread means nothing unless `show` names it.
+          item({ id: 'b', group: 'Inbox', state: 'seen', fields: { from: 'Bo', date: today, unread: true } }),
         ],
       });
       const row = screen.getByText('Ada').closest('li')!;

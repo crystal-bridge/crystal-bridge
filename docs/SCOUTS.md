@@ -113,7 +113,7 @@ A `summary` entry may also name an `icon` and a `tone`, which its banner tile we
 ```
 
 Each group's header is a band in its tone, with its icon and, where `show` names `unread`, how many are unread. A group
-`groups` doesn't name, or one whose look the app doesn't know, gets a neutral band with no icon; items with no group are
+the map doesn't list, or one whose look the app doesn't know, gets a neutral band with no icon; items with no group are
 under "Other". It takes up to 20 groups of up to 80 characters each; a bad entry drops alone, and more than 20 drop the
 map. Leave `blue` to the app, which keeps it for something waiting on you. The names are the Board mark icons and tones
 in [the theme](./THEME.md#inventory).
@@ -256,7 +256,8 @@ Boards and their tabs show on wide screens only for now.
   you leave.
 - **A list reads like a mail client** when `show` names the fields: an avatar and who it's from, the time, the title
   with a line of preview, then the summary. An unread row has a gold bar and dot and is bold; a read one steps back in
-  grey. With a `when` field, each group lists newest first, and the ranking moves to Counsel. A row's buttons appear on hover or keyboard focus; at rest it tags the suggested action.
+  grey. With a `when` field, each group lists newest first, and the ranking moves to Counsel. A row's buttons appear on
+  hover or keyboard focus; at rest it tags the suggested action.
 - **The projects view** (`view: "projects"`) has two modes, switched beside Run now and remembered per device per Board.
   - **Projects** (the default) has a section per project: ones with items that need you first, then the latest
     activity. A section folds, and the fold is remembered on this device. It shows eight rows, then "Show N more". A row

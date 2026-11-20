@@ -156,13 +156,13 @@ export const ScoutManifest = z.object({
     )
     .refine((looks) => Object.keys(looks).length <= 20)
     .transform((looks) => {
-      const kept: Record<string, { icon?: string; tone?: string }> = {};
+      const kept: Record<string, { icon?: string; tone?: string }> = Object.create(null);
       for (const [group, { icon, tone }] of Object.entries(looks)) {
-        // A name no item's `group` could carry, or a look left with nothing, goes alone.
+        // An empty name, one longer than an item's `group` can be, or a look left with nothing goes alone.
         if (group.length < 1 || group.length > 80 || (icon === undefined && tone === undefined)) continue;
         kept[group] = { ...(icon !== undefined ? { icon } : {}), ...(tone !== undefined ? { tone } : {}) };
       }
-      return kept;
+      return { ...kept };
     })
     .optional()
     .catch(undefined),
