@@ -86,8 +86,8 @@ of three forms, each with a required IANA time zone:
 - **`cron`**: five fields, as Scouts use.
 - **`once`**: a single date-time. The Patrol stands down after it fires.
 
-Daylight saving follows the time zone: a 02:30 run on a night that skips 02:30 runs at the next valid time, and a night
-that repeats 01:30 runs once. The app shows the next few run times before you save, so a rule is checked by eye.
+Daylight saving follows the time zone, and a night that repeats 01:30 runs it once. On a night that skips 02:30, a
+`rule` runs it after the gap (03:30), as calendar apps do, and a `cron` runs it at 03:00, as Scouts always have. The app shows the next few run times before you save, so a rule is checked by eye.
 
 Scouts move onto the same engine (#281), so `scout.json` gains `rule` and `once`. Existing `cron` schedules keep working
 unchanged.
