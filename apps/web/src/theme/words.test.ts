@@ -13,6 +13,8 @@ import {
   postingsLine,
   scoutReturnLine,
   sourceLine,
+  patrolOutcomeWord,
+  patrolStandingWord,
 } from './words.js';
 
 describe('theme words', () => {
@@ -214,5 +216,33 @@ describe('Scout and Board words', () => {
     });
     expect(postingsLine(1, 'Mail', CRYSTAL).themed).toBe('1 new posting on the Mail Board.');
     expect(postingsLine(3, 'Quest Board', CLASSIC).themed).toBe('3 new on Quest Board');
+  });
+});
+
+describe('Patrol words', () => {
+  it('names the Watchtower in each theme, with Classic’s everyday words', () => {
+    expect(w('watchtower', CRYSTAL)).toBe('Watchtower');
+    expect(w('watchtower', CLASSIC)).toBe('Scheduled tasks');
+    expect(w('patrol', CLASSIC)).toBe('Scheduled task');
+    expect(w('nextRun', CRYSTAL)).toBe('Next watch');
+    expect(w('nextRun', CLASSIC)).toBe('Next run');
+  });
+
+  it('says how a run ended as the issue’s run words, plainly in Classic, and keeps an unknown outcome', () => {
+    expect(patrolOutcomeWord('running', CRYSTAL)).toEqual({ themed: 'Set out', plain: 'Running' });
+    expect(patrolOutcomeWord('finished', CRYSTAL).themed).toBe('Returned');
+    expect(patrolOutcomeWord('failed', CRYSTAL).themed).toBe('Turned back');
+    expect(patrolOutcomeWord('skipped', CRYSTAL)).toEqual({
+      themed: 'Still out',
+      plain: 'Skipped: the last run was still out',
+    });
+    expect(patrolOutcomeWord('failed', CLASSIC)).toEqual({ themed: 'Failed', plain: 'Failed' });
+    expect(patrolOutcomeWord('lost-at-sea', CRYSTAL)).toEqual({ themed: 'lost-at-sea', plain: 'lost-at-sea' });
+  });
+
+  it('says how a Patrol stands: a paused one is stood down', () => {
+    expect(patrolStandingWord('stood-down', CRYSTAL).themed).toBe('Stood down');
+    expect(patrolStandingWord('stood-down', CLASSIC).themed).toBe('Paused');
+    expect(patrolStandingWord('on-watch', CRYSTAL)).toEqual({ themed: 'On watch', plain: 'Scheduled' });
   });
 });

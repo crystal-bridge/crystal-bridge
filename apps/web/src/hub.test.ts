@@ -63,6 +63,19 @@ describe('HubClient replay', () => {
     expect(heard).toHaveBeenCalledTimes(3);
   });
 
+  it('hands Patrol frames to their listeners', () => {
+    const { hub, socket } = connected();
+    const heard = vi.fn();
+    const stop = hub.onPatrols(heard);
+    socket.deliver({ kind: 'patrols', node: 'forge', editable: true, patrols: [{ id: 'sweep' }] });
+    socket.deliver({ kind: 'patrol-runs', node: 'forge', patrol: 'sweep', runs: [] });
+    socket.deliver({ kind: 'patrol-runs', node: 'forge', patrol: 'Not An Id', runs: [] });
+    expect(heard.mock.calls.map(([frame]) => frame.kind)).toEqual(['patrols', 'patrol-runs']);
+    stop();
+    socket.deliver({ kind: 'patrol-runs', node: 'forge', patrol: 'sweep', runs: [] });
+    expect(heard).toHaveBeenCalledTimes(2);
+  });
+
   it('hands seen frames to their listeners', () => {
     const { hub, socket } = connected();
     const heard = vi.fn();

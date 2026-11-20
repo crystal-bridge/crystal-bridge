@@ -3,8 +3,8 @@
 A Patrol sets out from a Kingdom at the hours you give it, does its round and reports back.
 
 ::: warning Partly built
-Kingdoms run Patrols from their folders, and the hub stores them and their runs and passes on changes. The app doesn't
-show them yet (the Watchtower), and Patrols don't post to Boards yet. The work is tracked in the
+Kingdoms run Patrols from their folders, and the app's Watchtower shows them with their runs and can run, pause, resume
+and delete one. The form that creates and edits a Patrol isn't built yet, and Patrols don't post to Boards yet. The work is tracked in the
 [v0.8 Patrols milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/10) and #278.
 :::
 
@@ -168,8 +168,8 @@ folder only when its `patrol.json` is missing or loads as a Quest Patrol.
 folder can run: the app can't create or edit any Patrol there, but pause, resume, delete and Run now still work.
 
 A Patrol saved from the app stays on the Kingdom's disk and keeps running after the login that made it is removed. After
-removing a login you don't trust, check each Kingdom's Patrols: its patrols folder, or the hub's
-`/api/nodes/<kingdom>/patrols` until the Watchtower is built. The [security model](SECURITY-MODEL.md) has a
+removing a login you don't trust, check each Kingdom's Patrols: its patrols folder, or its Castle's
+Watchtower. The [security model](SECURITY-MODEL.md) has a
 Patrols row.
 
 ## Post to a Board

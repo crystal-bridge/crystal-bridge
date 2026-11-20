@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { levelFor } from '../levels.js';
+import type { PatrolsState } from '../patrols.js';
 import { RECENT_MS } from '../quests.js';
 import { Castle } from './Castle.js';
 import type { SessionSummary } from './SessionList.js';
@@ -85,6 +86,40 @@ describe('Castle', () => {
     it('stays away on a Kingdom with no Scouts', () => {
       renderCastle({ scouts: [], onOpenBoard: vi.fn() });
       expect(screen.queryByRole('region', { name: 'Boards' })).toBeNull();
+    });
+  });
+
+  describe('the Watchtower', () => {
+    const patrols = {
+      patrols: [
+        {
+          id: 'sweep',
+          manifest: {
+            name: 'Dependency sweep',
+            schedule: { cron: '0 9 * * 2', timezone: 'UTC' },
+            quest: { project: '~/code/app', promptText: 'Sweep.' },
+          },
+        },
+      ],
+      runs: {},
+      editable: true,
+      loaded: true,
+    } as unknown as PatrolsState;
+
+    it('shows the Patrols with their actions on a wide screen, and read-only on a phone', () => {
+      const onRunPatrol = vi.fn();
+      renderCastle({ patrols, onRunPatrol, onChangePatrol: vi.fn() });
+      const [wide, phone] = screen.getAllByRole('region', { name: 'Watchtower' });
+      expect(wide!.parentElement!.className).toContain('hidden md:block');
+      expect(phone!.parentElement!.className).toContain('md:hidden');
+      fireEvent.click(within(wide!).getByRole('button', { name: /Run now/ }));
+      expect(onRunPatrol).toHaveBeenCalledWith('sweep');
+      expect(within(phone!).queryByRole('button', { name: /Run now/ })).toBeNull();
+    });
+
+    it('stays away on a Kingdom with no Patrols', () => {
+      renderCastle({ patrols: { ...patrols, patrols: [] } });
+      expect(screen.queryByRole('region', { name: 'Watchtower' })).toBeNull();
     });
   });
 
