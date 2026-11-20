@@ -50,13 +50,17 @@ export const PatrolSchedule = z.union([
 ]);
 export type PatrolSchedule = z.infer<typeof PatrolSchedule>;
 
-/** A file in the Patrol's folder, such as a prompt: a plain name, so it can't reach outside the folder. */
+/**
+ * A file in the Patrol's folder, such as a prompt: a plain name, so it can't reach outside the folder. Never
+ * `patrol.json` (in any case, for case-insensitive disks) or a dot-file, so prompt text saved from the app can't
+ * replace the manifest or a hidden file beside it.
+ */
 const patrolFile = z
   .string()
   .min(1)
   .max(255)
-  .regex(/^[^/\\]+$/)
-  .refine((name) => name !== '.' && name !== '..', { message: 'a file in the Patrol folder' });
+  .regex(/^[^/\\.][^/\\]*$/)
+  .refine((name) => name.toLowerCase() !== 'patrol.json', { message: 'a file in the Patrol folder' });
 
 /** The longest prompt a Patrol carries in `patrol.json` or sends from the app. */
 export const MAX_PATROL_PROMPT = 20_000;
@@ -230,7 +234,7 @@ export const NodePatrols = z.object({
 });
 export type NodePatrols = z.infer<typeof NodePatrols>;
 
-/** Node -> hub: a run started or ended. Resent after a reconnect until the hub has it. */
+/** Node -> hub: a run started or ended. The Kingdom holds its latest few in memory and sends them again on reconnect. */
 export const NodePatrolRun = z.object({ kind: z.literal('patrol-run'), patrol: PatrolId, run: PatrolRun });
 export type NodePatrolRun = z.infer<typeof NodePatrolRun>;
 

@@ -1182,6 +1182,17 @@ describe('Patrols', () => {
     store.putPatrols('a', [patrol]);
     const kept = store.patrolRuns('a', 'backup-check', PATROL_RUNS_KEPT + 5)!;
     expect(kept).toHaveLength(PATROL_RUNS_KEPT);
+    expect(Math.min(...kept.map((kept) => kept.startedAt))).toBe(runs - PATROL_RUNS_KEPT + 1);
+  });
+
+  it('keeps a run under the Patrol it was first reported under', () => {
+    const other: Patrol = { ...patrol, id: 'other' };
+    store.putPatrols('a', [patrol, other]);
+    const first = run();
+    store.recordPatrolRun('a', 'backup-check', first);
+    store.recordPatrolRun('a', 'other', { ...first, outcome: 'finished' });
+    expect(store.patrolRuns('a', 'other')).toEqual([]);
+    expect(store.patrolRuns('a', 'backup-check')).toEqual([first]);
   });
 
   it('has no runs for a Patrol its Kingdom doesn’t list, and keeps them in case it comes back', () => {

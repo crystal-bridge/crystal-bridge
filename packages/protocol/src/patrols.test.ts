@@ -87,6 +87,13 @@ describe('PatrolManifest', () => {
     const quest = { project: '~/code/my-app', prompt: '../elsewhere.md' };
     expect(PatrolManifest.safeParse({ ...questPatrol, quest }).success).toBe(false);
   });
+
+  it('won’t name patrol.json or a dot-file as the prompt, so prompt text can’t replace the manifest', () => {
+    for (const prompt of ['patrol.json', 'Patrol.JSON', '.env'])
+      expect(PatrolManifest.safeParse({ ...questPatrol, quest: { project: '~/code/my-app', prompt } }).success).toBe(
+        false,
+      );
+  });
 });
 
 describe('NodePatrols', () => {
