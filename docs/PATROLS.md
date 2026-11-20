@@ -2,9 +2,9 @@
 
 A Patrol sets out from a Kingdom at the hours you give it, does its round and reports back.
 
-::: warning Planned
-This page is the agreed design. The hub stores the Patrols a Kingdom reports and their runs, and passes on changes
-from the app; Kingdoms don't run Patrols yet, and the app doesn't show them. The work is tracked in the
+::: warning Partly built
+Kingdoms run Patrols from their folders, and the hub stores them and their runs and passes on changes. The app doesn't
+show them yet (the Watchtower), and Patrols don't post to Boards yet. The work is tracked in the
 [v0.8 Patrols milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/10) and #278.
 :::
 
@@ -66,7 +66,7 @@ A script Patrol:
 }
 ```
 
-A Patrol has exactly one of `quest` and `script`. The exact schema will be `PatrolManifest` in
+A Patrol has exactly one of `quest` and `script`. The exact schema is `PatrolManifest` in
 `packages/protocol/src/patrols.ts`, so the Kingdom, the hub and the app check the same thing.
 
 - **`quest`** takes the fields New Quest has: `project`, `prompt` (a file in the Patrol's folder) or `promptText`,
@@ -74,7 +74,9 @@ A Patrol has exactly one of `quest` and `script`. The exact schema will be `Patr
   [unattended runs](#nobody-watching-unattended-runs)). `prompt` names a file in the Patrol's folder. Unset fields take
   the Kingdom's defaults.
 - **`script`** runs `command` in the Patrol's folder as Crystal's user, with the login environment and no node token,
-  as a Scout's collector does. Its exit code, timing and the end of its stdout and stderr go to the hub.
+  as a Scout's collector does. It has `timeoutSeconds` (10 minutes unless set) and gets `CRYSTAL_PATROL` (its id) and
+  `CRYSTAL_PATROL_RUN` (the run's id). Its exit code, timing and the last 8000 characters of its stdout and stderr go to
+  the hub, so keep secrets out of both.
 - **`catchUp`** and **`board`** sit at the top level, beside `schedule` (see below).
 
 ## Keep the watch: schedules
@@ -117,7 +119,9 @@ Scouts keep their own rules when they move onto the shared engine: no catch-up w
 issue adds them.
 
 A Patrol runs on its Kingdom, so the hub being offline doesn't stop it. As with Scouts, the Kingdom holds each Patrol's
-latest few runs in memory and sends them when it reconnects; a restart in the meantime loses them.
+latest few runs in memory and sends them when it reconnects; a restart in the meantime loses them. A run that was still
+out when Crystal stopped is recorded as `failed` once Crystal is back, without counting towards standing the Patrol down;
+a Quest's run says its Quest can be carried on.
 
 ## Nobody watching: unattended runs
 
@@ -151,12 +155,16 @@ Quest's permission mode: a click in the hub never removes approvals. A **script 
 at all, so it comes only from a file written on the Kingdom. The app can pause, resume, delete and run one now, but never
 create one or change its command.
 
+Deleting a Patrol moves its folder into `.deleted/` inside the patrols folder, named with the time, so a delete from the
+app never loses a file someone wrote; a script still running is stopped. A Quest still out carries on as an ordinary
+Quest, and its run is no longer reported.
+
 `CRYSTAL_PATROLS_FROM_APP=off` goes further for a Kingdom that wants the Scouts' line, where only what's already in a
 folder can run: the app can't create or edit any Patrol there, but pause, resume, delete and Run now still work.
 
 A Patrol saved from the app stays on the Kingdom's disk and keeps running after the login that made it is removed. After
-removing a login you don't trust, check each Kingdom's Watchtower. The [security model](SECURITY-MODEL.md) gains a
-Patrols row with the build.
+removing a login you don't trust, check each Kingdom's Watchtower. The [security model](SECURITY-MODEL.md) has a
+Patrols row.
 
 ## Post to a Board
 
