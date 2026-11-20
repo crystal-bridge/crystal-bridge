@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -591,9 +591,36 @@ export function createPatrols(options: PatrolsOptions): Patrols {
     }
   }
 
+  /**
+   * The latest time a Patrol was due at or before `at`, from its saved `next`. Found by looking back from `at` in
+   * doubling steps and only then stepping forward, so a long sleep under a frequent rule costs a few lookups, not one
+   * per missed time.
+   */
+  function latestDue(entry: Entry, next: number, at: number): number {
+    let slot = next;
+    for (let back = ON_TIME_MS; back < at - next; back *= 2) {
+      const found = nextAfter(entry, at - back);
+      if (found !== undefined && found <= at) {
+        slot = Math.max(slot, found);
+        break;
+      }
+    }
+    for (let step = 0; step < MAX_MISSED_SLOTS; step++) {
+      const later = nextAfter(entry, slot);
+      if (later === undefined || later > at) break;
+      slot = later;
+    }
+    return slot;
+  }
+
   function runNow(id: string): void {
     const entry = entries.get(id);
-    if (!entry?.manifest || closed) return;
+    if (!entry || closed) return;
+    if (!entry.manifest) {
+      // Said rather than ignored, so Run now on a broken Patrol shows why.
+      record(entry, 'now', 'failed', entry.error ?? 'its patrol.json has never loaded');
+      return;
+    }
     if (entry.out) record(entry, 'now', 'skipped', 'the last run was still out');
     else begin(entry, 'now');
     announce();
@@ -627,12 +654,7 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       const kept = entry.saved;
       if (!entry.manifest || !kept || kept.paused || kept.next === undefined || at < kept.next) continue;
       // The latest time it was due: a sleep across several of them sets out once at most.
-      let slot = kept.next;
-      for (let step = 0; step < MAX_MISSED_SLOTS; step++) {
-        const later = nextAfter(entry, slot);
-        if (later === undefined || later > at) break;
-        slot = later;
-      }
+      const slot = latestDue(entry, kept.next, at);
       const next = nextAfter(entry, at);
       if (next === undefined) delete kept.next;
       else kept.next = next;
@@ -690,7 +712,8 @@ export function createPatrols(options: PatrolsOptions): Patrols {
 
   /** Writes a Patrol the app sent, after the checks a file would get and the app's own limits. */
   function saveFromApp(id: string, body: unknown, prompt: string | undefined): ChangeResult {
-    if (!options.fromApp()) return { ok: false, reason: 'this Kingdom takes Patrols only from files' };
+    if (!options.fromApp())
+      return { ok: false, reason: 'this Kingdom takes Patrols only from files (CRYSTAL_PATROLS_FROM_APP is off)' };
     if (!PatrolId.safeParse(id).success) return { ok: false, reason: `"${id}" can't name a Patrol` };
     const parsed = PatrolManifest.safeParse(body);
     if (!parsed.success) return { ok: false, reason: firstIssue(parsed.error) };
@@ -702,7 +725,10 @@ export function createPatrols(options: PatrolsOptions): Patrols {
     // patrol.json, or one that loads as a Quest Patrol, may be saved over.
     if (entries.get(id)?.manifest?.script)
       return { ok: false, reason: 'a script Patrol is changed only in its file on the Kingdom' };
+    if (!entries.has(id) && entries.size >= MAX_PATROLS)
+      return { ok: false, reason: `this Kingdom already has ${MAX_PATROLS} Patrols, the most it runs` };
     let onDisk: string | undefined;
+    let currentPrompt: string | undefined;
     try {
       onDisk = readFileSync(join(folder, 'patrol.json'), 'utf8');
     } catch (error) {
@@ -719,12 +745,19 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       }
       if (!current) return { ok: false, reason: 'its patrol.json doesn’t load: fix or remove it on the Kingdom first' };
       if (current.script) return { ok: false, reason: 'a script Patrol is changed only in its file on the Kingdom' };
+      currentPrompt = current.quest?.prompt;
     }
     const recurrence = recurrenceOf(manifest.schedule);
     if (typeof recurrence === 'string') return { ok: false, reason: recurrence };
     const project = checkedFolder(manifest.quest.project, home);
     if ('reason' in project) return { ok: false, reason: project.reason };
     const promptFile = manifest.quest.prompt;
+    // Only the Patrol's own prompt file is written over: never another file someone left in the folder.
+    if (promptFile && prompt !== undefined && promptFile !== currentPrompt && existsSync(join(folder, promptFile)))
+      return {
+        ok: false,
+        reason: `there's already a ${promptFile} in that folder: name the prompt file something else`,
+      };
     if (promptFile && prompt === undefined) {
       try {
         if (!statSync(join(folder, promptFile)).isFile()) throw new Error('not a file');

@@ -267,6 +267,22 @@ describe('Patrols', () => {
       expect(sent.find((one) => one.patrol === 'strict')?.run.outcome).toBe('missed');
     });
 
+    it('finds the latest missed time of a frequent rule quickly after a long sleep', async () => {
+      patrolFolder(
+        'backup',
+        script({ schedule: { rule: 'FREQ=MINUTELY', start: '2026-11-01T00:00', timezone: 'UTC' } }),
+      );
+      make();
+      await patrols!.tick();
+      now = NOON + 30 * 24 * HOUR + 30_000;
+      const began = performance.now();
+      await patrols!.tick();
+      expect(performance.now() - began).toBeLessThan(500);
+      // Every minute, so the latest time was within the last minute: on time, after a month asleep.
+      const latest = Math.floor((now - jitterOf('backup')) / MINUTE) * MINUTE + jitterOf('backup');
+      expect(sent[0]?.run).toMatchObject({ trigger: 'schedule', scheduledAt: latest });
+    });
+
     it('counts a tick that is only a little late as on time', async () => {
       patrolFolder('backup', script({ catchUp: 'never' }));
       make();
@@ -621,7 +637,7 @@ describe('Patrols', () => {
       fromApp = false;
       expect(await save('new', manifest, 'x')).toMatchObject({
         ok: false,
-        reason: expect.stringMatching(/from files/),
+        reason: expect.stringMatching(/from files \(CRYSTAL_PATROLS_FROM_APP is off\)/),
       });
       expect(existsSync(join(dir, 'new'))).toBe(false);
     });
@@ -675,6 +691,40 @@ describe('Patrols', () => {
       expect(await patrols!.change('backup', { op: 'delete' })).toMatchObject({ ok: false });
       expect(pending[0]?.stopped).toBe(false);
       expect(listed()).toBeDefined();
+    });
+
+    it('records why Run now can’t run a Patrol whose patrol.json doesn’t load', async () => {
+      patrolFolder('backup', '{ not json');
+      make();
+      await patrols!.tick();
+      patrols!.runNow('backup');
+      expect(sent[0]?.run).toMatchObject({
+        trigger: 'now',
+        outcome: 'failed',
+        reason: expect.stringMatching(/isn't JSON/),
+      });
+    });
+
+    it('never writes over a file it didn’t put there, and keeps within the Patrols it reads', async () => {
+      mkdirSync(join(dir, 'job'));
+      writeFileSync(join(dir, 'job', 'run.sh'), 'echo mine');
+      make();
+      await patrols!.tick();
+      const body = { ...manifest, quest: { project: '~/code/app', prompt: 'run.sh' } };
+      expect(await patrols!.change('job', { op: 'save', manifest: body as never, prompt: 'Sweep.' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/already a run.sh/),
+      });
+      expect(readFileSync(join(dir, 'job', 'run.sh'), 'utf8')).toBe('echo mine');
+      // Editing a Quest Patrol's own prompt is fine.
+      expect(await patrols!.change('sweep', { op: 'save', manifest, prompt: 'One.' })).toEqual({ ok: true });
+      expect(await patrols!.change('sweep', { op: 'save', manifest, prompt: 'Two.' })).toEqual({ ok: true });
+      expect(readFileSync(join(dir, 'sweep', 'sweep.md'), 'utf8')).toBe('Two.');
+      for (let i = 0; i < 98; i++) mkdirSync(join(dir, `p${String(i).padStart(3, '0')}`));
+      expect(await patrols!.change('a-new', { op: 'save', manifest, prompt: 'x' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/100 Patrols/),
+      });
     });
 
     it('pauses, resumes and deletes even where the app may not save', async () => {

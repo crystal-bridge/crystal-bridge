@@ -270,9 +270,14 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** `waitForYou` as the run's reason says it: `30m`, `2h`, or seconds for a short one. */
 function waitedFor(ms: number): string {
-  if (ms >= 2 * 3_600_000 && ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
-  if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;
-  return `${Math.round(ms / 1000)}s`;
+  if (ms >= MAX_TIMER_MS) return 'about 24 days';
+  for (const [unit, size] of [
+    ['d', 86_400_000],
+    ['h', 3_600_000],
+    ['m', 60_000],
+  ] as const)
+    if (ms >= size && ms % size === 0) return `${ms / size}${unit}`;
+  return `${Math.round(ms / 100) / 10}s`;
 }
 
 /** The deny message for a prompt whose `claude` process (or the whole node) went away first. */
@@ -316,6 +321,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   const sessions = new Map<string, SessionState>();
   const pendingPermissions = new Map<string, PendingPermission>();
   const patrolQuests = new Map<string, PatrolQuest>();
+  /** Patrol Quests let go while they were still starting, so they aren't watched once they've started. */
+  const forgottenQuests = new Set<string>();
 
   let socket: WebSocket | null = null;
   let closed = false;
@@ -562,7 +569,9 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           patrol: start.link,
         },
         // Watched before its process starts, so neither its first prompt nor a quick end slips past.
-        () => patrolQuests.set(session, { waitForYouMs: start.waitForYouMs }),
+        () => {
+          if (!forgottenQuests.delete(session)) patrolQuests.set(session, { waitForYouMs: start.waitForYouMs });
+        },
       );
     } catch (error) {
       patrolQuests.delete(session);
@@ -1287,7 +1296,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     reportPatrols,
     reportPatrolRun,
     startPatrolQuest,
-    forgetPatrolQuest: (session: string) => void patrolQuests.delete(session),
+    forgetPatrolQuest(session: string) {
+      // Still starting (its worktree being made): remembered, so it isn't watched once it's started.
+      if (!patrolQuests.delete(session) && !sessions.has(session)) forgottenQuests.add(session);
+    },
     holds,
     close,
   };

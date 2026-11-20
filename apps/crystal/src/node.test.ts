@@ -604,6 +604,41 @@ describe('startNode', () => {
       expect(patrols.questEnded).not.toHaveBeenCalled();
     });
 
+    it('lets a Quest go that its Patrol forgot while its worktree was being made', async () => {
+      const patrols = fakePatrols();
+      let made: (() => void) | undefined;
+      const crystal = createNode({
+        patrols,
+        worktrees: (cwd) => new Promise((resolve) => (made = () => resolve({ path: cwd, root: cwd, branch: 'b' }))),
+      });
+      const { conn } = await hello();
+      const session = randomUUID();
+      const starting = crystal.startPatrolQuest({ ...start, session, worktree: true, waitForYouMs: 40 });
+      await vi.waitFor(() => expect(made).toBeDefined());
+      crystal.forgetPatrolQuest(session);
+      made!();
+      await starting;
+      let settled = false;
+      void node!.handlePermissionRequest({ session, requestId: randomUUID(), toolName: 'Bash', input: {} }).then(() => {
+        settled = true;
+      });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      await delay(120);
+      expect(settled).toBe(false);
+    });
+
+    it('says how long a prompt waited as the Patrol wrote it', async () => {
+      const patrols = fakePatrols();
+      const crystal = createNode({ patrols });
+      const { conn } = await hello();
+      const started = await crystal.startPatrolQuest({ ...start, session: randomUUID(), waitForYouMs: 1500 });
+      const session = started.ok ? started.session : '';
+      const answer = node!.handlePermissionRequest({ session, requestId: randomUUID(), toolName: 'Bash', input: {} });
+      await waitForFrame(conn, (f) => f.type === 'permission.request');
+      const decision = await answer;
+      expect(decision.behavior === 'deny' && decision.message).toMatch(/within 1\.5s/);
+    });
+
     it('says nothing of a Patrol’s Quest that ends because the node is closing', async () => {
       const patrols = fakePatrols();
       const crystal = createNode({ patrols });
