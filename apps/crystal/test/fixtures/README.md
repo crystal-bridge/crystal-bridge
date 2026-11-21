@@ -378,11 +378,31 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   commands other than skills aren't listed anywhere a session can read for free. `agent_listing_delta` (`addedTypes`)
   lists agent types.
 
+## The `title` tool (`title.ndjson`, CLI 2.1.330)
+
+Recorded by `scripts/capture.ts title` while building #287: an ordinary ask that never mentions naming, run as Crystal
+runs a Quest, with `--allowedTools mcp__crystal__title` and the `--append-system-prompt` text `TITLE_INSTRUCTION`
+(`src/permissions.ts`).
+
+- **MCP tools are deferred.** `system/init.tools` lists `ToolSearch` and no `mcp__crystal__*` tool, so the model sees
+  only a deferred tool's name until it loads it. A tool's description can't ask for anything: without the system
+  prompt line the model didn't call `title`, nor with a softer line that didn't name `ToolSearch` (one run each).
+- **The system prompt line works.** Naming `ToolSearch` and asking for the call before any other tool, the Quest named
+  itself in every run tried (3 recordings, and `pnpm smoke` twice on each engine): `ToolSearch`, then `title`, then the
+  work. The call never reached `approve`, in `manual` too. Asking in the prompt also worked (2 of 2), and so did a
+  follow-up after the turn (1 of 1, about $0.025 more); both show in the chat, so neither ships.
+- **A refused MCP server is remembered by name.** When the capture proxy forwarded the CLI's `Host`, the permission
+  server refused it (403), and the CLI cached `crystal` as needing sign-in in `~/.claude/mcp-needs-auth-cache.json`.
+  Later processes then skipped the server without trying, including real Quests on that machine, since they use the
+  same name. The proxy now names the server's own host. If a capture ever reports `crystal` as `needs-auth`, remove
+  that entry before running Quests there.
+
 ## The `summon` tool (live check, CLI 2.1.316)
 
 Not a recording: real Quests against a real SSH target, while building #126.
 
-- `system/init.tools` lists `mcp__crystal__summon`, though it hides `mcp__crystal__approve`.
+- `system/init.tools` lists `mcp__crystal__summon`, though it hides `mcp__crystal__approve`. By 2.1.330 it lists no
+  MCP tool: they're deferred (see the `title` tool above).
 - Stream engine, `manual`: the call reaches the permission tool as `mcp__crystal__summon`, with the whole input, so the
   approval card shows the machine and the command.
 - Interactive engine, `auto`: the CLI ran the call with no approval. That engine gets the tool through `--mcp-config`, and

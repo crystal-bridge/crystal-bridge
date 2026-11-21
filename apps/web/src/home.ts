@@ -21,6 +21,8 @@ export interface ActivityItem {
   session: string;
   node: string;
   label: string;
+  /** The plain form of a title the Quest gave itself (#287); older hubs don't send it. */
+  plainLabel?: string;
   ts: number;
   kind: 'started' | 'closed' | 'turn';
   outcome?: string;

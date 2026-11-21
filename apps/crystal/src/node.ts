@@ -55,6 +55,7 @@ import {
   type ScoutItem,
   type ScoutLink,
   type ScoutRun,
+  type QuestTitledPayload,
 } from '@crystal-bridge/protocol';
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
@@ -210,6 +211,8 @@ export interface CrystalNode {
   forgetPatrolQuest(session: string): void;
   /** Whether a session is open here, so only a real Quest can use the `summon` tool. */
   holds(session: string): boolean;
+  /** Passes on the name a Quest gave itself (the `title` tool, #287), or says why not: it isn't a Quest here. */
+  titleQuest(session: string, title: QuestTitledPayload): string | undefined;
   /**
    * Closes every session, stops reconnecting and closes the socket. Resolves once the sessions' processes have
    * stopped (each engine escalates to SIGTERM after its grace period), or after `CLOSE_WAIT_MS` regardless, so a
@@ -1338,6 +1341,12 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     return state !== undefined && !state.closed;
   }
 
+  function titleQuest(session: string, title: QuestTitledPayload): string | undefined {
+    if (!holds(session)) return 'This session is not running on this node.';
+    sendEnvelope(session, 'quest.titled', title);
+    return undefined;
+  }
+
   return {
     handlePermissionRequest,
     status,
@@ -1354,6 +1363,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       if (!patrolQuests.delete(session) && !sessions.has(session)) forgottenQuests.add(session);
     },
     holds,
+    titleQuest,
     close,
   };
 }

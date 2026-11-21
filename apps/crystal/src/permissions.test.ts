@@ -8,6 +8,7 @@ import {
   type PermissionDecision,
   type PermissionRequest,
   type PermissionServer,
+  TITLE_INSTRUCTION,
 } from './permissions.js';
 
 interface Deferred<T> {
@@ -358,5 +359,62 @@ describe('the summon tool', () => {
     expect((await bareClient.listTools()).tools.map((tool) => tool.name)).toEqual(['approve']);
     await bareClient.close();
     await bare.close();
+  });
+});
+
+describe('the title tool (#287)', () => {
+  let server: PermissionServer;
+  let client: Client;
+  let titles: { session: string; title: string; plain: string }[];
+
+  beforeEach(async () => {
+    titles = [];
+    server = await createPermissionServer({
+      port: 0,
+      onRequest: async () => ({ behavior: 'allow' }),
+      onTitle: (session, { title, plain }) => {
+        if (session !== 'quest-1') return 'This session is not running on this node.';
+        titles.push({ session, title, plain });
+        return undefined;
+      },
+    });
+    client = await connectClient(server, 'quest-1');
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it('asks for a themed title and a plain one, once the ask is understood', async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((candidate) => candidate.name === 'title');
+    expect(tool?.description).toMatch(/once/i);
+    // The system prompt names the tool and how to load it, since the CLI defers it.
+    expect(TITLE_INSTRUCTION).toContain('mcp__crystal__title');
+    expect(TITLE_INSTRUCTION).toContain('ToolSearch');
+    expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(['title', 'plain']);
+  });
+
+  it('passes a title on with the Quest it came from, trimmed', async () => {
+    const result = await client.callTool({
+      name: 'title',
+      arguments: { title: ' The Siege of the Flaky Smoke Test ', plain: 'Fix the flaky smoke test' },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(titles).toEqual([
+      { session: 'quest-1', title: 'The Siege of the Flaky Smoke Test', plain: 'Fix the flaky smoke test' },
+    ]);
+  });
+
+  it('turns an empty title or a refusal into a tool error the agent can read', async () => {
+    const empty = await client.callTool({ name: 'title', arguments: { title: ' ', plain: 'x' } });
+    expect(empty.isError).toBe(true);
+    const stranger = await connectClient(server, 'quest-2');
+    const refused = await stranger.callTool({ name: 'title', arguments: { title: 'x', plain: 'x' } });
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toEqual([{ type: 'text', text: 'This session is not running on this node.' }]);
+    await stranger.close();
+    expect(titles).toEqual([]);
   });
 });

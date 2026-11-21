@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { spawn as nodePtySpawn } from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
-import { mcpConfig } from './permissions.js';
+import { mcpConfig, TITLE_INSTRUCTION, TITLE_TOOL } from './permissions.js';
 import { type ClaudeSessionEvent, neutralTokens } from './session.js';
 import {
   applyListing,
@@ -518,7 +518,15 @@ export class InteractiveSession extends EventEmitter {
       ...(this.opts.chrome ? ['--chrome'] : []),
       ...(this.effort ? ['--effort', this.effort] : []),
       // Only for the `summon` tool: this engine's approvals come through hooks, not `approve`.
-      ...(this.opts.permissionUrl ? ['--mcp-config', mcpConfig(this.opts.permissionUrl)] : []),
+      ...(this.opts.permissionUrl
+        ? [
+            '--mcp-config',
+            mcpConfig(this.opts.permissionUrl),
+            // The CLI defers MCP tools, so a new Quest (or a fork) only names itself when its system prompt says how
+            // (#287). A resumed one was named already.
+            ...(resume ? [] : ['--append-system-prompt', TITLE_INSTRUCTION]),
+          ]
+        : []),
       '--settings',
       this.settingsFile,
     ];
@@ -574,7 +582,17 @@ export class InteractiveSession extends EventEmitter {
     // Extra folders go in the settings, not `--add-dir`: by CLI 2.1.329 the interactive CLI stops on a trust prompt for
     // each `--add-dir` folder, with "No, exit" chosen (#297). The documented setting grants the same access, unasked.
     const addDirs = this.opts.addDirs ?? [];
-    const permissions = addDirs.length ? { permissions: { additionalDirectories: addDirs } } : {};
+    // With Crystal's MCP server comes its title tool (#287), allowed up front so naming the Quest never asks.
+    const allow = this.opts.permissionUrl ? [TITLE_TOOL] : [];
+    const permissions =
+      allow.length || addDirs.length
+        ? {
+            permissions: {
+              ...(allow.length ? { allow } : {}),
+              ...(addDirs.length ? { additionalDirectories: addDirs } : {}),
+            },
+          }
+        : {};
     writeFileSync(this.settingsFile, JSON.stringify({ hooks, statusLine, ...permissions }), { mode: 0o600 });
   }
 

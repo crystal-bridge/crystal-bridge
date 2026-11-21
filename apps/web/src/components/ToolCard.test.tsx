@@ -2,7 +2,18 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HeroManifest } from '../heroes.js';
-import { HelperBackLine, isAgentCall, isSummonStart, SetOutLine, SkillLine, SummonLine, ToolCard } from './ToolCard.js';
+import {
+  HelperBackLine,
+  isAgentCall,
+  isSummonStart,
+  isTitleCall,
+  isTitleSearch,
+  SetOutLine,
+  SkillLine,
+  SummonLine,
+  TitleLine,
+  ToolCard,
+} from './ToolCard.js';
 
 const tool = (name: string, input: unknown, output?: string) => ({
   kind: 'tool' as const,
@@ -192,5 +203,39 @@ describe('SummonLine', () => {
     expect(isSummonStart(start)).toBe(true);
     expect(isSummonStart({ ...start, input: { action: 'status' } })).toBe(false);
     expect(isSummonStart({ ...start, name: 'Bash' })).toBe(false);
+  });
+});
+
+describe('TitleLine (#287)', () => {
+  const call = {
+    kind: 'tool',
+    id: 't',
+    name: 'mcp__crystal__title',
+    input: { title: 'The Siege of the Flaky Smoke Test', plain: 'Fix the flaky smoke test' },
+  } as unknown as ComponentProps<typeof TitleLine>['tool'];
+
+  it('announces the name the Quest gave itself in one line', () => {
+    render(<TitleLine tool={call} />);
+    expect(screen.getByText('The Bard names your Quest: The Siege of the Flaky Smoke Test.')).toBeTruthy();
+  });
+
+  it('claims no name when the call failed or gave none', () => {
+    render(<TitleLine tool={{ ...call, isError: true, output: 'This session is not running on this node.' }} />);
+    expect(screen.getByText('The Bard could not name your Quest.')).toBeTruthy();
+    cleanup();
+    render(<TitleLine tool={{ ...call, input: {} }} />);
+    expect(screen.getByText('The Bard could not name your Quest.')).toBeTruthy();
+  });
+
+  it('knows the search that only loads the title tool, which the chat leaves out', () => {
+    const search = { ...call, name: 'ToolSearch', input: { query: 'select:mcp__crystal__title' } };
+    expect(isTitleSearch(search)).toBe(true);
+    expect(isTitleSearch({ ...search, input: { query: 'select:mcp__crystal__title,Read' } })).toBe(false);
+    expect(isTitleSearch({ ...search, input: { query: 'notebook' } })).toBe(false);
+  });
+
+  it('takes only Crystal’s title tool', () => {
+    expect(isTitleCall(call)).toBe(true);
+    expect(isTitleCall({ ...call, name: 'mcp__other__title' })).toBe(false);
   });
 });

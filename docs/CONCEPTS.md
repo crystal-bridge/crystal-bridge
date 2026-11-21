@@ -21,7 +21,9 @@ To try it, all of these can run on one computer. See [Getting started](./GETTING
 
 ## What happens in a session
 
-The app calls a session a **Quest**.
+The app calls a session a **Quest**. A Quest names itself once it understands what you asked, through a tool the
+Crystal gives every Quest, so its tab says what it's about rather than the first words of your prompt. To name one
+yourself on a desktop, right-click its tab and pick Rename. A name you give it stays, on every device.
 
 1. You start a Quest on a Kingdom from the web app. The Airship passes that on to the Kingdom's Crystal.
 2. The Crystal runs `claude` in the project you picked, under that machine's own login.

@@ -3,6 +3,7 @@ import type { Server as HttpServer } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
+import { QuestTitle, type QuestTitledPayload } from '@crystal-bridge/protocol';
 import { z } from 'zod';
 
 /**
@@ -47,6 +48,11 @@ export interface CreatePermissionServerOptions {
   onRequest: OnPermissionRequest;
   /** Offers Quests the `summon` tool. */
   summon?: SummonTool;
+  /**
+   * Offers Quests the `title` tool (#287): passes on the name a Quest gives itself. Returns why it was refused, if it
+   * was, as the tool's error.
+   */
+  onTitle?: (session: string, title: QuestTitledPayload) => string | undefined;
   /** Served on `GET /status` (localhost only), e.g. so a deploy can wait until no session is mid-turn. */
   status?: () => unknown;
   /** Hook calls other than PermissionRequest from interactive sessions (SessionStart, Stop, Notification). */
@@ -80,7 +86,35 @@ const SummonInputShape = {
   cast: z.string().optional().describe('status: one Cast, or leave it out for all of this Quest; cancel: which Cast'),
 };
 
-function buildMcpServer(session: string, onRequest: OnPermissionRequest, summon?: SummonTool): McpServer {
+const titleText = QuestTitle;
+const TitleInputShape = {
+  title: titleText.describe('A short quest name in a fantasy-RPG voice, e.g. "The Siege of the Flaky Smoke Test"'),
+  plain: titleText.describe('The same in plain words, e.g. "Fix the flaky smoke test"'),
+};
+
+/** The `title` tool as the CLI names it, for allowing it up front. */
+export const TITLE_TOOL = 'mcp__crystal__title';
+
+/**
+ * What every Quest's system prompt asks, through `--append-system-prompt`. The CLI defers MCP tools behind ToolSearch, so
+ * the model never reads the tool's own description unless something tells it to load the tool (test/fixtures/README.md).
+ */
+export const TITLE_INSTRUCTION =
+  'Required: before any other tool call in your first turn, load mcp__crystal__title with ToolSearch and call it to ' +
+  'name this session (a fantasy-RPG quest name and a plain one). Call it again only if the work changes course.';
+
+/** What the `title` tool asks of a Quest. Crystal allows the tool itself, so a call never raises a permission card. */
+export const TITLE_DESCRIPTION =
+  "Name this session for the user's list of sessions. Call it once, as soon as you understand what the user is " +
+  'asking, and again only if the work changes course. Keep each name under about 50 characters. A name the user ' +
+  'set by hand wins, so a call never needs repeating.';
+
+function buildMcpServer(
+  session: string,
+  onRequest: OnPermissionRequest,
+  summon?: SummonTool,
+  onTitle?: CreatePermissionServerOptions['onTitle'],
+): McpServer {
   const server = new McpServer({ name: 'crystal-permissions', version: '0.0.0' });
 
   server.registerTool(
@@ -125,6 +159,15 @@ function buildMcpServer(session: string, onRequest: OnPermissionRequest, summon?
     );
   }
 
+  if (onTitle) {
+    server.registerTool('title', { description: TITLE_DESCRIPTION, inputSchema: TitleInputShape }, async (args) => {
+      const refused = onTitle(session, { title: args.title, plain: args.plain });
+      return refused
+        ? { content: [{ type: 'text' as const, text: refused }], isError: true }
+        : { content: [{ type: 'text' as const, text: 'Named.' }] };
+    });
+  }
+
   return server;
 }
 
@@ -149,7 +192,7 @@ export async function createPermissionServer(options: CreatePermissionServerOpti
 
   app.post('/mcp/:session', async (req, res) => {
     const session = req.params.session as string;
-    const mcpServer = buildMcpServer(session, onRequest, options.summon);
+    const mcpServer = buildMcpServer(session, onRequest, options.summon, options.onTitle);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {

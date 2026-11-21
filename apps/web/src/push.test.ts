@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { CLASSIC, CRYSTAL } from './theme/words.js';
 import { disablePush, enablePush, keyBytes, openTarget, prefsForPush, syncPush } from './push.js';
 
 const json = { endpoint: 'https://push.example/a', keys: { p256dh: 'p', auth: 'a' } };
@@ -29,6 +30,11 @@ describe('prefsForPush', () => {
       notify: { n: 'discreet' },
     });
     expect(prefsForPush({ names: {}, hidden: [] })).toEqual({ names: {}, hidden: [] });
+  });
+
+  it('asks for Quests’ plain names on the Classic theme (#287)', () => {
+    expect(prefsForPush({ names: {}, hidden: [] }, CLASSIC)).toEqual({ names: {}, hidden: [], plainTitles: true });
+    expect(prefsForPush({ names: {}, hidden: [] }, CRYSTAL)).toEqual({ names: {}, hidden: [] });
   });
 });
 

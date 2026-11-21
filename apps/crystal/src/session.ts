@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { Effort, EventType, PermissionMode, UsagePayload } from '@crystal-bridge/protocol';
-import { mcpConfig } from './permissions.js';
+import { mcpConfig, TITLE_INSTRUCTION, TITLE_TOOL } from './permissions.js';
 import { usageFromRaw } from './usage.js';
 
 /** The subset of protocol event types a running `claude` process can emit on its own. */
@@ -158,6 +158,8 @@ function buildArgs(
   chrome = false,
   effort?: Effort,
   addDirs: readonly string[] = [],
+  /** A new Quest (or a fork) names itself; a resumed one was named already. */
+  askTitle = true,
 ): string[] {
   return [
     '-p',
@@ -171,6 +173,11 @@ function buildArgs(
     mcpConfig(permissionUrl),
     '--permission-prompt-tool',
     'mcp__crystal__approve',
+    // Naming the Quest (#287) never asks. The flag takes a list, so another flag follows it.
+    '--allowedTools',
+    TITLE_TOOL,
+    // The CLI defers MCP tools, so the Quest only names itself when its system prompt says how.
+    ...(askTitle ? ['--append-system-prompt', TITLE_INSTRUCTION] : []),
     '--permission-mode',
     mode,
     ...(chrome ? ['--chrome'] : []),
@@ -502,7 +509,7 @@ export class ClaudeSession extends EventEmitter {
     let sessionArgs = resume ? ['--resume', this.session] : ['--session-id', this.session];
     if (!resume && this.forkFrom) sessionArgs = ['--resume', this.forkFrom, '--fork-session', ...sessionArgs];
     this.processEffort = this.effort;
-    const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome, this.effort, this.addDirs);
+    const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome, this.effort, this.addDirs, !resume);
 
     const child = this.spawnFn(this.claudeBin, args, {
       cwd: this.cwd,

@@ -1,3 +1,4 @@
+import { TITLE_INSTRUCTION } from './permissions.js';
 import { EventEmitter } from 'node:events';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -178,6 +179,38 @@ describe('InteractiveSession', () => {
     expect(config.mcpServers.crystal.timeout).toBe(86_400_000);
     expect(args).not.toContain('--permission-prompt-tool');
     expect(args[args.indexOf('--mcp-config') + 2]).toMatch(/^--/); // the flag takes a list
+    // The CLI defers MCP tools, so only the system prompt gets the Quest to name itself (#287).
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(TITLE_INSTRUCTION);
+  });
+
+  it('asks a resumed Quest for no name: it was named already (#287)', async () => {
+    const { session, spawned, hook } = harness({ permissionUrl: 'http://127.0.0.1:7701/mcp/x' });
+    session.start('hello');
+    hook('SessionStart', {});
+    await tick();
+    spawned[0]!.pty.emitExit(0);
+    await tick();
+    session.send('again');
+    expect(spawned[1]!.args.slice(0, 2)).toEqual(['--resume', SESSION]);
+    expect(spawned[1]!.args).not.toContain('--append-system-prompt');
+    expect(spawned[1]!.args).toContain('--mcp-config');
+  });
+
+  it('asks nothing of a Quest without Crystal’s tools', () => {
+    const { session, spawned } = harness();
+    session.start('hello');
+    expect(spawned[0]!.args).not.toContain('--append-system-prompt');
+  });
+
+  it('allows Crystal’s title tool through its settings, so naming a Quest never asks (#287)', () => {
+    const { session, spawned } = harness({ permissionUrl: 'http://127.0.0.1:7701/mcp/x', addDirs: ['/tmp/files/s1'] });
+    session.start('hello');
+    const { args } = spawned[0]!;
+    const settings = JSON.parse(readFileSync(args[args.indexOf('--settings') + 1]!, 'utf8'));
+    expect(settings.permissions).toEqual({
+      allow: ['mcp__crystal__title'],
+      additionalDirectories: ['/tmp/files/s1'],
+    });
   });
 
   it('runs the interactive claude with Crystal hooks in a generated settings file, and a clean environment', () => {

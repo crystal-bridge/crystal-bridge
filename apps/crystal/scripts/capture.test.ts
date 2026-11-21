@@ -1,3 +1,4 @@
+import { userInfo } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { scrub } from './capture.js';
 
@@ -7,5 +8,23 @@ describe('scrub', () => {
     const scrubbed = JSON.parse(scrub(line, '')) as Record<string, unknown>;
     expect(scrubbed.credential_expires_at).toBe('1970-01-01T00:00:00.000Z');
     expect(scrubbed.is_error).toBe(false);
+  });
+
+  it('keeps this machine’s account name out, as a file listing’s owner shows it', () => {
+    const user = userInfo().username;
+    const listing = `-rw-rw-r-- 1 ${user} ${user} 12 Nov 21 06:31 README.md`;
+    const line = JSON.stringify({ type: 'user', tool_use_result: { stdout: listing } });
+    const scrubbed = scrub(line, '');
+    expect(scrubbed).not.toMatch(new RegExp(`\\b${user}\\b`));
+    expect(JSON.parse(scrubbed).tool_use_result.stdout).toBe('-rw-rw-r-- 1 user user 12 Nov 21 06:31 README.md');
+  });
+
+  it('keeps this machine’s user id and process ids out of the CLI’s socket path', () => {
+    const line = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      messaging_socket_path: '/run/user/1000/cc-socks/1609782.sock',
+    });
+    expect(JSON.parse(scrub(line, '')).messaging_socket_path).toBe('/run/user/0/cc-socks/0.sock');
   });
 });

@@ -426,6 +426,8 @@ export const Attention = z.object({
   node: z.string(),
   session: z.uuid(),
   label: z.string(),
+  /** The plain form of a title the Quest gave itself, for a device on the Classic theme (#287). */
+  plainLabel: z.string().optional(),
   reason: z.enum(['needs-you', 'done', 'failed', 'cast-done', 'cast-failed']),
   detail: z.string().optional(),
 });

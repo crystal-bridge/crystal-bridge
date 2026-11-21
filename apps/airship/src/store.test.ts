@@ -154,6 +154,74 @@ describe('store', () => {
     expect(listed).toEqual({ [a]: 1234, [b]: 0 });
   });
 
+  describe('Quest titles (#287)', () => {
+    const start = (session: string) =>
+      store.appendEvent(
+        makeEnvelope({
+          session,
+          seq: 0,
+          type: 'session.started',
+          payload: { cwd: '/r', prompt: 'fix it', label: 'fix it' },
+        }),
+      );
+    const titled = (session: string, seq: number, title: string, plain: string) =>
+      store.appendEvent(makeEnvelope({ session, seq, type: 'quest.titled', payload: { title, plain } }));
+    const listed = (session: string) => store.listSessions().find((row) => row.id === session);
+
+    it('takes the title a Quest gives itself, with its plain form, and a later one too', () => {
+      const session = randomUUID();
+      start(session);
+      titled(session, 1, 'The Siege of the Flaky Smoke Test', 'Fix the flaky smoke test');
+      expect(listed(session)).toMatchObject({
+        label: 'The Siege of the Flaky Smoke Test',
+        plainLabel: 'Fix the flaky smoke test',
+      });
+      expect(store.getSession(session)?.label).toBe('The Siege of the Flaky Smoke Test');
+      titled(session, 2, 'The Smoke Clears', 'Rewrite the smoke test');
+      expect(listed(session)).toMatchObject({ label: 'The Smoke Clears', plainLabel: 'Rewrite the smoke test' });
+    });
+
+    it('keeps a title set by hand, in every theme, whatever the Quest calls itself later', () => {
+      const session = randomUUID();
+      start(session);
+      titled(session, 1, 'The Siege', 'Fix the test');
+      expect(store.renameSession(session, 'Smoke test, again')).toBe(true);
+      expect(listed(session)?.label).toBe('Smoke test, again');
+      expect(listed(session)).not.toHaveProperty('plainLabel');
+      titled(session, 2, 'The Smoke Clears', 'Rewrite the smoke test');
+      expect(listed(session)?.label).toBe('Smoke test, again');
+      expect(listed(session)).not.toHaveProperty('plainLabel');
+    });
+
+    it('stores a title it cannot read as an event, and leaves the label alone', () => {
+      const session = randomUUID();
+      start(session);
+      expect(store.appendEvent(makeEnvelope({ session, seq: 1, type: 'quest.titled', payload: { title: '' } }))).toBe(
+        true,
+      );
+      expect(listed(session)?.label).toBe('fix it');
+    });
+
+    it('gives the plain name with the title in the activity feed and search hits', async () => {
+      const session = randomUUID();
+      start(session);
+      titled(session, 1, 'The Siege', 'Fix the test');
+      expect(store.activity(10).find((item) => item.session === session)).toMatchObject({
+        label: 'The Siege',
+        plainLabel: 'Fix the test',
+      });
+      const hits = await store.search('local', 'fix it', 10);
+      expect(hits.find((hit) => hit.session === session)).toMatchObject({
+        label: 'The Siege',
+        plainLabel: 'Fix the test',
+      });
+    });
+
+    it('renames only a Quest it has', () => {
+      expect(store.renameSession(randomUUID(), 'x')).toBe(false);
+    });
+  });
+
   it('creates a running session from session.started and ends it on session.ended', () => {
     const session = randomUUID();
     const createdAt = Date.now();

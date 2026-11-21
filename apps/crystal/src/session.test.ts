@@ -1,3 +1,4 @@
+import { TITLE_INSTRUCTION } from './permissions.js';
 import type { TurnChanges } from './changes.js';
 import type { DescriptionReporter } from './descriptions.js';
 import { EventEmitter } from 'node:events';
@@ -196,6 +197,12 @@ describe('ClaudeSession', () => {
       JSON.stringify({ mcpServers: { crystal: { type: 'http', url: PERMISSION_URL, timeout: 86_400_000 } } }),
       '--permission-prompt-tool',
       'mcp__crystal__approve',
+      // Crystal's own tool for naming the Quest (#287) never asks.
+      '--allowedTools',
+      'mcp__crystal__title',
+      // The CLI defers MCP tools, so only the system prompt gets the Quest to name itself (test/fixtures/README.md).
+      '--append-system-prompt',
+      TITLE_INSTRUCTION,
       '--permission-mode',
       'manual',
       '--session-id',
@@ -218,6 +225,9 @@ describe('ClaudeSession', () => {
     session.send('more');
     expect(calls[1]!.args.slice(-2)).toEqual(['--resume', SESSION_ID]);
     expect(calls[1]!.args).not.toContain('--fork-session');
+    // A fork is a new Quest, so it names itself; a resumed one was named already, and isn't asked again (#287).
+    expect(calls[0]!.args).toContain('--append-system-prompt');
+    expect(calls[1]!.args).not.toContain('--append-system-prompt');
   });
 
   it('passes --effort when the session has one, on every process it starts (resumes too)', async () => {

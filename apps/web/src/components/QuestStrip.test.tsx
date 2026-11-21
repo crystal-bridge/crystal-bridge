@@ -254,4 +254,66 @@ describe('QuestStrip', () => {
       expect(onMoveBoard).toHaveBeenCalledWith('gmail', 1);
     });
   });
+
+  describe('Rename (#287)', () => {
+    it('renames a Quest from its right-click menu, in place on its tab', () => {
+      const onRename = vi.fn();
+      renderStrip({ onRename });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+      const input = screen.getByRole('textbox', { name: 'New name' }) as HTMLInputElement;
+      expect(input.value).toBe('fix the build');
+      expect(document.activeElement).toBe(input);
+      fireEvent.change(input, { target: { value: '  Build fix ' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(onRename).toHaveBeenCalledWith('a', 'Build fix');
+      expect(screen.queryByRole('textbox')).toBeNull();
+    });
+
+    it('keeps the name on Escape, on an empty name, or on the same name', () => {
+      const onRename = vi.fn();
+      renderStrip({ onRename });
+      const rename = () => {
+        fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+        return screen.getByRole('textbox', { name: 'New name' });
+      };
+      fireEvent.keyDown(rename(), { key: 'Escape' });
+      expect(screen.queryByRole('textbox')).toBeNull();
+      const empty = rename();
+      fireEvent.change(empty, { target: { value: '  ' } });
+      fireEvent.keyDown(empty, { key: 'Enter' });
+      fireEvent.keyDown(rename(), { key: 'Enter' });
+      expect(onRename).not.toHaveBeenCalled();
+    });
+
+    it('leaves an Enter that only confirms a composed character alone (CJK input)', () => {
+      const onRename = vi.fn();
+      renderStrip({ onRename });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+      const input = screen.getByRole('textbox', { name: 'New name' });
+      fireEvent.change(input, { target: { value: 'ビルド' } });
+      fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+      expect(onRename).not.toHaveBeenCalled();
+      expect(screen.getByRole('textbox', { name: 'New name' })).toBeTruthy();
+    });
+
+    it('saves when focus leaves the name', () => {
+      const onRename = vi.fn();
+      renderStrip({ onRename });
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /write docs/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+      const input = screen.getByRole('textbox', { name: 'New name' });
+      fireEvent.change(input, { target: { value: 'Docs pass' } });
+      fireEvent.blur(input);
+      expect(onRename).toHaveBeenCalledWith('b', 'Docs pass');
+    });
+
+    it('offers no menu on a Quest tab without renaming', () => {
+      renderStrip();
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /fix the build/ }));
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+  });
 });

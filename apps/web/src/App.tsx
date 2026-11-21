@@ -110,11 +110,12 @@ import {
   questTabs,
   savePutAway,
   type UnseenQuest,
+  renamed,
 } from './quests.js';
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
 import { RemovedKingdom } from './components/RemovedKingdom.js';
-import { hint, queuedLine, showHeroes, w } from './theme/words.js';
+import { hint, questLabel, queuedLine, showHeroes, w } from './theme/words.js';
 
 const REFRESH_MS = 5000;
 const HOME_REFRESH_MS = 30_000;
@@ -444,7 +445,7 @@ export function App({ hub }: { hub: HubClient }) {
         }
         if (looking || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
         const shownText = notificationFor(
-          attention,
+          { ...attention, label: questLabel(attention) },
           p.names[attention.node] || attention.node,
           notifyLevel(p, attention.node),
         );
@@ -523,7 +524,7 @@ export function App({ hub }: { hub: HubClient }) {
       void getJson<SearchHit[]>(
         `/api/search?node=${encodeURIComponent(active)}&q=${encodeURIComponent(query.trim())}`,
         [],
-      ).then(setHits);
+      ).then((found) => setHits(found.map((hit) => ({ ...hit, label: questLabel(hit) }))));
     }, 250);
     return () => clearTimeout(timer);
   }, [searching, active, query]);
@@ -573,6 +574,29 @@ export function App({ hub }: { hub: HubClient }) {
     setSelected(null);
     setBoardScout(scout);
     setPage('board');
+  }
+
+  /** Names a Quest by hand (#287): shown here at once, and on every device from the hub's next list. */
+  async function renameQuest(id: string, label: string) {
+    const before = sessions.find((quest) => quest.id === id)?.label;
+    setSessions((prev) => renamed(prev, id, label));
+    try {
+      const response = await fetch(`/api/sessions/${id}/label`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label }),
+      });
+      if (!response.ok) throw await refusal(response);
+    } catch (error) {
+      // Back to the old name, which a hub that can't be reached wouldn't send again until it can.
+      if (before !== undefined) setSessions((prev) => renamed(prev, id, before, label));
+      const reason = error instanceof TypeError ? UNREACHABLE : error instanceof Error ? error.message : String(error);
+      setErrors((prev) => [
+        ...prev,
+        { id: Date.now() + Math.random(), message: `Couldn't rename the ${w('quest')}: ${reason}` },
+      ]);
+    }
+    await refresh();
   }
 
   /** Takes a Quest's tab away on this device until it has new activity; the Castle shows instead if it was open. */
@@ -695,7 +719,11 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<HubStatus>('/api/hub/status'),
       tryJson<({ session: string } & UnseenQuest)[]>('/api/unseen'),
     ]);
-    keep(setSessions, s);
+    // Each Quest under its name in this theme (`questLabel`), so every view shows the same one.
+    keep(
+      setSessions,
+      s?.map((quest) => ({ ...quest, label: questLabel(quest) })),
+    );
     keep(setNodes, n);
     if (t) setEnrolled(t);
     if (b) setHubName(b.name ?? null);
@@ -784,7 +812,10 @@ export function App({ hub }: { hub: HubClient }) {
     ]);
     keep(setStatsToday, today);
     keep(setStatsWeek, week);
-    keep(setActivity, log);
+    keep(
+      setActivity,
+      log?.map((item) => ({ ...item, label: questLabel(item) })),
+    );
     keep(setQuestXp, xp);
   }, []);
   useEffect(() => {
@@ -1326,6 +1357,7 @@ export function App({ hub }: { hub: HubClient }) {
               }}
               onSelect={openQuest}
               onPutAway={putAwayQuest}
+              onRename={(id, label) => void renameQuest(id, label)}
               boards={pinnedBoards}
               // An open Board without a pinned tab leaves the Castle's tab standing for it, as before pinning.
               currentBoard={

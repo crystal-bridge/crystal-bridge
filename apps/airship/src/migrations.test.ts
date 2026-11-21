@@ -96,6 +96,20 @@ describe('store migrations', () => {
     db.close();
   });
 
+  it('leaves the Quests a database already has free to name themselves, with no plain name', () => {
+    const db = new Database(path);
+    db.exec(MIGRATIONS.slice(0, 11).join(';'));
+    db.pragma('user_version = 11');
+    db.exec(
+      `INSERT INTO sessions (id, node, cwd, label, status, created_at) VALUES ('s', 'n', '/r', 'fix it', 'idle', 1)`,
+    );
+    migrate(db);
+    expect(db.prepare('SELECT id, label, plain_label, label_by_hand FROM sessions').all()).toEqual([
+      { id: 's', label: 'fix it', plain_label: null, label_by_hand: 0 },
+    ]);
+    db.close();
+  });
+
   it('refuses a database written by newer code, e.g. after rolling back past a migration', () => {
     const db = new Database(path);
     db.pragma(`user_version = ${SCHEMA_VERSION + 1}`);

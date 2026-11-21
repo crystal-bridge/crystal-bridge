@@ -1186,6 +1186,28 @@ describe('startNode', () => {
 
   // Each test's attached files go in its own temporary folder, never the system's shared one.
   let attachmentsBase = '';
+  describe('Quest titles (#287)', () => {
+    it('passes on the name a Quest gives itself, as an event in its stream', async () => {
+      const crystal = createNode({});
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'fix it' }));
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      expect(crystal.titleQuest(session, { title: 'The Siege', plain: 'Fix the test' })).toBeUndefined();
+      expect(await waitForFrame(conn, (frame) => frame.type === 'quest.titled')).toMatchObject({
+        session,
+        payload: { title: 'The Siege', plain: 'Fix the test' },
+      });
+    });
+
+    it('refuses a name for a Quest it doesn’t run', async () => {
+      const crystal = createNode({});
+      await waitForFrame(await nextConnection(harness, 0), (frame) => frame.kind === 'hello');
+      expect(crystal.titleQuest(randomUUID(), { title: 'x', plain: 'x' })).toMatch(/not running on this node/);
+    });
+  });
+
   function createNode(extra: Partial<Parameters<typeof startNode>[0]> = {}): CrystalNode {
     attachmentsBase = mkdtempSync(join(tmpdir(), 'cb-node-files-'));
     node = startNode({

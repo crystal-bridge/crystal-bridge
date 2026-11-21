@@ -14,6 +14,7 @@ import {
   type Envelope,
   PushPrefs,
   PushSubscriptionJson,
+  QuestTitledPayload,
   UsagePayload,
 } from '@crystal-bridge/protocol';
 
@@ -24,6 +25,8 @@ export interface SessionRow {
   node: string;
   cwd: string;
   label: string;
+  /** The plain form of a title the Quest gave itself, for the Classic theme; none once it's renamed by hand. */
+  plainLabel?: string;
   status: SessionStatus;
   createdAt: number;
 }
@@ -65,6 +68,8 @@ export interface ActivityItem {
   session: string;
   node: string;
   label: string;
+  /** The plain form of a title the Quest gave itself, for the Classic theme (#287). */
+  plainLabel?: string;
   ts: number;
   kind: 'started' | 'closed' | 'turn';
   /** For a finished turn: success, error or interrupted. */
@@ -76,6 +81,8 @@ export interface SearchHit {
   session: string;
   seq: number;
   label: string;
+  /** The plain form of a title the Quest gave itself, for the Classic theme (#287). */
+  plainLabel?: string;
   event: Envelope;
 }
 
@@ -154,6 +161,8 @@ export interface Store extends Boards, Patrols {
   /** The newest usage report from each node, ordered by node id. */
   latestUsage(): NodeUsage[];
   getSession(id: string): SessionRow | undefined;
+  /** Sets a Quest's label by hand, in every theme, for good: its own titles no longer change it. False for no such Quest. */
+  renameSession(id: string, label: string): boolean;
   /** The engine a session started on, from its session.started payload; undefined for the default or unknown. */
   sessionEngine(id: string): Engine | undefined;
   /** The effort a session uses: its latest change, else what it started with; undefined for the CLI's default. */
@@ -204,6 +213,7 @@ interface SessionTableRow {
   node: string;
   cwd: string;
   label: string;
+  plain_label: string | null;
   status: string;
   created_at: number;
 }
@@ -297,6 +307,8 @@ export function openStore(path: string): Store {
      ORDER BY seq DESC LIMIT 1`,
   );
   const lastActivityStmt = db.prepare(`SELECT ts FROM events WHERE session = ? ORDER BY seq DESC LIMIT 1`);
+  const titleStmt = db.prepare(`UPDATE sessions SET label = ?, plain_label = ? WHERE id = ? AND label_by_hand = 0`);
+  const renameStmt = db.prepare(`UPDATE sessions SET label = ?, plain_label = NULL, label_by_hand = 1 WHERE id = ?`);
   const setStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`);
   // A closed Quest is done for good: its process ending (or a stray resume) arrives after the close and mustn't reopen it.
   const setOpenStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ? AND status != 'closed'`);
@@ -305,7 +317,7 @@ export function openStore(path: string): Store {
   );
   const listSessionsStmt = db.prepare(
     // The latest event is the highest seq; the events primary key makes that lookup one index probe per session.
-    `SELECT id, node, cwd, label, status, created_at,
+    `SELECT id, node, cwd, label, plain_label, status, created_at,
        COALESCE((SELECT ts FROM events WHERE session = sessions.id ORDER BY seq DESC LIMIT 1), created_at) AS last_activity,
        COALESCE((SELECT bytes FROM relay WHERE session = sessions.id), 0) AS relayed_bytes,
        (SELECT json_extract(payload, '$.summary') FROM events
@@ -334,7 +346,7 @@ export function openStore(path: string): Store {
      FROM sessions s`,
   );
   const activityStmt = db.prepare(
-    `SELECT e.session, e.node, s.label, e.ts, e.type, json_extract(e.payload, '$.outcome') AS outcome
+    `SELECT e.session, e.node, s.label, s.plain_label, e.ts, e.type, json_extract(e.payload, '$.outcome') AS outcome
      FROM events e JOIN sessions s ON s.id = e.session
      WHERE e.type IN ('session.started', 'session.closed', 'turn.finished')
      ORDER BY e.ts DESC LIMIT ?`,
@@ -399,11 +411,13 @@ export function openStore(path: string): Store {
   const startedPayloadStmt = db.prepare(
     `SELECT payload FROM events WHERE session = ? AND type = 'session.started' ORDER BY seq LIMIT 1`,
   );
-  const getSessionStmt = db.prepare(`SELECT id, node, cwd, label, status, created_at FROM sessions WHERE id = ?`);
+  const getSessionStmt = db.prepare(
+    `SELECT id, node, cwd, label, plain_label, status, created_at FROM sessions WHERE id = ?`,
+  );
 
   const maxSeqStmt = db.prepare(`SELECT MAX(seq) AS seq FROM events WHERE session = ?`);
   const searchQuestsStmt = db.prepare(
-    `SELECT id, label FROM sessions WHERE node = ?
+    `SELECT id, label, plain_label FROM sessions WHERE node = ?
      ORDER BY (SELECT ts FROM events WHERE session = sessions.id ORDER BY seq DESC LIMIT 1) DESC`,
   );
   // `+type` keeps this on the primary key: a step reads its rows in order, and the type index would look each one up.
@@ -472,6 +486,10 @@ export function openStore(path: string): Store {
       setStatusStmt.run('closed', event.session);
     } else if (event.type === 'usage') {
       noteUsage(event.node, event.ts, event.payload);
+    } else if (event.type === 'quest.titled') {
+      // Kept as an event even when unreadable, like any type the hub doesn't know: only the label waits for a good one.
+      const title = QuestTitledPayload.safeParse(event.payload).data;
+      if (title) titleStmt.run(title.title, title.plain, event.session);
     }
     return true;
   });
@@ -498,6 +516,7 @@ export function openStore(path: string): Store {
       node: row.node,
       cwd: row.cwd,
       label: row.label,
+      ...(row.plain_label ? { plainLabel: row.plain_label } : {}),
       status: row.status as SessionStatus,
       createdAt: row.created_at,
     };
@@ -599,13 +618,22 @@ export function openStore(path: string): Store {
       markSeenStmt.run(login, session);
     },
     activity(limit) {
-      type Row = { session: string; node: string; label: string; ts: number; type: string; outcome: unknown };
+      type Row = {
+        session: string;
+        node: string;
+        label: string;
+        plain_label: string | null;
+        ts: number;
+        type: string;
+        outcome: unknown;
+      };
       return (activityStmt.all(limit) as Row[]).map((row) => {
         const kind = row.type === 'session.started' ? 'started' : row.type === 'session.closed' ? 'closed' : 'turn';
         return {
           session: row.session,
           node: row.node,
           label: row.label,
+          ...(row.plain_label ? { plainLabel: row.plain_label } : {}),
           ts: row.ts,
           kind,
           ...(kind === 'turn' && typeof row.outcome === 'string' ? { outcome: row.outcome } : {}),
@@ -617,11 +645,13 @@ export function openStore(path: string): Store {
       const deadline = Date.now() + SEARCH_BUDGET_MS;
       const hits: SearchHit[] = [];
       const newestFirst = () => hits.sort((a, b) => b.event.ts - a.event.ts || b.seq - a.seq);
-      for (const { id, label } of searchQuestsStmt.all(node) as { id: string; label: string }[]) {
+      type Quest = { id: string; label: string; plain_label: string | null };
+      for (const { id, label, plain_label } of searchQuestsStmt.all(node) as Quest[]) {
+        const named = plain_label ? { label, plainLabel: plain_label } : { label };
         for (let top = nextSeq(id) - 1; top >= 0; top -= SEARCH_STEP) {
           const left = limit - hits.length;
           const rows = searchStepStmt.all(id, top - SEARCH_STEP + 1, top, pattern, left) as EventTableRow[];
-          for (const row of rows) hits.push({ session: id, seq: row.seq, label, event: toEnvelope(row) });
+          for (const row of rows) hits.push({ session: id, seq: row.seq, ...named, event: toEnvelope(row) });
           if (hits.length >= limit || Date.now() >= deadline) return newestFirst();
           await new Promise((resolve) => setImmediate(resolve));
         }
@@ -643,6 +673,9 @@ export function openStore(path: string): Store {
     getSession(id) {
       const row = getSessionStmt.get(id) as SessionTableRow | undefined;
       return row ? toSessionRow(row) : undefined;
+    },
+    renameSession(id, label) {
+      return renameStmt.run(label, id).changes === 1;
     },
     sessionEngine(id) {
       const row = startedPayloadStmt.get(id) as { payload: string } | undefined;

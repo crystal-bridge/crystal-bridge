@@ -114,3 +114,18 @@ export function savePutAway(all: PutAway, storage: Storage | undefined = globalT
 export function questTitle(session: SessionSummary): string {
   return `${hint('quest')} · ${session.label || session.id} · ${projectName(session.cwd)} · ${session.status}`;
 }
+
+/**
+ * The list with one Quest under a new name, shown before the hub confirms a rename (#287). With `only`, it changes the
+ * name only while it's still that one, so undoing a refused rename never undoes a newer name from the hub.
+ */
+export function renamed<T extends { id: string; label: string }>(
+  sessions: readonly T[],
+  id: string,
+  label: string,
+  only?: string,
+): T[] {
+  const at = sessions.findIndex((quest) => quest.id === id && (only === undefined || quest.label === only));
+  if (at < 0) return sessions as T[];
+  return sessions.map((quest, index) => (index === at ? { ...quest, label } : quest));
+}

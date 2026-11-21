@@ -18,10 +18,29 @@ export const EventType = z.enum([
   'usage', // payload: UsagePayload  the node account's plan limits, as last reported by its engine
   'session.effort', // payload: { effort? }  the Quest's effort from now on; none is the CLI's default
   'session.mode', // payload: { mode }  the Quest's permission mode from now on
+  'quest.titled', // payload: QuestTitledPayload  the Quest named itself (Crystal's `title` tool); a name set by hand wins
   'terminal.screen', // payload: { open, text?, raised?, held? }  an interactive Quest's screen, while it needs a person
   'error', // payload: { message }
 ]);
 export type EventType = z.infer<typeof EventType>;
+
+/** The longest Quest title, from the Quest or by hand: a tab's worth, not a summary. */
+export const MAX_QUEST_TITLE = 120;
+
+/**
+ * A Quest's name, from the Quest or by hand: trimmed, and without control or format characters (a line break, a
+ * right-to-left override), which could disguise it in a tab or a notification.
+ */
+export const QuestTitle = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_QUEST_TITLE)
+  .refine((text) => !/[\p{Cc}\p{Cf}]/u.test(text), { error: 'a name is one line of plain text' });
+
+/** A Quest's own name for itself: `title` in the theme's voice, `plain` the same in plain words for the Classic theme. */
+export const QuestTitledPayload = z.object({ title: QuestTitle, plain: QuestTitle });
+export type QuestTitledPayload = z.infer<typeof QuestTitledPayload>;
 
 /** The longest `type` on the wire. The store keeps and indexes it, so it's a short name and never data. */
 export const MAX_EVENT_TYPE = 64;

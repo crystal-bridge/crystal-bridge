@@ -8,6 +8,8 @@ import {
   ClientMessage,
   Envelope,
   EventType,
+  MAX_QUEST_TITLE,
+  QuestTitledPayload,
   FileReply,
   HubToClient,
   NodeCommand,
@@ -529,5 +531,26 @@ describe('isOlderVersion', () => {
     expect(isOlderVersion('0d821f4', '1.0.0')).toBe(false);
     expect(isOlderVersion('1.0.0', 'dev')).toBe(false);
     expect(isOlderVersion(undefined, '1.0.0')).toBe(false);
+  });
+});
+
+describe('quest.titled', () => {
+  it('carries a themed title and a plain one, trimmed', () => {
+    expect(EventType.options).toContain('quest.titled');
+    expect(
+      QuestTitledPayload.parse({ title: '  The Siege of the Flaky Smoke Test ', plain: 'Fix the flaky smoke test' }),
+    ).toEqual({
+      title: 'The Siege of the Flaky Smoke Test',
+      plain: 'Fix the flaky smoke test',
+    });
+  });
+
+  it('refuses an empty or overlong title', () => {
+    expect(QuestTitledPayload.safeParse({ title: ' ', plain: 'x' }).success).toBe(false);
+    expect(QuestTitledPayload.safeParse({ title: 'x', plain: '' }).success).toBe(false);
+    expect(QuestTitledPayload.safeParse({ title: 'x'.repeat(MAX_QUEST_TITLE + 1), plain: 'x' }).success).toBe(false);
+    // Text that could disguise the name in a tab or a notification: a line break, a right-to-left override.
+    expect(QuestTitledPayload.safeParse({ title: 'Fix\nDeploy prod', plain: 'x' }).success).toBe(false);
+    expect(QuestTitledPayload.safeParse({ title: 'Fix typo\u202Eesaeler', plain: 'x' }).success).toBe(false);
   });
 });

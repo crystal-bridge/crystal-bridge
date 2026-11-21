@@ -1,4 +1,5 @@
 import type { PushPrefs } from '@crystal-bridge/protocol';
+import { CLASSIC, words, type Words } from './theme/words.js';
 import type { KingdomPrefs } from './kingdoms.js';
 
 /** The part of a service worker registration push needs, so tests can stand in for it. */
@@ -18,9 +19,11 @@ export const pushSupported = (): boolean =>
   typeof navigator !== 'undefined' && 'serviceWorker' in navigator && typeof PushManager !== 'undefined';
 
 /** What the hub needs to render this device's pushes: never which tab is open. */
-export function prefsForPush(prefs: KingdomPrefs): PushPrefs {
+export function prefsForPush(prefs: KingdomPrefs, theme: Words = words): PushPrefs {
   const out: PushPrefs = { names: prefs.names, hidden: prefs.hidden };
   if (prefs.notify) out.notify = prefs.notify;
+  // A Quest that named itself goes by its plain name on this theme (#287).
+  if (theme === CLASSIC) out.plainTitles = true;
   return out;
 }
 
