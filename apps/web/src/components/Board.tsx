@@ -985,7 +985,6 @@ export function BoardPage({
             {aside && (
               <aside>
                 <div className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  {log}
                   {counsel && manifest && (
                     <Counsel
                       open={openItems}
@@ -996,6 +995,7 @@ export function BoardPage({
                       {...(start ? { start } : {})}
                     />
                   )}
+                  {log}
                 </div>
               </aside>
             )}

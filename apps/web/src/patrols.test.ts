@@ -288,7 +288,7 @@ describe('boardPatrols', () => {
       patrols: [
         onBoard('sweep'),
         patrol({ id: 'elsewhere', manifest: { ...manifest!, board: 'other' }, lastRun: run({ id: at(9) }) }),
-        onBoard('links', { lastRun: run({ id: at(5), startedAt: 50 }) }),
+        onBoard('links', { lastRun: { ...run({ id: at(5), startedAt: 50 }), doneAt: 60 } }),
       ],
       runs: {
         sweep: [
@@ -307,6 +307,7 @@ describe('boardPatrols', () => {
       ['sweep', at(2)],
       ['sweep', at(1)],
     ]);
+    expect(picked.reports[0]!.run.doneAt).toBe(60);
     expect(boardPatrols(state, 'repo-watch', 2).reports).toHaveLength(2);
     expect(boardPatrols(state, 'nobody')).toEqual({ patrols: [], reports: [] });
   });

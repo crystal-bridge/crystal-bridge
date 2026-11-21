@@ -1011,12 +1011,14 @@ describe('BoardPage', () => {
       return { ...shown, onRun, onMark };
     }
 
-    it('says when each Patrol sets out next, beside the Scout’s schedule', () => {
-      withPatrols();
-      const summary = screen.getByRole('region', { name: 'Summary' });
-      expect(within(summary).getByText('Nightly sweep')).toBeTruthy();
-      expect(within(summary).getByText(/next in 1h 0m/)).toBeTruthy();
-      expect(within(summary).getByText(/stood down/)).toBeTruthy();
+    it('says when each Patrol sets out next, beside the Scout’s schedule, or why it won’t', () => {
+      const broken: ListedPatrol = { ...sweep, id: 'broken', nextRunAt: undefined, error: 'patrol.json: schedule' };
+      const ended: ListedPatrol = { ...sweep, id: 'ended', nextRunAt: undefined };
+      show({ patrols: { patrols: [sweep, links, broken, ended], reports: [], onRun: vi.fn(), onMark: vi.fn() } });
+      const line = within(screen.getByRole('region', { name: 'Summary' })).getByTitle(/Patrols/);
+      expect(line.textContent).toBe(
+        'Patrols: Nightly sweep next in 1h 0m · Link checker Stood down · Nightly sweep Can’t set out · Nightly sweep no more runs',
+      );
     });
 
     it('lists the reports newest first with their outcome and summary, and acts on them', async () => {
@@ -1029,6 +1031,8 @@ describe('BoardPage', () => {
         expect.stringContaining('Nothing to update.'),
       ]);
       expect(entries[0]!.textContent).toContain('Waiting on you');
+      // Each button says which Patrol it's for.
+      expect(within(entries[0]!).getByRole('button', { name: 'Run again: Nightly sweep' })).toBeTruthy();
       expect(entries[0]!.textContent).toContain('1m ago');
       fireEvent.click(within(entries[0]!).getByRole('button', { name: /Open Quest/ }));
       expect(onOpenQuest).toHaveBeenCalledWith(SESSION);
@@ -1044,24 +1048,60 @@ describe('BoardPage', () => {
       expect(within(entries[1]!).getByText(/fatal/)).toBeTruthy();
     });
 
-    it('fades a report marked done, which can be put back', async () => {
+    it('fades a report marked done, which keeps its way into the Quest and can be put back', async () => {
       const { onMark } = withPatrols();
       const done = within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem')[2]!;
       expect(within(done).queryByRole('button', { name: /Run again/ })).toBeNull();
+      expect(within(done).queryByRole('button', { name: /^Done/ })).toBeNull();
+      expect(within(done).getByRole('button', { name: /Open Quest/ })).toBeTruthy();
       await act(async () => {
         fireEvent.click(within(done).getByRole('button', { name: /Not done/ }));
       });
       expect(onMark).toHaveBeenCalledWith('sweep', at(1), false);
     });
 
-    it('says why an action failed', async () => {
-      const { onRun } = withPatrols();
+    it('says why an action failed, and clears it on the next', async () => {
+      const { onRun, onMark } = withPatrols();
       onRun.mockRejectedValueOnce(new Error('that Kingdom is offline'));
-      const first = within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem')[0]!;
+      onMark.mockRejectedValueOnce('no such run');
+      const first = () => within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem')[0]!;
       await act(async () => {
-        fireEvent.click(within(first).getByRole('button', { name: /Run again/ }));
+        fireEvent.click(within(first()).getByRole('button', { name: /Run again/ }));
       });
       expect(screen.getByRole('alert').textContent).toContain('that Kingdom is offline');
+      await act(async () => {
+        fireEvent.click(within(first()).getByRole('button', { name: /^Done/ }));
+      });
+      expect(screen.getByRole('alert').textContent).toBe('no such run');
+      await act(async () => {
+        fireEvent.click(within(first()).getByRole('button', { name: /Run again/ }));
+      });
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('holds Run again while it’s asking, and while the Patrol is out, when Done can’t be pressed yet', async () => {
+      let finish!: () => void;
+      const onRun = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+      show({
+        patrols: {
+          patrols: [sweep, links],
+          reports: [
+            report(links, { id: at(4), outcome: 'running' }),
+            report(links, { id: at(3), outcome: 'failed', summary: 'x' }),
+            report(sweep, { id: at(2), summary: 'Nothing to update.' }),
+          ],
+          onRun,
+          onMark: vi.fn(),
+        },
+      });
+      const [out, earlier, other] = within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem');
+      expect(within(out!).queryByRole('button', { name: /Run again|^Done/ })).toBeNull();
+      expect(within(earlier!).queryByRole('button', { name: /Run again/ })).toBeNull();
+      const again = within(other!).getByRole('button', { name: /Run again/ }) as HTMLButtonElement;
+      fireEvent.click(again);
+      expect(again.disabled).toBe(true);
+      await act(async () => finish());
+      expect(again.disabled).toBe(false);
     });
 
     it('waits for a Patrol’s first report, and shows no log without Patrols', () => {

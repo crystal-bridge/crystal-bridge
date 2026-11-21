@@ -1193,8 +1193,8 @@ describe('Patrols', () => {
     expect(store.recordPatrolRun('a', 'backup-check', { ...back, doneAt: 1 } as PatrolRun)).toEqual([
       { ...back, doneAt: 50 },
     ]);
-    expect(store.patrols('a')[0]!.lastRun).toEqual(back);
-    expect(store.patrols('a')[0]!.lastRun).not.toHaveProperty('doneAt');
+    // The list's latest run carries the mark too, for a Board whose runs haven't loaded.
+    expect(store.patrols('a')[0]!.lastRun).toEqual({ ...back, doneAt: 50 });
     expect(store.markPatrolRun('a', 'backup-check', back.id, false, 60)).toEqual([back]);
     expect(store.patrolRuns('a', 'backup-check')![0]).not.toHaveProperty('doneAt');
   });

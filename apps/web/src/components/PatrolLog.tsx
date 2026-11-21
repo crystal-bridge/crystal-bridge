@@ -2,7 +2,7 @@ import type { ListedPatrol } from '@crystal-bridge/protocol';
 import { useState } from 'react';
 import { untilText, type BoardReport } from '../patrols.js';
 import { Icon } from '../theme/icons.js';
-import { hint, patrolOutcomeWord, w } from '../theme/words.js';
+import { hint, patrolOutcomeWord, patrolStandingWord, w } from '../theme/words.js';
 import { agoText } from './HomeParts.js';
 import { outcomeLook } from './Watchtower.js';
 
@@ -31,13 +31,20 @@ export function PatrolsNext({ patrols, now }: { patrols: readonly ListedPatrol[]
         <span key={patrol.id}>
           {index > 0 && ' · '}
           <span className="text-neutral-700 dark:text-neutral-300">{patrol.manifest?.name ?? patrol.id}</span>{' '}
-          {patrol.paused
-            ? 'stood down'
-            : patrol.nextRunAt !== undefined
-              ? `next ${untilText(patrol.nextRunAt, now)}`
-              : patrol.manifest
-                ? 'no more runs'
-                : 'can’t set out'}
+          {patrol.paused ? (
+            <span className="text-amber-800 dark:text-amber-300" title={patrol.paused}>
+              {patrolStandingWord('stood-down').themed}
+            </span>
+          ) : patrol.error || !patrol.manifest ? (
+            // A schedule its Kingdom can't follow has no next run either; that's not the same as one that has ended.
+            <span className="text-red-700 dark:text-red-400" title={patrol.error}>
+              {patrolStandingWord('broken').themed}
+            </span>
+          ) : patrol.nextRunAt !== undefined ? (
+            `next ${untilText(patrol.nextRunAt, now)}`
+          ) : (
+            'no more runs'
+          )}
         </span>
       ))}
     </span>
@@ -51,21 +58,30 @@ function Entry({
   onRun,
   onMark,
   onOpenQuest,
+  patrolOut,
 }: {
   report: BoardReport;
   now: number;
-  act: (work: () => Promise<void> | void) => void;
+  act: (work: () => Promise<void> | void) => Promise<void>;
   onOpenQuest: (session: string) => void;
+  /** The Patrol has a run out now: running it again would only be skipped. */
+  patrolOut: boolean;
 } & Pick<BoardPatrolsProps, 'onRun' | 'onMark'>) {
   const { patrol, run } = report;
+  const name = patrol.manifest?.name ?? patrol.id;
   const [output, setOutput] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const again = () => {
+    setAsking(true);
+    void act(() => onRun(patrol.id)).finally(() => setAsking(false));
+  };
   const look = outcomeLook(run.outcome);
   const word = patrolOutcomeWord(run.outcome);
   const done = run.doneAt !== undefined;
   const out = run.outcome === 'running';
   const hasOutput = Boolean(run.stdout || run.stderr);
   return (
-    <li className={`relative ${done ? 'opacity-60' : ''}`}>
+    <li className={`relative ${done ? 'opacity-75' : ''}`}>
       <span
         aria-hidden="true"
         className={`absolute -left-[1.6rem] mt-0.5 flex size-4.5 items-center justify-center rounded-full bg-white dark:bg-neutral-900 ${look.text}`}
@@ -73,7 +89,7 @@ function Entry({
         <Icon name={look.icon} size={16} />
       </span>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate font-semibold">{patrol.manifest?.name ?? patrol.id}</span>
+        <span className="min-w-0 truncate font-semibold">{name}</span>
         <span className="shrink-0 text-xs text-neutral-500" title={new Date(run.startedAt).toLocaleString()}>
           {agoText(run.startedAt, now)}
         </span>
@@ -87,37 +103,54 @@ function Entry({
         <p className="text-xs text-neutral-600 dark:text-neutral-400">{run.reason}</p>
       )}
       <div className="mt-1 flex flex-wrap gap-1">
-        {!done && run.session && (
-          <button type="button" className={button} onClick={() => onOpenQuest(run.session!)}>
+        {run.session && (
+          <button
+            type="button"
+            className={button}
+            aria-label={`Open ${w('quest')}: ${name}`}
+            onClick={() => onOpenQuest(run.session!)}
+          >
             <Icon name="portal" size={13} /> {`Open ${w('quest')}`}
           </button>
         )}
-        {!done && hasOutput && (
-          <button type="button" className={button} aria-expanded={output} onClick={() => setOutput((shown) => !shown)}>
+        {hasOutput && (
+          <button
+            type="button"
+            className={button}
+            aria-label={`Output: ${name}`}
+            aria-expanded={output}
+            onClick={() => setOutput((shown) => !shown)}
+          >
             <Icon name="scrollUnfurled" size={13} /> Output
           </button>
         )}
-        {!done && (
-          <button type="button" className={button} onClick={() => act(() => onRun(patrol.id))}>
+        {!done && !patrolOut && (
+          <button type="button" className={button} aria-label={`Run again: ${name}`} disabled={asking} onClick={again}>
             <Icon name="cycle" size={13} /> Run again
           </button>
         )}
         {!done && !out && (
-          <button type="button" className={button} onClick={() => act(() => onMark(patrol.id, run.id, true))}>
+          <button
+            type="button"
+            className={button}
+            aria-label={`Done: ${name}`}
+            onClick={() => void act(() => onMark(patrol.id, run.id, true))}
+          >
             <Icon name="markSealCheck" size={13} /> Done
           </button>
         )}
         {done && (
           <button
             type="button"
-            className="text-xs text-neutral-500 underline hover:text-neutral-950 dark:hover:text-white"
-            onClick={() => act(() => onMark(patrol.id, run.id, false))}
+            className={button}
+            aria-label={`Not done: ${name}`}
+            onClick={() => void act(() => onMark(patrol.id, run.id, false))}
           >
-            Not done
+            <Icon name="cycle" size={13} /> Not done
           </button>
         )}
       </div>
-      {output && !done && (
+      {output && (
         <div className="mt-1 space-y-1">
           {run.stdout && (
             <pre className="max-h-48 overflow-auto rounded bg-neutral-100 p-2 text-xs whitespace-pre-wrap dark:bg-neutral-900">
@@ -148,16 +181,26 @@ export function PatrolLog({
   now,
 }: BoardPatrolsProps & { onOpenQuest: (session: string) => void; now: number }) {
   const [error, setError] = useState<string | null>(null);
-  const act = (work: () => Promise<void> | void) => {
+  const act = (work: () => Promise<void> | void): Promise<void> => {
     setError(null);
     const failed = (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure));
     try {
-      Promise.resolve(work()).catch(failed);
+      return Promise.resolve(work()).catch(failed);
     } catch (failure) {
       failed(failure);
+      return Promise.resolve();
     }
   };
   if (patrols.length === 0) return null;
+  // Patrols with a run out now, from their latest reports.
+  const out = new Set(
+    patrols
+      .filter(
+        (patrol) =>
+          (reports.find((report) => report.patrol.id === patrol.id)?.run ?? patrol.lastRun)?.outcome === 'running',
+      )
+      .map((patrol) => patrol.id),
+  );
   return (
     <section
       aria-label={w('patrolLog')}
@@ -184,6 +227,7 @@ export function PatrolLog({
               onRun={onRun}
               onMark={onMark}
               onOpenQuest={onOpenQuest}
+              patrolOut={out.has(report.patrol.id)}
             />
           ))}
         </ol>

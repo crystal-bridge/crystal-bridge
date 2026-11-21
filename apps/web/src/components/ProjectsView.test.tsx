@@ -625,7 +625,7 @@ describe('ProjectsView', () => {
     const run = { id: '00000000-0000-4000-8000-000000000001', startedAt: NOW, trigger: 'now', outcome: 'finished' };
     const patrols = { patrols: [patrol], reports: [{ patrol, run }], onRun: vi.fn(), onMark: vi.fn() };
     show({ items: [item('lantern')], patrols });
-    expect(screen.getByRole('region', { name: 'Patrol log' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Patrol log' }).closest('aside')).toBeTruthy();
     fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
     expect(screen.getByRole('region', { name: 'Patrol log' })).toBeTruthy();
   });
