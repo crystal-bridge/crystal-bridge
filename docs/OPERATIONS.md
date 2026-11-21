@@ -505,6 +505,15 @@ A restore loses only what happened after that backup; Crystals resend events the
   the first words of their prompt, as before.
 - The release that added it applied migration 12, so rolling back past it refuses to start (see Rolling back).
 
+## Errands
+
+- A Kingdom's Errands are kept on the hub in `errands` (migration 13), written from a Quest's `errand.left` events or by
+  hand.
+- Update the hub before the Kingdoms. An older hub stores `errand.left` as an event it doesn't know and shows no Errand;
+  the steps are still in the Quest's reply.
+- The release that added it applied migration 13, so rolling back past it refuses to start (see
+  [Rolling back](#rolling-back)).
+
 ## Done until viewed
 
 - A Quest that finishes a turn or fails while you aren't looking at it stays marked until you open it, on every device.
