@@ -1095,6 +1095,17 @@ describe('airship server', () => {
       expect((await call('PUT', `/api/nodes/node-a/errands/${id}/state`, { state: 'done' })).status).toBe(200);
     });
 
+    it('tells clients when a forgotten Kingdom’s Errands go', async () => {
+      await added();
+      await goOffline();
+      const client = await connectClient();
+      send(client.socket, { kind: 'ping' });
+      await client.frames.waitFor((frame) => frame.kind === 'pong');
+      expect((await call('DELETE', '/api/nodes/node-a/quests')).status).toBe(204);
+      const frame = await client.frames.waitFor(isErrands);
+      expect(ErrandsFrame.parse(frame)).toEqual({ kind: 'errands', node: 'node-a', errands: [] });
+    });
+
     it('deletes a forgotten Kingdom’s Errands', async () => {
       await added();
       await goOffline();

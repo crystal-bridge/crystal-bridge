@@ -1003,6 +1003,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       subscriptions.delete(session);
     }
     engines.delete(node);
+    sendErrands(node);
     return reply.code(204).send();
   });
   app.get('/api/usage', async () => store.latestUsage());
