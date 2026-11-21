@@ -110,6 +110,24 @@ describe('store migrations', () => {
     db.close();
   });
 
+  it('adds an errands table keyed by Kingdom and id, empty for a database that has Quests', () => {
+    const db = new Database(path);
+    db.exec(MIGRATIONS.slice(0, 12).join(';'));
+    db.pragma('user_version = 12');
+    db.exec(
+      `INSERT INTO sessions (id, node, cwd, label, status, created_at) VALUES ('s', 'n', '/r', 'fix it', 'idle', 1)`,
+    );
+    migrate(db);
+    const insert = `INSERT OR IGNORE INTO errands (node, id, title, body, state, left_by, created, updated) VALUES ('n', 'e', 't', '', 'open', 'you', 1, 1)`;
+    db.exec(insert);
+    db.exec(insert);
+    expect(db.prepare('SELECT session, seq, project, closed FROM errands').all()).toEqual([
+      { session: null, seq: null, project: null, closed: null },
+    ]);
+    expect(db.pragma('user_version', { simple: true })).toBe(13);
+    db.close();
+  });
+
   it('refuses a database written by newer code, e.g. after rolling back past a migration', () => {
     const db = new Database(path);
     db.pragma(`user_version = ${SCHEMA_VERSION + 1}`);
