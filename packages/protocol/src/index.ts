@@ -6,3 +6,4 @@ export * from './heartbeat.js';
 export * from './schedule.js';
 export * from './scouts.js';
 export * from './patrols.js';
+export * from './errands.js';
