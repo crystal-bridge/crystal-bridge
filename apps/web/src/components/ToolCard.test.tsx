@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HeroManifest } from '../heroes.js';
 import {
+  chatItems,
   HelperBackLine,
   isAgentCall,
   isSummonStart,
@@ -232,6 +233,15 @@ describe('TitleLine (#287)', () => {
     expect(isTitleSearch(search)).toBe(true);
     expect(isTitleSearch({ ...search, input: { query: 'select:mcp__crystal__title,Read' } })).toBe(false);
     expect(isTitleSearch({ ...search, input: { query: 'notebook' } })).toBe(false);
+  });
+
+  it('shows only the first name the Quest gave itself, the one the hub keeps, and leaves out the title search', () => {
+    const search = { ...call, id: 's', name: 'ToolSearch', input: { query: 'select:mcp__crystal__title' } };
+    const failed = { ...call, id: 'f', isError: true, output: 'This session is not running on this node.' };
+    const first = { ...call, id: 'a', output: 'Named.' };
+    const read = { ...call, id: 'r', name: 'Read', input: { file_path: '/r/a.ts' } };
+    const again = { ...call, id: 'b', input: { title: 'The Smoke Clears', plain: 'Rewrite it' }, output: 'Named.' };
+    expect(chatItems([search, failed, first, read, search, again]).map((item) => item.id)).toEqual(['f', 'a', 'r']);
   });
 
   it('takes only Crystal’s title tool', () => {

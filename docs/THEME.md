@@ -173,10 +173,11 @@ Video Upscaler! 12/50", then **landed**, **fizzled**, **was dispelled** or "Shiv
 its tooltip. Words in `summonLine` and `castLine` (`apps/web/src/theme/words.ts`); Classic: "encode on render: Finished".
 
 When a Quest names itself, the chat says "The Bard names your Quest: The Siege of the Flaky Smoke Test.", with the plain
-name folded under it. The Bard is the party's narrator, heard only here. The voice a Quest is asked to name itself in is
-the Kingdom's, not the app's: a fork with another theme changes `TITLE_INSTRUCTION` and the `title` tool's wording in
-`apps/crystal/src/permissions.ts`. Words in `titledLine` and `questLabel` (`apps/web/src/theme/words.ts`); Classic: "Named this
-session: Fix the flaky smoke test".
+name folded under it. Only the first name shows, since the hub keeps only that one (and none once you rename the Quest).
+The Bard is the party's narrator, heard only here. The voice a Quest is asked to name itself in is the Kingdom's, not
+the app's: a fork with another theme changes `TITLE_INSTRUCTION` and the `title` tool's wording in
+`apps/crystal/src/permissions.ts`. Words in `titledLine` and `questLabel` (`apps/web/src/theme/words.ts`); Classic:
+"Named this session: Fix the flaky smoke test".
 
 A Board says what its Scout's last run brought back: "Your Scout returned with 4 findings.", or "returned empty-handed."
 The Castle counts what's new on each Board: "3 new postings on the Quest Board." (a name that doesn't end in Board gets

@@ -83,6 +83,8 @@ describe('App Kingdom tabs', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    // A test that fails while it fakes the page's poll mustn't take fake timers into the next one.
+    vi.useRealTimers();
   });
 
   it('shows the hub-s name in the app bar and the page title', async () => {
@@ -570,6 +572,140 @@ describe('App Kingdom tabs', () => {
     cleanup();
     await renderApp();
     expect(screen.queryByRole('tab', { name: /private work/ })).toBeNull();
+  });
+
+  describe('a rename while polls are out', () => {
+    const opener = () => {
+      let open!: () => void;
+      const promise = new Promise<void>((resolve) => (open = resolve));
+      return { promise, open };
+    };
+    const flush = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    // The hub: its list as it stands when asked, a rename saved only when its gate opens, and a slow endpoint that
+    // holds each poll back on the next gate in line.
+    function rig() {
+      const hub = {
+        label: 'private work',
+        put: undefined as Promise<void> | undefined,
+        refuse: false,
+        slow: [] as Promise<void>[],
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (init?.method === 'PUT') {
+            if (hub.put) await hub.put;
+            if (hub.refuse) return new Response(JSON.stringify({ error: 'no such Quest' }), { status: 404 });
+            hub.label = (JSON.parse(String(init.body)) as { label: string }).label;
+            return new Response(null, { status: 204 });
+          }
+          if (url === '/api/sessions') {
+            const snapshot = sessions.map((quest) =>
+              quest.label === 'private work' ? { ...quest, label: hub.label } : quest,
+            );
+            return new Response(JSON.stringify(snapshot), { status: 200 });
+          }
+          if (url === '/api/cli-latest') {
+            const gate = hub.slow.shift();
+            if (gate) await gate;
+          }
+          const body = url === '/api/nodes' ? ['node-b', 'node-a'] : [];
+          return new Response(JSON.stringify(body), { status: 200 });
+        }),
+      );
+      return hub;
+    }
+    // The page's 5s poll runs on fake timers from the render to its one poll, then real ones: waitFor checks on an
+    // interval of its own.
+    const poll = async () => {
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      vi.useRealTimers();
+    };
+    const rename = (to: string) => {
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /private work/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+      const input = screen.getByRole('textbox', { name: 'New name' });
+      fireEvent.change(input, { target: { value: to } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    };
+    const shown = (name: RegExp) => screen.queryByRole('tab', { name }) !== null;
+
+    it('keeps the new name when a poll from before the rename answers while it is on its way', async () => {
+      const hub = rig();
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await renderApp();
+      const slow = opener();
+      hub.slow.push(slow.promise);
+      await poll();
+      const put = opener();
+      hub.put = put.promise;
+      rename('Smoke test, again');
+      expect(shown(/Smoke test, again/)).toBe(true);
+      slow.open();
+      await flush();
+      expect(shown(/Smoke test, again/)).toBe(true);
+      put.open();
+      await waitFor(() => expect(hub.label).toBe('Smoke test, again'));
+      await flush();
+      expect(shown(/Smoke test, again/)).toBe(true);
+    });
+
+    it('follows the hub again once the rename is saved', async () => {
+      const hub = rig();
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await renderApp();
+      rename('Smoke test, again');
+      await flush();
+      await flush();
+      expect(hub.label).toBe('Smoke test, again');
+      hub.label = 'Renamed elsewhere';
+      await poll();
+      expect(shown(/Renamed elsewhere/)).toBe(true);
+    });
+
+    it('goes back to the old name when the hub refuses the rename, and follows the hub after', async () => {
+      const hub = rig();
+      hub.refuse = true;
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await renderApp();
+      rename('Smoke test, again');
+      await flush();
+      await flush();
+      expect(shown(/private work/)).toBe(true);
+      expect(screen.getByText(/Couldn't rename the Quest: no such Quest/)).toBeTruthy();
+      hub.label = 'Renamed elsewhere';
+      await poll();
+      expect(shown(/Renamed elsewhere/)).toBe(true);
+    });
+
+    it('drops a poll that read the list before the hub saved the rename, even after the save', async () => {
+      const hub = rig();
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await renderApp();
+      const put = opener();
+      hub.put = put.promise;
+      rename('Smoke test, again');
+      // A poll reads the list while the rename is still on its way, then waits; so does the rename's own refresh.
+      const stale = opener();
+      const fresh = opener();
+      hub.slow.push(stale.promise, fresh.promise);
+      await poll();
+      put.open();
+      await waitFor(() => expect(hub.label).toBe('Smoke test, again'));
+      await flush();
+      stale.open();
+      await flush();
+      expect(shown(/Smoke test, again/)).toBe(true);
+      fresh.open();
+      await flush();
+      expect(shown(/Smoke test, again/)).toBe(true);
+    });
   });
 
   it('keeps a new name when a poll that started before the rename answers after it', async () => {

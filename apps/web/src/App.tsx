@@ -261,6 +261,8 @@ export function App({ hub }: { hub: HubClient }) {
   // Refreshes in the order they started, and the newest one shown: an older one that answers later is dropped.
   const refreshRuns = useRef(0);
   const refreshShown = useRef(0);
+  // Renames sent and not yet answered, by Quest: a poll in that time shows the new name, not the one it read.
+  const renaming = useRef(new Map<string, string>());
   const heroManifest = useHeroManifest(showHeroes);
   const [canNotify, setCanNotify] = useState(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -582,6 +584,8 @@ export function App({ hub }: { hub: HubClient }) {
   /** Names a Quest by hand (#287): shown here at once, and on every device from the hub's next list. */
   async function renameQuest(id: string, label: string) {
     const before = sessions.find((quest) => quest.id === id)?.label;
+    // Any poll that answers while the rename is on its way read the list before the hub saved it.
+    renaming.current.set(id, label);
     setSessions((prev) => renamed(prev, id, label));
     try {
       const response = await fetch(`/api/sessions/${id}/label`, {
@@ -598,6 +602,11 @@ export function App({ hub }: { hub: HubClient }) {
         ...prev,
         { id: Date.now() + Math.random(), message: `Couldn't rename the ${w('quest')}: ${reason}` },
       ]);
+    } finally {
+      // A newer rename of the same Quest still holds its name. Every poll out now may have read the list before the
+      // hub answered, so only a refresh from here on is shown.
+      if (renaming.current.get(id) === label) renaming.current.delete(id);
+      refreshShown.current = ++refreshRuns.current;
     }
     await refresh();
   }
@@ -730,7 +739,7 @@ export function App({ hub }: { hub: HubClient }) {
     // Each Quest under its name in this theme (`questLabel`), so every view shows the same one.
     keep(
       setSessions,
-      s?.map((quest) => ({ ...quest, label: questLabel(quest) })),
+      s?.map((quest) => ({ ...quest, label: renaming.current.get(quest.id) ?? questLabel(quest) })),
     );
     keep(setNodes, n);
     if (t) setEnrolled(t);
