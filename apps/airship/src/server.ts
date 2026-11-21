@@ -135,6 +135,8 @@ export interface BuildServerOptions {
   upkeep?: () => { databaseBytes?: number; lastBackupAt?: number; lastMirrorAt?: number };
   /** How often relayed-byte counts are written to the store (default 30 s); they're also written on close. */
   relayFlushMs?: number;
+  /** How often closed Errands past ERRANDS_KEPT_MS are deleted; once at start too. Default one hour. */
+  errandPurgeMs?: number;
   /** How long a finished Cast waits for others, so Casts ending together give their Quest one wake-up. Default 2 s. */
   wakeDelayMs?: number;
   /** Web Push: the VAPID public key browsers subscribe with, and what sends each attention to subscribed devices. */
@@ -358,6 +360,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     webRoot,
     push,
     relayFlushMs = 30_000,
+    errandPurgeMs = 60 * 60 * 1000,
     wakeDelayMs = 2000,
     nodeHeartbeatMs = HEARTBEAT_MS,
     clientHeartbeatMs = HEARTBEAT_MS,
@@ -570,8 +573,20 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   }
   const relayTimer = setInterval(flushRelayed, relayFlushMs);
   relayTimer.unref();
+  function purgeErrands(): void {
+    try {
+      for (const node of store.purgeErrands(Date.now())) sendErrands(node);
+    } catch (error) {
+      // A throw from the timer would take the whole hub down; the next run tries again.
+      app.log.warn({ error }, 'could not delete old Errands; will retry');
+    }
+  }
+  purgeErrands();
+  const errandTimer = setInterval(purgeErrands, errandPurgeMs);
+  errandTimer.unref();
   app.addHook('onClose', async () => {
     clearInterval(relayTimer);
+    clearInterval(errandTimer);
     flushRelayed();
     for (const { timer } of wakes.values()) clearTimeout(timer);
   });

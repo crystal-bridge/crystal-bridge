@@ -15,7 +15,7 @@ import { loadHubSettings } from './hub-settings.js';
 import type { UpdateStatus } from './updater.js';
 import { buildServer, REVIVE_TEXT, wakeText } from './server.js';
 import type { NodeRegistry } from './nodes.js';
-import { openStore, type SessionRow, type Store } from './store.js';
+import { ERRANDS_KEPT_MS, openStore, type SessionRow, type Store } from './store.js';
 
 function makeEnvelope(overrides: Partial<Envelope> = {}): Envelope {
   return {
@@ -4315,5 +4315,35 @@ describe('airship server appearance without tailnet logins', () => {
     expect(await (await fetch(`${base}/api/appearance`)).json()).toEqual({ tabStyle: 'tinted' });
     await app.close();
     store.close();
+  });
+});
+
+describe('airship server: Errands kept 30 days', () => {
+  it('deletes Errands closed over 30 days ago when it starts, and tells clients each hour', async () => {
+    const store = openStore(':memory:');
+    const old = store.addErrand('node-a', { title: 'Old one', body: '' }, Date.now());
+    store.setErrandState('node-a', old.id, 'done', Date.now() - ERRANDS_KEPT_MS - 1000);
+    const open = store.addErrand('node-a', { title: 'Open one', body: '' }, Date.now());
+    const app = await buildServer({ store, errandPurgeMs: 50 });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    let socket: WebSocket | undefined;
+    try {
+      const listed = (await (await fetch(`${baseUrl}/api/nodes/node-a/errands`)).json()) as {
+        errands: { id: string }[];
+      };
+      expect(listed.errands.map((errand) => errand.id)).toEqual([open.id]);
+
+      store.setErrandState('node-a', open.id, 'done', 1000);
+      socket = new WebSocket(`${baseUrl.replace('http:', 'ws:')}/client`);
+      const client = new FrameRecorder(socket);
+      await new Promise((resolve) => socket!.once('open', resolve));
+      const frame = await client.waitFor((f) => f.kind === 'errands' && f.node === 'node-a');
+      expect(frame.errands).toEqual([]);
+    } finally {
+      socket?.terminate();
+      await app.close();
+      store.close();
+    }
   });
 });
