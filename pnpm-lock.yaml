@@ -867,8 +867,8 @@ packages:
     resolution: {integrity: sha512-yVtV8zsdo8qFHe+/3kw81dSLyF7D576A5cCFCi4X7B39tWT7SekaEFUnvnWJHz+9qO7qJTah1JbrDjWKqFtdWA==}
     engines: {node: ^16.14.0 || >=18.0.0}
 
-  '@tufjs/models@5.0.2':
-    resolution: {integrity: sha512-YzKuFwBcH+m4/YIN0magcH5AjgYVnNFUGhP14vCs+Ckanqz86dDn6K0anjjb730Iu6SSqjzXQCo3FzVqYyT+wg==}
+  '@tufjs/models@5.0.3':
+    resolution: {integrity: sha512-rNNqM2QoZoGLhUxMp0RK4fIFRhQz9viRHph6N3qA4+Hpa8linMhZv0VdQ+tDaNRzbWPiE2YAikU0orDk2X4DvA==}
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   '@tybys/wasm-util@0.10.5':
@@ -1883,10 +1883,6 @@ packages:
   minimalistic-assert@1.0.1:
     resolution: {integrity: sha512-UtJcAD4yEaGtjPezWuO9wC4nwUnVH/8/Im3yEHQP4b67cXlD/Qr9hdITCU1xDbSEXg2XKNaP8jsReV7vQd00/A==}
 
-  minimatch@10.2.6:
-    resolution: {integrity: sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==}
-    engines: {node: 18 || 20 || >=22}
-
   minimatch@11.0.9:
     resolution: {integrity: sha512-KCFkfyjqerNlSstjlhIGNXIKZGA/6O4V4RlhZ+Dsr621SPPw0mzlypE9D9ZOoPiVefHID+j7/XuMMlqfD/F60Q==}
     engines: {node: 20 || >=22}
@@ -2284,8 +2280,8 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  tuf-js@6.0.2:
-    resolution: {integrity: sha512-k78oXrR/Ssi2kTXgP0paoQ7efyw/fO2RBgxXnTQTfoyZRM72XuT8D0ylG9NkJgdnYtx4LWo+qpGdpI4o7FIiJA==}
+  tuf-js@6.0.3:
+    resolution: {integrity: sha512-CQz50PPEMX20Fv7VMjsZLrCT7sb5TZ1I43h59JPO7AixmWBJKbgYNLBbRUYXI4dAR1/gdi964+XG7vxIN98wzQ==}
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   type-is@2.1.0:
@@ -2885,7 +2881,7 @@ snapshots:
   '@sigstore/tuf@5.0.1(supports-color@10.2.2)':
     dependencies:
       '@sigstore/protobuf-specs': 0.5.2
-      tuf-js: 6.0.2(supports-color@10.2.2)
+      tuf-js: 6.0.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -2986,10 +2982,10 @@ snapshots:
 
   '@tufjs/canonical-json@2.0.0': {}
 
-  '@tufjs/models@5.0.2':
+  '@tufjs/models@5.0.3':
     dependencies:
       '@tufjs/canonical-json': 2.0.0
-      minimatch: 10.2.6
+      minimatch: 11.0.9
 
   '@tybys/wasm-util@0.10.5':
     dependencies:
@@ -4183,10 +4179,6 @@ snapshots:
 
   minimalistic-assert@1.0.1: {}
 
-  minimatch@10.2.6:
-    dependencies:
-      brace-expansion: 5.0.12
-
   minimatch@11.0.9:
     dependencies:
       '@isaacs/nonrecursive-glob-match': 1.1.0
@@ -4621,10 +4613,10 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  tuf-js@6.0.2(supports-color@10.2.2):
+  tuf-js@6.0.3(supports-color@10.2.2):
     dependencies:
       '@gar/promise-retry': 1.0.3
-      '@tufjs/models': 5.0.2
+      '@tufjs/models': 5.0.3
       debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
