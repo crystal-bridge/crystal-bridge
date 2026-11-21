@@ -383,6 +383,9 @@ app like any other Quest, and its header shows "From" and the item's title, whic
   with `~/`, must not contain `..`, and must be a folder that exists. Otherwise the Quest doesn't start, and the Board
   says why.
 
+Beside a `quest` button, "Patrol this" turns the same Quest into a scheduled [Patrol](PATROLS.md#post-to-a-board) that
+reports back to the Board.
+
 **Item text is untrusted.** A pull request comment or an email body is written by someone else, and may be written to
 steer an agent. So the Quest's prompt is your template, then a line saying the item is untrusted data, then the item
 as JSON between `<untrusted-item>` and `</untrusted-item>`. A Quest you write from Counsel is built the same way, with

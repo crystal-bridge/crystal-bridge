@@ -236,6 +236,8 @@ export const NodeHello = z.object({
   patrolsFromApp: z.boolean().optional(),
   /** This node answers `patrol-preview` with a schedule's next run times; older nodes leave it out. */
   patrolPreview: z.boolean().optional(),
+  /** This node answers `patrol-draft` with a Patrol drafted from a Board item ("Patrol this"); older nodes leave it out. */
+  patrolDrafts: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 

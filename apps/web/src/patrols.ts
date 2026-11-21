@@ -1,4 +1,11 @@
-import type { ListedPatrol, ListedPatrolRun, PatrolManifest, PatrolRun, Schedule } from '@crystal-bridge/protocol';
+import type {
+  ListedPatrol,
+  ListedPatrolRun,
+  PatrolDraft,
+  PatrolManifest,
+  PatrolRun,
+  Schedule,
+} from '@crystal-bridge/protocol';
 import { useEffect, useState } from 'react';
 import { refusal, UNREACHABLE } from './api.js';
 import type { HubClient } from './hub.js';
@@ -185,6 +192,19 @@ async function send(url: string, method: 'POST' | 'PUT' | 'DELETE', body?: unkno
 /** Asks the Kingdom to send a Patrol out now, outside its schedule. Its card updates when the run starts. */
 export async function runPatrolNow(node: string, patrol: string): Promise<void> {
   await send(`${patrolPath(node, patrol)}/run`, 'POST');
+}
+
+/** Has the Kingdom draft a Quest Patrol from a Board item's Quest action ("Patrol this"); a refusal says why. */
+export async function draftPatrol(node: string, scout: string, action: string, id: string): Promise<PatrolDraft> {
+  const response = await send(
+    `/api/nodes/${encodeURIComponent(node)}/scouts/${encodeURIComponent(scout)}/draft`,
+    'POST',
+    {
+      action,
+      id,
+    },
+  );
+  return ((await response.json()) as { draft: PatrolDraft }).draft;
 }
 
 /** Marks a Patrol's run done on its Board, or not done again; every open Board hears the change. */

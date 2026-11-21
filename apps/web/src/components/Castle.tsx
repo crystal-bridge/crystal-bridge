@@ -1,3 +1,4 @@
+import type { PatrolSeed } from '../patrolForm.js';
 import { type CSSProperties, type ReactNode, useState } from 'react';
 import type { KingdomLook } from '../appearance.js';
 import { KingdomIcon } from './KingdomIcon.js';
@@ -78,6 +79,9 @@ export interface CastleProps {
   onChangePatrol?: (patrol: string, op: 'pause' | 'resume' | 'delete') => Promise<void>;
   onSavePatrol?: (patrol: string, manifest: PatrolManifest) => Promise<void>;
   onPreviewPatrol?: (schedule: Schedule, signal: AbortSignal) => Promise<number[]>;
+  /** A Board item's draft ("Patrol this"): the Watchtower opens New Patrol from it, then lets it go. */
+  patrolSeed?: PatrolSeed | undefined;
+  onPatrolSeedUsed?: () => void;
   /** The Kingdom's projects, for the Patrol form's picker. */
   projects?: Project[];
   /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
@@ -389,6 +393,8 @@ export function Castle({
   onChangePatrol,
   onSavePatrol,
   onPreviewPatrol,
+  patrolSeed,
+  onPatrolSeedUsed,
   projects,
   pinnedBoards,
   onPinBoard,
@@ -618,6 +624,8 @@ export function Castle({
                 onOpenQuest={onSelect}
                 onSave={onSavePatrol}
                 onPreview={onPreviewPatrol}
+                seed={patrolSeed}
+                onSeedUsed={onPatrolSeedUsed}
                 projects={projects}
                 engines={engines}
               />

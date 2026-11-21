@@ -321,6 +321,31 @@ export function newPatrolDraft(now: number, zone: string, mode: PermissionMode):
   };
 }
 
+/**
+ * A new Patrol's starting point from a Board item ("Patrol this"): what its Quest action would start with, and the
+ * Board to report back to.
+ */
+export interface PatrolSeed {
+  name: string;
+  project: string;
+  promptText: string;
+  mode?: PermissionMode | undefined;
+  worktree?: boolean | undefined;
+  board: string;
+}
+
+/** A new Patrol's draft from a seed: its name cut to what a Patrol's name holds, and the rest as new ones start. */
+export function seededDraft(seed: PatrolSeed, now: number, zone: string, mode: PermissionMode): PatrolDraft {
+  return {
+    ...newPatrolDraft(now, zone, seed.mode ?? mode),
+    name: seed.name.trim().slice(0, 80),
+    project: seed.project,
+    promptText: seed.promptText,
+    worktree: seed.worktree ?? false,
+    board: seed.board,
+  };
+}
+
 /** The form's draft of a Quest Patrol, to edit it. */
 export function draftOf(patrol: ListedPatrol, now: number, zone: string): PatrolDraft {
   const manifest = patrol.manifest;

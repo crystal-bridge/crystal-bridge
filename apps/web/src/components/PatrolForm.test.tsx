@@ -56,6 +56,36 @@ describe('PatrolForm', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('starts from a Board item’s draft, posting its runs back to that Board', async () => {
+    const { onSave } = setup({
+      seed: {
+        name: 'Fix the retry loop',
+        project: '/home/me/code/repo',
+        promptText: 'Fix it.\n\n<untrusted-item>{}</untrusted-item>',
+        mode: 'plan',
+        worktree: true,
+        board: 'quest-board',
+      },
+    });
+    await flush();
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Fix the retry loop');
+    expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toContain('<untrusted-item>');
+    expect(screen.getByText(/Reports each run to the quest-board Board/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
+    await flush();
+    expect(onSave).toHaveBeenCalledWith('fix-the-retry-loop', {
+      name: 'Fix the retry loop',
+      schedule: { rule: 'FREQ=DAILY', start: '2026-11-20T09:00', timezone: 'UTC' },
+      quest: {
+        project: '/home/me/code/repo',
+        promptText: 'Fix it.\n\n<untrusted-item>{}</untrusted-item>',
+        mode: 'plan',
+        worktree: true,
+      },
+      board: 'quest-board',
+    } satisfies PatrolManifest);
+  });
+
   it('fills the schedule from a preset and builds weekly days', async () => {
     const { onPreview } = setup();
     fireEvent.click(screen.getByRole('button', { name: 'Weekdays at 09:00' }));

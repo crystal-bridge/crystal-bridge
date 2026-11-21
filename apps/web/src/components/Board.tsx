@@ -41,6 +41,7 @@ import {
   KingdomButton,
   monogram,
   NewMark,
+  PatrolThisContext,
   QuestAllButton,
   QuestComposer,
   questBatch,
@@ -83,6 +84,11 @@ export interface BoardPageProps {
   onPin?: (pinned: boolean) => void;
   /** The Patrols that post to this Board and their reports; without them, no Patrol log. */
   patrols?: BoardPatrolsProps | undefined;
+  /**
+   * "Patrol this" on an item's Quest action: opens the Patrol form drafted from it; rejects with why it couldn't. Unset
+   * where the Kingdom doesn't take Patrols from the app.
+   */
+  onPatrolThis?: ((action: string, item: BoardItem) => Promise<void>) | undefined;
 }
 
 const OUTCOME_DOT: Record<string, string> = {
@@ -508,6 +514,7 @@ export function BoardPage({
   onPin,
   onQuest,
   patrols,
+  onPatrolThis,
 }: BoardPageProps) {
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -808,200 +815,215 @@ export function BoardPage({
     </>
   );
 
+  // Failures land in the banner's alert, as the other actions' do.
+  const patrolThis = onPatrolThis
+    ? (action: string, item: BoardItem) => {
+        setError(null);
+        onPatrolThis(action, item).catch((failure: unknown) =>
+          setError(failure instanceof Error ? failure.message : String(failure)),
+        );
+      }
+    : null;
   return (
-    <div className="h-full overflow-y-auto">
-      <p className="px-3 py-6 text-sm text-neutral-500 md:hidden">{`${w('boards')} are on wider screens for now.`}</p>
-      {/* A desktop page for now, like the Summoning Circle: a phone's actions need their own design. */}
-      <div className={`${HOME_PAGE} hidden space-y-5 py-6 md:block`}>
-        <div className="px-3">{back}</div>
-        <header
-          aria-label="Summary"
-          role="region"
-          className="mx-3 space-y-3 rounded-lg border border-neutral-200 bg-linear-to-r from-sky-50 via-white to-violet-50 p-4 dark:border-neutral-800 dark:from-sky-950/50 dark:via-neutral-900 dark:to-violet-950/50"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex min-w-0 items-start gap-3">
-              <span
-                aria-hidden
-                className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700 shadow-sm ring-1 ring-sky-200 dark:bg-sky-900 dark:text-sky-200 dark:ring-sky-700"
-              >
-                {icon ? <Icon name={icon} size={22} /> : <span className="text-lg font-bold">{monogram(name)}</span>}
-              </span>
-              <div className="min-w-0">
-                <h1 className="cb-display text-4xl leading-none" title={hint('board')}>
-                  {name}
-                </h1>
-                <p className="text-sm text-neutral-500">
-                  <span title={hint('scout')}>{w('scout')}</span> on {kingdom}
-                  {manifest && <span title="its schedule, in its time zone"> · {scheduleText(manifest.schedule)}</span>}
-                  {scout?.nextRunAt !== undefined && !scout.paused && (
-                    <span> · next {new Date(scout.nextRunAt).toLocaleString()}</span>
-                  )}
-                  {manifest && scout?.nextRunAt === undefined && !scout?.paused && !scout?.error && (
-                    <span title="a one-off that has run, or a rule that has ended: Run now still works">
-                      {' '}
-                      · no more runs
-                    </span>
-                  )}
-                  {patrols && <PatrolsNext patrols={patrols.patrols} now={now} />}
-                </p>
-                {lastRun?.outcome === 'succeeded' && lastRun.items !== undefined && (
-                  <p className="text-sm" title={scoutReturnLine(lastRun.items).plain}>
-                    {scoutReturnLine(lastRun.items).themed}
-                    <span className="text-neutral-500"> {ago(lastRun.finishedAt ?? lastRun.startedAt, now)} ago</span>
+    <PatrolThisContext.Provider value={patrolThis}>
+      <div className="h-full overflow-y-auto">
+        <p className="px-3 py-6 text-sm text-neutral-500 md:hidden">{`${w('boards')} are on wider screens for now.`}</p>
+        {/* A desktop page for now, like the Summoning Circle: a phone's actions need their own design. */}
+        <div className={`${HOME_PAGE} hidden space-y-5 py-6 md:block`}>
+          <div className="px-3">{back}</div>
+          <header
+            aria-label="Summary"
+            role="region"
+            className="mx-3 space-y-3 rounded-lg border border-neutral-200 bg-linear-to-r from-sky-50 via-white to-violet-50 p-4 dark:border-neutral-800 dark:from-sky-950/50 dark:via-neutral-900 dark:to-violet-950/50"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700 shadow-sm ring-1 ring-sky-200 dark:bg-sky-900 dark:text-sky-200 dark:ring-sky-700"
+                >
+                  {icon ? <Icon name={icon} size={22} /> : <span className="text-lg font-bold">{monogram(name)}</span>}
+                </span>
+                <div className="min-w-0">
+                  <h1 className="cb-display text-4xl leading-none" title={hint('board')}>
+                    {name}
+                  </h1>
+                  <p className="text-sm text-neutral-500">
+                    <span title={hint('scout')}>{w('scout')}</span> on {kingdom}
+                    {manifest && (
+                      <span title="its schedule, in its time zone"> · {scheduleText(manifest.schedule)}</span>
+                    )}
+                    {scout?.nextRunAt !== undefined && !scout.paused && (
+                      <span> · next {new Date(scout.nextRunAt).toLocaleString()}</span>
+                    )}
+                    {manifest && scout?.nextRunAt === undefined && !scout?.paused && !scout?.error && (
+                      <span title="a one-off that has run, or a rule that has ended: Run now still works">
+                        {' '}
+                        · no more runs
+                      </span>
+                    )}
+                    {patrols && <PatrolsNext patrols={patrols.patrols} now={now} />}
                   </p>
-                )}
+                  {lastRun?.outcome === 'succeeded' && lastRun.items !== undefined && (
+                    <p className="text-sm" title={scoutReturnLine(lastRun.items).plain}>
+                      {scoutReturnLine(lastRun.items).themed}
+                      <span className="text-neutral-500"> {ago(lastRun.finishedAt ?? lastRun.startedAt, now)} ago</span>
+                    </p>
+                  )}
+                </div>
               </div>
+              <span className="flex items-center gap-2">
+                {projectsLook && <LayoutSwitch mode={mode} onMode={setMode} />}
+                {onPin && (
+                  <button
+                    type="button"
+                    onClick={() => onPin(!pinned)}
+                    title={
+                      pinned
+                        ? 'Take its tab out of the tab strip on this device'
+                        : 'Give it a tab in the tab strip on this device'
+                    }
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                  >
+                    {pinned ? 'Unpin from tab strip' : 'Pin to tab strip'}
+                  </button>
+                )}
+                {manifest && (
+                  <button
+                    type="button"
+                    disabled={running}
+                    title={
+                      manifest.synthesize?.when === 'now'
+                        ? `Collects now, then asks ${hint('synthesis')} to rank the list if it changed since the last press, which may spend plan usage`
+                        : undefined
+                    }
+                    onClick={() => void runNow()}
+                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {running ? 'Asking…' : 'Run now'}
+                  </button>
+                )}
+              </span>
             </div>
-            <span className="flex items-center gap-2">
-              {projectsLook && <LayoutSwitch mode={mode} onMode={setMode} />}
-              {onPin && (
-                <button
-                  type="button"
-                  onClick={() => onPin(!pinned)}
-                  title={
-                    pinned
-                      ? 'Take its tab out of the tab strip on this device'
-                      : 'Give it a tab in the tab strip on this device'
-                  }
-                  className="rounded-md border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                >
-                  {pinned ? 'Unpin from tab strip' : 'Pin to tab strip'}
-                </button>
-              )}
-              {manifest && (
-                <button
-                  type="button"
-                  disabled={running}
-                  title={
-                    manifest.synthesize?.when === 'now'
-                      ? `Collects now, then asks ${hint('synthesis')} to rank the list if it changed since the last press, which may spend plan usage`
-                      : undefined
-                  }
-                  onClick={() => void runNow()}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {running ? 'Asking…' : 'Run now'}
-                </button>
-              )}
-            </span>
-          </div>
-          <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
-            {tiles.map((tile, index) => {
-              const tone = tones[index]!;
-              const mark = markIcon(tile.icon);
-              return (
-                <div
-                  // A Scout's own label may match a built-in one.
-                  key={index}
-                  data-tile
-                  data-tone={tone}
-                  className={`flex items-center gap-2 rounded-md border border-l-4 border-neutral-200 bg-white/80 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950/80 ${TILE_CLASSES[tone].border}`}
-                  {...(tile.hint ? { title: tile.hint } : {})}
-                >
-                  {mark && (
-                    <span className={`shrink-0 ${TILE_CLASSES[tone].value}`}>
-                      <Icon name={mark} size={22} />
-                    </span>
-                  )}
-                  <div className="min-w-0">
-                    <dt className="text-xs text-neutral-500">{tile.label}</dt>
-                    <dd className={`whitespace-nowrap text-lg font-semibold tabular-nums ${TILE_CLASSES[tone].value}`}>
-                      {tile.value}
-                    </dd>
+            <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
+              {tiles.map((tile, index) => {
+                const tone = tones[index]!;
+                const mark = markIcon(tile.icon);
+                return (
+                  <div
+                    // A Scout's own label may match a built-in one.
+                    key={index}
+                    data-tile
+                    data-tone={tone}
+                    className={`flex items-center gap-2 rounded-md border border-l-4 border-neutral-200 bg-white/80 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-950/80 ${TILE_CLASSES[tone].border}`}
+                    {...(tile.hint ? { title: tile.hint } : {})}
+                  >
+                    {mark && (
+                      <span className={`shrink-0 ${TILE_CLASSES[tone].value}`}>
+                        <Icon name={mark} size={22} />
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      <dt className="text-xs text-neutral-500">{tile.label}</dt>
+                      <dd
+                        className={`whitespace-nowrap text-lg font-semibold tabular-nums ${TILE_CLASSES[tone].value}`}
+                      >
+                        {tile.value}
+                      </dd>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </dl>
-          {scout?.paused && (
-            <p role="alert" className="whitespace-pre-wrap text-sm text-amber-700 dark:text-amber-400">
-              {`Paused: ${scout.paused}`}
-            </p>
-          )}
-          {scout?.error && (
-            <p role="alert" className="whitespace-pre-wrap text-sm text-red-600 dark:text-red-400">
-              {manifest ? `scout.json doesn't load, so the last good one stays: ${scout.error}` : scout.error}
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="whitespace-pre-wrap text-sm text-red-600 dark:text-red-400">
-              {error}
-            </p>
-          )}
-        </header>
-
-        {projectsLook && manifest ? (
-          <ProjectsView
-            items={openItems}
-            manifest={manifest}
-            look={projectsLook}
-            now={now}
-            node={node ?? kingdom}
-            scout={scout?.id ?? board.scout}
-            mode={mode}
-            onMode={setMode}
-            isMarked={isMarked}
-            act={act}
-            perform={perform}
-            {...(start ? { start } : {})}
-            empty={empty}
-            past={pastSections}
-            log={log}
-          />
-        ) : (
-          <div className={`grid gap-4 px-3 ${aside ? 'lg:grid-cols-3' : ''}`}>
-            <section aria-label="Items" className={`min-w-0 space-y-4 ${aside ? 'lg:col-span-2' : ''}`}>
-              {openCount === 0 && ticked.length === 0 ? (
-                empty
-              ) : view === 'table' ? (
-                table
-              ) : (
-                <>
-                  {sections.open.map((group) => (
-                    <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        {(group.group !== undefined || sections.open.length > 1) && (
-                          <GroupBand name={group.group ?? 'Other'} items={group.items} manifest={manifest} />
-                        )}
-                        {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
-                      </div>
-                      <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                        {group.items.map(mailList ? mailRow : row)}
-                      </ul>
-                    </section>
-                  ))}
-                  {ticked.length > 0 && (
-                    <ul aria-label="Done" className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                      {ticked.map(row)}
-                    </ul>
-                  )}
-                </>
-              )}
-
-              {pastSections}
-            </section>
-            {/* The plan beside the inbox: sticky, so it stays in view down a long list. Above the list on narrower screens. */}
-            {aside && (
-              <aside>
-                <div className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  {counsel && manifest && (
-                    <Counsel
-                      open={openItems}
-                      manifest={manifest}
-                      perform={perform}
-                      act={act}
-                      now={now}
-                      {...(start ? { start } : {})}
-                    />
-                  )}
-                  {log}
-                </div>
-              </aside>
+                );
+              })}
+            </dl>
+            {scout?.paused && (
+              <p role="alert" className="whitespace-pre-wrap text-sm text-amber-700 dark:text-amber-400">
+                {`Paused: ${scout.paused}`}
+              </p>
             )}
-          </div>
-        )}
+            {scout?.error && (
+              <p role="alert" className="whitespace-pre-wrap text-sm text-red-600 dark:text-red-400">
+                {manifest ? `scout.json doesn't load, so the last good one stays: ${scout.error}` : scout.error}
+              </p>
+            )}
+            {error && (
+              <p role="alert" className="whitespace-pre-wrap text-sm text-red-600 dark:text-red-400">
+                {error}
+              </p>
+            )}
+          </header>
+
+          {projectsLook && manifest ? (
+            <ProjectsView
+              items={openItems}
+              manifest={manifest}
+              look={projectsLook}
+              now={now}
+              node={node ?? kingdom}
+              scout={scout?.id ?? board.scout}
+              mode={mode}
+              onMode={setMode}
+              isMarked={isMarked}
+              act={act}
+              perform={perform}
+              {...(start ? { start } : {})}
+              empty={empty}
+              past={pastSections}
+              log={log}
+            />
+          ) : (
+            <div className={`grid gap-4 px-3 ${aside ? 'lg:grid-cols-3' : ''}`}>
+              <section aria-label="Items" className={`min-w-0 space-y-4 ${aside ? 'lg:col-span-2' : ''}`}>
+                {openCount === 0 && ticked.length === 0 ? (
+                  empty
+                ) : view === 'table' ? (
+                  table
+                ) : (
+                  <>
+                    {sections.open.map((group) => (
+                      <section key={group.group ?? ''} aria-label={group.group ?? 'Other'} className="space-y-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          {(group.group !== undefined || sections.open.length > 1) && (
+                            <GroupBand name={group.group ?? 'Other'} items={group.items} manifest={manifest} />
+                          )}
+                          {manifest && <BatchActions items={group.items} manifest={manifest} perform={perform} />}
+                        </div>
+                        <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                          {group.items.map(mailList ? mailRow : row)}
+                        </ul>
+                      </section>
+                    ))}
+                    {ticked.length > 0 && (
+                      <ul aria-label="Done" className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                        {ticked.map(row)}
+                      </ul>
+                    )}
+                  </>
+                )}
+
+                {pastSections}
+              </section>
+              {/* The plan beside the inbox: sticky, so it stays in view down a long list. Above the list on narrower screens. */}
+              {aside && (
+                <aside>
+                  <div className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+                    {counsel && manifest && (
+                      <Counsel
+                        open={openItems}
+                        manifest={manifest}
+                        perform={perform}
+                        act={act}
+                        now={now}
+                        {...(start ? { start } : {})}
+                      />
+                    )}
+                    {log}
+                  </div>
+                </aside>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </PatrolThisContext.Provider>
   );
 }

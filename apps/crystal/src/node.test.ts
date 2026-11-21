@@ -737,6 +737,7 @@ describe('startNode', () => {
       runNow,
       act: vi.fn(async (): Promise<ActResult> => ({ ok: false, reason: 'not here' })),
       quest: vi.fn(async (): Promise<ActResult> => ({ ok: false, reason: 'not here' })),
+      draft: vi.fn((): { ok: false; reason: string } => ({ ok: false, reason: 'not here' })),
     });
 
     it('says in hello that it runs Scouts, only when it does', async () => {
@@ -748,6 +749,32 @@ describe('startNode', () => {
       const hello = await waitForFrame(await nextConnection(harness, 1), (frame) => frame.kind === 'hello');
       expect(hello.scouts).toBe(true);
       expect(hello.scoutQuests).toBe(true);
+      expect(hello.patrolDrafts).toBe(true);
+    });
+
+    it('drafts a Patrol from a Board item, or says why not, and starts nothing', async () => {
+      const draft = vi
+        .fn()
+        .mockReturnValueOnce({ ok: true, draft: { project: '/repo', promptText: 'Fix it.', mode: 'plan' } })
+        .mockReturnValueOnce({ ok: false, reason: 'Archive starts no Quest to patrol' });
+      createNode({ scouts: { ...fakeScouts(), draft } });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const ask = { kind: 'patrol-draft', scout: 'quest-board', action: 'fix', item: items[0] };
+      const first = randomUUID();
+      conn.socket.send(JSON.stringify({ ...ask, requestId: first }));
+      expect(await waitForFrame(conn, (frame) => frame.kind === 'patrol-drafted')).toEqual({
+        kind: 'patrol-drafted',
+        requestId: first,
+        draft: { project: '/repo', promptText: 'Fix it.', mode: 'plan' },
+      });
+      const second = randomUUID();
+      conn.socket.send(JSON.stringify({ ...ask, requestId: second }));
+      expect(
+        await waitForFrame(conn, (frame) => frame.kind === 'patrol-drafted' && frame.requestId === second),
+      ).toEqual({ kind: 'patrol-drafted', requestId: second, reason: 'Archive starts no Quest to patrol' });
+      expect(draft.mock.calls[0]![0]).toMatchObject({ scout: 'quest-board', action: 'fix' });
+      expect(created).toHaveLength(0);
     });
 
     it('starts a Quest from Board items with the user-s prompt, and answers with its id', async () => {

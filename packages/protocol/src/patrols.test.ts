@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { HubToClient, NodeHello } from './commands.js';
 import {
   HubPatrolChange,
+  HubPatrolDraft,
   HubPatrolPreview,
   MAX_PATROL_PREVIEW,
+  MAX_PATROL_PROMPT,
   MAX_PATROL_OUTPUT,
   MAX_PATROL_SUMMARY,
   ListedPatrolRun,
   NodePatrolChanged,
+  NodePatrolDrafted,
   NodePatrolPreviewed,
+  PatrolDraftRequest,
   NodePatrolRun,
   NodePatrols,
   PatrolChangeRequest,
@@ -229,14 +233,48 @@ describe('Patrol previews', () => {
   });
 });
 
+describe('Patrol drafts from a Board', () => {
+  const REQUEST = '22222222-2222-4222-8222-222222222222';
+  const item = { id: 'pr-1', title: 'Fix the retry loop' };
+
+  it('asks for one item’s Quest action by key, and goes to the Kingdom with the item as the hub stores it', () => {
+    expect(PatrolDraftRequest.safeParse({ action: 'fix', id: 'pr-1' }).success).toBe(true);
+    expect(PatrolDraftRequest.safeParse({ action: 'Fix!', id: 'pr-1' }).success).toBe(false);
+    expect(
+      HubPatrolDraft.safeParse({ kind: 'patrol-draft', requestId: REQUEST, scout: 'quest-board', action: 'fix', item })
+        .success,
+    ).toBe(true);
+  });
+
+  it('comes back with a Quest Patrol’s project, prompt and mode, or a reason', () => {
+    const draft = { project: '/home/me/code/app', promptText: 'Fix it.', mode: 'plan', worktree: true };
+    expect(NodePatrolDrafted.parse({ kind: 'patrol-drafted', requestId: REQUEST, draft }).draft).toEqual(draft);
+    expect(
+      NodePatrolDrafted.safeParse({ kind: 'patrol-drafted', requestId: REQUEST, reason: 'no such action' }).success,
+    ).toBe(true);
+    const long = { ...draft, promptText: 'x'.repeat(MAX_PATROL_PROMPT + 1) };
+    expect(NodePatrolDrafted.safeParse({ kind: 'patrol-drafted', requestId: REQUEST, draft: long }).success).toBe(
+      false,
+    );
+  });
+});
+
 describe('Patrols elsewhere in the protocol', () => {
   it('has hello flags for running Patrols and taking them from the app', () => {
     expect(
-      NodeHello.parse({ kind: 'hello', node: 'n', patrols: true, patrolsFromApp: false, patrolPreview: true }),
+      NodeHello.parse({
+        kind: 'hello',
+        node: 'n',
+        patrols: true,
+        patrolsFromApp: false,
+        patrolPreview: true,
+        patrolDrafts: true,
+      }),
     ).toMatchObject({
       patrols: true,
       patrolsFromApp: false,
       patrolPreview: true,
+      patrolDrafts: true,
     });
   });
 

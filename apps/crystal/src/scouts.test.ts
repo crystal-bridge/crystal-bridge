@@ -1082,6 +1082,50 @@ describe('Scouts', () => {
       expect(answer).toEqual({ ok: false, reason: 'no worktree' });
     });
 
+    describe('drafting a Patrol from an item (Patrol this)', () => {
+      const draft = (name: string, item: ScoutItem = pr) => ({
+        kind: 'patrol-draft' as const,
+        requestId: REQUEST,
+        scout: 'quest-board',
+        action: name,
+        item,
+      });
+
+      it('fills the action’s project and prompt as it would for a Quest, and starts nothing', () => {
+        const answer = scouts!.draft(draft('fix'));
+        expect(answer).toMatchObject({
+          ok: true,
+          draft: { project: join(home, 'code', 'repo'), mode: 'auto', worktree: true },
+        });
+        const text = answer.ok ? answer.draft.promptText : '';
+        expect(text.startsWith('Fix the failing check, then push.')).toBe(true);
+        expect(text).toContain('<untrusted-item>');
+        expect(started).toHaveLength(0);
+      });
+
+      it('refuses what the Quest action would, and anything but a Quest action', () => {
+        expect(scouts!.draft(draft('nope'))).toEqual({ ok: false, reason: 'the Scout declares no action nope' });
+        expect(scouts!.draft(draft('archive'))).toEqual({ ok: false, reason: 'Archive starts no Quest to patrol' });
+        expect(scouts!.draft(draft('fix', { ...pr, actions: ['done'] }))).toEqual({
+          ok: false,
+          reason: 'this item doesn’t offer Fix it',
+        });
+        expect(scouts!.draft({ ...draft('fix'), scout: 'gone' })).toEqual({
+          ok: false,
+          reason: 'this Kingdom has no Scout gone that loads',
+        });
+        expect(scouts!.draft(draft('escape')).ok).toBe(false);
+      });
+
+      it('refuses an item too long to keep as a Patrol’s prompt', () => {
+        const long = { ...pr, subtitle: 'x'.repeat(500), fields: { ...pr.fields, body: 'y'.repeat(20_000) } };
+        expect(scouts!.draft(draft('fix', long))).toEqual({
+          ok: false,
+          reason: 'this item’s prompt is too long for a Patrol to keep (over 20000 characters)',
+        });
+      });
+    });
+
     describe('a Quest with the user-s own prompt', () => {
       const ask = (extra: Partial<HubScoutQuest> = {}): HubScoutQuest => ({
         kind: 'scout-quest',

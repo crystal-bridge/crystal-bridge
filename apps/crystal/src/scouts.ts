@@ -5,13 +5,16 @@ import { homedir } from 'node:os';
 import { join, relative, resolve, isAbsolute } from 'node:path';
 import { z } from 'zod';
 import {
+  MAX_PATROL_PROMPT,
   MAX_SCOUT_STDERR,
   ScoutId,
   ScoutItems,
   ScoutManifest,
+  type HubPatrolDraft,
   type HubScoutAction,
   type HubScoutQuest,
   type NodeScoutRun,
+  type PatrolDraft,
   type PermissionMode,
   type Scout,
   type ScoutItem,
@@ -138,6 +141,11 @@ export interface Scouts {
   runNow(id: string): void;
   /** Carries out a `quest` or `run` action on items the hub sent, starting a Quest through `startQuest`. */
   act(request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
+  /**
+   * Drafts a Quest Patrol from an item's `quest` action ("Patrol this"): the project and prompt the action would start
+   * with, starting nothing.
+   */
+  draft(request: HubPatrolDraft): { ok: true; draft: PatrolDraft } | { ok: false; reason: string };
   /** Starts one Quest over Board items with the user's own prompt (`HubScoutQuest`). */
   quest(request: HubScoutQuest, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
   /** Reads the folder again and starts any run that's due. Runs on a timer after `start`. */
@@ -721,6 +729,38 @@ export function createScouts(options: ScoutsOptions): Scouts {
     return refuse(`the hub carries out ${action.kind} itself`);
   }
 
+  function draft(request: HubPatrolDraft): { ok: true; draft: PatrolDraft } | { ok: false; reason: string } {
+    const refuse = (reason: string) => ({ ok: false as const, reason });
+    const entry = entries.get(request.scout);
+    const manifest = entry?.manifest;
+    if (!entry || !manifest) return refuse(`this Kingdom has no Scout ${request.scout} that loads`);
+    const action = Object.hasOwn(manifest.actions, request.action) ? manifest.actions[request.action] : undefined;
+    if (!action) return refuse(`the Scout declares no action ${request.action}`);
+    if (action.kind !== 'quest') return refuse(`${action.label} starts no Quest to patrol`);
+    const item = request.item;
+    // The same checks a Quest from this button gets: the hub's word isn't taken for them.
+    if (!(item.actions ?? manifest.defaults ?? []).includes(request.action)) {
+      return refuse(`this item doesn’t offer ${action.label}`);
+    }
+    const instructions = scoutFile(entry.id, action.prompt);
+    if (typeof instructions !== 'string') return refuse(instructions.reason);
+    const project = projectFor(action.project, item, home);
+    if ('reason' in project) return refuse(project.reason);
+    const promptText = questPrompt(instructions, manifest.name, item);
+    if (promptText.length > MAX_PATROL_PROMPT) {
+      return refuse(`this item’s prompt is too long for a Patrol to keep (over ${MAX_PATROL_PROMPT} characters)`);
+    }
+    return {
+      ok: true,
+      draft: {
+        project: project.cwd,
+        promptText,
+        ...(action.mode ? { mode: action.mode } : {}),
+        ...(action.worktree ? { worktree: true } : {}),
+      },
+    };
+  }
+
   async function quest(
     request: HubScoutQuest,
     startQuest: (start: QuestStart) => Promise<ActResult>,
@@ -785,6 +825,7 @@ export function createScouts(options: ScoutsOptions): Scouts {
       ),
     runNow,
     act,
+    draft,
     quest,
     tick,
     async idle() {

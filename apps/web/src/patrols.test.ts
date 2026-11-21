@@ -5,6 +5,7 @@ import type { HubClient, PatrolsFrame } from './hub.js';
 import {
   boardPatrols,
   changePatrol,
+  draftPatrol,
   markPatrolRun,
   patrolStanding,
   previewPatrol,
@@ -262,6 +263,20 @@ describe('Patrol actions', () => {
     const previewing = previewPatrol('forge', { cron: '0 9 * * *', timezone: 'Nowhere' }, new AbortController().signal);
     pending[0]!.answer({ error: 'schedule: "Nowhere" is no time zone this machine knows' }, 400);
     await expect(previewing).rejects.toThrow('no time zone');
+  });
+
+  it('asks the Kingdom to draft a Patrol from a Board item, and gives its refusal as the reason', async () => {
+    const drafting = draftPatrol('forge', 'quest-board', 'fix', 'pr:1');
+    expect([pending[0]!.init?.method, pending[0]!.url, JSON.parse(String(pending[0]!.init?.body))]).toEqual([
+      'POST',
+      '/api/nodes/forge/scouts/quest-board/draft',
+      { action: 'fix', id: 'pr:1' },
+    ]);
+    pending[0]!.answer({ draft: { project: '/repo', promptText: 'Fix it.' } }, 200);
+    await expect(drafting).resolves.toEqual({ project: '/repo', promptText: 'Fix it.' });
+    const refused = draftPatrol('forge', 'quest-board', 'archive', 'pr:1');
+    pending[1]!.answer({ error: 'Archive starts no Quest to patrol' }, 400);
+    await expect(refused).rejects.toThrow('Archive starts no Quest to patrol');
   });
 
   it('marks a run done, or not done again', async () => {

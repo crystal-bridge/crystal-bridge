@@ -1,7 +1,7 @@
 import type { Engine, ListedPatrol, PatrolManifest, PatrolRun, Project, Schedule } from '@crystal-bridge/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { scheduleText } from '../format.js';
-import { scheduleWords } from '../patrolForm.js';
+import { scheduleWords, type PatrolSeed } from '../patrolForm.js';
 import {
   browserZone,
   patrolStanding,
@@ -31,6 +31,9 @@ export interface WatchtowerProps {
    */
   onSave?: ((patrol: string, manifest: PatrolManifest) => Promise<void>) | undefined;
   onPreview?: ((schedule: Schedule, signal: AbortSignal) => Promise<number[]>) | undefined;
+  /** A Board item's draft ("Patrol this"): New Patrol opens from it, and `onSeedUsed` lets it go when the form closes. */
+  seed?: PatrolSeed | undefined;
+  onSeedUsed?: (() => void) | undefined;
   /** The Kingdom's projects and engines, for the form. */
   projects?: Project[];
   engines?: Engine[] | undefined;
@@ -363,11 +366,23 @@ export function Watchtower({
   onPreview,
   projects = [],
   engines,
+  seed,
+  onSeedUsed,
 }: WatchtowerProps) {
   const [open, setOpen] = useState<string | null>(null);
   /** The Patrol being edited, or `new` for New Patrol. Ids can't hold a space, so the two never meet. */
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(seed ? NEW : null);
   const canEdit = state.editable && onSave !== undefined && onPreview !== undefined;
+  // A draft that arrives while the Watchtower is already showing opens the form too.
+  useEffect(() => {
+    if (!seed) return;
+    setOpen(null);
+    setEditing(NEW);
+  }, [seed]);
+  const close = () => {
+    setEditing(null);
+    if (seed) onSeedUsed?.();
+  };
   // Hidden until there's a Patrol, as Boards are until there's a Scout, unless one can be made here.
   if (!state.loaded || (state.patrols.length === 0 && !canEdit)) return null;
   const shown = state.patrols.find((patrol) => patrol.id === open);
@@ -417,8 +432,9 @@ export function Watchtower({
         )}
         {formOpen && (
           <PatrolForm
-            key={editing ?? NEW}
+            key={editing === NEW && seed ? `${NEW}:${seed.board}:${seed.name}` : (editing ?? NEW)}
             patrol={edited}
+            seed={editing === NEW ? seed : undefined}
             taken={state.patrols.map((patrol) => patrol.id)}
             projects={projects}
             engines={engines}
@@ -426,7 +442,7 @@ export function Watchtower({
             zone={zone}
             onPreview={onPreview!}
             onSave={onSave!}
-            onClose={() => setEditing(null)}
+            onClose={close}
           />
         )}
         {shown && (

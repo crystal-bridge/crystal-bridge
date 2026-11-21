@@ -16,6 +16,8 @@ import {
   type Every,
   manifestOf,
   newPatrolDraft,
+  seededDraft,
+  type PatrolSeed,
   type PatrolDraft,
   patrolIdFrom,
   PRESETS,
@@ -35,6 +37,8 @@ import { ThemedSelect } from './ThemedSelect.js';
 export interface PatrolFormProps {
   /** The Patrol to edit; a new one without it. */
   patrol?: ListedPatrol | undefined;
+  /** A new Patrol's starting point, from a Board item ("Patrol this"). */
+  seed?: PatrolSeed | undefined;
   /** The Kingdom's Patrol ids, so a new one's folder doesn't land on one. */
   taken: readonly string[];
   projects: Project[];
@@ -323,6 +327,7 @@ function usePreview(
  */
 export function PatrolForm({
   patrol,
+  seed,
   taken,
   projects,
   engines,
@@ -335,7 +340,11 @@ export function PatrolForm({
 }: PatrolFormProps) {
   const id = useId();
   const [draft, setDraft] = useState<PatrolDraft>(() =>
-    patrol ? draftOf(patrol, now, zone) : newPatrolDraft(now, zone, loadDefaultMode()),
+    patrol
+      ? draftOf(patrol, now, zone)
+      : seed
+        ? seededDraft(seed, now, zone, loadDefaultMode())
+        : newPatrolDraft(now, zone, loadDefaultMode()),
   );
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -407,6 +416,9 @@ export function PatrolForm({
               <p className="text-xs text-neutral-500">
                 {patrol ? `Folder patrols/${folder}/` : `Saved on the ${w('kingdom')} as patrols/${folder}/`}
               </p>
+              {draft.board && (
+                <p className="text-xs text-neutral-500">{`Reports each run to the ${draft.board} ${w('board')}.`}</p>
+              )}
             </Field>
             <div className="space-y-1">
               <span className="cb-label block">Project</span>

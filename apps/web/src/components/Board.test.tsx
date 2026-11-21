@@ -964,6 +964,29 @@ describe('BoardPage', () => {
     expect(onBack).toHaveBeenCalled();
   });
 
+  describe('Patrol this', () => {
+    it('offers to make a Patrol of an item’s Quest action, and says why it couldn’t', async () => {
+      const onPatrolThis = vi.fn(async () => {});
+      show({ onPatrolThis, items: [item({ actions: ['fix', 'done'] })] });
+      const row = screen.getByText('Fix the retry loop').closest('li')!;
+      const button = within(row).getByRole('button', { name: 'Patrol this: Fix it' });
+      await act(async () => {
+        fireEvent.click(button);
+      });
+      expect(onPatrolThis).toHaveBeenCalledWith('fix', expect.objectContaining({ id: '1' }));
+      onPatrolThis.mockRejectedValueOnce(new Error('update this Kingdom first'));
+      await act(async () => {
+        fireEvent.click(button);
+      });
+      expect(screen.getByRole('alert').textContent).toContain('update this Kingdom first');
+    });
+
+    it('isn’t offered where the Kingdom can’t take a Patrol from the app', () => {
+      show();
+      expect(screen.queryByRole('button', { name: /Patrol this/ })).toBeNull();
+    });
+  });
+
   describe('Patrols that post here', () => {
     const SESSION = '44444444-4444-4444-8444-444444444444';
     const at = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

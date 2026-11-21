@@ -330,6 +330,55 @@ describe('airship server', () => {
         ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
       });
 
+    it('drafts a Patrol from a Board item through its Kingdom, with the item as the hub stores it', async () => {
+      const client = await connectClient();
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      const node = { socket, frames: new FrameRecorder(socket) };
+      send(socket, { kind: 'hello', node: 'node-a', scouts: true, patrolDrafts: true });
+      send(socket, { kind: 'scouts', scouts: [{ id: 'quest-board', manifest }] });
+      send(socket, { kind: 'scout-run', scout: 'quest-board', run: run(), items });
+      await client.frames.waitFor((frame) => frame.kind === 'board');
+
+      const asking = post('/api/nodes/node-a/scouts/quest-board/draft', { action: 'fix', id: 'pr:1' });
+      const frame = await node.frames.waitFor((frame) => frame.kind === 'patrol-draft');
+      expect(frame).toMatchObject({
+        scout: 'quest-board',
+        action: 'fix',
+        item: { id: 'pr:1', title: 'Fix the retry loop' },
+      });
+      // Only what a Scout item holds goes to the Kingdom, not the Board's own state.
+      expect(frame.item).not.toHaveProperty('state');
+      const draft = { project: '/home/me/code/repo', promptText: 'Fix it.' };
+      send(node.socket, { kind: 'patrol-drafted', requestId: frame.requestId, draft });
+      expect(await json(await asking)).toEqual({ status: 200, body: { draft } });
+
+      const refusing = post('/api/nodes/node-a/scouts/quest-board/draft', { action: 'archive', id: 'pr:1' });
+      const second = await node.frames.waitFor((f) => f.kind === 'patrol-draft' && f.requestId !== frame.requestId);
+      send(node.socket, {
+        kind: 'patrol-drafted',
+        requestId: second.requestId,
+        reason: 'Archive starts no Quest to patrol',
+      });
+      expect(await json(await refusing)).toEqual({ status: 400, body: { error: 'Archive starts no Quest to patrol' } });
+
+      expect((await post('/api/nodes/node-a/scouts/quest-board/draft', { action: 'fix', id: 'gone' })).status).toBe(
+        409,
+      );
+      expect((await post('/api/nodes/node-a/scouts/quest-board/draft', { id: 'pr:1' })).status).toBe(400);
+      expect((await post('/api/nodes/node-a/scouts/nope/draft', { action: 'fix', id: 'pr:1' })).status).toBe(404);
+      expect((await post('/api/nodes/node-b/scouts/quest-board/draft', { action: 'fix', id: 'pr:1' })).status).toBe(
+        404,
+      );
+    });
+
+    it('asks an older Kingdom to update before drafting a Patrol', async () => {
+      await withBoard();
+      expect((await post('/api/nodes/node-a/scouts/quest-board/draft', { action: 'fix', id: 'pr:1' })).status).toBe(
+        409,
+      );
+    });
+
     it('stores and shows a Kingdom’s Scouts and the Board a run fills, live', async () => {
       const client = await connectClient();
       const node = await scoutingNode();

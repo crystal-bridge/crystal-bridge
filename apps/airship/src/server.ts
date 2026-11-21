@@ -41,10 +41,14 @@ import {
   NodeScoutRun,
   NodeScouts,
   type HubPatrolChange,
+  type HubPatrolDraft,
   type HubPatrolPreview,
   type HubPatrolRunNow,
   NodePatrolChanged,
+  NodePatrolDrafted,
   NodePatrolPreviewed,
+  PatrolDraftRequest,
+  type PatrolDraft,
   NodePatrolRun,
   NodePatrols,
   PatrolChangeRequest,
@@ -182,6 +186,7 @@ interface KingdomAnswer {
   reason?: string;
   session?: string;
   times?: number[];
+  draft?: PatrolDraft;
   refused?: boolean;
 }
 /** A Kingdom lists within 15 seconds or says it can't, so this only meets one that stopped answering. */
@@ -475,6 +480,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const scoutNodes = new Set<string>();
   /** Kingdoms that start a Quest from Board items with the user's prompt (`HubScoutQuest`). */
   const scoutQuestNodes = new Set<string>();
+  /** Kingdoms that answer `patrol-draft` ("Patrol this" on a Board). */
+  const patrolDraftNodes = new Set<string>();
   /** Kingdoms that run Patrols, and those of them that take Patrols from the app (docs/PATROLS.md). */
   const patrolNodes = new Set<string>();
   const patrolEditNodes = new Set<string>();
@@ -1231,7 +1238,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   function askKingdom(
     socket: WebSocket,
     node: string,
-    frame: HubScoutAction | HubScoutQuest | HubPatrolChange | HubPatrolPreview,
+    frame: HubScoutAction | HubScoutQuest | HubPatrolChange | HubPatrolPreview | HubPatrolDraft,
   ): Promise<KingdomAnswer> {
     return new Promise((resolve) => {
       const finish = (result: KingdomAnswer) => {
@@ -1282,6 +1289,34 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const answer = await askKingdom(socket, node, frame);
     if (!answer.ok) return reply.code(409).send({ error: answer.reason ?? 'the Kingdom could not do this' });
     return answer.session ? { session: answer.session } : {};
+  });
+
+  // "Patrol this": the Kingdom drafts a Patrol from an item's Quest action, with the item as the hub stores it.
+  app.post('/api/nodes/:node/scouts/:scout/draft', async (request, reply) => {
+    const { node, scout } = request.params as { node: string; scout: string };
+    const wanted = PatrolDraftRequest.safeParse(request.body);
+    if (!wanted.success) return reply.code(400).send({ error: 'expected { action, id }' });
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    const now = Date.now();
+    if (!store.scouts(node, now).some((one) => one.id === scout && one.manifest)) {
+      return reply.code(404).send({ error: 'no such Scout on that Kingdom' });
+    }
+    if (!patrolDraftNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    const item = store
+      .board(node, scout, now)
+      ?.items.find((one) => one.id === wanted.data.id && one.goneAt === undefined);
+    if (!item) return reply.code(409).send({ error: 'that item is no longer on the Board' });
+    const answer = await askKingdom(socket, node, {
+      kind: 'patrol-draft',
+      requestId: randomUUID(),
+      scout,
+      action: wanted.data.action,
+      item: ScoutItem.parse(item),
+    });
+    if (answer.draft) return { draft: answer.draft };
+    return reply.code(answer.refused ? 400 : 409).send({ error: answer.reason ?? 'the Kingdom gave no draft' });
   });
 
   // A quest or run action: the Kingdom carries it out on the items as the hub stores them, never as a client sends them.
@@ -1475,6 +1510,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else scoutNodes.delete(helloNode);
           if (hello.data.scoutQuests) scoutQuestNodes.add(helloNode);
           else scoutQuestNodes.delete(helloNode);
+          if (hello.data.patrolDrafts) patrolDraftNodes.add(helloNode);
+          else patrolDraftNodes.delete(helloNode);
           if (hello.data.patrols) patrolNodes.add(helloNode);
           else patrolNodes.delete(helloNode);
           if (hello.data.patrols && hello.data.patrolsFromApp) patrolEditNodes.add(helloNode);
@@ -1564,6 +1601,20 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           }
           const { ok, reason } = patrolChanged.data;
           waiting.finish({ ok, ...(reason ? { reason } : {}) });
+          return;
+        }
+
+        const drafted = NodePatrolDrafted.safeParse(parsed);
+        if (drafted.success) {
+          const waiting = kingdomAsks.get(drafted.data.requestId);
+          if (waiting?.node !== helloNode) {
+            app.log.warn({ node: helloNode }, 'dropped a Patrol draft nobody is waiting for from this node');
+            return;
+          }
+          const { draft, reason } = drafted.data;
+          waiting.finish(
+            draft ? { ok: true, draft } : { ok: false, refused: true, reason: reason ?? 'the Kingdom gave no draft' },
+          );
           return;
         }
 
@@ -1745,6 +1796,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           inventoryListers.delete(helloNode);
           scoutNodes.delete(helloNode);
           scoutQuestNodes.delete(helloNode);
+          patrolDraftNodes.delete(helloNode);
           patrolNodes.delete(helloNode);
           patrolEditNodes.delete(helloNode);
           patrolPreviewNodes.delete(helloNode);
