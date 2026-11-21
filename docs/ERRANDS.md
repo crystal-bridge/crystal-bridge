@@ -83,8 +83,15 @@ A fork starts with no Errands: its earlier events belong to the Quest it came fr
 
 ## Run the errand: in the app
 
-**On the Castle**, the Errands panel lists the Kingdom's open Errands, newest first, grouped by what left them: a Quest
-(with a link to the turn), a Patrol's Quest, or your own hand. A link to a closed Quest opens it as the Chronicle does.
+**On the Castle**, the Errands panel lists the Kingdom's open Errands in one of two layouts, chosen by a switch on the
+panel and kept per device:
+
+- **Checklist**, in the right column above Haunts: one line per Errand, grouped by project, each project in its own
+  colour, with a bar across the top showing each project's share.
+- **Cards**, a band across the Castle: a card per Errand with its body shown, grouped by day (today, yesterday, earlier),
+  each card topped in its project's colour, with an icon for what left it.
+
+Each Errand shows what left it: a Quest (with a link to the turn), a Patrol's Quest, or your own hand. A link to a closed Quest opens it as the Chronicle does.
 Done and dismissed ones fold under a count. **Add Errand** writes one by hand, with the same limits as the tool and an
 optional project from the Kingdom's projects, and each Errand can be edited, ticked done, dismissed, or reopened from the
 fold. With no open Errands, the panel says so in one line.
@@ -93,8 +100,8 @@ fold. With no open Errands, the panel says so in one line.
 *"Your Quest left you 2 Errands."*, counting only the calls that left one (a refused call isn't counted), and linking to
 the side panel. The Classic theme says Follow-ups.
 
-**On the Kingdom's tab**, a count of open Errands, with an icon and a label for screen readers, in a tone that is neither
-the waiting count's nor the gold of a Quest you haven't seen, since an Errand never holds a Quest up.
+**On the Kingdom's tab**, a count of open Errands, with an icon and a label for screen readers, in teal, which is neither the
+waiting count's colour nor the gold of a Quest you haven't seen, since an Errand never holds a Quest up.
 
 The body renders as the chat's Markdown does, with no raw HTML. Each code block has a copy button; nothing runs a
 command for you.
