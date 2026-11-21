@@ -6,6 +6,8 @@ export interface SearchHit {
   session: string;
   seq: number;
   label: string;
+  /** The plain form of a title the Quest gave itself (#287); older hubs don't send it. */
+  plainLabel?: string;
   event: Envelope;
 }
 

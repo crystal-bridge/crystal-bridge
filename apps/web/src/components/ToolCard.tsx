@@ -2,7 +2,7 @@ import { type ReactNode, useContext, useState } from 'react';
 import { type DiffLine, diffLines } from '../diff.js';
 import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
-import { helperLine, summonLine, toolChip, useLine, type Word } from '../theme/words.js';
+import { helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext } from './markdown.js';
 
@@ -262,6 +262,38 @@ export function SummonLine({ tool, manifest }: { tool: ToolItem; manifest?: Hero
       mark={<HelperMark helper={tool.helper} manifest={manifest} />}
       chip={chip}
       body={chip ? (tool.output ?? '') : (str(input.command) ?? '')}
+    />
+  );
+}
+
+/** Whether a tool call is a Quest naming itself with Crystal's `title` tool (#287). */
+export function isTitleCall(tool: ToolItem): boolean {
+  return tool.name === 'mcp__crystal__title';
+}
+
+/**
+ * Whether a call only loads the `title` tool. The CLI defers MCP tools, so every new Quest makes this search before it
+ * names itself; the chat leaves it out, as it adds nothing to the line that follows.
+ */
+export function isTitleSearch(tool: ToolItem): boolean {
+  return tool.name === 'ToolSearch' && isObj(tool.input) && tool.input.query === 'select:mcp__crystal__title';
+}
+
+/** A Quest named itself, as one line ("The Bard names your Quest: …"). */
+export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroManifest | undefined }) {
+  const input = isObj(tool.input) ? tool.input : {};
+  const title = str(input.title) ?? '';
+  const plain = str(input.plain) ?? title;
+  const chip = failureChip(tool);
+  const named = !chip && title !== '';
+  // Folded inside: the name in plain words, or why the call failed.
+  return (
+    <GameLine
+      line={titledLine(title, plain, undefined, named)}
+      mark={<HelperMark helper={tool.helper} manifest={manifest} />}
+      chip={chip}
+      ko={!named}
+      body={named ? plain : (tool.output ?? '')}
     />
   );
 }

@@ -172,6 +172,7 @@ async function main(): Promise<void> {
         return summonCall(summons, session, args);
       },
     },
+    onTitle: (session, title) => node.titleQuest(session, title),
     status: () => node.status(),
     onHook: (session, event, body) => hooks.dispatch(session, event, body),
   });

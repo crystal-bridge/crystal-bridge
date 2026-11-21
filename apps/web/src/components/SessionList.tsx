@@ -4,6 +4,8 @@ export interface SessionSummary {
   node: string;
   cwd: string;
   label: string;
+  /** The plain form of a title the Quest gave itself, for the Classic theme (`questLabel`); older hubs don't send it. */
+  plainLabel?: string;
   status: 'running' | 'idle' | 'ended' | 'closed';
   createdAt: number;
   /** When its latest event arrived; older hubs don't send it. */

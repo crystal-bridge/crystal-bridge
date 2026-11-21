@@ -103,6 +103,12 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE patrol_runs ADD COLUMN done_at INTEGER;
   `,
+  // 12: Quest titles (#287). The plain form of a title a Quest gave itself, for the Classic theme, and whether the label
+  // was set by hand, which a Quest's own title never overwrites.
+  `
+  ALTER TABLE sessions ADD COLUMN plain_label TEXT;
+  ALTER TABLE sessions ADD COLUMN label_by_hand INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

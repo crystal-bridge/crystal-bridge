@@ -496,6 +496,14 @@ A restore loses only what happened after that backup; Crystals resend events the
   reporting the run again doesn't undo it.
 - The release that added it applied migration 11, so rolling back past it refuses to start (see Rolling back).
 
+## Quest titles
+
+- A Quest's own title and its plain form are kept on the hub (`sessions.label` and `sessions.plain_label`, migration 12),
+  with `sessions.label_by_hand` set once you rename it, so its later titles don't replace your name.
+- Update the hub before the Kingdoms. A Kingdom that names its Quests on an older hub still runs, but its Quests keep
+  the first words of their prompt, as before.
+- The release that added it applied migration 12, so rolling back past it refuses to start (see Rolling back).
+
 ## Done until viewed
 
 - A Quest that finishes a turn or fails while you aren't looking at it stays marked until you open it, on every device.

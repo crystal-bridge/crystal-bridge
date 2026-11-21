@@ -397,6 +397,55 @@
       "method": "tools/list",
       "params": null,
       "at": "2026-10-28T23:43:15.152Z"
+    },
+    {
+      "scenario": "title",
+      "session": "3059a1c1-ed7a-4492-9782-5e0f2cb31a97",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.330",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-11-21T14:39:31.916Z"
+    },
+    {
+      "scenario": "title",
+      "session": "3059a1c1-ed7a-4492-9782-5e0f2cb31a97",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-11-21T14:39:31.930Z"
+    },
+    {
+      "scenario": "title",
+      "session": "3059a1c1-ed7a-4492-9782-5e0f2cb31a97",
+      "method": "tools/call",
+      "params": {
+        "name": "title",
+        "arguments": {
+          "title": "The Scroll of the Scratch Repository",
+          "plain": "Add a short README for the scratch repo"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01DGtYKKK3owtgFwbYNMppq3",
+          "progressToken": 2
+        }
+      },
+      "at": "2026-11-21T14:39:35.863Z"
     }
   ]
 }

@@ -10,6 +10,8 @@ import {
   w,
   castLine,
   summonLine,
+  questLabel,
+  titledLine,
   postingsLine,
   scoutReturnLine,
   sourceLine,
@@ -244,5 +246,34 @@ describe('Patrol words', () => {
     expect(patrolStandingWord('stood-down', CRYSTAL).themed).toBe('Stood down');
     expect(patrolStandingWord('stood-down', CLASSIC).themed).toBe('Paused');
     expect(patrolStandingWord('on-watch', CRYSTAL)).toEqual({ themed: 'On watch', plain: 'Scheduled' });
+  });
+});
+
+describe('Quest titles (#287)', () => {
+  it('shows the title a Quest gave itself, in plain words in the Classic theme', () => {
+    const quest = { label: 'The Siege of the Flaky Smoke Test', plainLabel: 'Fix the flaky smoke test' };
+    expect(questLabel(quest, CRYSTAL)).toBe('The Siege of the Flaky Smoke Test');
+    expect(questLabel(quest, CLASSIC)).toBe('Fix the flaky smoke test');
+    // A first prompt, or a name set by hand, has no plain form: every theme shows it as it is.
+    expect(questLabel({ label: 'fix the smoke test' }, CLASSIC)).toBe('fix the smoke test');
+  });
+
+  it('announces the name as the Bard, plainly in Classic', () => {
+    expect(titledLine('The Siege', 'Fix the test', CRYSTAL)).toEqual({
+      themed: 'The Bard names your Quest: The Siege.',
+      plain: 'Named this session: Fix the test',
+    });
+    expect(titledLine('The Siege', 'Fix the test', CLASSIC).themed).toBe('Named this session: Fix the test');
+  });
+
+  it('ends the line on the title’s own stop, and says so when the naming failed', () => {
+    expect(titledLine('Why Is CI Red?', 'Find out why CI is red', CRYSTAL).themed).toBe(
+      'The Bard names your Quest: Why Is CI Red?',
+    );
+    expect(titledLine('', '', CRYSTAL, false)).toEqual({
+      themed: 'The Bard could not name your Quest.',
+      plain: 'Naming this session failed',
+    });
+    expect(titledLine('', '', CLASSIC, false).themed).toBe('Naming this session failed');
   });
 });

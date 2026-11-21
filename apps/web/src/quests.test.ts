@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionSummary } from './components/SessionList.js';
 import {
+  renamed,
   byAttention,
   isActiveQuest,
   loadPutAway,
@@ -140,5 +141,18 @@ describe('projectName', () => {
   it('keeps what is left for a root or an empty path', () => {
     expect(projectName('/')).toBe('/');
     expect(projectName('')).toBe('');
+  });
+});
+
+describe('renamed (#287)', () => {
+  const list = [quest('a', { label: 'fix it' }), quest('b', { label: 'docs' })];
+
+  it('names one Quest, and gives it back its old name when the hub refused, unless it changed again since', () => {
+    const shown = renamed(list, 'a', 'Build fix');
+    expect(shown.map((q) => q.label)).toEqual(['Build fix', 'docs']);
+    expect(renamed(shown, 'a', 'fix it', 'Build fix').map((q) => q.label)).toEqual(['fix it', 'docs']);
+    // A newer list from the hub arrived meanwhile: it wins.
+    const newer = renamed(shown, 'a', 'The Siege');
+    expect(renamed(newer, 'a', 'fix it', 'Build fix')).toBe(newer);
   });
 });

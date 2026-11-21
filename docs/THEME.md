@@ -75,7 +75,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Tavern** | what's waiting on you, across Kingdoms | A room on the Airship; respects hidden and Discreet Kingdoms. Below what needs you ("!"), Quests that finished since you last opened them, with a gold dot (a rose one with a × if they failed), newest first. The Classic theme says For you. |
 | **Kingdom** | a node and its Claude account | Its dashboard is the **Castle**. |
 | **Crystal** | the agent that runs a Kingdom | Operators see this word; users add and pick Kingdoms. The package is `@crystal-bridge/kingdom`. |
-| **Quest** | a session | |
+| **Quest** | a session | It names itself once it understands the ask: "The Siege of the Flaky Smoke Test", with a plain name beside it that the Classic theme shows. On a desktop, rename it from its tab's right-click menu; a name you give it stays. |
 | **Hero** | an agent | The session's main agent is the **party leader**; subagents are Heroes who join for a task and leave. The party is whoever is active, so it isn't declared. |
 | **Class** | agent type | Matched from the agent's name by role; see Hero Classes below. Gives a Hero its look. |
 | **Side Quest** | background task or monitor | Runs alongside its Quest. |
@@ -171,6 +171,12 @@ it. Words in `useLine` (`apps/web/src/theme/words.ts`); Classic: "Used skill: de
 When a Quest starts a Cast, the chat says "You summoned Shiva!". In the Summoning Circle a Cast reads "Shiva is casting
 Video Upscaler! 12/50", then **landed**, **fizzled**, **was dispelled** or "Shiva vanished!", each with the plain words as
 its tooltip. Words in `summonLine` and `castLine` (`apps/web/src/theme/words.ts`); Classic: "encode on render: Finished".
+
+When a Quest names itself, the chat says "The Bard names your Quest: The Siege of the Flaky Smoke Test.", with the plain
+name folded under it. The Bard is the party's narrator, heard only here. The voice a Quest is asked to name itself in is
+the Kingdom's, not the app's: a fork with another theme changes `TITLE_INSTRUCTION` and the `title` tool's wording in
+`apps/crystal/src/permissions.ts`. Words in `titledLine` and `questLabel` (`apps/web/src/theme/words.ts`); Classic: "Named this
+session: Fix the flaky smoke test".
 
 A Board says what its Scout's last run brought back: "Your Scout returned with 4 findings.", or "returned empty-handed."
 The Castle counts what's new on each Board: "3 new postings on the Quest Board." (a name that doesn't end in Board gets

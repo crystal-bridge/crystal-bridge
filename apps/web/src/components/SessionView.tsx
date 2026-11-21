@@ -41,7 +41,18 @@ import { PermissionCard } from './PermissionCard.js';
 import { TerminalCard } from './TerminalCard.js';
 import { QuestionCard } from './QuestionCard.js';
 import { PromptBox } from './PromptBox.js';
-import { HelperBackLine, isAgentCall, isSummonStart, SetOutLine, SkillLine, SummonLine, ToolCard } from './ToolCard.js';
+import {
+  HelperBackLine,
+  isAgentCall,
+  isSummonStart,
+  isTitleCall,
+  isTitleSearch,
+  SetOutLine,
+  SkillLine,
+  SummonLine,
+  TitleLine,
+  ToolCard,
+} from './ToolCard.js';
 import { ThemedSelect } from './ThemedSelect.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext, QuestMarkdown } from './markdown.js';
@@ -249,6 +260,7 @@ function Item({
       if (item.name === 'Skill') return <SkillLine tool={item} manifest={manifest} />;
       if (isAgentCall(item)) return <SetOutLine tool={item} manifest={manifest} />;
       if (isSummonStart(item)) return <SummonLine tool={item} manifest={manifest} />;
+      if (isTitleCall(item)) return <TitleLine tool={item} manifest={manifest} />;
       return <ToolCard tool={item} manifest={manifest} />;
     case 'helper-back':
       return <HelperBackLine item={item} manifest={manifest} />;
@@ -805,26 +817,29 @@ export function SessionView({
                   <LoadingHistory progress={progress} party={party} />
                 ) : (
                   <div className="mx-auto min-w-0 max-w-3xl space-y-3">
-                    {items.map((item) => (
-                      <div key={item.id} data-waiting={isWaiting(item)}>
-                        <MemoItem
-                          item={item}
-                          sending={item.kind === 'permission' && sending.has(item.requestId)}
-                          onAnswer={stableAnswer}
-                          onKeys={stableKeys}
-                          battle={
-                            item.kind === 'result'
-                              ? stableBattle(item.id, battles.turns.get(item.id))
-                              : item.kind === 'closed'
-                                ? stableBattle('quest', battles.quest)
-                                : undefined
-                          }
-                          latest={item.id === latestResult}
-                          manifest={party?.manifest}
-                          ts={tsOf(item.id)}
-                        />
-                      </div>
-                    ))}
+                    {/* The search that only loads the title tool adds nothing to the line that follows. */}
+                    {items
+                      .filter((item) => !(item.kind === 'tool' && isTitleSearch(item)))
+                      .map((item) => (
+                        <div key={item.id} data-waiting={isWaiting(item)}>
+                          <MemoItem
+                            item={item}
+                            sending={item.kind === 'permission' && sending.has(item.requestId)}
+                            onAnswer={stableAnswer}
+                            onKeys={stableKeys}
+                            battle={
+                              item.kind === 'result'
+                                ? stableBattle(item.id, battles.turns.get(item.id))
+                                : item.kind === 'closed'
+                                  ? stableBattle('quest', battles.quest)
+                                  : undefined
+                            }
+                            latest={item.id === latestResult}
+                            manifest={party?.manifest}
+                            ts={tsOf(item.id)}
+                          />
+                        </div>
+                      ))}
                     {held.map((send, i) => (
                       <div
                         key={i}

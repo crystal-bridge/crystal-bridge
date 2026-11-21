@@ -417,6 +417,32 @@ export function summonLine(summon: string, theme: Words = words): Word {
   return { themed: theme === CLASSIC ? plain : `You summoned ${summon}!`, plain };
 }
 
+/**
+ * A Quest's name as this theme shows it: the title it gave itself, in plain words in Classic. A first prompt or a name
+ * set by hand has no plain form, so every theme shows it as it is.
+ */
+export function questLabel(quest: { label: string; plainLabel?: string | undefined }, theme: Words = words): string {
+  return theme === CLASSIC && quest.plainLabel ? quest.plainLabel : quest.label;
+}
+
+/**
+ * The chat's line when a Quest names itself, e.g. "The Bard names your Quest: The Siege of the Flaky Smoke Test.". The
+ * Bard is the party's narrator, who only ever speaks here. `named` false is a call that failed or gave no name.
+ */
+export function titledLine(title: string, plain: string, theme: Words = words, named = true): Word {
+  if (!named) {
+    const failed = 'Naming this session failed';
+    return { themed: theme === CLASSIC ? failed : `The Bard could not name your ${w('quest', theme)}.`, plain: failed };
+  }
+  const line = `Named this session: ${plain}`;
+  // A title that ends on its own stop ("Why Is CI Red?") keeps it, rather than gaining a second.
+  const stop = /[.!?…]$/.test(title) ? '' : '.';
+  return {
+    themed: theme === CLASSIC ? line : `The Bard names your ${w('quest', theme)}: ${title}${stop}`,
+    plain: line,
+  };
+}
+
 /** What can happen to a helper, as the chat tells it. */
 export type HelperMoment = 'set-out' | 'returned' | 'failed' | 'stopped';
 

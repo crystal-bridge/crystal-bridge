@@ -93,3 +93,12 @@ describe('PushSubscriptionPut', () => {
     });
   });
 });
+
+describe('a Quest that named itself (#287)', () => {
+  const titled = { ...base, label: 'The Siege', plainLabel: 'Fix the test', reason: 'done' as const };
+
+  it('names it in plain words to a device on the Classic theme, and in the theme’s words otherwise', () => {
+    expect(pushNotificationFor(titled, { names: {}, hidden: [], plainTitles: true })?.body).toBe('Fix the test');
+    expect(pushNotificationFor(titled, { names: {}, hidden: [] })?.body).toBe('The Siege');
+  });
+});

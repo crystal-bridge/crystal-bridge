@@ -5,7 +5,7 @@
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
  * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command, synthesis,
- * weekly-only.
+ * title, weekly-only.
  * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
  * Every fixture line is passed through `scrub()`.
  *
@@ -18,13 +18,20 @@ import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from 'node:fs/promises';
 import http from 'node:http';
-import { homedir, tmpdir } from 'node:os';
+import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPermissionServer, type PermissionDecision, type PermissionRequest } from '../src/permissions.js';
+import {
+  createPermissionServer,
+  TITLE_INSTRUCTION,
+  TITLE_TOOL,
+  type PermissionDecision,
+  type PermissionRequest,
+} from '../src/permissions.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'fixtures');
 const HOME = homedir();
+const USER = userInfo().username;
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 const EPOCH = '1970-01-01T00:00:00.000Z';
 const TIMEOUT_MS = 180_000;
@@ -39,6 +46,7 @@ const MODEL_RE = /\bclaude-(?!code\b|model\b)[a-z0-9][a-z0-9.-]*[a-z0-9]\b/g;
 // (permission_decision source "config", reason "subcommandResults") and never calls the
 // permission tool. `touch` has a side effect, so it goes through `approve`.
 const BASH_PROMPT = 'Run the shell command `touch crystal.txt` with Bash, then reply with the single word DONE.';
+const TITLE_PROMPT = 'Add a short README.md to this repository that says it is a scratch repo for trying things out.';
 const BACKGROUND_COMMAND_PROMPT =
   'Start three things, then reply with the single word started and end your turn: (1) Bash with run_in_background, ' +
   'description "Short ping", command `ping -c 12 127.0.0.1`; (2) Bash with run_in_background, description "Long ping", ' +
@@ -102,6 +110,10 @@ function scrubText(text: string, tempPath: string): string {
   // The same folder as the CLI encodes it once it has resolved symlinks, as macOS does for its temp directory.
   out = out.replace(/-[A-Za-z0-9-]*-crystal-capture-[A-Za-z0-9]+/g, '-tmp-FIXTURE');
   out = out.replace(new RegExp(escapeRe(HOME), 'g'), '/HOME');
+  // Outside a path too, as a file listing's owner and group show it.
+  out = out.replace(new RegExp(`\\b${escapeRe(USER)}\\b`, 'g'), 'user');
+  // The CLI's messaging socket names this machine's user id and a process id.
+  out = out.replace(/\/run\/user\/\d+\/cc-socks\/\d+\.sock/g, '/run/user/0/cc-socks/0.sock');
   out = out.replace(EMAIL_RE, 'user@example.com');
   out = out.replace(MODEL_RE, modelPlaceholder);
   return out;
@@ -182,7 +194,14 @@ function startRecordingProxy(targetPort: number, calls: RawCall[]): Promise<{ po
         /* not JSON; forward anyway */
       }
       const upstream = http.request(
-        { host: '127.0.0.1', port: targetPort, path: req.url, method: req.method, headers: req.headers },
+        // The permission server refuses a Host other than its own (DNS rebinding), so name it, not this proxy.
+        {
+          host: '127.0.0.1',
+          port: targetPort,
+          path: req.url,
+          method: req.method,
+          headers: { ...req.headers, host: `127.0.0.1:${targetPort}` },
+        },
         (up) => {
           res.writeHead(up.statusCode ?? 502, up.headers);
           up.pipe(res);
@@ -454,6 +473,7 @@ async function main(): Promise<void> {
   const requests: Array<
     PermissionRequest & { scenario: string; at: string; answeredAt?: string; decision?: PermissionDecision }
   > = [];
+  const titles: { scenario: string; title: string; plain: string }[] = [];
   const server = await createPermissionServer({
     port: 0,
     onRequest: async (r) => {
@@ -467,6 +487,11 @@ async function main(): Promise<void> {
       entry.answeredAt = new Date().toISOString();
       entry.decision = decision;
       return decision;
+    },
+    // Crystal's own tool for naming a Quest (#287); what it was given goes in the summary.
+    onTitle: (session, title) => {
+      titles.push({ scenario: sessionScenario.get(session) ?? '?', ...title });
+      return undefined;
     },
   });
   const rawCalls: RawCall[] = [];
@@ -513,6 +538,30 @@ async function main(): Promise<void> {
 
   try {
     if (want('allow')) await record('allow', await simple('allow', BASH_PROMPT, allow));
+    if (want('title')) {
+      // An ordinary ask that never mentions the tool, run as Crystal runs a Quest: is the Quest named?
+      const session = randomUUID();
+      sessionScenario.set(session, 'title');
+      await record(
+        'title',
+        await runClaude({
+          repo,
+          mcpUrl: mcpUrl(session),
+          // The title tool allowed up front, so it never reaches `approve`, and the system prompt's request.
+          sessionArgs: [
+            '--session-id',
+            session,
+            '--allowedTools',
+            TITLE_TOOL,
+            '--append-system-prompt',
+            TITLE_INSTRUCTION,
+          ],
+          firstPrompt: TITLE_PROMPT,
+          onLine: closeAfterFirstResult,
+        }),
+        { titles: titles.filter((title) => title.scenario === 'title') },
+      );
+    }
     if (want('synthesis')) {
       // As a Scout's synthesis step runs: the Kingdom's full setup, then with no setting sources, to compare the cost.
       await record('synthesis', await runPrint(repo, synthesisArgs(), SYNTHESIS_PROMPT));

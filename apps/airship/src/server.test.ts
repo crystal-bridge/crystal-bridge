@@ -1991,6 +1991,12 @@ describe('airship server', () => {
       session: sessionId,
     });
     expect(frames.frames.filter((f) => f.kind === 'attention')).toHaveLength(3);
+    // Named by itself (#287): the frame carries the plain name too, for a Classic device.
+    next(5, 'quest.titled', { title: 'The Siege', plain: 'Fix the test' });
+    next(6, 'turn.finished', { outcome: 'success' });
+    expect(
+      await frames.waitFor((f) => f.kind === 'attention' && f.reason === 'done' && f.label === 'The Siege'),
+    ).toMatchObject({ plainLabel: 'Fix the test' });
   });
 
   it('serves the engines each connected node advertised in hello', async () => {
@@ -4152,6 +4158,27 @@ describe('airship server: done until viewed', () => {
 
   it('refuses an id that is not a Quest id', async () => {
     expect((await fetch(`${baseUrl}/api/sessions/nope/seen`, as('me@example.com', 'POST'))).status).toBe(400);
+  });
+
+  it('renames a Quest by hand, for every device, and refuses an empty name or an unknown Quest (#287)', async () => {
+    const session = randomUUID();
+    finished(session);
+    const rename = (id: string, label: unknown) =>
+      fetch(`${baseUrl}/api/sessions/${id}/label`, {
+        ...as('me@example.com', 'PUT'),
+        headers: { 'tailscale-user-login': 'me@example.com', 'content-type': 'application/json' },
+        body: JSON.stringify({ label }),
+      });
+    expect((await rename(session, '  Smoke test, again ')).status).toBe(204);
+    const listed = (await (await fetch(`${baseUrl}/api/sessions`, as('me@example.com'))).json()) as {
+      id: string;
+      label: string;
+    }[];
+    expect(listed.find((row) => row.id === session)?.label).toBe('Smoke test, again');
+    expect((await rename(session, '   ')).status).toBe(400);
+    expect((await rename(session, 'x'.repeat(121))).status).toBe(400);
+    expect((await rename(randomUUID(), 'x')).status).toBe(404);
+    expect((await rename('nope', 'x')).status).toBe(400);
   });
 });
 

@@ -68,6 +68,8 @@ import {
   type ExternalSession,
   type Project,
   Engine,
+  MAX_QUEST_TITLE,
+  QuestTitle,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
@@ -605,18 +607,27 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     } else {
       return undefined;
     }
-    const label = store.getSession(envelope.session)?.label ?? '';
-    const frame: Attention = { kind: 'attention', node: envelope.node, session: envelope.session, label, reason };
+    const quest = store.getSession(envelope.session);
+    const frame: Attention = {
+      kind: 'attention',
+      node: envelope.node,
+      session: envelope.session,
+      label: quest?.label ?? '',
+      ...(quest?.plainLabel ? { plainLabel: quest.plainLabel } : {}),
+      reason,
+    };
     if (detail !== undefined) frame.detail = detail;
     return frame;
   }
 
   function notifyCast(node: string, cast: Cast): void {
+    const quest = store.getSession(cast.session);
     const attention: Attention = {
       kind: 'attention',
       node,
       session: cast.session,
-      label: store.getSession(cast.session)?.label ?? '',
+      label: quest?.label ?? '',
+      ...(quest?.plainLabel ? { plainLabel: quest.plainLabel } : {}),
       reason: cast.state === 'succeeded' ? 'cast-done' : 'cast-failed',
       detail: `${cast.name} on ${cast.summon}`,
     };
@@ -1016,6 +1027,15 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     for (const [socket, owner] of clientLogins) {
       if (owner === login) sendToClient(socket, { kind: 'seen', session });
     }
+    return reply.code(204).send();
+  });
+  // A name set by hand (#287): every device picks it up on its next list, and the Quest's own titles no longer change it.
+  app.put('/api/sessions/:session/label', async (request, reply) => {
+    const { session } = request.params as { session: string };
+    if (!z.uuid().safeParse(session).success) return reply.code(400).send({ error: 'expected a Quest id' });
+    const label = z.object({ label: QuestTitle }).safeParse(request.body).data?.label;
+    if (!label) return reply.code(400).send({ error: `a name is one line of 1 to ${MAX_QUEST_TITLE} characters` });
+    if (!store.renameSession(session, label)) return reply.code(404).send({ error: 'no such Quest' });
     return reply.code(204).send();
   });
   // Only what can be answered now: a Kingdom that's removed or dead may never come back to end its Quests.

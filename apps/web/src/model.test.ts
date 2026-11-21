@@ -4,6 +4,7 @@ import allowFixture from './__fixtures__/allow.ndjson?raw';
 import backgroundAgentFixture from './__fixtures__/background-agent.ndjson?raw';
 import denyFixture from './__fixtures__/deny.ndjson?raw';
 import spokenThinkingFixture from './__fixtures__/spoken-thinking.ndjson?raw';
+import titleFixture from './__fixtures__/title.ndjson?raw';
 import {
   buildView,
   IncrementalView,
@@ -82,6 +83,24 @@ const textBlockStart = (msgId = 'msg_x', index = 0) => ({
 const assistantText = (text: string, msgId = 'msg_x') => ({
   type: 'assistant',
   message: { id: msgId, role: 'assistant', content: [{ type: 'text', text }] },
+});
+
+describe('buildView over title.ndjson (#287)', () => {
+  it('shows the Quest naming itself as a call to Crystal’s title tool, before its other work', () => {
+    const items = buildView(new Stream().started().claude(lines(titleFixture)).envelopes);
+    const tools = items.filter((item) => item.kind === 'tool');
+    expect(tools.map((tool) => tool.kind === 'tool' && tool.name)).toEqual([
+      'ToolSearch',
+      'mcp__crystal__title',
+      'Bash',
+      'Write',
+    ]);
+    expect(tools[1]).toMatchObject({
+      input: { title: 'The Scroll of the Scratch Repository', plain: 'Add a short README for the scratch repo' },
+      isError: false,
+      denied: false,
+    });
+  });
 });
 
 describe('buildView over allow.ndjson', () => {

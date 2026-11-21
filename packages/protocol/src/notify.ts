@@ -42,6 +42,8 @@ export const PushPrefs = z.object({
   names: z.record(z.string(), z.string()),
   hidden: z.array(z.string()),
   notify: z.record(z.string(), NotifyLevel).optional(),
+  /** The device shows Quests by their plain names (the Classic theme, #287). */
+  plainTitles: z.boolean().optional(),
 });
 export type PushPrefs = z.infer<typeof PushPrefs>;
 
@@ -60,5 +62,6 @@ export type PushSubscriptionPut = z.infer<typeof PushSubscriptionPut>;
 export function pushNotificationFor(attention: Attention, prefs: PushPrefs): { title: string; body: string } | null {
   if (prefs.hidden.includes(attention.node)) return null;
   const name = prefs.names[attention.node] || attention.node;
-  return notificationFor(attention, name, prefs.notify?.[attention.node] ?? 'full');
+  const shown = prefs.plainTitles && attention.plainLabel ? { ...attention, label: attention.plainLabel } : attention;
+  return notificationFor(shown, name, prefs.notify?.[attention.node] ?? 'full');
 }
