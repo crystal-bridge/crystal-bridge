@@ -30,6 +30,7 @@ import { browserZone, runTime } from '../patrols.js';
 import { Icon } from '../theme/icons.js';
 import { w } from '../theme/words.js';
 import { ProjectPicker } from './ProjectPicker.js';
+import { ThemedSelect } from './ThemedSelect.js';
 
 export interface PatrolFormProps {
   /** The Patrol to edit; a new one without it. */
@@ -62,8 +63,8 @@ const UNITS: { value: Every; one: string; many: string }[] = [
 const FORMS: { value: ScheduleForm; label: string; hint: string }[] = [
   { value: 'repeat', label: 'Repeat', hint: 'Every so many minutes, hours, days, weeks or months' },
   { value: 'rule', label: 'Rule', hint: 'An RFC 5545 recurrence rule, as calendar apps use' },
-  { value: 'cron', label: 'Cron', hint: 'Five fields, as Scouts use' },
-  { value: 'once', label: 'Once', hint: 'A single time; the Patrol stands down after it' },
+  { value: 'cron', label: 'Cron', hint: `Five fields, as ${w('scouts')} use` },
+  { value: 'once', label: 'Once', hint: `A single time; the ${w('patrol')} stands down after it` },
 ];
 /** `catchUp` and `waitForYou` choices; a value from a file the list lacks is added as it is. */
 const CATCH_UP = [
@@ -77,6 +78,15 @@ const WAIT = [
   { value: '10m', label: '10 minutes' },
   { value: '2h', label: '2 hours' },
   { value: '12h', label: '12 hours' },
+];
+const MONTH_DAYS = [
+  ...Array.from({ length: 31 }, (_, index) => ({ value: String(index + 1), label: `day ${index + 1}` })),
+  { value: '-1', label: 'the last day' },
+];
+const ENDS = [
+  { value: 'never', label: 'never' },
+  { value: 'on', label: 'on a date' },
+  { value: 'after', label: 'after a number of runs' },
 ];
 const withValue = (options: { value: string; label: string }[], value: string) =>
   options.some((option) => option.value === value) ? options : [...options, { value, label: value }];
@@ -93,6 +103,48 @@ function zones(): string[] {
   } catch {
     return [];
   }
+}
+
+/** A visible ring on a styled label whose input is hidden, as ProjectsView's pickers do. */
+const focusRing = 'has-focus-visible:ring-2 has-focus-visible:ring-sky-500';
+
+/** A count that can be cleared and retyped: the draft takes each whole number typed, and a blank goes back on blur. */
+function NumberField({
+  id,
+  label,
+  value,
+  max,
+  className,
+  onChange,
+}: {
+  id?: string;
+  label?: string;
+  value: number;
+  max: number;
+  className: string;
+  onChange: (value: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    setText((typed) => (Number(typed) === value ? typed : String(value)));
+  }, [value]);
+  return (
+    <input
+      id={id}
+      aria-label={label}
+      type="number"
+      min={1}
+      max={max}
+      className={className}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        const typed = Number(event.target.value);
+        if (Number.isInteger(typed) && typed >= 1 && typed <= max) onChange(typed);
+      }}
+      onBlur={() => setText(String(value))}
+    />
+  );
 }
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
@@ -116,41 +168,31 @@ function RepeatFields({ repeat, onChange }: { repeat: RepeatDraft; onChange: (re
     <div className="space-y-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={`${id}-n`}>Every</label>
-        <input
+        <NumberField
           id={`${id}-n`}
-          type="number"
-          min={1}
           max={999}
           className={`${small} w-16`}
           value={repeat.interval}
-          onChange={(event) => set({ interval: Math.max(1, Math.floor(Number(event.target.value) || 1)) })}
+          onChange={(interval) => set({ interval })}
         />
-        <select
-          aria-label="Unit"
-          className={small}
+        <ThemedSelect
+          label="Unit"
+          size="sm"
           value={repeat.every}
-          onChange={(event) => set({ every: event.target.value as Every })}
-        >
-          {UNITS.map((one) => (
-            <option key={one.value} value={one.value}>
-              {repeat.interval === 1 ? one.one : one.many}
-            </option>
-          ))}
-        </select>
+          options={UNITS.map((one) => ({ value: one.value, label: repeat.interval === 1 ? one.one : one.many }))}
+          onChange={(every) => set({ every: every as Every })}
+        />
         {repeat.every === 'month' && (
           <>
-            <label htmlFor={`${id}-day`}>on</label>
-            <select
-              id={`${id}-day`}
-              className={small}
-              value={repeat.monthDay}
-              onChange={(event) => set({ monthDay: Number(event.target.value) })}
-            >
-              {Array.from({ length: 31 }, (_, index) => (
-                <option key={index + 1} value={index + 1}>{`day ${index + 1}`}</option>
-              ))}
-              <option value={-1}>the last day</option>
-            </select>
+            <span>on</span>
+            <ThemedSelect
+              label="Day of the month"
+              title="Day of the month: a month without that day is skipped; the last day never is"
+              size="sm"
+              value={String(repeat.monthDay)}
+              options={MONTH_DAYS}
+              onChange={(day) => set({ monthDay: Number(day) })}
+            />
           </>
         )}
       </div>
@@ -162,7 +204,7 @@ function RepeatFields({ repeat, onChange }: { repeat: RepeatDraft; onChange: (re
             return (
               <label
                 key={day.value}
-                className={`cursor-pointer rounded border px-2 py-0.5 text-xs ${on ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200' : 'border-neutral-300 dark:border-neutral-700'}`}
+                className={`cursor-pointer rounded border px-2 py-0.5 text-xs ${focusRing} ${on ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200' : 'border-neutral-300 dark:border-neutral-700'}`}
               >
                 <input
                   type="checkbox"
@@ -197,17 +239,14 @@ function RepeatFields({ repeat, onChange }: { repeat: RepeatDraft; onChange: (re
         />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={`${id}-end`}>Ends</label>
-        <select
-          id={`${id}-end`}
-          className={small}
+        <span>Ends</span>
+        <ThemedSelect
+          label="Ends"
+          size="sm"
           value={repeat.end}
-          onChange={(event) => set({ end: event.target.value as RepeatDraft['end'] })}
-        >
-          <option value="never">never</option>
-          <option value="on">on a date</option>
-          <option value="after">after a number of runs</option>
-        </select>
+          options={ENDS}
+          onChange={(end) => set({ end: end as RepeatDraft['end'] })}
+        />
         {repeat.end === 'on' && (
           <input
             aria-label="Last day"
@@ -219,14 +258,12 @@ function RepeatFields({ repeat, onChange }: { repeat: RepeatDraft; onChange: (re
         )}
         {repeat.end === 'after' && (
           <>
-            <input
-              aria-label="Runs"
-              type="number"
-              min={1}
+            <NumberField
+              label="Runs"
               max={9999}
               className={`${small} w-20`}
               value={repeat.count}
-              onChange={(event) => set({ count: Math.max(1, Math.floor(Number(event.target.value) || 1)) })}
+              onChange={(count) => set({ count })}
             />
             <span>{repeat.count === 1 ? 'run' : 'runs'}</span>
           </>
@@ -402,51 +439,33 @@ export function PatrolForm({
               </Field>
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm">
-              <label className="flex items-center gap-1">
-                Mode
-                <select
-                  className={small}
-                  value={draft.mode}
-                  onChange={(event) => set({ mode: event.target.value as PermissionMode | '' })}
-                >
-                  {draft.mode === '' && <option value="">{`The ${w('kingdom')}'s default`}</option>}
-                  {MODES.map((mode) => (
-                    <option key={mode.value} value={mode.value}>
-                      {mode.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-1">
-                Effort
-                <select
-                  className={small}
-                  value={draft.effort}
-                  onChange={(event) => set({ effort: event.target.value as PatrolDraft['effort'] })}
-                >
-                  {EFFORTS.map((effort) => (
-                    <option key={effort.value} value={effort.value}>
-                      {effort.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <ThemedSelect
+                label="Permission mode"
+                icon="mode"
+                title={`Permission mode: how much each ${w('quest')} may do without asking`}
+                value={draft.mode}
+                options={[
+                  ...(draft.mode === '' ? [{ value: '', label: `The ${w('kingdom')}'s default` }] : []),
+                  ...MODES,
+                ]}
+                onChange={(mode) => set({ mode: mode as PermissionMode | '' })}
+              />
+              <ThemedSelect
+                label="Effort"
+                icon="effort"
+                title="Effort: how hard the agent thinks (the CLI's --effort); Default leaves the CLI's own"
+                value={draft.effort}
+                options={EFFORTS}
+                onChange={(effort) => set({ effort: effort as PatrolDraft['effort'] })}
+              />
               {(choices.length > 1 || draft.engine) && (
-                <label className="flex items-center gap-1">
-                  Engine
-                  <select
-                    className={small}
-                    value={draft.engine}
-                    onChange={(event) => set({ engine: event.target.value as Engine | '' })}
-                  >
-                    <option value="">Default</option>
-                    {choices.map((engine) => (
-                      <option key={engine.value} value={engine.value}>
-                        {engine.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <ThemedSelect
+                  label="Engine"
+                  title={`Engine: how the ${w('kingdom')} runs the agent`}
+                  value={draft.engine}
+                  options={withValue([{ value: '', label: 'Default' }, ...choices], draft.engine)}
+                  onChange={(engine) => set({ engine: engine as Engine | '' })}
+                />
               )}
               <label className="flex items-center gap-1">
                 <input
@@ -459,37 +478,28 @@ export function PatrolForm({
               </label>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm">
-              <label className="flex items-center gap-1" title="How long a permission prompt waits before the run ends">
+              <span className="flex items-center gap-1">
                 A prompt waits
-                <select
-                  className={small}
+                <ThemedSelect
+                  label="How long a prompt waits"
+                  title="How long a permission prompt waits for you before the run ends"
+                  size="sm"
                   value={draft.waitForYou}
-                  onChange={(event) => set({ waitForYou: event.target.value })}
-                >
-                  {withValue(WAIT, draft.waitForYou).map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label
-                className="flex items-center gap-1"
-                title="How late a run missed while the Kingdom was off may still run"
-              >
+                  options={withValue(WAIT, draft.waitForYou)}
+                  onChange={(waitForYou) => set({ waitForYou })}
+                />
+              </span>
+              <span className="flex items-center gap-1">
                 A missed run catches up
-                <select
-                  className={small}
+                <ThemedSelect
+                  label="How late a missed run catches up"
+                  title={`How late a run missed while the ${w('kingdom')} was off may still run`}
+                  size="sm"
                   value={draft.catchUp}
-                  onChange={(event) => set({ catchUp: event.target.value })}
-                >
-                  {withValue(CATCH_UP, draft.catchUp).map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  options={withValue(CATCH_UP, draft.catchUp)}
+                  onChange={(catchUp) => set({ catchUp })}
+                />
+              </span>
             </div>
           </div>
 
@@ -501,7 +511,10 @@ export function PatrolForm({
                   type="button"
                   className={chip}
                   onClick={() =>
-                    setSchedule({ form: 'repeat', repeat: { ...draft.schedule.repeat, days: [], ...preset.repeat } })
+                    setSchedule({
+                      form: 'repeat',
+                      repeat: { ...draft.schedule.repeat, days: [], end: 'never', ...preset.repeat },
+                    })
                   }
                 >
                   {preset.label}
@@ -513,7 +526,7 @@ export function PatrolForm({
                 <label
                   key={form.value}
                   title={form.hint}
-                  className={`cursor-pointer rounded px-2 py-0.5 ${draft.schedule.form === form.value ? 'bg-neutral-200 font-medium dark:bg-neutral-700' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
+                  className={`cursor-pointer rounded px-2 py-0.5 ${focusRing} ${draft.schedule.form === form.value ? 'bg-neutral-200 font-medium dark:bg-neutral-700' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
                 >
                   <input
                     type="radio"
@@ -591,7 +604,7 @@ export function PatrolForm({
             <div className="rounded bg-neutral-50 p-2 text-sm dark:bg-neutral-900">
               {words && <div className="font-medium">{words}</div>}
               <div className="mt-1 text-xs text-neutral-500">
-                {`${w('nextRun')}s, worked out on the ${w('kingdom')}${otherZone ? `; your time, then ${otherZone}` : ''}`}
+                {`Coming up, as the ${w('kingdom')} works it out${otherZone ? `: your time, then ${otherZone}` : ''}`}
               </div>
               {preview.reason ? (
                 <p role="alert" className="mt-1 text-red-700 dark:text-red-400">

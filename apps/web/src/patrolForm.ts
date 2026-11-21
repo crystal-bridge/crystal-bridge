@@ -244,7 +244,9 @@ function cronWords(cron: string): string | undefined {
   const [minute, hour, dayOfMonth, month, dayOfWeek, ...rest] = cron.trim().split(/\s+/);
   if (rest.length > 0 || dayOfMonth !== '*' || month !== '*') return undefined;
   const every = /^\*\/([1-9]\d?)$/.exec(minute ?? '');
-  if (every && hour === '*' && dayOfWeek === '*') return `Every ${plural(Number(every[1]), 'minute')}`;
+  // A step restarts each hour, so only one that divides the hour runs every N minutes.
+  if (every && hour === '*' && dayOfWeek === '*')
+    return 60 % Number(every[1]) === 0 ? `Every ${plural(Number(every[1]), 'minute')}` : undefined;
   if (!/^\d{1,2}$/.test(minute ?? '')) return undefined;
   if (hour === '*' && dayOfWeek === '*') return `Every hour at :${pad(minute!)}`;
   if (!/^\d{1,2}$/.test(hour ?? '')) return undefined;

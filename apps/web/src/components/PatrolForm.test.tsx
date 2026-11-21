@@ -133,4 +133,41 @@ describe('PatrolForm', () => {
     expect(screen.getByRole('alert').textContent).toContain('no such folder');
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('says its preview heading in the theme’s words, without adding letters to them', async () => {
+    setup();
+    await flush();
+    expect(document.body.textContent).not.toMatch(/watchs/i);
+  });
+
+  it('lets a number be cleared and retyped, and a preset start the schedule afresh', async () => {
+    const { onPreview } = setup();
+    const rule = () => (onPreview.mock.lastCall![0] as Schedule & { rule: string }).rule;
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: 'after' } });
+    type('Every', '');
+    type('Every', '5');
+    await flush();
+    expect(rule()).toBe('FREQ=DAILY;INTERVAL=5;COUNT=10');
+    fireEvent.click(screen.getByRole('button', { name: 'Weekdays at 09:00' }));
+    await flush();
+    expect(rule()).toBe('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR');
+  });
+
+  it('shows an engine the file names even where the Kingdom offers no choice, and can clear it', async () => {
+    const patrol: ListedPatrol = {
+      id: 'sweep',
+      manifest: {
+        name: 'Sweep',
+        schedule: { cron: '0 9 * * 2', timezone: 'UTC' },
+        quest: { project: '~/code/app', promptText: 'Sweep.', engine: 'interactive' },
+      },
+    };
+    const { onSave } = setup({ patrol });
+    const engine = screen.getByLabelText('Engine') as HTMLSelectElement;
+    expect(engine.value).toBe('interactive');
+    fireEvent.change(engine, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
+    await flush();
+    expect(onSave.mock.lastCall![1].quest).toEqual({ project: '~/code/app', promptText: 'Sweep.' });
+  });
 });

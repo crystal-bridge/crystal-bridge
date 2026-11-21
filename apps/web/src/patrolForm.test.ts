@@ -146,6 +146,8 @@ describe('scheduleWords', () => {
     expect(words({ cron: '0 9 * * 1-5' })).toBe('Weekdays at 09:00');
     expect(words({ cron: '30 3 * * *' })).toBe('Daily at 03:30');
     expect(words({ cron: '*/10 * * * *' })).toBe('Every 10 minutes');
+    // A step that doesn't divide the hour restarts each hour, so it isn't every N minutes.
+    expect(words({ cron: '*/45 * * * *' })).toBe('cron */45 * * * *');
     expect(words({ cron: '0 9 * * 2' })).toBe('Every Tue at 09:00');
     expect(words({ cron: '0 9-17 * * 1-5' })).toBe('cron 0 9-17 * * 1-5');
     expect(words({ once: '2026-12-01T09:00' })).toBe('Once, 2026-12-01 at 09:00');
