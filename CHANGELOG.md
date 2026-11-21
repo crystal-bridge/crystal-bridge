@@ -14,6 +14,11 @@ one entry.
 - "Patrol this" beside a Board's Quest action opens New Patrol drafted from that item's Quest, reporting back to the
   Board. See [Post to a Board](docs/PATROLS.md#post-to-a-board).
 
+### Fixed
+
+- A schedule rule with long BY lists, such as every minute of every day of the month, no longer stalls its Kingdom for
+  seconds each time it works out the next run, nor the Patrol form's preview (#302).
+
 ## 0.7.0
 
 ### Added
