@@ -49,6 +49,11 @@ one entry.
   project, with no prompt sent. A Kingdom on an older release lists nothing here until it's updated.
 - The Classic theme calls the Tavern "For you".
 
+### Security
+
+- The release check that a Kingdom and the hub run before an update now uses minimatch 11, which clears a
+  medium advisory (GHSA-g3hv-75wg-m249) in the version it used before.
+
 ### Fixed
 
 - An interactive Quest no longer stops before its first message at a prompt to trust its folder for attached files,
