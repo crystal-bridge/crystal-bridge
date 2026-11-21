@@ -572,6 +572,55 @@ describe('App Kingdom tabs', () => {
     expect(screen.queryByRole('tab', { name: /private work/ })).toBeNull();
   });
 
+  it('keeps a new name when a poll that started before the rename answers after it', async () => {
+    let serverLabel = 'private work';
+    let hold: (() => void) | undefined;
+    let held: Promise<void> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') {
+          serverLabel = (JSON.parse(String(init.body)) as { label: string }).label;
+          return new Response(null, { status: 204 });
+        }
+        if (url === '/api/sessions') {
+          const snapshot = sessions.map((quest) =>
+            quest.label === 'private work' ? { ...quest, label: serverLabel } : quest,
+          );
+          return new Response(JSON.stringify(snapshot), { status: 200 });
+        }
+        // One slow endpoint holds the whole poll back, after its sessions list was already read.
+        if (url === '/api/cli-latest' && held) {
+          const wait = held;
+          held = undefined;
+          await wait;
+        }
+        const body = url === '/api/nodes' ? ['node-b', 'node-a'] : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    await renderApp();
+    held = new Promise((resolve) => (hold = resolve));
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    vi.useRealTimers();
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /private work/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    const input = screen.getByRole('textbox', { name: 'New name' });
+    fireEvent.change(input, { target: { value: 'Smoke test, again' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(serverLabel).toBe('Smoke test, again'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Smoke test, again/ })).toBeTruthy());
+    await act(async () => {
+      hold!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole('tab', { name: /Smoke test, again/ })).toBeTruthy();
+  });
+
   it('keeps a hidden Kingdom off the page entirely, and remembers that on this device', async () => {
     await renderApp();
     fireEvent.click(screen.getByRole('button', { name: 'Config' }));
