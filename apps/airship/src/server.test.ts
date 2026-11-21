@@ -6,7 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import { ClientMessage, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
+import { ClientMessage, ErrandsFrame, MAX_OPEN_ERRANDS, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
 import type { Attention, Cast, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
@@ -1030,6 +1030,17 @@ describe('airship server', () => {
         400,
       );
       expect((await call('POST', '/api/nodes/nowhere/errands', { title: 'x' })).status).toBe(404);
+    });
+
+    it('refuses Add Errand at the cap', async () => {
+      await leaving();
+      for (let i = 0; i < MAX_OPEN_ERRANDS; i++) store.addErrand('node-a', { title: `t${i}`, body: '' }, i);
+      const refused = await json(await call('POST', '/api/nodes/node-a/errands', { title: 'one more' }));
+      expect(refused.status).toBe(409);
+      expect(refused.body).toEqual({
+        error: 'a Kingdom keeps at most 500 open Errands; tick or dismiss some first',
+      });
+      expect(store.errands('node-a')).toHaveLength(MAX_OPEN_ERRANDS);
     });
 
     async function added() {

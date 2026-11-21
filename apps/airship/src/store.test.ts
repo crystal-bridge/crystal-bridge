@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Envelope } from '@crystal-bridge/protocol';
+import { ErrandsFrame, MAX_OPEN_ERRANDS, type Envelope } from '@crystal-bridge/protocol';
 import {
   ERRANDS_KEPT_MS,
   errandProject,
@@ -1437,13 +1437,18 @@ describe('Errands (#288)', () => {
     });
     expect(store.setErrandState(node, made.id, 'dismissed', 500)).toMatchObject({
       state: 'dismissed',
-      closed: 500,
+      closed: 400,
       updated: 500,
     });
-    const reopened = store.setErrandState(node, made.id, 'open', 600);
-    expect(reopened).toMatchObject({ state: 'open', updated: 600 });
+    expect(store.setErrandState(node, made.id, 'done', 600)).toMatchObject({
+      state: 'done',
+      closed: 400,
+      updated: 600,
+    });
+    const reopened = store.setErrandState(node, made.id, 'open', 700);
+    expect(reopened).toMatchObject({ state: 'open', updated: 700 });
     expect(reopened).not.toHaveProperty('closed');
-    expect(store.setErrandState('node-b', made.id, 'done', 700)).toBeUndefined();
+    expect(store.setErrandState('node-b', made.id, 'done', 800)).toBeUndefined();
   });
 
   it('counts open Errands per Kingdom', () => {
@@ -1534,6 +1539,62 @@ describe('Errands (#288)', () => {
       store.forgetNode(node);
       expect(store.errands(node)).toEqual([]);
     });
+  });
+
+  it('leaves out a Patrol link that is not a Patrol id, and its output parses', () => {
+    for (const patrol of [5, 'Not A Valid Id']) {
+      const session = randomUUID();
+      store.appendEvent(
+        makeEnvelope({
+          node,
+          session,
+          seq: 1,
+          type: 'session.started',
+          payload: { cwd: project, prompt: 'p', label: 'l', patrol: { patrol, run: randomUUID() } },
+        }),
+      );
+      store.recordErrandLeft(left(randomUUID(), { session }));
+    }
+    const errands = store.errands(node);
+    expect(errands).toHaveLength(2);
+    for (const errand of errands) expect(errand).not.toHaveProperty('patrol');
+    expect(ErrandsFrame.parse({ kind: 'errands', node, errands }).errands).toHaveLength(2);
+  });
+
+  it('keeps at most MAX_OPEN_ERRANDS open per Kingdom', () => {
+    for (let i = 0; i < MAX_OPEN_ERRANDS; i++) {
+      expect(store.addErrand(node, { title: `t${i}`, body: '' }, i)).toBeDefined();
+    }
+    expect(store.openErrandCount(node)).toBe(MAX_OPEN_ERRANDS);
+    expect(store.addErrand(node, { title: 'one more', body: '' }, 1)).toBeUndefined();
+    store.recordErrandLeft(left(randomUUID()));
+    expect(store.errands(node)).toHaveLength(MAX_OPEN_ERRANDS);
+    expect(store.addErrand('node-b', { title: 'other', body: '' }, 1)).toBeDefined();
+    const first = store.errands(node)[0]!;
+    store.setErrandState(node, first.id, 'done', 5);
+    expect(store.addErrand(node, { title: 'room again', body: '' }, 6)).toBeDefined();
+  });
+
+  it('keeps the event when the cap writes no Errand', () => {
+    const session = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        node,
+        session,
+        seq: 0,
+        type: 'session.started',
+        payload: { cwd: project, prompt: 'p', label: 'l' },
+      }),
+    );
+    for (let i = 0; i < MAX_OPEN_ERRANDS; i++) store.addErrand(node, { title: `t${i}`, body: '' }, i);
+    const id = randomUUID();
+    expect(
+      store.appendEvent(
+        makeEnvelope({ node, session, seq: 1, type: 'errand.left', payload: { id, title: 'x', body: '' } }),
+      ),
+    ).toBe(true);
+    expect(store.errands(node).some((e) => e.id === id)).toBe(false);
+    expect(store.eventsSince(session, 0).map((e) => e.type)).toContain('errand.left');
   });
 
   it('names the Patrol whose Quest left it', () => {

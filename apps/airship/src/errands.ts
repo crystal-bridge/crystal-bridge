@@ -1,6 +1,13 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import type { Errand, ErrandCreate, ErrandEdit, ErrandState } from '@crystal-bridge/protocol';
+import {
+  MAX_OPEN_ERRANDS,
+  PatrolId,
+  type Errand,
+  type ErrandCreate,
+  type ErrandEdit,
+  type ErrandState,
+} from '@crystal-bridge/protocol';
 
 /** How long a closed Errand stays before the hub deletes it. */
 export const ERRANDS_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -31,7 +38,10 @@ export interface Errands {
   errands(node: string): Errand[];
   /** Open Errands per Kingdom, for the Kingdom tabs; Kingdoms with none are left out. */
   openErrandCounts(): Record<string, number>;
-  addErrand(node: string, errand: ErrandCreate, now: number): Errand;
+  /** Open Errands one Kingdom keeps. */
+  openErrandCount(node: string): number;
+  /** Adds an Errand by hand; undefined when the Kingdom already keeps MAX_OPEN_ERRANDS open. */
+  addErrand(node: string, errand: ErrandCreate, now: number): Errand | undefined;
   editErrand(node: string, id: string, edit: ErrandEdit, now: number): Errand | undefined;
   setErrandState(node: string, id: string, state: ErrandState, now: number): Errand | undefined;
   /** Deletes Errands closed at least ERRANDS_KEPT_MS before `now`; returns the Kingdoms that lost any. */
@@ -52,7 +62,7 @@ interface Row {
   created: number;
   updated: number;
   closed: number | null;
-  patrol: string | null;
+  patrol: string | number | null;
 }
 
 const COLUMNS = `id, session, seq, project, title, body, state, left_by, created, updated, closed,
@@ -72,7 +82,7 @@ function toErrand(row: Row): Errand {
     created: row.created,
     updated: row.updated,
     ...(row.closed === null ? {} : { closed: row.closed }),
-    ...(row.patrol === null ? {} : { patrol: row.patrol }),
+    ...(PatrolId.safeParse(row.patrol).success ? { patrol: row.patrol as string } : {}),
   };
 }
 
@@ -88,17 +98,19 @@ export function openErrands(db: Database.Database): Errands {
   const list = db.prepare(`SELECT ${COLUMNS} FROM errands WHERE node = ? ORDER BY created DESC, id`);
   const one = db.prepare(`SELECT ${COLUMNS} FROM errands WHERE node = ? AND id = ?`);
   const counts = db.prepare(`SELECT node, COUNT(*) AS n FROM errands WHERE state = 'open' GROUP BY node`);
+  const openCount = db.prepare(`SELECT COUNT(*) AS n FROM errands WHERE node = ? AND state = 'open'`).pluck();
   const edit = db.prepare(
     `UPDATE errands SET title = @title, body = @body, updated = @now WHERE node = @node AND id = @id`,
   );
   const setState = db.prepare(
-    `UPDATE errands SET state = @state, updated = @now, closed = CASE WHEN @state = 'open' THEN NULL ELSE @now END
+    `UPDATE errands SET state = @state, updated = @now, closed = CASE WHEN @state = 'open' THEN NULL ELSE COALESCE(closed, @now) END
      WHERE node = @node AND id = @id`,
   );
   const dueNodes = db.prepare(`SELECT DISTINCT node FROM errands WHERE state != 'open' AND closed <= ?`);
   const purge = db.prepare(`DELETE FROM errands WHERE state != 'open' AND closed <= ?`);
   const forget = db.prepare(`DELETE FROM errands WHERE node = ?`);
 
+  const count = (node: string): number => openCount.get(node) as number;
   const get = (node: string, id: string): Errand | undefined => {
     const row = one.get(node, id) as Row | undefined;
     return row && toErrand(row);
@@ -111,6 +123,7 @@ export function openErrands(db: Database.Database): Errands {
 
   return {
     recordErrandLeft(left) {
+      if (count(left.node) >= MAX_OPEN_ERRANDS) return;
       insertLeft.run({ ...left, project: left.project ?? null });
     },
     errands: (node) => (list.all(node) as Row[]).map(toErrand),
@@ -119,7 +132,9 @@ export function openErrands(db: Database.Database): Errands {
       for (const row of counts.all() as { node: string; n: number }[]) out[row.node] = row.n;
       return out;
     },
+    openErrandCount: count,
     addErrand(node, errand, now) {
+      if (count(node) >= MAX_OPEN_ERRANDS) return undefined;
       const id = randomUUID();
       insertHand.run({ node, id, project: errand.project ?? null, title: errand.title, body: errand.body, now });
       return get(node, id) as Errand;

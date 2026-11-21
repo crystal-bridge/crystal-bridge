@@ -74,6 +74,7 @@ import {
   ErrandEdit,
   ErrandStateChange,
   MAX_ERRAND_BODY,
+  MAX_OPEN_ERRANDS,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
@@ -1195,6 +1196,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       return reply.code(404).send({ error: 'this hub does not know that Kingdom' });
     }
     const errand = store.addErrand(node, create.data, Date.now());
+    if (!errand) {
+      return reply
+        .code(409)
+        .send({ error: `a Kingdom keeps at most ${MAX_OPEN_ERRANDS} open Errands; tick or dismiss some first` });
+    }
     sendErrands(node);
     return reply.code(201).send({ errand });
   });

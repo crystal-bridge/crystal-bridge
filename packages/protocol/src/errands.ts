@@ -6,6 +6,8 @@ import { PatrolId } from './patrols.js';
 export const MAX_ERRAND_BODY = 8000;
 /** How many Errands a Quest may leave in one turn; Crystal refuses the rest, with the reason. */
 export const MAX_ERRANDS_PER_TURN = 10;
+/** The most open Errands a Kingdom keeps; the hub drops a Quest's past it, and refuses Add Errand. */
+export const MAX_OPEN_ERRANDS = 500;
 
 export const ErrandBody = z.string().max(MAX_ERRAND_BODY);
 /** A project folder, as New Quest and Patrols name one: one line, no control or format characters. */
