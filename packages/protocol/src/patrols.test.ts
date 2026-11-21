@@ -5,6 +5,8 @@ import {
   HubPatrolPreview,
   MAX_PATROL_PREVIEW,
   MAX_PATROL_OUTPUT,
+  MAX_PATROL_SUMMARY,
+  ListedPatrolRun,
   NodePatrolChanged,
   NodePatrolPreviewed,
   NodePatrolRun,
@@ -14,6 +16,7 @@ import {
   PatrolManifest,
   PatrolPreviewRequest,
   PatrolRun,
+  PatrolRunMark,
   PatrolSchedule,
 } from './patrols.js';
 
@@ -139,6 +142,22 @@ describe('PatrolRun', () => {
 
   it('caps a script’s output', () => {
     expect(PatrolRun.safeParse({ ...run, stdout: 'x'.repeat(MAX_PATROL_OUTPUT + 1) }).success).toBe(false);
+  });
+
+  it('carries a one-line summary of what the run did, and drops one too long rather than the run', () => {
+    expect(PatrolRun.parse({ ...run, outcome: 'finished', summary: 'Bumped 3 packages.' }).summary).toBe(
+      'Bumped 3 packages.',
+    );
+    const long = PatrolRun.safeParse({ ...run, summary: 'x'.repeat(MAX_PATROL_SUMMARY + 1) });
+    expect(long.success).toBe(true);
+    expect(long.data?.summary).toBeUndefined();
+  });
+
+  it('is listed with when it was marked done, which a Kingdom can’t set', () => {
+    expect(ListedPatrolRun.parse({ ...run, doneAt: 5 }).doneAt).toBe(5);
+    expect(PatrolRun.parse({ ...run, doneAt: 5 })).not.toHaveProperty('doneAt');
+    expect(PatrolRunMark.safeParse({ done: true }).success).toBe(true);
+    expect(PatrolRunMark.safeParse({}).success).toBe(false);
   });
 
   it('is reported in a frame naming its Patrol', () => {

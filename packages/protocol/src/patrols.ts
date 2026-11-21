@@ -115,6 +115,9 @@ export type PatrolRunTrigger = z.infer<typeof PatrolRunTrigger>;
 /** The most of a script's stdout and of its stderr a run keeps: the end of each. */
 export const MAX_PATROL_OUTPUT = 8000;
 
+/** The longest summary line a run carries. */
+export const MAX_PATROL_SUMMARY = 300;
+
 const runWord = z.string().regex(/^[a-z][a-z-]{0,31}$/);
 
 /**
@@ -139,8 +142,21 @@ export const PatrolRun = z.object({
   exitCode: z.number().int().optional(),
   stdout: z.string().max(MAX_PATROL_OUTPUT).optional(),
   stderr: z.string().max(MAX_PATROL_OUTPUT).optional(),
+  /**
+   * One line saying what the run did, for its Board: the start of a Quest's reply, or a script's last line of output.
+   * The outcome only says how the run ended; this is where the work says whether it worked. One too long is dropped.
+   */
+  summary: z.string().max(MAX_PATROL_SUMMARY).optional().catch(undefined),
 });
 export type PatrolRun = z.infer<typeof PatrolRun>;
+
+/** A run as the hub lists it: with when someone marked it done on a Board, which only the hub sets. */
+export const ListedPatrolRun = PatrolRun.extend({ doneAt: z.number().int().optional() });
+export type ListedPatrolRun = z.infer<typeof ListedPatrolRun>;
+
+/** Client -> hub (REST): mark a run done on its Board, or not done again. */
+export const PatrolRunMark = z.object({ done: z.boolean() });
+export type PatrolRunMark = z.infer<typeof PatrolRunMark>;
 
 /** A Patrol as the hub lists it, with its latest run. */
 export const ListedPatrol = Patrol.extend({ lastRun: PatrolRun.optional() });
@@ -275,5 +291,5 @@ export const PatrolRunsFrame = z.object({
   kind: z.literal('patrol-runs'),
   node: z.string(),
   patrol: PatrolId,
-  runs: z.array(PatrolRun),
+  runs: z.array(ListedPatrolRun),
 });

@@ -672,6 +672,64 @@ describe('airship server', () => {
       expect(store.patrolRuns('node-a', 'other')).toBeUndefined();
     });
 
+    it('marks a Patrol’s run done on the hub alone, and tells every client', async () => {
+      const client = await connectClient();
+      const node = await patrollingNode();
+      await client.frames.waitFor((frame) => frame.kind === 'patrols');
+      send(node.socket, {
+        kind: 'patrol-run',
+        patrol: 'backup-check',
+        run: run({ finishedAt: 2, outcome: 'finished' }),
+      });
+      await client.frames.waitFor((frame) => frame.kind === 'patrol-runs');
+      node.socket.close();
+
+      const marking = await call('POST', `/api/nodes/node-a/patrols/backup-check/runs/${RUN}/done`, { done: true });
+      expect(marking.status).toBe(200);
+      const marked = await client.frames.waitFor(
+        (frame) => frame.kind === 'patrol-runs' && (frame.runs as { doneAt?: number }[])[0]?.doneAt !== undefined,
+      );
+      expect(marked).toMatchObject({
+        node: 'node-a',
+        patrol: 'backup-check',
+        runs: [{ id: RUN, outcome: 'finished' }],
+      });
+      expect(
+        (await call('POST', `/api/nodes/node-a/patrols/backup-check/runs/${RUN}/done`, { done: false })).status,
+      ).toBe(200);
+      expect(store.patrolRuns('node-a', 'backup-check')![0]).not.toHaveProperty('doneAt');
+      // Undone, every client hears it too.
+      await client.frames.waitFor(
+        (frame) =>
+          frame.kind === 'patrol-runs' &&
+          frame !== marked &&
+          !Object.hasOwn((frame.runs as object[])[0] ?? {}, 'doneAt'),
+      );
+      const heard = client.frames.frames.length;
+
+      for (const body of [{}, { done: 'yes' }]) {
+        expect((await call('POST', `/api/nodes/node-a/patrols/backup-check/runs/${RUN}/done`, body)).status).toBe(400);
+      }
+      const nobody = '00000000-0000-4000-8000-999999999999';
+      expect(
+        (await call('POST', `/api/nodes/node-a/patrols/backup-check/runs/${nobody}/done`, { done: true })).status,
+      ).toBe(404);
+      expect((await call('POST', `/api/nodes/node-a/patrols/sweep/runs/${RUN}/done`, { done: true })).status).toBe(404);
+      // Nothing refused changed the run or reached a client.
+      expect(store.patrolRuns('node-a', 'backup-check')![0]).not.toHaveProperty('doneAt');
+      expect(client.frames.frames.length).toBe(heard);
+    });
+
+    it('won’t mark a run done while it’s still out, so its outcome isn’t hidden when it comes back', async () => {
+      const node = await patrollingNode();
+      await listed();
+      send(node.socket, { kind: 'patrol-run', patrol: 'backup-check', run: run() });
+      await until(() => store.patrolRuns('node-a', 'backup-check')?.length === 1);
+      const marking = await call('POST', `/api/nodes/node-a/patrols/backup-check/runs/${RUN}/done`, { done: true });
+      expect(marking.status).toBe(409);
+      expect(store.patrolRuns('node-a', 'backup-check')![0]).not.toHaveProperty('doneAt');
+    });
+
     it('asks the Kingdom to run a Patrol now, when it can', async () => {
       const node = await patrollingNode();
       await listed();

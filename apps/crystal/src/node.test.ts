@@ -524,8 +524,15 @@ describe('startNode', () => {
       expect((frame.payload as { patrol: unknown }).patrol).toEqual({ patrol: 'sweep', run: RUN });
       const fake = created.at(-1)!.fake;
       expect(fake.start).toHaveBeenCalledWith('Sweep the deps.');
-      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'success' } });
-      expect(patrols.questEnded).toHaveBeenCalledWith(session, { outcome: 'finished' });
+      fake.emit('event', {
+        type: 'turn.finished',
+        payload: { outcome: 'success', summary: 'Bumped 3 packages.\n\nAll tests pass.' },
+      });
+      // The reply's start, on one line, so the run's Board can say what the work came to.
+      expect(patrols.questEnded).toHaveBeenCalledWith(session, {
+        outcome: 'finished',
+        summary: 'Bumped 3 packages. All tests pass.',
+      });
       fake.emit('event', { type: 'turn.finished', payload: { outcome: 'error' } });
       expect(patrols.questEnded).toHaveBeenCalledTimes(1);
     });
@@ -564,10 +571,15 @@ describe('startNode', () => {
       expect(answer.behavior).toBe('deny');
       expect(answer.behavior === 'deny' && answer.message).toMatch(/nobody answered/i);
       expect(fake.interrupt).toHaveBeenCalled();
-      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'interrupted' } });
+      // The interactive engine reports the reply on a turn that didn't succeed too; the run keeps it.
+      fake.emit('event', {
+        type: 'turn.finished',
+        payload: { outcome: 'interrupted', summary: 'I need to run touch.' },
+      });
       expect(patrols.questEnded).toHaveBeenCalledWith(session, {
         outcome: 'needs-you',
         reason: expect.stringMatching(/nobody to answer it; send the Quest a message to carry on$/),
+        summary: 'I need to run touch.',
       });
     });
 
