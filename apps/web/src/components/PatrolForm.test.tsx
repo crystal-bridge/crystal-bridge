@@ -65,12 +65,13 @@ describe('PatrolForm', () => {
         mode: 'plan',
         worktree: true,
         board: 'quest-board',
+        boardName: 'Quest Board',
       },
     });
     await flush();
     expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Fix the retry loop');
     expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toContain('<untrusted-item>');
-    expect(screen.getByText(/Reports each run to the quest-board Board/)).toBeTruthy();
+    expect(screen.getByText(/Reports each run to the Quest Board Board/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
     await flush();
     expect(onSave).toHaveBeenCalledWith('fix-the-retry-loop', {

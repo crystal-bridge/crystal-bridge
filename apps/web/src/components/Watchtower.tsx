@@ -372,16 +372,20 @@ export function Watchtower({
   const [open, setOpen] = useState<string | null>(null);
   /** The Patrol being edited, or `new` for New Patrol. Ids can't hold a space, so the two never meet. */
   const [editing, setEditing] = useState<string | null>(seed ? NEW : null);
+  // A Board item's draft, taken from the app as it arrives so it opens the form once; counted, so a second draft with
+  // the same name still gets a fresh form.
+  const [seeded, setSeeded] = useState<{ seed: PatrolSeed; count: number } | null>(null);
   const canEdit = state.editable && onSave !== undefined && onPreview !== undefined;
-  // A draft that arrives while the Watchtower is already showing opens the form too.
   useEffect(() => {
     if (!seed) return;
+    setSeeded((last) => ({ seed, count: (last?.count ?? 0) + 1 }));
     setOpen(null);
     setEditing(NEW);
-  }, [seed]);
+    onSeedUsed?.();
+  }, [seed, onSeedUsed]);
   const close = () => {
     setEditing(null);
-    if (seed) onSeedUsed?.();
+    setSeeded(null);
   };
   // Hidden until there's a Patrol, as Boards are until there's a Scout, unless one can be made here.
   if (!state.loaded || (state.patrols.length === 0 && !canEdit)) return null;
@@ -432,9 +436,9 @@ export function Watchtower({
         )}
         {formOpen && (
           <PatrolForm
-            key={editing === NEW && seed ? `${NEW}:${seed.board}:${seed.name}` : (editing ?? NEW)}
+            key={editing === NEW && seeded ? `${NEW}:${seeded.count}` : (editing ?? NEW)}
             patrol={edited}
-            seed={editing === NEW ? seed : undefined}
+            seed={editing === NEW ? (seed ?? seeded?.seed) : undefined}
             taken={state.patrols.map((patrol) => patrol.id)}
             projects={projects}
             engines={engines}

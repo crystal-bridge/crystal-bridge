@@ -121,13 +121,41 @@ export function KingdomButton({
   );
 }
 
-/** An item's buttons. A link opens in a new tab; a quest or run goes to the Kingdom; the rest change its state. */
 /**
  * "Patrol this" beside a Quest action, where the Board's Kingdom takes Patrols from the app: given the action's key and
  * the item, it opens the Patrol form drafted from them. Unset, no button.
  */
-export const PatrolThisContext = createContext<((action: string, item: BoardItem) => void) | null>(null);
+export const PatrolThisContext = createContext<((action: string, item: BoardItem) => Promise<void>) | null>(null);
 
+/** The map button beside a Quest action: held while the Kingdom drafts, so a second press doesn't ask again. */
+function PatrolThisButton({
+  label,
+  onPress,
+  className,
+}: {
+  label: string;
+  onPress: () => Promise<void>;
+  className: string | undefined;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={`${w('patrol')} this: ${label}`}
+      title={`Make a ${w('patrol')} that runs ${label} on a schedule`}
+      disabled={asking}
+      onClick={() => {
+        setAsking(true);
+        void onPress().finally(() => setAsking(false));
+      }}
+      className={className}
+    >
+      <Icon name="treasureMap" size={13} />
+    </button>
+  );
+}
+
+/** An item's buttons. A link opens in a new tab; a quest or run goes to the Kingdom; the rest change its state. */
 export function ItemActions({
   item,
   manifest,
@@ -184,15 +212,7 @@ export function ItemActions({
           return (
             <span key={key} className="inline-flex gap-1">
               {button}
-              <button
-                type="button"
-                aria-label={`${w('patrol')} this: ${action.label}`}
-                title={`Make a ${w('patrol')} that runs ${action.label} on a schedule`}
-                onClick={() => patrolThis(key, item)}
-                className={look.plain}
-              >
-                <Icon name="treasureMap" size={13} />
-              </button>
+              <PatrolThisButton label={action.label} onPress={() => patrolThis(key, item)} className={look.plain} />
             </span>
           );
         }

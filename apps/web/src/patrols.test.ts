@@ -274,8 +274,11 @@ describe('Patrol actions', () => {
     ]);
     pending[0]!.answer({ draft: { project: '/repo', promptText: 'Fix it.' } }, 200);
     await expect(drafting).resolves.toEqual({ project: '/repo', promptText: 'Fix it.' });
+    const empty = draftPatrol('forge', 'quest-board', 'fix', 'pr:1');
+    pending[1]!.answer({}, 200);
+    await expect(empty).rejects.toThrow('no draft');
     const refused = draftPatrol('forge', 'quest-board', 'archive', 'pr:1');
-    pending[1]!.answer({ error: 'Archive starts no Quest to patrol' }, 400);
+    pending[2]!.answer({ error: 'Archive starts no Quest to patrol' }, 400);
     await expect(refused).rejects.toThrow('Archive starts no Quest to patrol');
   });
 

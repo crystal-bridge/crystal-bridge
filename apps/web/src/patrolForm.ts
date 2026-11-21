@@ -303,6 +303,8 @@ export interface PatrolDraft {
   catchUp: string;
   /** Kept from the file: the form doesn't edit Boards yet. */
   board?: string | undefined;
+  /** The Board's name, when the draft came from it; the form shows `board` otherwise. Not saved. */
+  boardName?: string | undefined;
   schedule: ScheduleDraft;
 }
 
@@ -332,6 +334,8 @@ export interface PatrolSeed {
   mode?: PermissionMode | undefined;
   worktree?: boolean | undefined;
   board: string;
+  /** The Board's name, to say where the runs go. */
+  boardName?: string | undefined;
 }
 
 /** A new Patrol's draft from a seed: its name cut to what a Patrol's name holds, and the rest as new ones start. */
@@ -343,6 +347,7 @@ export function seededDraft(seed: PatrolSeed, now: number, zone: string, mode: P
     promptText: seed.promptText,
     worktree: seed.worktree ?? false,
     board: seed.board,
+    ...(seed.boardName ? { boardName: seed.boardName } : {}),
   };
 }
 

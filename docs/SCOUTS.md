@@ -3,10 +3,10 @@
 A Scout rides out on a schedule, comes back with what it found, and posts it on a Board for you to act on.
 
 ::: warning Partly built
-This page is the agreed design. A Kingdom finds and runs Scouts on their schedules, the hub stores what they
-find, the app shows each Scout's Board with a button for every action, and the synthesis step ranks and sums up the
-list. Scouts that run on the hub aren't built yet. The work is tracked in the
-[v0.7 Scouts milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/9).
+A Kingdom finds and runs Scouts on their schedules, the hub stores what they find, the app shows each Scout's Board
+with a button for every action, the synthesis step ranks and sums up the list, and [Patrols](PATROLS.md) post their
+runs to a Board. Scouts that run on the hub aren't built yet
+([#234](https://github.com/crystal-bridge/crystal-bridge/issues/234)).
 :::
 
 A **Scout** is a job you define on a Kingdom. It runs a script of yours on a schedule, the script prints what it found as

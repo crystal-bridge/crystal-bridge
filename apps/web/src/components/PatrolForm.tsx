@@ -417,7 +417,7 @@ export function PatrolForm({
                 {patrol ? `Folder patrols/${folder}/` : `Saved on the ${w('kingdom')} as patrols/${folder}/`}
               </p>
               {draft.board && (
-                <p className="text-xs text-neutral-500">{`Reports each run to the ${draft.board} ${w('board')}.`}</p>
+                <p className="text-xs text-neutral-500">{`Reports each run to the ${draft.boardName ?? draft.board} ${w('board')}.`}</p>
               )}
             </Field>
             <div className="space-y-1">

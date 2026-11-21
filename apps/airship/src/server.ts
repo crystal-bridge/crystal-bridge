@@ -1304,16 +1304,22 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     if (!patrolDraftNodes.has(node))
       return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
-    const item = store
+    // A draft is only for the form, which the Kingdom would refuse to save.
+    if (!patrolEditNodes.has(node))
+      return reply
+        .code(409)
+        .send({ error: 'this Kingdom keeps its Patrols to files, so the app can’t make one there' });
+    const stored = store
       .board(node, scout, now)
       ?.items.find((one) => one.id === wanted.data.id && one.goneAt === undefined);
-    if (!item) return reply.code(409).send({ error: 'that item is no longer on the Board' });
+    const item = stored === undefined ? undefined : ScoutItem.safeParse(stored);
+    if (!item?.success) return reply.code(409).send({ error: 'that item is no longer on the Board' });
     const answer = await askKingdom(socket, node, {
       kind: 'patrol-draft',
       requestId: randomUUID(),
       scout,
       action: wanted.data.action,
-      item: ScoutItem.parse(item),
+      item: item.data,
     });
     if (answer.draft) return { draft: answer.draft };
     return reply.code(answer.refused ? 400 : 409).send({ error: answer.reason ?? 'the Kingdom gave no draft' });
@@ -1615,6 +1621,16 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           waiting.finish(
             draft ? { ok: true, draft } : { ok: false, refused: true, reason: reason ?? 'the Kingdom gave no draft' },
           );
+          return;
+        }
+
+        // A draft answer that doesn't fit, from a Kingdom that disagrees about the schema, fails the ask now rather than
+        // leaving it to time out.
+        const badDraft = parsed as { kind?: unknown; requestId?: unknown };
+        if (badDraft.kind === 'patrol-drafted' && typeof badDraft.requestId === 'string') {
+          const waiting = kingdomAsks.get(badDraft.requestId);
+          if (waiting?.node === helloNode)
+            waiting.finish({ ok: false, reason: 'the Kingdom’s draft doesn’t fit a Patrol' });
           return;
         }
 

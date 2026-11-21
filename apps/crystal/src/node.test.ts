@@ -756,8 +756,9 @@ describe('startNode', () => {
       const draft = vi
         .fn()
         .mockReturnValueOnce({ ok: true, draft: { project: '/repo', promptText: 'Fix it.', mode: 'plan' } })
-        .mockReturnValueOnce({ ok: false, reason: 'Archive starts no Quest to patrol' });
-      createNode({ scouts: { ...fakeScouts(), draft } });
+        .mockReturnValueOnce({ ok: false, reason: 'Archive starts no Quest to patrol' })
+        .mockReturnValueOnce({ ok: true, draft: { project: '/repo', promptText: 'Look.' } });
+      createNode({ scouts: { ...fakeScouts(), draft }, defaultMode: 'acceptEdits' });
       const conn = await nextConnection(harness, 0);
       await waitForFrame(conn, (frame) => frame.kind === 'hello');
       const ask = { kind: 'patrol-draft', scout: 'quest-board', action: 'fix', item: items[0] };
@@ -773,6 +774,12 @@ describe('startNode', () => {
       expect(
         await waitForFrame(conn, (frame) => frame.kind === 'patrol-drafted' && frame.requestId === second),
       ).toEqual({ kind: 'patrol-drafted', requestId: second, reason: 'Archive starts no Quest to patrol' });
+      // An action that names no mode starts its Quest in this Kingdom's default, so its draft says that mode.
+      const third = randomUUID();
+      conn.socket.send(JSON.stringify({ ...ask, requestId: third }));
+      expect(
+        await waitForFrame(conn, (frame) => frame.kind === 'patrol-drafted' && frame.requestId === third),
+      ).toMatchObject({ draft: { project: '/repo', promptText: 'Look.', mode: 'acceptEdits' } });
       expect(draft.mock.calls[0]![0]).toMatchObject({ scout: 'quest-board', action: 'fix' });
       expect(created).toHaveLength(0);
     });

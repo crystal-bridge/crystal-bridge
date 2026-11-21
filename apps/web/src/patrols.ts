@@ -204,7 +204,9 @@ export async function draftPatrol(node: string, scout: string, action: string, i
       id,
     },
   );
-  return ((await response.json()) as { draft: PatrolDraft }).draft;
+  const { draft } = (await response.json()) as { draft?: PatrolDraft };
+  if (!draft?.project || !draft.promptText) throw new Error('the Kingdom gave no draft');
+  return draft;
 }
 
 /** Marks a Patrol's run done on its Board, or not done again; every open Board hears the change. */

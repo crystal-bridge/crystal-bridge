@@ -205,7 +205,9 @@ as with any Patrol.
 
 The item's text is copied into the Patrol's prompt as it was then, and the Patrol runs it with nobody watching, every
 time. Read the prompt before you save, and keep the mode one you'd trust with that item's author's words: the item stays
-marked as untrusted data, but the permission mode is what holds the line. An item whose prompt would be over 20000
+marked as untrusted data, but the permission mode is what holds the line. The form starts in the action's `mode`, or the
+Kingdom's default mode when the action names none, as the button's Quest would; for items others wrote, prefer `manual`
+or `plan`, where a prompt nobody answers is denied after `waitForYou`. An item whose prompt would be over 20000
 characters can't be kept as a Patrol.
 
 ## Who holds what

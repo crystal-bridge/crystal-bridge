@@ -974,6 +974,13 @@ describe('BoardPage', () => {
         fireEvent.click(button);
       });
       expect(onPatrolThis).toHaveBeenCalledWith('fix', expect.objectContaining({ id: '1' }));
+      // Held while it asks, so a second press doesn't ask twice.
+      let finish!: () => void;
+      onPatrolThis.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
+      fireEvent.click(button);
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => finish());
+      expect((button as HTMLButtonElement).disabled).toBe(false);
       onPatrolThis.mockRejectedValueOnce(new Error('update this Kingdom first'));
       await act(async () => {
         fireEvent.click(button);

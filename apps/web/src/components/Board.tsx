@@ -819,7 +819,7 @@ export function BoardPage({
   const patrolThis = onPatrolThis
     ? (action: string, item: BoardItem) => {
         setError(null);
-        onPatrolThis(action, item).catch((failure: unknown) =>
+        return onPatrolThis(action, item).catch((failure: unknown) =>
           setError(failure instanceof Error ? failure.message : String(failure)),
         );
       }

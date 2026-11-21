@@ -1100,7 +1100,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       }
       wsSend(
         (answer.ok
-          ? { kind: 'patrol-drafted', requestId, draft: answer.draft }
+          ? // The Quest this button starts runs in the Kingdom's default mode when the action names none; so does its Patrol.
+            { kind: 'patrol-drafted', requestId, draft: { ...answer.draft, mode: answer.draft.mode ?? defaultMode } }
           : { kind: 'patrol-drafted', requestId, reason: answer.reason.slice(0, 2000) }) satisfies NodePatrolDrafted,
       );
       return;
