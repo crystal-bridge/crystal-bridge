@@ -27,7 +27,7 @@ levels they carry no Quest titles or text.
 ## Deleting data
 
 - **One Quest:** there's no delete button yet. With the hub stopped, delete that Quest's rows from `events`, `relay`,
-  `casts` and `seen` (by the `session` column) and `sessions` (by `id`) with any SQLite tool, then start the hub. Its copies in the backups expire as the
+  `casts`, `seen` and `errands` (by the `session` column) and `sessions` (by `id`) with any SQLite tool, then start the hub. Its copies in the backups expire as the
   backups rotate.
 - **One Scout,** such as one you took off its Kingdom: with the hub stopped, delete its rows from `scouts`, `scout_runs` and `scout_items` (by the `node`
   and `id` or `scout` columns), then start the hub. A Kingdom that still has the Scout reports it again.
