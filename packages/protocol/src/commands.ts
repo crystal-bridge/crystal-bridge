@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Appearance } from './appearance.js';
 import { Envelope } from './envelope.js';
+import { ErrandsFrame } from './errands.js';
 import { Effort, Engine, PermissionMode } from './mode.js';
 import { PatrolRunsFrame, PatrolsFrame } from './patrols.js';
 import { BoardFrame, BoardItemsFrame, ScoutsFrame } from './scouts.js';
@@ -474,6 +475,8 @@ export const HubToClient = z.discriminatedUnion('kind', [
   PatrolsFrame,
   /** A Patrol's run started or ended; clients that don't know this frame ignore it. */
   PatrolRunsFrame,
+  /** A Kingdom's Errands changed; clients that don't know this frame ignore it. */
+  ErrandsFrame,
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
 

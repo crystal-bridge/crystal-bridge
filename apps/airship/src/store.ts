@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { type Boards, openBoards } from './boards.js';
+import { errandProject, openErrands, type Errands } from './errands.js';
 import { openPatrols, type Patrols } from './patrols.js';
 import { migrate } from './migrations.js';
 import { makePrivate } from './paths.js';
@@ -12,6 +13,7 @@ import {
   PermissionMode,
   Engine,
   type Envelope,
+  ErrandLeftPayload,
   PushPrefs,
   PushSubscriptionJson,
   QuestTitledPayload,
@@ -102,6 +104,7 @@ const SEARCH_BUDGET_MS = 5000;
 
 export { GONE_ITEMS_KEPT_MS, SCOUT_RUNS_KEPT, SCOUT_RUNS_SHOWN } from './boards.js';
 export { PATROL_RUNS_KEPT, PATROL_RUNS_SHOWN } from './patrols.js';
+export { ERRANDS_KEPT_MS, errandProject } from './errands.js';
 
 /** An open Quest that finished a turn or failed since the login last had it in view. */
 export interface UnseenQuest {
@@ -113,7 +116,7 @@ export interface UnseenQuest {
 }
 
 /** Everything the hub keeps, Scouts' Boards (`boards.ts`) and Patrols (`patrols.ts`) included. */
-export interface Store extends Boards, Patrols {
+export interface Store extends Boards, Patrols, Errands {
   /** Stores an event; false for a duplicate. Throws `BadEvent` for one that can never be stored. */
   appendEvent(event: Envelope): boolean;
   eventsSince(session: string, seq: number): Envelope[];
@@ -132,6 +135,8 @@ export interface Store extends Boards, Patrols {
   markSeen(login: string, session: string): void;
   /** Adds bytes relayed to clients, per session, in one transaction. */
   addRelayed(bytes: ReadonlyMap<string, number>): void;
+  /** Whether any Quest is stored for this Kingdom, so the hub knows it even when it is offline and untokened. */
+  knowsNode(node: string): boolean;
   /** Deletes everything held for a node, in one transaction, and returns the ids of the sessions that went. */
   forgetNode(node: string): string[];
   /**
@@ -361,6 +366,7 @@ export function openStore(path: string): Store {
     for (const [session, n] of bytes) if (n > 0) addRelayedStmt.run(session, n);
   });
   const nodeSessionsStmt = db.prepare(`SELECT id FROM sessions WHERE node = ?`);
+  const knowsNodeStmt = db.prepare(`SELECT 1 FROM sessions WHERE node = ? LIMIT 1`);
   const forgetRelayStmt = db.prepare(`DELETE FROM relay WHERE session IN (SELECT id FROM sessions WHERE node = ?)`);
   const forgetEventsStmt = db.prepare(`DELETE FROM events WHERE node = ?`);
   const forgetSessionsStmt = db.prepare(`DELETE FROM sessions WHERE node = ?`);
@@ -400,10 +406,12 @@ export function openStore(path: string): Store {
   const forgetCastsStmt = db.prepare(`DELETE FROM casts WHERE node = ?`);
   const boards = openBoards(db);
   const patrols = openPatrols(db);
+  const errands = openErrands(db);
   const forgetNodeTxn = db.transaction((node: string): string[] => {
     const ids = (nodeSessionsStmt.all(node) as { id: string }[]).map((row) => row.id);
     boards.forgetBoards(node);
     patrols.forgetPatrols(node);
+    errands.forgetErrands(node);
     forgetCastsStmt.run(node);
     forgetRelayStmt.run(node);
     forgetSeenStmt.run(node);
@@ -411,9 +419,6 @@ export function openStore(path: string): Store {
     forgetSessionsStmt.run(node);
     return ids;
   });
-  const startedPayloadStmt = db.prepare(
-    `SELECT payload FROM events WHERE session = ? AND type = 'session.started' ORDER BY seq LIMIT 1`,
-  );
   const getSessionStmt = db.prepare(
     `SELECT id, node, cwd, label, plain_label, status, created_at FROM sessions WHERE id = ?`,
   );
@@ -458,6 +463,18 @@ export function openStore(path: string): Store {
     noteUsage(row.node, row.ts, JSON.parse(row.payload));
   }
 
+  const startedPayloadStmt = db.prepare(
+    `SELECT payload FROM events WHERE session = ? AND type = 'session.started' ORDER BY seq LIMIT 1`,
+  );
+  const StartedWhere = z.object({ cwd: z.string(), worktree: z.object({ root: z.string() }).optional() });
+  /** Where a Quest started, as the project its Errands group under. */
+  function questProject(session: string): string | undefined {
+    const row = startedPayloadStmt.get(session) as { payload: string } | undefined;
+    if (!row) return undefined;
+    const where = StartedWhere.safeParse(JSON.parse(row.payload)).data;
+    return where ? errandProject(where.cwd, where.worktree?.root) : undefined;
+  }
+
   const appendEventTxn = db.transaction((event: Envelope): boolean => {
     const result = insertEventStmt.run({
       session: event.session,
@@ -493,6 +510,19 @@ export function openStore(path: string): Store {
       // Kept as an event even when unreadable, like any type the hub doesn't know: only the label waits for a good one.
       const title = QuestTitledPayload.safeParse(event.payload).data;
       if (title) titleStmt.run(title.title, title.plain, event.session);
+    } else if (event.type === 'errand.left') {
+      // Kept as an event even when unreadable, like quest.titled: only the row waits for a good one.
+      const left = ErrandLeftPayload.safeParse(event.payload).data;
+      if (left) {
+        errands.recordErrandLeft({
+          ...left,
+          node: event.node,
+          session: event.session,
+          seq: event.seq,
+          ts: event.ts,
+          project: questProject(event.session),
+        });
+      }
     }
     return true;
   });
@@ -528,6 +558,7 @@ export function openStore(path: string): Store {
   return {
     ...boards,
     ...patrols,
+    ...errands,
     appendEvent(event) {
       try {
         return appendEventTxn(event);
@@ -567,6 +598,9 @@ export function openStore(path: string): Store {
     },
     markCastDelivered(id) {
       castDeliveredStmt.run(id);
+    },
+    knowsNode(node) {
+      return knowsNodeStmt.get(node) !== undefined;
     },
     forgetNode(node) {
       const ids = forgetNodeTxn(node);

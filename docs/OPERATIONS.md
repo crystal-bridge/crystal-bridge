@@ -296,9 +296,10 @@ a Castle does the hub's half: it revokes the token and cuts the connection, and 
 machine. A removed Kingdom's Quests stay as history, so its tab stays until you hide it in Config or forget it.
 
 Forget, on a removed Kingdom's Castle, is optional and can't be undone: once you type the Kingdom's name it deletes
-that Kingdom's Quests from the hub (sessions, events and relay counts), and the tab goes with them. The hub refuses
+that Kingdom's data from the hub: its Quests (sessions, events, relay counts and read marks), Casts, Scouts (with their
+runs and items), Patrols (with their runs) and Errands. The tab goes with them. The hub refuses
 while the Kingdom holds a token or a connection. It deletes only the hub's copy: transcripts stay on the machine, and
-existing backups keep the Quests until they age out.
+existing backups keep that data until they age out.
 
 ### Restarting a Kingdom
 
@@ -504,6 +505,15 @@ A restore loses only what happened after that backup; Crystals resend events the
 - Update the hub before the Kingdoms. A Kingdom that names its Quests on an older hub still runs, but its Quests keep
   the first words of their prompt, as before.
 - The release that added it applied migration 12, so rolling back past it refuses to start (see Rolling back).
+
+## Errands
+
+- A Kingdom's Errands are kept on the hub in `errands` (migration 13), written from a Quest's `errand.left` events or by
+  hand.
+- Update the hub before the Kingdoms. An older hub stores `errand.left` as an event it doesn't know and shows no Errand;
+  the steps are still in the Quest's reply.
+- The release that added it applied migration 13, so rolling back past it refuses to start (see
+  [Rolling back](#rolling-back)).
 
 ## Done until viewed
 

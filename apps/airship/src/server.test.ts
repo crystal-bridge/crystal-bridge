@@ -6,7 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import { ClientMessage, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
+import { ClientMessage, ErrandsFrame, MAX_OPEN_ERRANDS, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
 import type { Attention, Cast, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
@@ -15,7 +15,7 @@ import { loadHubSettings } from './hub-settings.js';
 import type { UpdateStatus } from './updater.js';
 import { buildServer, REVIVE_TEXT, wakeText } from './server.js';
 import type { NodeRegistry } from './nodes.js';
-import { openStore, type SessionRow, type Store } from './store.js';
+import { ERRANDS_KEPT_MS, openStore, type SessionRow, type Store } from './store.js';
 
 function makeEnvelope(overrides: Partial<Envelope> = {}): Envelope {
   return {
@@ -970,6 +970,171 @@ describe('airship server', () => {
       await listed();
       store.forgetNode('node-a');
       expect((await json(await fetch(`${baseUrl}/api/nodes/node-a/patrols`))).body).toMatchObject({ patrols: [] });
+    });
+  });
+
+  describe('Errands (#288)', () => {
+    const ERRAND = '44444444-4444-4444-8444-444444444444';
+    const SESSION = '22222222-2222-4222-8222-222222222222';
+    const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
+    const call = (method: string, path: string, body?: unknown) =>
+      fetch(`${baseUrl}${path}`, {
+        method,
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      });
+    const isErrands = (frame: Record<string, unknown>) => frame.kind === 'errands' && frame.node === 'node-a';
+
+    async function leaving() {
+      const node = await connectNode('node-a');
+      send(node.socket, sessionStartedEnvelope(SESSION, 'node-a'));
+      await node.frames.waitFor((frame) => frame.kind === 'ack');
+      return node;
+    }
+
+    it('lists a Kingdom’s Errands and sends a frame when a Quest leaves one', async () => {
+      const node = await leaving();
+      const client = await connectClient();
+      send(
+        node.socket,
+        makeEnvelope({
+          session: SESSION,
+          node: 'node-a',
+          seq: 1,
+          type: 'errand.left',
+          payload: { id: ERRAND, title: 'Run the smoke test', body: 'Run `pnpm smoke`.' },
+        }),
+      );
+      const frame = await client.frames.waitFor(isErrands);
+      const row = expect.objectContaining({ id: ERRAND, title: 'Run the smoke test', by: 'quest', state: 'open' });
+      expect(frame.errands).toEqual([row]);
+      expect((await json(await call('GET', '/api/nodes/node-a/errands'))).body).toEqual({ errands: [row] });
+      expect((await json(await call('GET', '/api/errands/counts'))).body).toEqual({ 'node-a': 1 });
+    });
+
+    it('adds one by hand', async () => {
+      await leaving();
+      const client = await connectClient();
+      const made = await json(
+        await call('POST', '/api/nodes/node-a/errands', { title: ' Renew the certificate ', project: '/r/lantern' }),
+      );
+      expect(made.status).toBe(201);
+      expect((made.body as { errand: unknown }).errand).toMatchObject({
+        title: 'Renew the certificate',
+        project: '/r/lantern',
+        by: 'you',
+      });
+      const frame = await client.frames.waitFor(isErrands);
+      expect(frame.errands).toHaveLength(1);
+      expect((await call('POST', '/api/nodes/node-a/errands', { title: '' })).status).toBe(400);
+      expect((await call('POST', '/api/nodes/node-a/errands', { title: 'x', body: 'y'.repeat(8001) })).status).toBe(
+        400,
+      );
+      expect((await call('POST', '/api/nodes/nowhere/errands', { title: 'x' })).status).toBe(404);
+    });
+
+    it('refuses Add Errand at the cap', async () => {
+      await leaving();
+      for (let i = 0; i < MAX_OPEN_ERRANDS; i++) store.addErrand('node-a', { title: `t${i}`, body: '' }, i);
+      const refused = await json(await call('POST', '/api/nodes/node-a/errands', { title: 'one more' }));
+      expect(refused.status).toBe(409);
+      expect(refused.body).toEqual({
+        error: 'a Kingdom keeps at most 500 open Errands; tick or dismiss some first',
+      });
+      expect(store.errands('node-a')).toHaveLength(MAX_OPEN_ERRANDS);
+    });
+
+    async function added() {
+      await leaving();
+      const made = await json(await call('POST', '/api/nodes/node-a/errands', { title: 'Renew the certificate' }));
+      return (made.body as { errand: { id: string } }).errand.id;
+    }
+
+    async function goOffline() {
+      const node = sockets[0]!;
+      const closed = new Promise((resolve) => node.once('close', resolve));
+      node.close();
+      await closed;
+      const start = Date.now();
+      while (((await (await fetch(`${baseUrl}/api/nodes`)).json()) as string[]).includes('node-a')) {
+        if (Date.now() - start > 2000) throw new Error('timed out');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+
+    it('edits one', async () => {
+      const id = await added();
+      const client = await connectClient();
+      send(client.socket, { kind: 'ping' });
+      await client.frames.waitFor((frame) => frame.kind === 'pong');
+      const edited = await json(
+        await call('PUT', `/api/nodes/node-a/errands/${id}`, { title: 'Renew it', body: 'Soon' }),
+      );
+      expect(edited.status).toBe(200);
+      expect((edited.body as { errand: unknown }).errand).toMatchObject({ id, title: 'Renew it', body: 'Soon' });
+      const frame = ErrandsFrame.parse(await client.frames.waitFor(isErrands));
+      expect(frame.errands).toEqual([expect.objectContaining({ id, title: 'Renew it', body: 'Soon' })]);
+      expect((await call('PUT', `/api/nodes/node-a/errands/${ERRAND}`, { title: 'a', body: '' })).status).toBe(404);
+      expect((await call('PUT', '/api/nodes/node-a/errands/nope', { title: 'a', body: '' })).status).toBe(400);
+      expect((await call('PUT', `/api/nodes/node-a/errands/${id}`, { title: '', body: '' })).status).toBe(400);
+    });
+
+    it('ticks, dismisses and reopens one', async () => {
+      const id = await added();
+      const state = (value: string) => call('PUT', `/api/nodes/node-a/errands/${id}/state`, { state: value });
+      const done = await json(await state('done'));
+      expect(done.status).toBe(200);
+      expect((done.body as { errand: { state: string } }).errand.state).toBe('done');
+      expect((done.body as { errand: { closed?: number } }).errand.closed).toBeTypeOf('number');
+      expect((await state('closed')).status).toBe(400);
+      expect((await json(await call('GET', '/api/errands/counts'))).body).toEqual({});
+      const open = await json(await state('open'));
+      expect((open.body as { errand: { closed?: number } }).errand.closed).toBeUndefined();
+      expect((await json(await call('GET', '/api/errands/counts'))).body).toEqual({ 'node-a': 1 });
+    });
+
+    it('adds one by hand while a Kingdom with Quests is offline', async () => {
+      await added();
+      await goOffline();
+      const made = await json(await call('POST', '/api/nodes/node-a/errands', { title: 'From the phone' }));
+      expect(made.status).toBe(201);
+      expect(store.errands('node-a')).toHaveLength(2);
+    });
+
+    it('sends a frame with the new state, and refuses a bad id', async () => {
+      const id = await added();
+      const client = await connectClient();
+      send(client.socket, { kind: 'ping' });
+      await client.frames.waitFor((frame) => frame.kind === 'pong');
+      const state = (path: string) => call('PUT', `/api/nodes/node-a/errands/${path}/state`, { state: 'done' });
+      expect((await state(id)).status).toBe(200);
+      const frame = ErrandsFrame.parse(await client.frames.waitFor(isErrands));
+      expect(frame.errands).toEqual([expect.objectContaining({ id, state: 'done' })]);
+      expect((await state('nope')).status).toBe(400);
+      expect((await state(ERRAND)).status).toBe(404);
+    });
+
+    it('works while the Kingdom is offline', async () => {
+      const id = await added();
+      await goOffline();
+      expect((await call('PUT', `/api/nodes/node-a/errands/${id}/state`, { state: 'done' })).status).toBe(200);
+    });
+
+    it('tells clients when a forgotten Kingdom’s Errands go', async () => {
+      await added();
+      await goOffline();
+      const client = await connectClient();
+      send(client.socket, { kind: 'ping' });
+      await client.frames.waitFor((frame) => frame.kind === 'pong');
+      expect((await call('DELETE', '/api/nodes/node-a/quests')).status).toBe(204);
+      const frame = await client.frames.waitFor(isErrands);
+      expect(ErrandsFrame.parse(frame)).toEqual({ kind: 'errands', node: 'node-a', errands: [] });
+    });
+
+    it('deletes a forgotten Kingdom’s Errands', async () => {
+      await added();
+      await goOffline();
+      expect((await call('DELETE', '/api/nodes/node-a/quests')).status).toBe(204);
+      expect((await json(await call('GET', '/api/nodes/node-a/errands'))).body).toEqual({ errands: [] });
     });
   });
 
@@ -3398,6 +3563,16 @@ describe('airship server with node tokens', () => {
     store.close();
   });
 
+  it('takes an Errand for a Kingdom known only by its token, while it is offline', async () => {
+    const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/node-a/errands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Before it ever connects' }),
+    });
+    expect(response.status).toBe(201);
+    expect(store.errands('node-a')).toHaveLength(1);
+  });
+
   function dial(token?: string): Promise<{ socket?: WebSocket; status?: number }> {
     return new Promise((resolve) => {
       const socket = new WebSocket(`${wsUrl}/node`, token ? { headers: { authorization: `Bearer ${token}` } } : {});
@@ -4196,5 +4371,38 @@ describe('airship server appearance without tailnet logins', () => {
     expect(await (await fetch(`${base}/api/appearance`)).json()).toEqual({ tabStyle: 'tinted' });
     await app.close();
     store.close();
+  });
+});
+
+describe('airship server: Errands kept 30 days', () => {
+  it('deletes Errands closed over 30 days ago when it starts, and again on its timer', async () => {
+    const store = openStore(':memory:');
+    const old = store.addErrand('node-a', { title: 'Old one', body: '' }, Date.now())!;
+    store.setErrandState('node-a', old.id, 'done', Date.now() - ERRANDS_KEPT_MS - 1000);
+    const open = store.addErrand('node-a', { title: 'Open one', body: '' }, Date.now())!;
+    const app = await buildServer({ store, errandPurgeMs: 50 });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    let socket: WebSocket | undefined;
+    try {
+      const listed = (await (await fetch(`${baseUrl}/api/nodes/node-a/errands`)).json()) as {
+        errands: { id: string }[];
+      };
+      expect(listed.errands.map((errand) => errand.id)).toEqual([open.id]);
+
+      socket = new WebSocket(`${baseUrl.replace('http:', 'ws:')}/client`);
+      const client = new FrameRecorder(socket);
+      await new Promise((resolve) => socket!.once('open', resolve));
+      // A pong means the hub has registered this client, so the purge's frame can't pass it by.
+      socket.send(JSON.stringify({ kind: 'ping' }));
+      await client.waitFor((f) => f.kind === 'pong');
+      store.setErrandState('node-a', open.id, 'done', 1000);
+      const frame = await client.waitFor((f) => f.kind === 'errands' && f.node === 'node-a');
+      expect(ErrandsFrame.parse(frame).errands).toEqual([]);
+    } finally {
+      socket?.terminate();
+      await app.close();
+      store.close();
+    }
   });
 });

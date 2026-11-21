@@ -109,6 +109,19 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE sessions ADD COLUMN plain_label TEXT;
   ALTER TABLE sessions ADD COLUMN label_by_hand INTEGER NOT NULL DEFAULT 0;
   `,
+
+  // 13: Errands (docs/ERRANDS.md, #288). Steps a Quest (or you) left, per Kingdom. A Quest's come from its
+  // `errand.left` events, written only if no row has the key, so a repeat never refuses the event. `left_by` is quest
+  // or you; `closed` is when it was last ticked done or dismissed, and the hub deletes those 30 days later.
+  `
+  CREATE TABLE errands (
+    node TEXT NOT NULL, id TEXT NOT NULL, session TEXT, seq INTEGER, project TEXT,
+    title TEXT NOT NULL, body TEXT NOT NULL, state TEXT NOT NULL, left_by TEXT NOT NULL,
+    created INTEGER NOT NULL, updated INTEGER NOT NULL, closed INTEGER,
+    PRIMARY KEY (node, id)
+  ) WITHOUT ROWID;
+  CREATE INDEX errands_session ON errands (session, seq);
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

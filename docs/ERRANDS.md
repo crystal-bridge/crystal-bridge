@@ -3,7 +3,7 @@
 A Quest comes back from the road with a few chores it couldn't do for you.
 
 ::: warning Planned
-This page is the agreed design; none of it is built yet. The work is tracked in the
+The hub part is built: it keeps, lists and deletes Errands. The `errand` tool and the app are planned. The work is tracked in the
 [v0.9 Errands and Deeds milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/11) and #288.
 :::
 
@@ -70,13 +70,14 @@ so a repeated or malformed event never refuses the event itself.
 | `project`         | a project folder; empty for one made by hand without one                   |
 | `title`, `body`   | as given, edited by hand later if you choose                               |
 | `state`           | `open`, `done` or `dismissed`                                              |
-| `by`              | `quest` or `you`                                                           |
-| `created`, `updated`, `closed` | times; `closed` is when it was last ticked done or dismissed |
+| `left_by`         | who left it: `quest` or `you`                                              |
+| `created`, `updated`, `closed` | times; `closed` is when it was closed (ticked done or dismissed); a later change between done and dismissed keeps it |
 
 Clients read a Kingdom's Errands over HTTP, and get each change as an additive `errands` frame, so every device sees a
 tick at once. Older clients ignore the frame.
 
-**Keep:** open Errands stay until you act on them. Done and dismissed ones fold away and are deleted 30 days after they
+**Keep:** open Errands stay until you act on them, up to 500 open per Kingdom: past that the hub drops a Quest's new
+Errands (the event is still stored) and refuses Add Errand until you tick or dismiss some. Done and dismissed ones fold away and are deleted 30 days after they
 were closed, counted from `closed`. The fold says so. Forgetting a Kingdom deletes its Errands, and closing a Quest keeps
 them. [What Crystal Bridge stores](HUB-DATA.md) gains an `errands` row when this ships.
 

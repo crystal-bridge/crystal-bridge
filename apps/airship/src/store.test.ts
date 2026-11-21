@@ -14,8 +14,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Envelope } from '@crystal-bridge/protocol';
+import { ErrandsFrame, MAX_OPEN_ERRANDS, type Envelope } from '@crystal-bridge/protocol';
 import {
+  ERRANDS_KEPT_MS,
+  errandProject,
   GONE_ITEMS_KEPT_MS,
   openStore,
   PATROL_RUNS_KEPT,
@@ -85,6 +87,21 @@ describe('store', () => {
     expect(store.latestUsage().map((u) => u.node)).not.toContain('gone');
     expect(store.eventsSince(kept, -1)).toHaveLength(1);
     expect(store.listSessions()[0]?.relayedBytes).toBe(20);
+  });
+
+  it('knows a Kingdom by its stored Quests', () => {
+    expect(store.knowsNode('seen')).toBe(false);
+    store.appendEvent(
+      makeEnvelope({
+        node: 'seen',
+        session: randomUUID(),
+        seq: 0,
+        type: 'session.started',
+        payload: { cwd: '/a', prompt: 'a', label: 'a' },
+      }),
+    );
+    expect(store.knowsNode('seen')).toBe(true);
+    expect(store.knowsNode('unseen')).toBe(false);
   });
 
   it('forgetting a node it has never heard of changes nothing', () => {
@@ -1323,5 +1340,275 @@ describe('Patrols', () => {
     store.putPatrols('a', [patrol]);
     expect(store.patrolRuns('a', 'backup-check')).toEqual([]);
     expect(store.patrolRuns('b', 'backup-check')).toHaveLength(1);
+  });
+});
+
+describe('Errands (#288)', () => {
+  const node = 'node-a';
+  const project = '/r/lantern';
+  const left = (id: string, extra: Record<string, unknown> = {}) => ({
+    node,
+    id,
+    session: randomUUID(),
+    seq: 3,
+    ts: 100,
+    project,
+    title: 'Check the lamp oil',
+    body: 'Before the next trip.',
+    ...extra,
+  });
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  it('works out an Errand’s project from a Quest’s folder', () => {
+    expect(errandProject('/r/lantern')).toBe('/r/lantern');
+    expect(errandProject('/r/lantern/.worktrees/abcd1234', '/r/lantern')).toBe('/r/lantern');
+    expect(errandProject('/r/lantern/.worktrees/abcd1234')).toBe('/r/lantern');
+    expect(errandProject('C:\\r\\lantern\\.worktrees\\abcd1234')).toBe('C:\\r\\lantern');
+    expect(errandProject('/r/lantern/.worktrees/notours')).toBe('/r/lantern/.worktrees/notours');
+  });
+
+  it('keeps an Errand a Quest left, once', () => {
+    const one = left(randomUUID());
+    store.recordErrandLeft(one);
+    store.recordErrandLeft(one);
+    expect(store.errands(node)).toEqual([
+      {
+        id: one.id,
+        session: one.session,
+        seq: 3,
+        project,
+        title: one.title,
+        body: one.body,
+        state: 'open',
+        by: 'quest',
+        created: 100,
+        updated: 100,
+      },
+    ]);
+  });
+
+  it('adds one by hand, with or without a project', () => {
+    const made = store.addErrand(node, { title: 'Renew the certificate', body: '' }, 200)!;
+    expect(made).toEqual({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      title: 'Renew the certificate',
+      body: '',
+      state: 'open',
+      by: 'you',
+      created: 200,
+      updated: 200,
+    });
+    const scoped = store.addErrand(node, { title: 'Sweep', body: 'x', project }, 201)!;
+    expect(scoped.project).toBe(project);
+    expect(store.errands(node)).toHaveLength(2);
+  });
+
+  it('lists a Kingdom’s own, newest first', () => {
+    const first = store.addErrand(node, { title: 'first', body: '' }, 1)!;
+    const second = store.addErrand(node, { title: 'second', body: '' }, 2)!;
+    store.addErrand('node-b', { title: 'other', body: '' }, 3);
+    expect(store.errands(node).map((e) => e.id)).toEqual([second.id, first.id]);
+  });
+
+  it('edits title and body, and says when', () => {
+    const made = store.addErrand(node, { title: 'old', body: 'old' }, 100)!;
+    expect(store.editErrand(node, made.id, { title: 'new', body: 'newer' }, 300)).toEqual({
+      ...made,
+      title: 'new',
+      body: 'newer',
+      updated: 300,
+    });
+    expect(store.editErrand(node, randomUUID(), { title: 'x', body: '' }, 300)).toBeUndefined();
+    expect(store.editErrand('node-b', made.id, { title: 'x', body: '' }, 300)).toBeUndefined();
+  });
+
+  it('ticks, dismisses and reopens, keeping when it closed', () => {
+    const made = store.addErrand(node, { title: 't', body: '' }, 100)!;
+    expect(store.setErrandState(node, made.id, 'done', 400)).toMatchObject({
+      state: 'done',
+      closed: 400,
+      updated: 400,
+    });
+    expect(store.setErrandState(node, made.id, 'dismissed', 500)).toMatchObject({
+      state: 'dismissed',
+      closed: 400,
+      updated: 500,
+    });
+    expect(store.setErrandState(node, made.id, 'done', 600)).toMatchObject({
+      state: 'done',
+      closed: 400,
+      updated: 600,
+    });
+    const reopened = store.setErrandState(node, made.id, 'open', 700);
+    expect(reopened).toMatchObject({ state: 'open', updated: 700 });
+    expect(reopened).not.toHaveProperty('closed');
+    expect(store.setErrandState('node-b', made.id, 'done', 800)).toBeUndefined();
+  });
+
+  it('counts open Errands per Kingdom', () => {
+    store.addErrand(node, { title: 'a', body: '' }, 1);
+    store.addErrand(node, { title: 'b', body: '' }, 2);
+    const done = store.addErrand(node, { title: 'c', body: '' }, 3)!;
+    store.setErrandState(node, done.id, 'done', 4);
+    const other = store.addErrand('node-b', { title: 'd', body: '' }, 5)!;
+    store.setErrandState('node-b', other.id, 'dismissed', 6);
+    expect(store.openErrandCounts()).toEqual({ 'node-a': 2 });
+  });
+
+  it('deletes closed ones 30 days after they closed, and says whose', () => {
+    const old = store.addErrand(node, { title: 'old', body: '' }, 0)!;
+    store.setErrandState(node, old.id, 'done', 0);
+    const recent = store.addErrand(node, { title: 'recent', body: '' }, 0)!;
+    store.setErrandState(node, recent.id, 'dismissed', ERRANDS_KEPT_MS - 1);
+    const open = store.addErrand(node, { title: 'open', body: '' }, 0)!;
+    expect(store.purgeErrands(ERRANDS_KEPT_MS)).toEqual([node]);
+    expect(
+      store
+        .errands(node)
+        .map((e) => e.id)
+        .sort(),
+    ).toEqual([open.id, recent.id].sort());
+    expect(store.purgeErrands(ERRANDS_KEPT_MS)).toEqual([]);
+  });
+
+  it('forgets a Kingdom’s Errands', () => {
+    store.addErrand(node, { title: 'a', body: '' }, 1);
+    store.addErrand('node-b', { title: 'b', body: '' }, 1);
+    store.forgetErrands(node);
+    expect(store.errands(node)).toEqual([]);
+    expect(store.errands('node-b')).toHaveLength(1);
+  });
+
+  describe('from an errand.left event', () => {
+    const start = (session: string, payload: Record<string, unknown>) =>
+      store.appendEvent(makeEnvelope({ node, session, seq: 0, type: 'session.started', payload }));
+    const leave = (session: string, seq: number, payload: unknown, ts = 150) =>
+      store.appendEvent(makeEnvelope({ node, session, seq, ts, type: 'errand.left', payload }));
+
+    it('keeps an Errand a Quest leaves, under the Quest’s project', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      expect(leave(session, 1, { id, title: 'Run the smoke test', body: 'Run `pnpm smoke`.' })).toBe(true);
+      expect(store.errands(node)).toEqual([
+        expect.objectContaining({ id, session, seq: 1, project, created: 150, title: 'Run the smoke test' }),
+      ]);
+    });
+
+    it('groups a worktree Quest’s Errands under its repository', () => {
+      const session = randomUUID();
+      start(session, {
+        cwd: `${project}/.worktrees/abcd1234`,
+        prompt: 'p',
+        label: 'l',
+        worktree: { root: project, branch: 'cb/abcd1234' },
+      });
+      leave(session, 1, { id: randomUUID(), title: 't', body: 'b' });
+      expect(store.errands(node)[0]?.project).toBe(project);
+    });
+
+    it('stores an errand.left it can’t read as an event, and writes no row', () => {
+      const session = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      expect(leave(session, 1, { id: 'nope', title: '' })).toBe(true);
+      expect(store.errands(node)).toEqual([]);
+      expect(store.eventsSince(session, 0).map((e) => e.type)).toContain('errand.left');
+    });
+
+    it('never lets a repeated id refuse the event', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      leave(session, 1, { id, title: 'a', body: '' });
+      expect(leave(session, 2, { id, title: 'b', body: '' })).toBe(true);
+      expect(store.errands(node)).toEqual([expect.objectContaining({ id, seq: 1, title: 'a' })]);
+    });
+
+    it('is deleted with the Kingdom, but not when a Quest closes', () => {
+      const session = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      leave(session, 1, { id: randomUUID(), title: 'a', body: '' });
+      store.appendEvent(makeEnvelope({ node, session, seq: 2, type: 'session.closed', payload: {} }));
+      expect(store.errands(node)).toHaveLength(1);
+      store.forgetNode(node);
+      expect(store.errands(node)).toEqual([]);
+    });
+  });
+
+  it('leaves out a Patrol link that is not a Patrol id, and its output parses', () => {
+    for (const patrol of [5, 'Not A Valid Id']) {
+      const session = randomUUID();
+      store.appendEvent(
+        makeEnvelope({
+          node,
+          session,
+          seq: 1,
+          type: 'session.started',
+          payload: { cwd: project, prompt: 'p', label: 'l', patrol: { patrol, run: randomUUID() } },
+        }),
+      );
+      store.recordErrandLeft(left(randomUUID(), { session }));
+    }
+    const errands = store.errands(node);
+    expect(errands).toHaveLength(2);
+    for (const errand of errands) expect(errand).not.toHaveProperty('patrol');
+    expect(ErrandsFrame.parse({ kind: 'errands', node, errands }).errands).toHaveLength(2);
+  });
+
+  it('keeps at most MAX_OPEN_ERRANDS open per Kingdom', () => {
+    for (let i = 0; i < MAX_OPEN_ERRANDS; i++) {
+      expect(store.addErrand(node, { title: `t${i}`, body: '' }, i)).toBeDefined();
+    }
+    expect(store.openErrandCount(node)).toBe(MAX_OPEN_ERRANDS);
+    expect(store.addErrand(node, { title: 'one more', body: '' }, 1)).toBeUndefined();
+    store.recordErrandLeft(left(randomUUID()));
+    expect(store.errands(node)).toHaveLength(MAX_OPEN_ERRANDS);
+    expect(store.addErrand('node-b', { title: 'other', body: '' }, 1)).toBeDefined();
+    const first = store.errands(node)[0]!;
+    store.setErrandState(node, first.id, 'done', 5);
+    expect(store.addErrand(node, { title: 'room again', body: '' }, 6)).toBeDefined();
+  });
+
+  it('keeps the event when the cap writes no Errand', () => {
+    const session = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        node,
+        session,
+        seq: 0,
+        type: 'session.started',
+        payload: { cwd: project, prompt: 'p', label: 'l' },
+      }),
+    );
+    for (let i = 0; i < MAX_OPEN_ERRANDS; i++) store.addErrand(node, { title: `t${i}`, body: '' }, i);
+    const id = randomUUID();
+    expect(
+      store.appendEvent(
+        makeEnvelope({ node, session, seq: 1, type: 'errand.left', payload: { id, title: 'x', body: '' } }),
+      ),
+    ).toBe(true);
+    expect(store.errands(node).some((e) => e.id === id)).toBe(false);
+    expect(store.eventsSince(session, 0).map((e) => e.type)).toContain('errand.left');
+  });
+
+  it('names the Patrol whose Quest left it', () => {
+    const session = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        node,
+        session,
+        seq: 1,
+        type: 'session.started',
+        payload: { cwd: project, prompt: 'p', label: 'l', patrol: { patrol: 'sweep', run: randomUUID() } },
+      }),
+    );
+    store.recordErrandLeft(left(randomUUID(), { session }));
+    expect(store.errands(node)[0]?.patrol).toBe('sweep');
   });
 });
