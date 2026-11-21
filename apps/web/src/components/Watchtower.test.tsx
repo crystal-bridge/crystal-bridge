@@ -171,4 +171,44 @@ describe('Watchtower', () => {
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(scrolled.mock.contexts[0]).toBe(screen.getByRole('region', { name: 'Backup check runs' }));
   });
+
+  describe('the form', () => {
+    const forms = {
+      onSave: vi.fn(async () => {}),
+      onPreview: vi.fn(async () => [NOW + 3_600_000]),
+      projects: [],
+    };
+
+    it('says each schedule in plain words, with its zone when it isn’t the browser’s', () => {
+      render(<Watchtower state={state([quest(), script()])} now={NOW} zone="UTC" />);
+      expect(
+        within(screen.getByRole('listitem', { name: 'Dependency sweep' })).getByText('Every Tue at 09:00'),
+      ).toBeTruthy();
+      expect(
+        within(screen.getByRole('listitem', { name: 'Backup check' })).getByText('Daily at 03:30 (Europe/Berlin)'),
+      ).toBeTruthy();
+    });
+
+    it('offers New Patrol on a Kingdom that takes Patrols from the app, even before it has one', () => {
+      render(<Watchtower state={state([])} now={NOW} zone="UTC" {...forms} />);
+      fireEvent.click(screen.getByRole('button', { name: /New Patrol/ }));
+      expect(screen.getByRole('region', { name: 'New Patrol' })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('region', { name: 'New Patrol' })).toBeNull();
+    });
+
+    it('edits a Quest Patrol, never a script one, and offers nothing where the Kingdom takes only files', () => {
+      const { rerender } = render(<Watchtower state={state([quest(), script()])} now={NOW} zone="UTC" {...forms} />);
+      expect(
+        within(screen.getByRole('listitem', { name: 'Backup check' })).queryByRole('button', { name: /Edit/ }),
+      ).toBeNull();
+      fireEvent.click(
+        within(screen.getByRole('listitem', { name: 'Dependency sweep' })).getByRole('button', { name: /Edit/ }),
+      );
+      expect(screen.getByRole('region', { name: 'Edit Dependency sweep' })).toBeTruthy();
+      rerender(<Watchtower state={{ ...state([quest()]), editable: false }} now={NOW} zone="UTC" {...forms} />);
+      expect(screen.queryByRole('button', { name: /New Patrol|Edit/ })).toBeNull();
+      expect(screen.queryByRole('region', { name: 'Edit Dependency sweep' })).toBeNull();
+    });
+  });
 });

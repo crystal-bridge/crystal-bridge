@@ -78,7 +78,7 @@ import {
   useBoard,
   useScouts,
 } from './boards.js';
-import { changePatrol, runPatrolNow, usePatrols } from './patrols.js';
+import { changePatrol, previewPatrol, runPatrolNow, savePatrol, usePatrols } from './patrols.js';
 import { BoardPage } from './components/Board.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
@@ -1539,6 +1539,9 @@ export function App({ hub }: { hub: HubClient }) {
                 patrols={patrols}
                 onRunPatrol={(patrol) => runPatrolNow(kingdom.id, patrol)}
                 onChangePatrol={(patrol, op) => changePatrol(kingdom.id, patrol, op)}
+                onSavePatrol={(patrol, manifest) => savePatrol(kingdom.id, patrol, manifest)}
+                onPreviewPatrol={(schedule, signal) => previewPatrol(kingdom.id, schedule, signal)}
+                projects={kingdomProjects}
                 pinnedBoards={new Set(pinnedBoards.map((tab) => tab.id))}
                 onPinBoard={(scout) => pinBoard(kingdom.id, scout, true)}
                 onOpenBoard={(scout) => {

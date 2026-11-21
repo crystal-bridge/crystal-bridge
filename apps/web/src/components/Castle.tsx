@@ -2,7 +2,15 @@ import { type CSSProperties, type ReactNode, useState } from 'react';
 import type { KingdomLook } from '../appearance.js';
 import { KingdomIcon } from './KingdomIcon.js';
 import { hint, postingsLine, w } from '../theme/words.js';
-import type { Engine, ExternalSession, ListedScout, SelfUpdate } from '@crystal-bridge/protocol';
+import type {
+  Engine,
+  ExternalSession,
+  ListedScout,
+  PatrolManifest,
+  Project,
+  Schedule,
+  SelfUpdate,
+} from '@crystal-bridge/protocol';
 import type { Kingdom } from '../kingdoms.js';
 import type { PatrolsState } from '../patrols.js';
 import { isActiveQuest, type UnseenQuest } from '../quests.js';
@@ -61,10 +69,17 @@ export interface CastleProps {
   /** This Kingdom's Scouts, each with a Board; without `onOpenBoard`, no Boards section. */
   scouts?: ListedScout[];
   onOpenBoard?: (scout: string) => void;
-  /** This Kingdom's Patrols and their runs, for the Watchtower; it shows once there is a Patrol. */
+  /**
+   * This Kingdom's Patrols and their runs, for the Watchtower. It shows once there is a Patrol, or on a wide screen
+   * once one can be made: with `onSavePatrol` and `onPreviewPatrol`, on a Kingdom that takes Patrols from the app.
+   */
   patrols?: PatrolsState;
   onRunPatrol?: (patrol: string) => Promise<void>;
   onChangePatrol?: (patrol: string, op: 'pause' | 'resume' | 'delete') => Promise<void>;
+  onSavePatrol?: (patrol: string, manifest: PatrolManifest) => Promise<void>;
+  onPreviewPatrol?: (schedule: Schedule, signal: AbortSignal) => Promise<number[]>;
+  /** The Kingdom's projects, for the Patrol form's picker. */
+  projects?: Project[];
   /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
   pinnedBoards?: ReadonlySet<string>;
   onPinBoard?: (scout: string) => void;
@@ -372,6 +387,9 @@ export function Castle({
   patrols,
   onRunPatrol,
   onChangePatrol,
+  onSavePatrol,
+  onPreviewPatrol,
+  projects,
   pinnedBoards,
   onPinBoard,
   sessions,
@@ -589,7 +607,7 @@ export function Castle({
           </div>
         )}
 
-        {patrols && patrols.patrols.length > 0 && (
+        {patrols && (
           <>
             <div className="hidden md:block">
               <Watchtower
@@ -598,12 +616,18 @@ export function Castle({
                 onRun={onRunPatrol}
                 onChange={onChangePatrol}
                 onOpenQuest={onSelect}
+                onSave={onSavePatrol}
+                onPreview={onPreviewPatrol}
+                projects={projects}
+                engines={engines}
               />
             </div>
             {/* The phone shows Patrols read-only: its actions need their own design there. */}
-            <div className="md:hidden">
-              <Watchtower state={patrols} now={now ?? Date.now()} onOpenQuest={onSelect} />
-            </div>
+            {patrols.patrols.length > 0 && (
+              <div className="md:hidden">
+                <Watchtower state={patrols} now={now ?? Date.now()} onOpenQuest={onSelect} />
+              </div>
+            )}
           </>
         )}
 

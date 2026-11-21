@@ -2,7 +2,15 @@ import type { ListedPatrol, PatrolRun } from '@crystal-bridge/protocol';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HubClient, PatrolsFrame } from './hub.js';
-import { changePatrol, patrolStanding, runPatrolNow, untilText, usePatrols } from './patrols.js';
+import {
+  changePatrol,
+  patrolStanding,
+  previewPatrol,
+  runPatrolNow,
+  savePatrol,
+  untilText,
+  usePatrols,
+} from './patrols.js';
 
 const RUN = '33333333-3333-4333-8333-333333333333';
 const run = (extra: Partial<PatrolRun> = {}): PatrolRun => ({
@@ -228,5 +236,29 @@ describe('Patrol actions', () => {
     const asking = changePatrol('forge', 'sweep', 'pause');
     pending[0]!.answer({ error: 'that Kingdom is offline' }, 404);
     await expect(asking).rejects.toThrow('that Kingdom is offline');
+  });
+
+  it('saves a Patrol with its manifest, and previews a schedule', async () => {
+    const manifest = {
+      name: 'Sweep',
+      schedule: { cron: '0 9 * * *', timezone: 'UTC' },
+      quest: { project: '~/code/app', promptText: 'Sweep.' },
+    };
+    const saving = savePatrol('forge', 'sweep', manifest);
+    const previewing = previewPatrol('forge', manifest.schedule, new AbortController().signal);
+    expect(pending.map((one) => [one.init?.method, one.url, JSON.parse(String(one.init?.body))])).toEqual([
+      ['PUT', '/api/nodes/forge/patrols/sweep', { manifest }],
+      ['POST', '/api/nodes/forge/patrol-preview', { schedule: manifest.schedule, count: 5 }],
+    ]);
+    pending[0]!.answer({}, 202);
+    pending[1]!.answer({ times: [1, 2] }, 200);
+    await saving;
+    await expect(previewing).resolves.toEqual([1, 2]);
+  });
+
+  it('gives a preview’s refusal as the Kingdom’s reason', async () => {
+    const previewing = previewPatrol('forge', { cron: '0 9 * * *', timezone: 'Nowhere' }, new AbortController().signal);
+    pending[0]!.answer({ error: 'schedule: "Nowhere" is no time zone this machine knows' }, 400);
+    await expect(previewing).rejects.toThrow('no time zone');
   });
 });
