@@ -170,6 +170,67 @@ describe('rule schedules', () => {
     expect(performance.now() - began).toBeLessThan(5000);
   });
 
+  it('works out a rule listing every day, hour and minute of the month quickly, and as each minute', () => {
+    // #302: each library step re-expands the month so far, so stepping through a window one run at a time took ~10 s.
+    const list = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, unit) => from + unit).join(',');
+    const rule = `FREQ=MONTHLY;BYMONTHDAY=${list(1, 31)};BYHOUR=${list(0, 23)};BYMINUTE=${list(0, 59)}`;
+    const dense = engine(chicago(rule, '2026-10-01T00:00'));
+    const minutely = engine(chicago('FREQ=MINUTELY', '2026-10-01T00:00'));
+    const began = performance.now();
+    // Late in a month, across the clocks going back (2026-11-01 02:00 CDT) and across a month's end.
+    for (const after of ['2026-10-28T12:00:30Z', '2026-11-01T06:30Z', '2026-11-01T06:59Z', '2026-12-01T05:58Z']) {
+      expect(iso(upcoming(dense, at(after), 5))).toEqual(iso(upcoming(minutely, at(after), 5)));
+    }
+    expect(performance.now() - began).toBeLessThan(2000);
+  });
+
+  it('keeps a run that falls exactly where one fetched window ends and the next begins', () => {
+    // Asked at 03:00, the engine fetches 00:00-06:00 first, so the 06:00 run sits on the edge.
+    const schedule: Schedule = { rule: 'FREQ=HOURLY;INTERVAL=6', start: '2026-12-01T00:00', timezone: 'UTC' };
+    expect(iso(upcoming(engine(schedule), at('2026-12-01T03:00Z'), 3))).toEqual([
+      '2026-12-01T06:00:00.000Z',
+      '2026-12-01T12:00:00.000Z',
+      '2026-12-01T18:00:00.000Z',
+    ]);
+  });
+
+  it('jumps straight to a run years away', () => {
+    const schedule: Schedule = {
+      rule: 'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29',
+      start: '2024-02-29T09:00',
+      timezone: 'UTC',
+    };
+    expect(iso(upcoming(engine(schedule), at('2024-03-01T00:00Z'), 2))).toEqual([
+      '2028-02-29T09:00:00.000Z',
+      '2032-02-29T09:00:00.000Z',
+    ]);
+    expect(engine(schedule).next(at('2028-02-29T08:59:59Z'))).toBe(at('2028-02-29T09:00Z'));
+  });
+
+  it('skips a day or a time in the middle of what it fetched, and keeps the run at midnight after', () => {
+    const minutely = (except: string[]) =>
+      engine({ rule: 'FREQ=MINUTELY', start: '2026-11-01T00:00', timezone: 'UTC', except });
+    expect(iso(upcoming(minutely(['2026-12-02']), at('2026-12-01T23:58:30Z'), 3))).toEqual([
+      '2026-12-01T23:59:00.000Z',
+      '2026-12-03T00:00:00.000Z',
+      '2026-12-03T00:01:00.000Z',
+    ]);
+    expect(iso(upcoming(minutely(['2026-12-02T00:00', '2026-12-02T00:01']), at('2026-12-01T23:59Z'), 2))).toEqual([
+      '2026-12-02T00:02:00.000Z',
+      '2026-12-02T00:03:00.000Z',
+    ]);
+  });
+
+  it('gives up after looking through its limit of runs, even partway through what it fetched', () => {
+    // 10,050 skipped single minutes: more runs than one `next` looks through, ending mid-window.
+    const except = Array.from({ length: 10_050 }, (_, minute) =>
+      new Date(at('2026-12-01T00:00Z') + minute * 60_000).toISOString().slice(0, 16),
+    );
+    const schedule: Schedule = { rule: 'FREQ=MINUTELY', start: '2026-12-01T00:00', timezone: 'UTC', except };
+    expect(errorOf(schedule)).toMatch(/too rarely to find \(looked through 10000 times/);
+  });
+
   it('looks past a long run of skipped days', () => {
     const except = Array.from({ length: 8 }, (_, day) => `2026-12-0${day + 1}`);
     const schedule: Schedule = { rule: 'FREQ=MINUTELY', start: '2026-11-30T23:00', timezone: 'UTC', except };

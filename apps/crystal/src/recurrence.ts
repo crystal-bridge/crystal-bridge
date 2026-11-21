@@ -24,6 +24,8 @@ export interface Recurrence {
 const FREQUENCIES = new Set(['YEARLY', 'MONTHLY', 'WEEKLY', 'DAILY', 'HOURLY', 'MINUTELY']);
 /** Daylight saving moves a wall-clock time by at most this, so a later wall time can't be an earlier instant. */
 const SHIFT = { hours: 3 } as const;
+/** How much of a rule `next` fetches at once: enough to cover the shift either side of a time in one call. */
+const WINDOW = { hours: 6 } as const;
 /** Occurrences one `next` may look through before it gives up; a skipped day counts once, however many runs it held. */
 const MAX_STEPS = 10_000;
 
@@ -149,27 +151,43 @@ function ruleOf(text: string, startText: string, timezone: string, exceptText: s
   const recurrence: Recurrence = {
     next(after) {
       const afterWall = Temporal.Instant.fromEpochMilliseconds(after).toZonedDateTimeISO(timezone).toPlainDateTime();
+      // Every run in each window comes from one library call: its every call re-expands the period up to the time
+      // asked, so stepping through a dense rule's window one run at a time took seconds (#302).
       let cursor = afterWall.subtract(SHIFT).toZonedDateTime('UTC');
       let best: number | undefined;
       let bestWall: Temporal.PlainDateTime | undefined;
-      for (let step = 0; step < MAX_STEPS; step++) {
-        const found = rrule.next(cursor, false) as Temporal.ZonedDateTime | null;
-        if (!found) return best;
-        cursor = found;
-        const wall = found.toPlainDateTime();
-        if (bestWall && Temporal.PlainDateTime.compare(wall, bestWall.add(SHIFT)) > 0) return best;
-        if (beyond(wall)) return best;
-        if (except.has(wall.toPlainDate().toString())) {
-          // Past the whole skipped day at once, so a rule every minute doesn't spend a step on each of its runs.
-          const nextDay = wall.toPlainDate().add({ days: 1 }).toPlainDateTime();
-          cursor = nextDay.toZonedDateTime('UTC').subtract({ nanoseconds: 1 });
-          continue;
+      let step = 0;
+      while (step < MAX_STEPS) {
+        const end = cursor.add(WINDOW);
+        let runs = (rrule.between(cursor, end, true) as Temporal.ZonedDateTime[]).filter(
+          (run) => Temporal.ZonedDateTime.compare(run, cursor) > 0,
+        );
+        let following = end;
+        if (runs.length === 0) {
+          // Nothing in this window: jump straight to the next run, however far off.
+          const found = rrule.next(end, false) as Temporal.ZonedDateTime | null;
+          if (!found) return best;
+          runs = [found];
+          following = found;
         }
-        if (except.has(wall.toString())) continue;
-        const time = instantOf(wall, timezone);
-        if (time <= after) continue;
-        if (best === undefined || time < best) best = time;
-        bestWall ??= wall;
+        for (const found of runs) {
+          if (step++ >= MAX_STEPS) break;
+          const wall = found.toPlainDateTime();
+          if (bestWall && Temporal.PlainDateTime.compare(wall, bestWall.add(SHIFT)) > 0) return best;
+          if (beyond(wall)) return best;
+          if (except.has(wall.toPlainDate().toString())) {
+            // Past the whole skipped day at once, so a rule every minute doesn't spend a step on each of its runs.
+            const nextDay = wall.toPlainDate().add({ days: 1 }).toPlainDateTime();
+            following = nextDay.toZonedDateTime('UTC').subtract({ nanoseconds: 1 });
+            break;
+          }
+          if (except.has(wall.toString())) continue;
+          const time = instantOf(wall, timezone);
+          if (time <= after) continue;
+          if (best === undefined || time < best) best = time;
+          bestWall ??= wall;
+        }
+        cursor = following;
       }
       if (best !== undefined) return best;
       throw new Error(`looked through ${MAX_STEPS} times without finding the next one`);
