@@ -52,7 +52,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - @sigstore/tuf 5.0.1: Apache-2.0
 - @sigstore/verify 4.1.3: Apache-2.0
 - @tufjs/canonical-json 2.0.0: MIT
-- @tufjs/models 5.0.2: MIT
+- @tufjs/models 5.0.3: MIT
 - @types/debug 4.1.13: MIT
 - @types/estree 1.0.9: MIT
 - @types/estree-jsx 1.0.5: MIT
@@ -217,7 +217,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - mime-db 1.54.0: MIT
 - mime-types 3.0.2: MIT
 - minimalistic-assert 1.0.1: ISC
-- minimatch 10.2.6, 11.0.9: BlueOak-1.0.0
+- minimatch 11.0.9: BlueOak-1.0.0
 - minimist 1.2.8: MIT
 - minipass 7.1.3: BlueOak-1.0.0
 - ms 2.1.3: MIT
@@ -294,7 +294,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - toidentifier 1.0.1: MIT
 - trim-lines 3.0.1: MIT
 - trough 2.2.0: MIT
-- tuf-js 6.0.2: MIT
+- tuf-js 6.0.3: MIT
 - type-is 2.1.0: MIT
 - unified 11.0.5: MIT
 - unist-util-is 6.0.1: MIT
