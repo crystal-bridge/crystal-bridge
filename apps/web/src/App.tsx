@@ -258,6 +258,9 @@ export function App({ hub }: { hub: HubClient }) {
   const [unseen, setUnseen] = useState<Record<string, UnseenQuest>>({});
   const unseenNow = useRef(unseen);
   unseenNow.current = unseen;
+  // Refreshes in the order they started, and the newest one shown: an older one that answers later is dropped.
+  const refreshRuns = useRef(0);
+  const refreshShown = useRef(0);
   const heroManifest = useHeroManifest(showHeroes);
   const [canNotify, setCanNotify] = useState(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -703,6 +706,7 @@ export function App({ hub }: { hub: HubClient }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    const run = ++refreshRuns.current;
     // A hub that's down or restarting fails these; the page keeps its last picture instead of going blank.
     const [s, n, u, x, h, p, e, l, a, t, b, g, f] = await Promise.all([
       tryJson<SessionSummary[]>('/api/sessions'),
@@ -719,6 +723,10 @@ export function App({ hub }: { hub: HubClient }) {
       tryJson<HubStatus>('/api/hub/status'),
       tryJson<({ session: string } & UnseenQuest)[]>('/api/unseen'),
     ]);
+    // One slow endpoint can hold a poll back past a newer refresh (one after a rename, say): its older picture would
+    // undo what that one showed.
+    if (run < refreshShown.current) return;
+    refreshShown.current = run;
     // Each Quest under its name in this theme (`questLabel`), so every view shows the same one.
     keep(
       setSessions,

@@ -101,13 +101,15 @@ export const TITLE_TOOL = 'mcp__crystal__title';
  */
 export const TITLE_INSTRUCTION =
   'Required: before any other tool call in your first turn, load mcp__crystal__title with ToolSearch and call it to ' +
-  'name this session (a fantasy-RPG quest name and a plain one). Call it again only if the work changes course.';
+  'name this session (a fantasy-RPG quest name and a plain one). Call it once: later turns keep that name.';
 
-/** What the `title` tool asks of a Quest. Crystal allows the tool itself, so a call never raises a permission card. */
+/**
+ * What the `title` tool asks of a Quest. Crystal allows the tool itself, so a call never raises a permission card. The
+ * hub keeps only a Quest's first title, so nothing here invites a second call.
+ */
 export const TITLE_DESCRIPTION =
   "Name this session for the user's list of sessions. Call it once, as soon as you understand what the user is " +
-  'asking, and again only if the work changes course. Keep each name under about 50 characters. A name the user ' +
-  'set by hand wins, so a call never needs repeating.';
+  'asking. Keep each name under about 50 characters. The first name stays until the user renames the session.';
 
 function buildMcpServer(
   session: string,

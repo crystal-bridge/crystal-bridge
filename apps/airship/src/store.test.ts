@@ -168,7 +168,7 @@ describe('store', () => {
       store.appendEvent(makeEnvelope({ session, seq, type: 'quest.titled', payload: { title, plain } }));
     const listed = (session: string) => store.listSessions().find((row) => row.id === session);
 
-    it('takes the title a Quest gives itself, with its plain form, and a later one too', () => {
+    it('takes the title a Quest gives itself, with its plain form, and only the first', () => {
       const session = randomUUID();
       start(session);
       titled(session, 1, 'The Siege of the Flaky Smoke Test', 'Fix the flaky smoke test');
@@ -178,7 +178,18 @@ describe('store', () => {
       });
       expect(store.getSession(session)?.label).toBe('The Siege of the Flaky Smoke Test');
       titled(session, 2, 'The Smoke Clears', 'Rewrite the smoke test');
-      expect(listed(session)).toMatchObject({ label: 'The Smoke Clears', plainLabel: 'Rewrite the smoke test' });
+      expect(listed(session)).toMatchObject({
+        label: 'The Siege of the Flaky Smoke Test',
+        plainLabel: 'Fix the flaky smoke test',
+      });
+    });
+
+    it('takes a first title after one it could not read', () => {
+      const session = randomUUID();
+      start(session);
+      store.appendEvent(makeEnvelope({ session, seq: 1, type: 'quest.titled', payload: { title: '' } }));
+      titled(session, 2, 'The Siege', 'Fix the test');
+      expect(listed(session)).toMatchObject({ label: 'The Siege', plainLabel: 'Fix the test' });
     });
 
     it('keeps a title set by hand, in every theme, whatever the Quest calls itself later', () => {
