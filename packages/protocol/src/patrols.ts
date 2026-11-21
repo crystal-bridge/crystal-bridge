@@ -158,8 +158,8 @@ export type ListedPatrolRun = z.infer<typeof ListedPatrolRun>;
 export const PatrolRunMark = z.object({ done: z.boolean() });
 export type PatrolRunMark = z.infer<typeof PatrolRunMark>;
 
-/** A Patrol as the hub lists it, with its latest run. */
-export const ListedPatrol = Patrol.extend({ lastRun: PatrolRun.optional() });
+/** A Patrol as the hub lists it, with its latest run and that run's done mark. */
+export const ListedPatrol = Patrol.extend({ lastRun: ListedPatrolRun.optional() });
 export type ListedPatrol = z.infer<typeof ListedPatrol>;
 
 /** The run a Quest was started for, carried in its `session.started` as `patrol`, so the Quest links back to it. */

@@ -4,7 +4,8 @@ A Patrol sets out from a Kingdom at the hours you give it, does its round and re
 
 ::: warning Partly built
 Kingdoms run Patrols from their folders, and the app's Watchtower shows them with their runs, creates and edits Quest
-Patrols, and runs, pauses, resumes and deletes any Patrol. Patrols don't post to Boards yet. The work is tracked in the
+Patrols, and runs, pauses, resumes and deletes any Patrol. Patrols post their runs to a Board's Patrol log. A Board's
+"Patrol this" isn't built yet. The work is tracked in the
 [v0.8 Patrols milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/10) and #278.
 :::
 
@@ -190,10 +191,19 @@ Patrols row.
 
 ## Post to a Board
 
-A Patrol can name a Scout's Board with `"board": "<scout id>"`. Each run posts an item with its outcome, a one-line
-summary and buttons to open the Quest, run again or mark done. A Patrol's items are kept apart from the Scout's own list,
-so the Scout's next collect doesn't remove them. A Board also shows its Patrols' next run times, and a Board's Quest
-action can offer "Patrol this", which opens the form with the item's prompt filled in.
+A Patrol can name a Scout's Board on its own Kingdom with `"board": "<scout id>"`. The Board then shows:
+
+- **When each Patrol sets out next**, under the Scout's schedule in the banner, or that it's stood down or can't set
+  out.
+- **The Patrol log**, beside the list (after Counsel, or after Needs you and Your queue on a projects Board): the
+  newest 12 reports from its Patrols. Each says how the run ended and gives its
+  [summary](#nobody-watching-unattended-runs), with buttons to open the Quest (or show a script's output), run the
+  Patrol again, or mark the report done. Run again waits while that Patrol has a run out, and Done waits for the run to
+  be back. A report marked done fades, keeps its way into the Quest, and offers Not done. A run skipped because the
+  last was still out isn't reported, since it says nothing new.
+
+The reports are the Patrol's runs, not items in the Scout's list, so the Scout's next collect never removes them. A
+Board's Quest action will also offer "Patrol this", which opens the form with the item's prompt filled in.
 
 ## Who holds what
 

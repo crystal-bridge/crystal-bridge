@@ -9,6 +9,8 @@ one entry.
 
 - Each Patrol run carries a one-line summary of what it came to: the start of its Quest's reply, or its script's last
   line of output. A run can be marked done, which the hub keeps for the Board.
+- A Board shows when each of its Patrols sets out next, and a Patrol log beside the list with their latest reports: how
+  each run ended, its summary, and buttons to open the Quest or a script's output, run it again, or mark it done.
 
 ## 0.7.0
 

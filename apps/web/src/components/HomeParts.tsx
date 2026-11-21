@@ -24,6 +24,12 @@ export function ago(at: number, now: number): string {
   return `${Math.floor(minutes / 1440)}d`;
 }
 
+/** "just now", "5m ago": `ago` as a phrase. */
+export function agoText(at: number, now: number): string {
+  const since = ago(at, now);
+  return since === 'now' ? 'just now' : `${since} ago`;
+}
+
 /** A row of totals: turns, Gold, time, tokens and KOs. Nothing yet reads as a quiet zero, not an error. */
 export function StatTiles({ title, plain, stats }: { title: string; plain: string; stats: TurnStats | null }) {
   const allTokens = stats

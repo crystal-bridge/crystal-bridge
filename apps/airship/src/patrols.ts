@@ -93,9 +93,8 @@ export function openPatrols(db: Database.Database): Patrols {
     patrols(node) {
       return (listPatrols.all(node) as { data: string }[]).map((row) => {
         const patrol = JSON.parse(row.data) as Patrol;
-        const [latest] = runsOf(node, patrol.id, 1);
-        const { doneAt: _mark, ...lastRun } = latest ?? {};
-        return { ...patrol, ...(latest ? { lastRun: lastRun as PatrolRun } : {}) };
+        const [lastRun] = runsOf(node, patrol.id, 1);
+        return { ...patrol, ...(lastRun ? { lastRun } : {}) };
       });
     },
     hasPatrol(node, patrol) {

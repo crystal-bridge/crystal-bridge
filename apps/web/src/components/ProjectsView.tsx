@@ -69,6 +69,8 @@ export interface ProjectsViewProps {
   empty: ReactNode;
   /** The folded sections under the projects: Snoozed, Set aside, Gone, Recent runs. */
   past: ReactNode;
+  /** The Patrol log, after the Needs you and queue windows; none when no Patrol posts here. */
+  log?: ReactNode;
 }
 
 /** A look's icon in its tone (or the surrounding colour with `inherit`), named by its label; a look with no known icon draws a dot. */
@@ -926,6 +928,7 @@ export function ProjectsView({
   start,
   empty,
   past,
+  log,
 }: ProjectsViewProps) {
   const [folded, toggle] = useFolded(node, scout);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -972,6 +975,7 @@ export function ProjectsView({
       <div className="space-y-4 px-3">
         {needsWindow(true)}
         {queueWindow(true)}
+        {log}
         {sections.length === 0 ? (
           empty
         ) : (
@@ -1042,6 +1046,7 @@ export function ProjectsView({
         <div className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
           {needsWindow(false)}
           {queueWindow(false)}
+          {log}
         </div>
       </aside>
     </div>

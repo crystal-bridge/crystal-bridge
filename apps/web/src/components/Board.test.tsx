@@ -1,5 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import type { Board, BoardItem, ListedScout, ScoutManifest, ScoutRun } from '@crystal-bridge/protocol';
+import type {
+  Board,
+  BoardItem,
+  ListedPatrol,
+  ListedPatrolRun,
+  ListedScout,
+  ScoutManifest,
+  ScoutRun,
+} from '@crystal-bridge/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BoardPage, type BoardPageProps } from './Board.js';
 
@@ -954,5 +962,154 @@ describe('BoardPage', () => {
     expect(screen.getByText(/No such Scout on Forge/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Back to/ }));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  describe('Patrols that post here', () => {
+    const SESSION = '44444444-4444-4444-8444-444444444444';
+    const at = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    const sweep: ListedPatrol = {
+      id: 'sweep',
+      nextRunAt: NOW + 3_600_000,
+      manifest: {
+        name: 'Nightly sweep',
+        schedule: { cron: '0 2 * * *', timezone: 'UTC' },
+        board: 'quest-board',
+        quest: { project: '~/code/app', promptText: 'Sweep.' },
+      },
+    };
+    const links: ListedPatrol = {
+      id: 'links',
+      paused: 'failed 3 times in a row',
+      manifest: {
+        name: 'Link checker',
+        schedule: { cron: '0 3 * * *', timezone: 'UTC' },
+        board: 'quest-board',
+        script: { command: ['./check.sh'] },
+      },
+    };
+    const report = (patrol: ListedPatrol, extra: Partial<ListedPatrolRun>) => ({
+      patrol,
+      run: { id: at(1), startedAt: NOW - 60_000, trigger: 'schedule', outcome: 'finished', ...extra },
+    });
+
+    function withPatrols(
+      reports = [
+        report(sweep, { id: at(3), outcome: 'needs-you', session: SESSION, summary: 'I need to run gh.' }),
+        report(links, {
+          id: at(2),
+          outcome: 'failed',
+          summary: '2 broken links',
+          stdout: 'checking\n',
+          stderr: 'fatal',
+        }),
+        report(sweep, { id: at(1), summary: 'Nothing to update.', doneAt: NOW - 1000, session: SESSION }),
+      ],
+    ) {
+      const onRun = vi.fn(async () => {});
+      const onMark = vi.fn(async () => {});
+      const shown = show({ patrols: { patrols: [sweep, links], reports, onRun, onMark } });
+      return { ...shown, onRun, onMark };
+    }
+
+    it('says when each Patrol sets out next, beside the Scout’s schedule, or why it won’t', () => {
+      const broken: ListedPatrol = { ...sweep, id: 'broken', nextRunAt: undefined, error: 'patrol.json: schedule' };
+      const ended: ListedPatrol = { ...sweep, id: 'ended', nextRunAt: undefined };
+      show({ patrols: { patrols: [sweep, links, broken, ended], reports: [], onRun: vi.fn(), onMark: vi.fn() } });
+      const line = within(screen.getByRole('region', { name: 'Summary' })).getByTitle(/Patrols/);
+      expect(line.textContent).toBe(
+        'Patrols: Nightly sweep next in 1h 0m · Link checker Stood down · Nightly sweep Can’t set out · Nightly sweep no more runs',
+      );
+    });
+
+    it('lists the reports newest first with their outcome and summary, and acts on them', async () => {
+      const { onRun, onMark, onOpenQuest } = withPatrols();
+      const log = screen.getByRole('region', { name: 'Patrol log' });
+      const entries = within(log).getAllByRole('listitem');
+      expect(entries.map((entry) => entry.textContent)).toEqual([
+        expect.stringContaining('I need to run gh.'),
+        expect.stringContaining('2 broken links'),
+        expect.stringContaining('Nothing to update.'),
+      ]);
+      expect(entries[0]!.textContent).toContain('Waiting on you');
+      // Each button says which Patrol it's for.
+      expect(within(entries[0]!).getByRole('button', { name: 'Run again: Nightly sweep' })).toBeTruthy();
+      expect(entries[0]!.textContent).toContain('1m ago');
+      fireEvent.click(within(entries[0]!).getByRole('button', { name: /Open Quest/ }));
+      expect(onOpenQuest).toHaveBeenCalledWith(SESSION);
+      fireEvent.click(within(entries[0]!).getByRole('button', { name: /Run again/ }));
+      expect(onRun).toHaveBeenCalledWith('sweep');
+      await act(async () => {
+        fireEvent.click(within(entries[1]!).getByRole('button', { name: /^Done/ }));
+      });
+      expect(onMark).toHaveBeenCalledWith('links', at(2), true);
+      // A script's run shows what it wrote instead of a Quest.
+      expect(within(entries[1]!).queryByRole('button', { name: /Open Quest/ })).toBeNull();
+      fireEvent.click(within(entries[1]!).getByRole('button', { name: /Output/ }));
+      expect(within(entries[1]!).getByText(/fatal/)).toBeTruthy();
+    });
+
+    it('fades a report marked done, which keeps its way into the Quest and can be put back', async () => {
+      const { onMark } = withPatrols();
+      const done = within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem')[2]!;
+      expect(within(done).queryByRole('button', { name: /Run again/ })).toBeNull();
+      expect(within(done).queryByRole('button', { name: /^Done/ })).toBeNull();
+      expect(within(done).getByRole('button', { name: /Open Quest/ })).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(within(done).getByRole('button', { name: /Not done/ }));
+      });
+      expect(onMark).toHaveBeenCalledWith('sweep', at(1), false);
+    });
+
+    it('says why an action failed, and clears it on the next', async () => {
+      const { onRun, onMark } = withPatrols();
+      onRun.mockRejectedValueOnce(new Error('that Kingdom is offline'));
+      onMark.mockRejectedValueOnce('no such run');
+      const first = () => within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem')[0]!;
+      await act(async () => {
+        fireEvent.click(within(first()).getByRole('button', { name: /Run again/ }));
+      });
+      expect(screen.getByRole('alert').textContent).toContain('that Kingdom is offline');
+      await act(async () => {
+        fireEvent.click(within(first()).getByRole('button', { name: /^Done/ }));
+      });
+      expect(screen.getByRole('alert').textContent).toBe('no such run');
+      await act(async () => {
+        fireEvent.click(within(first()).getByRole('button', { name: /Run again/ }));
+      });
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('holds Run again while it’s asking, and while the Patrol is out, when Done can’t be pressed yet', async () => {
+      let finish!: () => void;
+      const onRun = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+      show({
+        patrols: {
+          patrols: [sweep, links],
+          reports: [
+            report(links, { id: at(4), outcome: 'running' }),
+            report(links, { id: at(3), outcome: 'failed', summary: 'x' }),
+            report(sweep, { id: at(2), summary: 'Nothing to update.' }),
+          ],
+          onRun,
+          onMark: vi.fn(),
+        },
+      });
+      const [out, earlier, other] = within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem');
+      expect(within(out!).queryByRole('button', { name: /Run again|^Done/ })).toBeNull();
+      expect(within(earlier!).queryByRole('button', { name: /Run again/ })).toBeNull();
+      const again = within(other!).getByRole('button', { name: /Run again/ }) as HTMLButtonElement;
+      fireEvent.click(again);
+      expect(again.disabled).toBe(true);
+      await act(async () => finish());
+      expect(again.disabled).toBe(false);
+    });
+
+    it('waits for a Patrol’s first report, and shows no log without Patrols', () => {
+      withPatrols([]);
+      expect(within(screen.getByRole('region', { name: 'Patrol log' })).getByText(/No reports yet/)).toBeTruthy();
+      cleanup();
+      show();
+      expect(screen.queryByRole('region', { name: 'Patrol log' })).toBeNull();
+    });
   });
 });
