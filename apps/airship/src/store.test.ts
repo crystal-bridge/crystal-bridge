@@ -1465,6 +1465,62 @@ describe('Errands (#288)', () => {
     expect(store.errands('node-b')).toHaveLength(1);
   });
 
+  describe('from an errand.left event', () => {
+    const start = (session: string, payload: Record<string, unknown>) =>
+      store.appendEvent(makeEnvelope({ node, session, seq: 0, type: 'session.started', payload }));
+    const leave = (session: string, seq: number, payload: unknown, ts = 150) =>
+      store.appendEvent(makeEnvelope({ node, session, seq, ts, type: 'errand.left', payload }));
+
+    it('keeps an Errand a Quest leaves, under the Quest’s project', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      expect(leave(session, 1, { id, title: 'Run the smoke test', body: 'Run `pnpm smoke`.' })).toBe(true);
+      expect(store.errands(node)).toEqual([
+        expect.objectContaining({ id, session, seq: 1, project, created: 150, title: 'Run the smoke test' }),
+      ]);
+    });
+
+    it('groups a worktree Quest’s Errands under its repository', () => {
+      const session = randomUUID();
+      start(session, {
+        cwd: `${project}/.worktrees/abcd1234`,
+        prompt: 'p',
+        label: 'l',
+        worktree: { root: project, branch: 'cb/abcd1234' },
+      });
+      leave(session, 1, { id: randomUUID(), title: 't', body: 'b' });
+      expect(store.errands(node)[0]?.project).toBe(project);
+    });
+
+    it('stores an errand.left it can’t read as an event, and writes no row', () => {
+      const session = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      expect(leave(session, 1, { id: 'nope', title: '' })).toBe(true);
+      expect(store.errands(node)).toEqual([]);
+      expect(store.eventsSince(session, 0).map((e) => e.type)).toContain('errand.left');
+    });
+
+    it('never lets a repeated id refuse the event', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      leave(session, 1, { id, title: 'a', body: '' });
+      expect(leave(session, 2, { id, title: 'b', body: '' })).toBe(true);
+      expect(store.errands(node)).toEqual([expect.objectContaining({ id, seq: 1, title: 'a' })]);
+    });
+
+    it('is deleted with the Kingdom, but not when a Quest closes', () => {
+      const session = randomUUID();
+      start(session, { cwd: project, prompt: 'p', label: 'l' });
+      leave(session, 1, { id: randomUUID(), title: 'a', body: '' });
+      store.appendEvent(makeEnvelope({ node, session, seq: 2, type: 'session.closed', payload: {} }));
+      expect(store.errands(node)).toHaveLength(1);
+      store.forgetNode(node);
+      expect(store.errands(node)).toEqual([]);
+    });
+  });
+
   it('names the Patrol whose Quest left it', () => {
     const session = randomUUID();
     store.appendEvent(

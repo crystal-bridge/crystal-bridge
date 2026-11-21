@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { type Boards, openBoards } from './boards.js';
-import { openErrands, type Errands } from './errands.js';
+import { errandProject, openErrands, type Errands } from './errands.js';
 import { openPatrols, type Patrols } from './patrols.js';
 import { migrate } from './migrations.js';
 import { makePrivate } from './paths.js';
@@ -13,6 +13,7 @@ import {
   PermissionMode,
   Engine,
   type Envelope,
+  ErrandLeftPayload,
   PushPrefs,
   PushSubscriptionJson,
   QuestTitledPayload,
@@ -415,9 +416,6 @@ export function openStore(path: string): Store {
     forgetSessionsStmt.run(node);
     return ids;
   });
-  const startedPayloadStmt = db.prepare(
-    `SELECT payload FROM events WHERE session = ? AND type = 'session.started' ORDER BY seq LIMIT 1`,
-  );
   const getSessionStmt = db.prepare(
     `SELECT id, node, cwd, label, plain_label, status, created_at FROM sessions WHERE id = ?`,
   );
@@ -462,6 +460,18 @@ export function openStore(path: string): Store {
     noteUsage(row.node, row.ts, JSON.parse(row.payload));
   }
 
+  const startedPayloadStmt = db.prepare(
+    `SELECT payload FROM events WHERE session = ? AND type = 'session.started' ORDER BY seq LIMIT 1`,
+  );
+  const StartedWhere = z.object({ cwd: z.string(), worktree: z.object({ root: z.string() }).optional() });
+  /** Where a Quest started, as the project its Errands group under. */
+  function questProject(session: string): string | undefined {
+    const row = startedPayloadStmt.get(session) as { payload: string } | undefined;
+    if (!row) return undefined;
+    const where = StartedWhere.safeParse(JSON.parse(row.payload)).data;
+    return where ? errandProject(where.cwd, where.worktree?.root) : undefined;
+  }
+
   const appendEventTxn = db.transaction((event: Envelope): boolean => {
     const result = insertEventStmt.run({
       session: event.session,
@@ -497,6 +507,19 @@ export function openStore(path: string): Store {
       // Kept as an event even when unreadable, like any type the hub doesn't know: only the label waits for a good one.
       const title = QuestTitledPayload.safeParse(event.payload).data;
       if (title) titleStmt.run(title.title, title.plain, event.session);
+    } else if (event.type === 'errand.left') {
+      // Kept as an event even when unreadable, like quest.titled: only the row waits for a good one.
+      const left = ErrandLeftPayload.safeParse(event.payload).data;
+      if (left) {
+        errands.recordErrandLeft({
+          ...left,
+          node: event.node,
+          session: event.session,
+          seq: event.seq,
+          ts: event.ts,
+          project: questProject(event.session),
+        });
+      }
     }
     return true;
   });
