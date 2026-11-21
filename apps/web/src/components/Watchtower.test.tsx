@@ -197,6 +197,28 @@ describe('Watchtower', () => {
       expect(screen.queryByRole('region', { name: 'New Patrol' })).toBeNull();
     });
 
+    it('opens New Patrol drafted from a Board item, and lets the draft go when it closes', () => {
+      const seed = { name: 'Fix the retry loop', project: '/repo', promptText: 'Fix it.', board: 'quest-board' };
+      const onSeedUsed = vi.fn();
+      const { rerender } = render(
+        <Watchtower state={state([])} now={NOW} zone="UTC" {...forms} seed={seed} onSeedUsed={onSeedUsed} />,
+      );
+      const form = screen.getByRole('region', { name: 'New Patrol' });
+      expect((within(form).getByLabelText('Name') as HTMLInputElement).value).toBe('Fix the retry loop');
+      // Taken at once, so leaving the Castle and coming back doesn't open it again.
+      expect(onSeedUsed).toHaveBeenCalledTimes(1);
+      rerender(<Watchtower state={state([])} now={NOW} zone="UTC" {...forms} onSeedUsed={onSeedUsed} />);
+      expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Fix the retry loop');
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('region', { name: 'New Patrol' })).toBeNull();
+      // Another item with the same title starts its own form.
+      rerender(
+        <Watchtower state={state([])} now={NOW} zone="UTC" {...forms} seed={{ ...seed }} onSeedUsed={onSeedUsed} />,
+      );
+      expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Fix the retry loop');
+      expect(onSeedUsed).toHaveBeenCalledTimes(2);
+    });
+
     it('edits a Quest Patrol, never a script one, and offers nothing where the Kingdom takes only files', () => {
       const { rerender } = render(<Watchtower state={state([quest(), script()])} now={NOW} zone="UTC" {...forms} />);
       expect(

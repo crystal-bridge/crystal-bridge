@@ -2,13 +2,6 @@
 
 A Patrol sets out from a Kingdom at the hours you give it, does its round and reports back.
 
-::: warning Partly built
-Kingdoms run Patrols from their folders, and the app's Watchtower shows them with their runs, creates and edits Quest
-Patrols, and runs, pauses, resumes and deletes any Patrol. Patrols post their runs to a Board's Patrol log. A Board's
-"Patrol this" isn't built yet. The work is tracked in the
-[v0.8 Patrols milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/10) and #278.
-:::
-
 A **Patrol** is a scheduled job on a Kingdom. It runs either a Quest from a saved prompt, or a script of yours, at times
 set by a recurrence rule. Every run is recorded, and a Patrol can post its runs to a Board.
 
@@ -202,8 +195,20 @@ A Patrol can name a Scout's Board on its own Kingdom with `"board": "<scout id>"
   be back. A report marked done fades, keeps its way into the Quest, and offers Not done. A run skipped because the
   last was still out isn't reported, since it says nothing new.
 
-The reports are the Patrol's runs, not items in the Scout's list, so the Scout's next collect never removes them. A
-Board's Quest action will also offer "Patrol this", which opens the form with the item's prompt filled in.
+The reports are the Patrol's runs, not items in the Scout's list, so the Scout's next collect never removes them.
+
+**Patrol this.** Where the Kingdom takes Patrols from the app, each of a Board's Quest actions has a map button beside
+it (wide screens only). It asks the Kingdom to draft the Quest that button would start: the action's prompt file with
+the item after it as untrusted data, its filled `project`, its `mode` and `worktree`. Nothing starts. The Castle's
+Watchtower then opens New Patrol with that draft, named after the item, posting to this Board. Pick a schedule and save
+as with any Patrol.
+
+The item's text is copied into the Patrol's prompt as it was then, and the Patrol runs it with nobody watching, every
+time. Read the prompt before you save, and keep the mode one you'd trust with that item's author's words: the item stays
+marked as untrusted data, but the permission mode is what holds the line. The form starts in the action's `mode`, or the
+Kingdom's default mode when the action names none, as the button's Quest would; for items others wrote, prefer `manual`
+or `plan`, where a prompt nobody answers is denied after `waitForYou`. An item whose prompt would be over 20000
+characters can't be kept as a Patrol.
 
 ## Who holds what
 

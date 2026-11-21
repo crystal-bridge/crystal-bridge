@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { MAX_QUEST_ITEMS, MAX_QUEST_PROMPT } from '@crystal-bridge/protocol';
 import type {
   BoardItem,
@@ -10,6 +10,7 @@ import type {
 } from '@crystal-bridge/protocol';
 import { actionsFor, linkFor, snoozeUntil } from '../boards.js';
 import { SENDER_CLASSES, senderTone } from '../theme/boardTones.js';
+import { Icon } from '../theme/icons.js';
 import { sourceLine, w } from '../theme/words.js';
 import { loadDefaultMode, MODES } from '../modes.js';
 import { ThemedSelect } from './ThemedSelect.js';
@@ -120,6 +121,40 @@ export function KingdomButton({
   );
 }
 
+/**
+ * "Patrol this" beside a Quest action, where the Board's Kingdom takes Patrols from the app: given the action's key and
+ * the item, it opens the Patrol form drafted from them. Unset, no button.
+ */
+export const PatrolThisContext = createContext<((action: string, item: BoardItem) => Promise<void>) | null>(null);
+
+/** The map button beside a Quest action: held while the Kingdom drafts, so a second press doesn't ask again. */
+function PatrolThisButton({
+  label,
+  onPress,
+  className,
+}: {
+  label: string;
+  onPress: () => Promise<void>;
+  className: string | undefined;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={`${w('patrol')} this: ${label}`}
+      title={`Make a ${w('patrol')} that runs ${label} on a schedule`}
+      disabled={asking}
+      onClick={() => {
+        setAsking(true);
+        void onPress().finally(() => setAsking(false));
+      }}
+      className={className}
+    >
+      <Icon name="treasureMap" size={13} />
+    </button>
+  );
+}
+
 /** An item's buttons. A link opens in a new tab; a quest or run goes to the Kingdom; the rest change its state. */
 export function ItemActions({
   item,
@@ -137,6 +172,7 @@ export function ItemActions({
   /** The buttons' classes, for a surface of its own such as the Needs-you window. */
   look?: ButtonLook;
 }) {
+  const patrolThis = useContext(PatrolThisContext);
   const press = (action: ScoutAction) => {
     if (action.kind === 'snooze') act([item.id], 'snoozed', snoozeUntil(action.for, now));
     else if (action.kind === 'done') act([item.id], 'done');
@@ -162,7 +198,7 @@ export function ItemActions({
           ) : null;
         }
         if (action.kind === 'quest' || action.kind === 'run') {
-          return (
+          const button = (
             <KingdomButton
               key={key}
               label={action.label}
@@ -171,6 +207,13 @@ export function ItemActions({
               run={() => perform(key, [item.id])}
               look={look}
             />
+          );
+          if (action.kind !== 'quest' || !patrolThis) return button;
+          return (
+            <span key={key} className="inline-flex gap-1">
+              {button}
+              <PatrolThisButton label={action.label} onPress={() => patrolThis(key, item)} className={look.plain} />
+            </span>
           );
         }
         return (

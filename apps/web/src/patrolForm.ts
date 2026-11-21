@@ -303,6 +303,8 @@ export interface PatrolDraft {
   catchUp: string;
   /** Kept from the file: the form doesn't edit Boards yet. */
   board?: string | undefined;
+  /** The Board's name, when the draft came from it; the form shows `board` otherwise. Not saved. */
+  boardName?: string | undefined;
   schedule: ScheduleDraft;
 }
 
@@ -318,6 +320,34 @@ export function newPatrolDraft(now: number, zone: string, mode: PermissionMode):
     waitForYou: '',
     catchUp: '',
     schedule: scheduleDraftOf(undefined, now, zone),
+  };
+}
+
+/**
+ * A new Patrol's starting point from a Board item ("Patrol this"): what its Quest action would start with, and the
+ * Board to report back to.
+ */
+export interface PatrolSeed {
+  name: string;
+  project: string;
+  promptText: string;
+  mode?: PermissionMode | undefined;
+  worktree?: boolean | undefined;
+  board: string;
+  /** The Board's name, to say where the runs go. */
+  boardName?: string | undefined;
+}
+
+/** A new Patrol's draft from a seed: its name cut to what a Patrol's name holds, and the rest as new ones start. */
+export function seededDraft(seed: PatrolSeed, now: number, zone: string, mode: PermissionMode): PatrolDraft {
+  return {
+    ...newPatrolDraft(now, zone, seed.mode ?? mode),
+    name: seed.name.trim().slice(0, 80),
+    project: seed.project,
+    promptText: seed.promptText,
+    worktree: seed.worktree ?? false,
+    board: seed.board,
+    ...(seed.boardName ? { boardName: seed.boardName } : {}),
   };
 }
 

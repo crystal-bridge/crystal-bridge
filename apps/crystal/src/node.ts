@@ -5,13 +5,16 @@ import {
   HubListInventory,
   HubKingdomVersion,
   HubPatrolChange,
+  HubPatrolDraft,
   HubPatrolPreview,
   HubPatrolRunNow,
   HubScoutAction,
   HubScoutQuest,
   HubScoutRunNow,
   type NodePatrolChanged,
+  type NodePatrolDrafted,
   type NodePatrolPreviewed,
+  type PatrolDraft,
   type NodePatrolRun,
   type NodePatrols,
   type Patrol,
@@ -153,6 +156,7 @@ export interface StartNodeOptions {
     runNow(id: string): void;
     act(request: HubScoutAction, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
     quest(request: HubScoutQuest, startQuest: (start: QuestStart) => Promise<ActResult>): Promise<ActResult>;
+    draft(request: HubPatrolDraft): { ok: true; draft: PatrolDraft } | { ok: false; reason: string };
   };
   /** This Kingdom's Patrols (`patrols.ts`), told to the hub with their latest runs on each connect; unset runs none. */
   patrols?: {
@@ -1082,6 +1086,27 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    // "Patrol this" on a Board: the item's Quest action, drafted as a Patrol for the app's form; nothing starts.
+    const patrolDraft = HubPatrolDraft.safeParse(parsed);
+    if (patrolDraft.success) {
+      const { requestId } = patrolDraft.data;
+      let answer: ReturnType<NonNullable<typeof options.scouts>['draft']>;
+      try {
+        answer = options.scouts
+          ? options.scouts.draft(patrolDraft.data)
+          : { ok: false, reason: 'this Kingdom runs no Scouts' };
+      } catch (error) {
+        answer = { ok: false, reason: `the draft failed: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      wsSend(
+        (answer.ok
+          ? // The Quest this button starts runs in the Kingdom's default mode when the action names none; so does its Patrol.
+            { kind: 'patrol-drafted', requestId, draft: { ...answer.draft, mode: answer.draft.mode ?? defaultMode } }
+          : { kind: 'patrol-drafted', requestId, reason: answer.reason.slice(0, 2000) }) satisfies NodePatrolDrafted,
+      );
+      return;
+    }
+
     const patrolPreview = HubPatrolPreview.safeParse(parsed);
     if (patrolPreview.success) {
       const { requestId, schedule, count } = patrolPreview.data;
@@ -1149,7 +1174,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.updateCli ? { cliUpdate: true } : {}),
           ...(options.listInventory ? { inventory: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
-          ...(options.scouts ? { scouts: true, scoutQuests: true } : {}),
+          ...(options.scouts ? { scouts: true, scoutQuests: true, patrolDrafts: true } : {}),
           ...(options.patrols ? { patrols: true, patrolsFromApp: options.patrols.fromApp(), patrolPreview: true } : {}),
         }),
       );

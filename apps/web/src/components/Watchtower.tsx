@@ -1,7 +1,7 @@
 import type { Engine, ListedPatrol, PatrolManifest, PatrolRun, Project, Schedule } from '@crystal-bridge/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { scheduleText } from '../format.js';
-import { scheduleWords } from '../patrolForm.js';
+import { scheduleWords, type PatrolSeed } from '../patrolForm.js';
 import {
   browserZone,
   patrolStanding,
@@ -31,6 +31,9 @@ export interface WatchtowerProps {
    */
   onSave?: ((patrol: string, manifest: PatrolManifest) => Promise<void>) | undefined;
   onPreview?: ((schedule: Schedule, signal: AbortSignal) => Promise<number[]>) | undefined;
+  /** A Board item's draft ("Patrol this"): New Patrol opens from it, and `onSeedUsed` lets it go when the form closes. */
+  seed?: PatrolSeed | undefined;
+  onSeedUsed?: (() => void) | undefined;
   /** The Kingdom's projects and engines, for the form. */
   projects?: Project[];
   engines?: Engine[] | undefined;
@@ -363,11 +366,27 @@ export function Watchtower({
   onPreview,
   projects = [],
   engines,
+  seed,
+  onSeedUsed,
 }: WatchtowerProps) {
   const [open, setOpen] = useState<string | null>(null);
   /** The Patrol being edited, or `new` for New Patrol. Ids can't hold a space, so the two never meet. */
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(seed ? NEW : null);
+  // A Board item's draft, taken from the app as it arrives so it opens the form once; counted, so a second draft with
+  // the same name still gets a fresh form.
+  const [seeded, setSeeded] = useState<{ seed: PatrolSeed; count: number } | null>(null);
   const canEdit = state.editable && onSave !== undefined && onPreview !== undefined;
+  useEffect(() => {
+    if (!seed) return;
+    setSeeded((last) => ({ seed, count: (last?.count ?? 0) + 1 }));
+    setOpen(null);
+    setEditing(NEW);
+    onSeedUsed?.();
+  }, [seed, onSeedUsed]);
+  const close = () => {
+    setEditing(null);
+    setSeeded(null);
+  };
   // Hidden until there's a Patrol, as Boards are until there's a Scout, unless one can be made here.
   if (!state.loaded || (state.patrols.length === 0 && !canEdit)) return null;
   const shown = state.patrols.find((patrol) => patrol.id === open);
@@ -417,8 +436,9 @@ export function Watchtower({
         )}
         {formOpen && (
           <PatrolForm
-            key={editing ?? NEW}
+            key={editing === NEW && seeded ? `${NEW}:${seeded.count}` : (editing ?? NEW)}
             patrol={edited}
+            seed={editing === NEW ? (seed ?? seeded?.seed) : undefined}
             taken={state.patrols.map((patrol) => patrol.id)}
             projects={projects}
             engines={engines}
@@ -426,7 +446,7 @@ export function Watchtower({
             zone={zone}
             onPreview={onPreview!}
             onSave={onSave!}
-            onClose={() => setEditing(null)}
+            onClose={close}
           />
         )}
         {shown && (

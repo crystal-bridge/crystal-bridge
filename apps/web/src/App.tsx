@@ -81,6 +81,7 @@ import {
 import {
   boardPatrols,
   changePatrol,
+  draftPatrol,
   markPatrolRun,
   previewPatrol,
   runPatrolNow,
@@ -88,6 +89,7 @@ import {
   usePatrols,
 } from './patrols.js';
 import { BoardPage } from './components/Board.js';
+import type { PatrolSeed } from './patrolForm.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
 import { HotkeyList } from './components/HotkeyList.js';
@@ -309,6 +311,11 @@ export function App({ hub }: { hub: HubClient }) {
   const circle = useCircle(hub, active ?? undefined);
   const scouts = useScouts(hub, active ?? undefined);
   const patrols = usePatrols(hub, active ?? undefined);
+  // "Patrol this" on a Board: the draft the Castle's Watchtower opens New Patrol from.
+  const [patrolSeed, setPatrolSeed] = useState<{ node: string; seed: PatrolSeed } | null>(null);
+  // Where you are now, so an answer that arrives after you've left can tell.
+  const viewNow = useRef('');
+  viewNow.current = `${active ?? ''}:${page}:${boardScout ?? ''}`;
   const openBoard = useBoard(hub, active ?? undefined, page === 'board' ? (boardScout ?? undefined) : undefined);
   const changeItems = useCallback(
     (ids: string[], state: BoardItemState, until?: number) =>
@@ -1506,6 +1513,22 @@ export function App({ hub }: { hub: HubClient }) {
                 onBack={() => setPage('castle')}
                 pinned={pinnedBoards.some((tab) => tab.id === boardScout)}
                 onPin={(pin) => pinBoard(kingdom.id, boardScout, pin)}
+                onPatrolThis={
+                  patrols.editable
+                    ? async (action, item) => {
+                        const from = viewNow.current;
+                        const draft = await draftPatrol(kingdom.id, boardScout, action, item.id);
+                        // A slow Kingdom answering after you've moved on doesn't pull you back.
+                        if (viewNow.current !== from) return;
+                        const boardName = scouts.find((scout) => scout.id === boardScout)?.manifest?.name;
+                        setPatrolSeed({
+                          node: kingdom.id,
+                          seed: { ...draft, name: item.title, board: boardScout, ...(boardName ? { boardName } : {}) },
+                        });
+                        setPage('castle');
+                      }
+                    : undefined
+                }
                 patrols={{
                   ...boardPatrols(patrols, boardScout),
                   onRun: (patrol) => runPatrolNow(kingdom.id, patrol),
@@ -1554,6 +1577,8 @@ export function App({ hub }: { hub: HubClient }) {
                 onChangePatrol={(patrol, op) => changePatrol(kingdom.id, patrol, op)}
                 onSavePatrol={(patrol, manifest) => savePatrol(kingdom.id, patrol, manifest)}
                 onPreviewPatrol={(schedule, signal) => previewPatrol(kingdom.id, schedule, signal)}
+                patrolSeed={patrolSeed?.node === kingdom.id ? patrolSeed.seed : undefined}
+                onPatrolSeedUsed={() => setPatrolSeed(null)}
                 projects={kingdomProjects}
                 pinnedBoards={new Set(pinnedBoards.map((tab) => tab.id))}
                 onPinBoard={(scout) => pinBoard(kingdom.id, scout, true)}

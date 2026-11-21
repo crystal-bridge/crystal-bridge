@@ -11,6 +11,8 @@ one entry.
   line of output. A run can be marked done, which the hub keeps for the Board.
 - A Board shows when each of its Patrols sets out next, and a Patrol log beside the list with their latest reports: how
   each run ended, its summary, and buttons to open the Quest or a script's output, run it again, or mark it done.
+- "Patrol this" beside a Board's Quest action opens New Patrol drafted from that item's Quest, reporting back to the
+  Board. See [Post to a Board](docs/PATROLS.md#post-to-a-board).
 
 ## 0.7.0
 

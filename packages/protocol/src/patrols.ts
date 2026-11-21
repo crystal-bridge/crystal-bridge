@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Effort, Engine, PermissionMode } from './mode.js';
 import { Schedule } from './schedule.js';
-import { ScoutId } from './scouts.js';
+import { ActionKey, ScoutId, ScoutItem } from './scouts.js';
 
 /**
  * Patrols (docs/PATROLS.md): a Patrol is a scheduled job on a Kingdom that runs a Quest from a saved prompt, or a script,
@@ -203,6 +203,22 @@ export const PatrolPreviewRequest = z.object({
 });
 export type PatrolPreviewRequest = z.infer<typeof PatrolPreviewRequest>;
 
+/**
+ * Client -> hub (REST): draft a Quest Patrol from a Board item's `quest` action ("Patrol this"). The hub passes the item
+ * as it stores it; the Kingdom fills the action's prompt file and project as the action would, without starting it.
+ */
+export const PatrolDraftRequest = z.object({ action: ActionKey, id: z.string().min(1).max(500) });
+export type PatrolDraftRequest = z.infer<typeof PatrolDraftRequest>;
+
+/** What a draft fills in the Patrol form: a Quest Patrol's fields, with the prompt as text. */
+export const PatrolDraft = z.object({
+  project: z.string().min(1).max(4096),
+  promptText: z.string().min(1).max(MAX_PATROL_PROMPT),
+  mode: PermissionMode.optional(),
+  worktree: z.boolean().optional(),
+});
+export type PatrolDraft = z.infer<typeof PatrolDraft>;
+
 // node -> hub
 
 /**
@@ -255,6 +271,15 @@ export const NodePatrolPreviewed = z.object({
 });
 export type NodePatrolPreviewed = z.infer<typeof NodePatrolPreviewed>;
 
+/** Node -> hub: a `patrol-draft` answered, with the draft or why there's none. */
+export const NodePatrolDrafted = z.object({
+  kind: z.literal('patrol-drafted'),
+  requestId: z.uuid(),
+  draft: PatrolDraft.optional(),
+  reason: z.string().max(2000).optional(),
+});
+export type NodePatrolDrafted = z.infer<typeof NodePatrolDrafted>;
+
 // hub -> node: frames of their own, not `NodeCommand`s, so a client can only reach them through the hub's routes.
 
 /** Hub -> node: run a Patrol now. */
@@ -276,6 +301,16 @@ export const HubPatrolPreview = PatrolPreviewRequest.extend({
   requestId: z.uuid(),
 });
 export type HubPatrolPreview = z.infer<typeof HubPatrolPreview>;
+
+/** Hub -> node: draft a Quest Patrol from a Board item's `quest` action. Answered by `patrol-drafted`. */
+export const HubPatrolDraft = z.object({
+  kind: z.literal('patrol-draft'),
+  requestId: z.uuid(),
+  scout: ScoutId,
+  action: ActionKey,
+  item: ScoutItem,
+});
+export type HubPatrolDraft = z.infer<typeof HubPatrolDraft>;
 
 // hub -> client frames, listed in `HubToClient`
 
