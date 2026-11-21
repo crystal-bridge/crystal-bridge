@@ -1157,6 +1157,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!mark.success) return reply.code(400).send({ error: 'expected { done: true } or { done: false }' });
     const runs = store.markPatrolRun(node, patrol, run, mark.data.done, Date.now());
     if (!runs) return reply.code(404).send({ error: 'no such run of that Patrol on that Kingdom' });
+    if (runs === 'out') return reply.code(409).send({ error: 'that run is still out: mark it done once it’s back' });
     for (const client of clients) sendToClient(client, { kind: 'patrol-runs', node, patrol, runs });
     return { runs };
   });

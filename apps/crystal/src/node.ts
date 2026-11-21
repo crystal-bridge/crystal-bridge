@@ -612,7 +612,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     } else if (event.type === 'session.ended') {
       ended = { outcome: 'failed', reason: 'the Quest ended before its turn did' };
     } else return;
-    // What the reply came to, whatever the outcome: a Quest that needs you usually says what it wanted.
+    // What the reply came to, on any outcome whose turn carries one. The stream engine sends a reply only with a turn
+    // that succeeded; the interactive engine sends whatever was written, so a Quest that needs you may say what it wanted.
     const said =
       event.type === 'turn.finished' && event.payload.summary !== undefined
         ? summaryLine(event.payload.summary)

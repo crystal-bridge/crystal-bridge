@@ -77,7 +77,8 @@ A Patrol has exactly one of `quest` and `script`. The exact schema is `PatrolMan
   as a Scout's collector does. It has `timeoutSeconds` (10 minutes unless set) and gets `CRYSTAL_PATROL` (its id) and
   `CRYSTAL_PATROL_RUN` (the run's id). Its exit code, timing and the last 8000 characters of its stdout and stderr go to
   the hub, so keep secrets out of both. Its last line of output is the run's summary, so end with one that says what
-  the run came to, such as `2 broken links in docs/INSTALL.md`.
+  the run came to, such as `2 broken links in docs/INSTALL.md`. When it fails, its last line of stderr is the summary,
+  if it wrote one.
 - **`catchUp`** and **`board`** sit at the top level, beside `schedule` (see below).
 
 ## Keep the watch: schedules
@@ -136,7 +137,11 @@ a Quest's run says its Quest can be carried on.
 - A run's outcome says how the run ended, not whether the work succeeded. Each run also carries a summary, which is
   where the work says whether it worked: the start of the Quest's reply (up to 140 characters, on one line), or a
   script's last line of output (up to 300). So have the prompt ask for a reply that opens with the result, such as
-  "Start your reply with what changed, or 'Nothing to do'."
+  "Start your reply with what changed, or 'Nothing to do'." With the stream engine, only a turn that ended normally has
+  a reply to take; the interactive engine also keeps one from a turn that didn't.
+- A run can be marked done once it's back and you've dealt with it. The mark is the hub's own: it works while the
+  Kingdom is offline, stays when the Kingdom reports the run again, and goes with the run when it ages out of the
+  newest 50.
 
 | Outcome     | Quest Patrol                          | Script Patrol                  |
 | ----------- | ------------------------------------- | ------------------------------ |

@@ -81,13 +81,15 @@ export interface QuestEnded {
 
 /** A run's summary from text: one line, its spaces collapsed, cut to what a run carries. */
 export function summaryLine(text: string): string | undefined {
-  const line = text.replace(/\s+/g, ' ').trim().slice(0, MAX_PATROL_SUMMARY);
-  return line || undefined;
+  let line = text.replace(/\s+/g, ' ').trim().slice(0, MAX_PATROL_SUMMARY);
+  // A cut through an emoji would leave half of it, which isn't text.
+  if (/[\uD800-\uDBFF]$/.test(line)) line = line.slice(0, -1);
+  return line.trim() || undefined;
 }
 
 /** A script's summary: its last line of output that says anything. */
 function lastLine(output: string): string | undefined {
-  const lines = output.split(/\r?\n/);
+  const lines = output.split(/\r\n|\r|\n/);
   for (let index = lines.length - 1; index >= 0; index--) {
     const line = summaryLine(lines[index]!);
     if (line) return line;
@@ -530,8 +532,12 @@ export function createPatrols(options: PatrolsOptions): Patrols {
       case 'too-much':
         return { outcome: 'failed', reason: 'the script wrote more than a run keeps', ...stderr };
       case 'exited': {
-        const said = lastLine(result.stdout);
-        const stdout = result.stdout ? { stdout: tail(result.stdout), ...(said ? { summary: said } : {}) } : {};
+        // A failure is better told by what it wrote to stderr, when it wrote anything there.
+        const said = (result.code !== 0 ? lastLine(result.stderr) : undefined) ?? lastLine(result.stdout);
+        const stdout = {
+          ...(result.stdout ? { stdout: tail(result.stdout) } : {}),
+          ...(said ? { summary: said } : {}),
+        };
         const code = result.code === null ? {} : { exitCode: result.code };
         if (result.code === 0) return { outcome: 'finished', ...code, ...stdout, ...stderr };
         const how = result.code === null ? `was ended by ${result.signal ?? 'a signal'}` : `exited with ${result.code}`;

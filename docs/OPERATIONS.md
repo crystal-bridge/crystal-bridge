@@ -490,6 +490,12 @@ A restore loses only what happened after that backup; Crystals resend events the
 - The release that added it applied migration 3, so rolling back past it refuses to start (see Rolling back). The
   deploy backs the database up before migrating, as for every migration.
 
+## Patrol run marks
+
+- A Patrol run marked done is kept on the hub (`patrol_runs.done_at`, migration 11), not on the Kingdom, so a Kingdom
+  reporting the run again doesn't undo it.
+- The release that added it applied migration 11, so rolling back past it refuses to start (see Rolling back).
+
 ## Done until viewed
 
 - A Quest that finishes a turn or fails while you aren't looking at it stays marked until you open it, on every device.

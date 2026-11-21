@@ -571,10 +571,15 @@ describe('startNode', () => {
       expect(answer.behavior).toBe('deny');
       expect(answer.behavior === 'deny' && answer.message).toMatch(/nobody answered/i);
       expect(fake.interrupt).toHaveBeenCalled();
-      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'interrupted' } });
+      // The interactive engine reports the reply on a turn that didn't succeed too; the run keeps it.
+      fake.emit('event', {
+        type: 'turn.finished',
+        payload: { outcome: 'interrupted', summary: 'I need to run touch.' },
+      });
       expect(patrols.questEnded).toHaveBeenCalledWith(session, {
         outcome: 'needs-you',
         reason: expect.stringMatching(/nobody to answer it; send the Quest a message to carry on$/),
+        summary: 'I need to run touch.',
       });
     });
 

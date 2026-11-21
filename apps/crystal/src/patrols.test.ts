@@ -193,6 +193,20 @@ describe('Patrols', () => {
       await patrols!.tick();
       await finish(exited(0, '', ''));
       expect(ended()[2]!.run).not.toHaveProperty('summary');
+      now = slot(NOON) + 3 * HOUR;
+      await patrols!.tick();
+      // Windows line ends, blank lines of spaces, and an emoji the cut would split.
+      await finish(exited(0, `${'z'.repeat(299)}🎉\r\n  \t\r\n`, ''));
+      expect(ended()[3]!.run.summary).toBe('z'.repeat(299));
+      // A failure says why from stderr when it wrote there; progress drawn with bare carriage returns ends at its last.
+      now = slot(NOON) + 4 * HOUR;
+      await patrols!.tick();
+      await finish(exited(1, 'checking links...\n', 'fatal: network unreachable\n'));
+      expect(ended()[4]!.run.summary).toBe('fatal: network unreachable');
+      now = slot(NOON) + 5 * HOUR;
+      await patrols!.tick();
+      await finish(exited(0, 'Downloading 1%\rDownloading 50%\rDownloading 100%\n', ''));
+      expect(ended()[5]!.run.summary).toBe('Downloading 100%');
     });
 
     it('runs its command in its folder without the node token, and keeps the end of what it wrote', async () => {

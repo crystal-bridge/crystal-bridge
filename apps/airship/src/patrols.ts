@@ -20,10 +20,17 @@ export interface Patrols {
    */
   recordPatrolRun(node: string, patrol: string, run: PatrolRun): ListedPatrolRun[];
   /**
-   * Marks a run done on its Board, or not done again. Returns the Patrol's recent runs as they now stand, or undefined
-   * when its Kingdom doesn't list the Patrol or the run isn't one of its.
+   * Marks a run done on its Board, or not done again. Returns the Patrol's recent runs as they now stand, `'out'` for a
+   * run still out (its outcome isn't known yet, so it can't be dealt with), or undefined when its Kingdom doesn't list
+   * the Patrol or the run isn't one of its.
    */
-  markPatrolRun(node: string, patrol: string, run: string, done: boolean, now: number): ListedPatrolRun[] | undefined;
+  markPatrolRun(
+    node: string,
+    patrol: string,
+    run: string,
+    done: boolean,
+    now: number,
+  ): ListedPatrolRun[] | 'out' | undefined;
   /** A Patrol's recent runs, newest first, or undefined when its Kingdom doesn't list that Patrol. */
   patrolRuns(node: string, patrol: string, limit?: number): ListedPatrolRun[] | undefined;
   /** Deletes everything held for a Kingdom; part of the store's `forgetNode`. */
@@ -45,6 +52,7 @@ export function openPatrols(db: Database.Database): Patrols {
     `SELECT data, done_at FROM patrol_runs WHERE node = ? AND patrol = ? ORDER BY started_at DESC, rowid DESC LIMIT ?`,
   );
   const markRun = db.prepare(`UPDATE patrol_runs SET done_at = ? WHERE node = ? AND patrol = ? AND id = ?`);
+  const runOutcome = db.prepare(`SELECT outcome FROM patrol_runs WHERE node = ? AND patrol = ? AND id = ?`);
   const pruneRuns = db.prepare(
     `DELETE FROM patrol_runs WHERE node = @node AND patrol = @patrol AND id NOT IN
        (SELECT id FROM patrol_runs WHERE node = @node AND patrol = @patrol ORDER BY started_at DESC, rowid DESC LIMIT @keep)`,
@@ -98,7 +106,10 @@ export function openPatrols(db: Database.Database): Patrols {
     },
     markPatrolRun(node, patrol, run, done, now) {
       if (!hasPatrol.get(node, patrol)) return undefined;
-      if (markRun.run(done ? now : null, node, patrol, run).changes === 0) return undefined;
+      const found = runOutcome.get(node, patrol, run) as { outcome: string } | undefined;
+      if (!found) return undefined;
+      if (done && found.outcome === 'running') return 'out';
+      markRun.run(done ? now : null, node, patrol, run);
       return runsOf(node, patrol, PATROL_RUNS_SHOWN);
     },
     patrolRuns(node, patrol, limit = PATROL_RUNS_SHOWN) {

@@ -1194,7 +1194,16 @@ describe('Patrols', () => {
       { ...back, doneAt: 50 },
     ]);
     expect(store.patrols('a')[0]!.lastRun).toEqual(back);
+    expect(store.patrols('a')[0]!.lastRun).not.toHaveProperty('doneAt');
     expect(store.markPatrolRun('a', 'backup-check', back.id, false, 60)).toEqual([back]);
+    expect(store.patrolRuns('a', 'backup-check')![0]).not.toHaveProperty('doneAt');
+  });
+
+  it('won’t mark a run still out, whose outcome isn’t known yet', () => {
+    const out = run();
+    store.recordPatrolRun('a', 'backup-check', out);
+    expect(store.markPatrolRun('a', 'backup-check', out.id, true, 50)).toBe('out');
+    expect(store.markPatrolRun('a', 'backup-check', out.id, false, 50)).toEqual([out]);
   });
 
   it('marks only a run of the Patrol it names, on a Kingdom that lists it', () => {
