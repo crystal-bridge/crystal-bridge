@@ -397,6 +397,20 @@ runs a Quest, with `--allowedTools mcp__crystal__title` and the `--append-system
   same name. The proxy now names the server's own host. If a capture ever reports `crystal` as `needs-auth`, remove
   that entry before running Quests there.
 
+## The appended system prompt on resume (CLI 2.1.330)
+
+Checked by hand while designing Errands (#288), with `claude -p --output-format json` in an empty folder, no fixture
+kept. A line in `--append-system-prompt` either asked for a mark in every reply or held a fact, then a later turn asked
+for that fact.
+
+- **A session keeps the prompt it started with.** Started with the line, then resumed without it, the Quest still knew
+  the fact (2 of 2) and still marked its replies (2 of 2).
+- **A prompt passed on `--resume` is ignored.** Started without the line, then resumed with it, the Quest didn't know
+  the fact (2 of 2, against 1 of 1 on a fresh session) and didn't mark its replies (2 of 2).
+
+So anything Crystal appends must go on the first process of a Quest (or fork), as `TITLE_INSTRUCTION` does, and
+reaches every later turn from there. A Quest started before a new line shipped never gets it.
+
 ## The `summon` tool (live check, CLI 2.1.316)
 
 Not a recording: real Quests against a real SSH target, while building #126.

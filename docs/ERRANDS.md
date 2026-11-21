@@ -46,10 +46,11 @@ The CLI defers MCP tools behind ToolSearch, so a Quest only uses one its system 
 steps the user must take themselves, load `mcp__crystal__errand` and leave one Errand for each, and still say them in
 your reply. The reply keeps them, so nothing is lost if the Errand isn't stored.
 
-The Errand line goes on every `claude` process Crystal starts, `--resume` included, since steps for you come at the end
-of any turn, and most turns after the first run in a resumed process. The title line still goes only on a new Quest or a
-fork. Both travel in the one `--append-system-prompt` value. The first build step records a resumed turn with the line,
-to confirm the CLI applies it there; until it does, this paragraph is a plan.
+The Errand line goes with the title line, in the one `--append-system-prompt` value Crystal passes when a Quest or a
+fork starts. The CLI stores a session's appended prompt and applies it again on every `--resume`, and it ignores one
+passed on a resume, so the line lasts the Quest's life ([recorded](https://github.com/crystal-bridge/crystal-bridge/blob/main/apps/crystal/test/fixtures/README.md#the-appended-system-prompt-on-resume-cli-21330)).
+A Quest started before Errands shipped, or adopted from outside the bridge, has no line and leaves no Errands; its
+replies still carry the steps.
 
 A Quest may leave at most 10 Errands in one turn; past that, the tool refuses with the reason. Crystal counts them per
 turn, so it holds no state that a restart would lose. A Quest can't edit, tick or remove an Errand. Those stay yours.
