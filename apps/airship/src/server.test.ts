@@ -1064,12 +1064,15 @@ describe('airship server', () => {
     it('edits one', async () => {
       const id = await added();
       const client = await connectClient();
+      send(client.socket, { kind: 'ping' });
+      await client.frames.waitFor((frame) => frame.kind === 'pong');
       const edited = await json(
         await call('PUT', `/api/nodes/node-a/errands/${id}`, { title: 'Renew it', body: 'Soon' }),
       );
       expect(edited.status).toBe(200);
       expect((edited.body as { errand: unknown }).errand).toMatchObject({ id, title: 'Renew it', body: 'Soon' });
-      await client.frames.waitFor(isErrands);
+      const frame = ErrandsFrame.parse(await client.frames.waitFor(isErrands));
+      expect(frame.errands).toEqual([expect.objectContaining({ id, title: 'Renew it', body: 'Soon' })]);
       expect((await call('PUT', `/api/nodes/node-a/errands/${ERRAND}`, { title: 'a', body: '' })).status).toBe(404);
       expect((await call('PUT', '/api/nodes/node-a/errands/nope', { title: 'a', body: '' })).status).toBe(400);
       expect((await call('PUT', `/api/nodes/node-a/errands/${id}`, { title: '', body: '' })).status).toBe(400);
@@ -1087,6 +1090,27 @@ describe('airship server', () => {
       const open = await json(await state('open'));
       expect((open.body as { errand: { closed?: number } }).errand.closed).toBeUndefined();
       expect((await json(await call('GET', '/api/errands/counts'))).body).toEqual({ 'node-a': 1 });
+    });
+
+    it('adds one by hand while a Kingdom with Quests is offline', async () => {
+      await added();
+      await goOffline();
+      const made = await json(await call('POST', '/api/nodes/node-a/errands', { title: 'From the phone' }));
+      expect(made.status).toBe(201);
+      expect(store.errands('node-a')).toHaveLength(2);
+    });
+
+    it('sends a frame with the new state, and refuses a bad id', async () => {
+      const id = await added();
+      const client = await connectClient();
+      send(client.socket, { kind: 'ping' });
+      await client.frames.waitFor((frame) => frame.kind === 'pong');
+      const state = (path: string) => call('PUT', `/api/nodes/node-a/errands/${path}/state`, { state: 'done' });
+      expect((await state(id)).status).toBe(200);
+      const frame = ErrandsFrame.parse(await client.frames.waitFor(isErrands));
+      expect(frame.errands).toEqual([expect.objectContaining({ id, state: 'done' })]);
+      expect((await state('nope')).status).toBe(400);
+      expect((await state(ERRAND)).status).toBe(404);
     });
 
     it('works while the Kingdom is offline', async () => {
@@ -3539,6 +3563,16 @@ describe('airship server with node tokens', () => {
     store.close();
   });
 
+  it('takes an Errand for a Kingdom known only by its token, while it is offline', async () => {
+    const response = await fetch(`${wsUrl.replace('ws:', 'http:')}/api/nodes/node-a/errands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Before it ever connects' }),
+    });
+    expect(response.status).toBe(201);
+    expect(store.errands('node-a')).toHaveLength(1);
+  });
+
   function dial(token?: string): Promise<{ socket?: WebSocket; status?: number }> {
     return new Promise((resolve) => {
       const socket = new WebSocket(`${wsUrl}/node`, token ? { headers: { authorization: `Bearer ${token}` } } : {});
@@ -4341,11 +4375,11 @@ describe('airship server appearance without tailnet logins', () => {
 });
 
 describe('airship server: Errands kept 30 days', () => {
-  it('deletes Errands closed over 30 days ago when it starts, and tells clients each hour', async () => {
+  it('deletes Errands closed over 30 days ago when it starts, and again on its timer', async () => {
     const store = openStore(':memory:');
-    const old = store.addErrand('node-a', { title: 'Old one', body: '' }, Date.now());
+    const old = store.addErrand('node-a', { title: 'Old one', body: '' }, Date.now())!;
     store.setErrandState('node-a', old.id, 'done', Date.now() - ERRANDS_KEPT_MS - 1000);
-    const open = store.addErrand('node-a', { title: 'Open one', body: '' }, Date.now());
+    const open = store.addErrand('node-a', { title: 'Open one', body: '' }, Date.now())!;
     const app = await buildServer({ store, errandPurgeMs: 50 });
     await app.listen({ port: 0, host: '127.0.0.1' });
     const baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
@@ -4356,12 +4390,15 @@ describe('airship server: Errands kept 30 days', () => {
       };
       expect(listed.errands.map((errand) => errand.id)).toEqual([open.id]);
 
-      store.setErrandState('node-a', open.id, 'done', 1000);
       socket = new WebSocket(`${baseUrl.replace('http:', 'ws:')}/client`);
       const client = new FrameRecorder(socket);
       await new Promise((resolve) => socket!.once('open', resolve));
+      // A pong means the hub has registered this client, so the purge's frame can't pass it by.
+      socket.send(JSON.stringify({ kind: 'ping' }));
+      await client.waitFor((f) => f.kind === 'pong');
+      store.setErrandState('node-a', open.id, 'done', 1000);
       const frame = await client.waitFor((f) => f.kind === 'errands' && f.node === 'node-a');
-      expect(frame.errands).toEqual([]);
+      expect(ErrandsFrame.parse(frame).errands).toEqual([]);
     } finally {
       socket?.terminate();
       await app.close();
