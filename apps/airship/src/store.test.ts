@@ -16,6 +16,8 @@ import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Envelope } from '@crystal-bridge/protocol';
 import {
+  ERRANDS_KEPT_MS,
+  errandProject,
   GONE_ITEMS_KEPT_MS,
   openStore,
   PATROL_RUNS_KEPT,
@@ -1323,5 +1325,158 @@ describe('Patrols', () => {
     store.putPatrols('a', [patrol]);
     expect(store.patrolRuns('a', 'backup-check')).toEqual([]);
     expect(store.patrolRuns('b', 'backup-check')).toHaveLength(1);
+  });
+});
+
+describe('Errands (#288)', () => {
+  const node = 'node-a';
+  const project = '/r/lantern';
+  const left = (id: string, extra: Record<string, unknown> = {}) => ({
+    node,
+    id,
+    session: randomUUID(),
+    seq: 3,
+    ts: 100,
+    project,
+    title: 'Check the lamp oil',
+    body: 'Before the next trip.',
+    ...extra,
+  });
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  it('works out an Errand’s project from a Quest’s folder', () => {
+    expect(errandProject('/r/lantern')).toBe('/r/lantern');
+    expect(errandProject('/r/lantern/.worktrees/abcd1234', '/r/lantern')).toBe('/r/lantern');
+    expect(errandProject('/r/lantern/.worktrees/abcd1234')).toBe('/r/lantern');
+    expect(errandProject('C:\\r\\lantern\\.worktrees\\abcd1234')).toBe('C:\\r\\lantern');
+    expect(errandProject('/r/lantern/.worktrees/notours')).toBe('/r/lantern/.worktrees/notours');
+  });
+
+  it('keeps an Errand a Quest left, once', () => {
+    const one = left(randomUUID());
+    store.recordErrandLeft(one);
+    store.recordErrandLeft(one);
+    expect(store.errands(node)).toEqual([
+      {
+        id: one.id,
+        session: one.session,
+        seq: 3,
+        project,
+        title: one.title,
+        body: one.body,
+        state: 'open',
+        by: 'quest',
+        created: 100,
+        updated: 100,
+      },
+    ]);
+  });
+
+  it('adds one by hand, with or without a project', () => {
+    const made = store.addErrand(node, { title: 'Renew the certificate', body: '' }, 200);
+    expect(made).toEqual({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      title: 'Renew the certificate',
+      body: '',
+      state: 'open',
+      by: 'you',
+      created: 200,
+      updated: 200,
+    });
+    const scoped = store.addErrand(node, { title: 'Sweep', body: 'x', project }, 201);
+    expect(scoped.project).toBe(project);
+    expect(store.errands(node)).toHaveLength(2);
+  });
+
+  it('lists a Kingdom’s own, newest first', () => {
+    const first = store.addErrand(node, { title: 'first', body: '' }, 1);
+    const second = store.addErrand(node, { title: 'second', body: '' }, 2);
+    store.addErrand('node-b', { title: 'other', body: '' }, 3);
+    expect(store.errands(node).map((e) => e.id)).toEqual([second.id, first.id]);
+  });
+
+  it('edits title and body, and says when', () => {
+    const made = store.addErrand(node, { title: 'old', body: 'old' }, 100);
+    expect(store.editErrand(node, made.id, { title: 'new', body: 'newer' }, 300)).toEqual({
+      ...made,
+      title: 'new',
+      body: 'newer',
+      updated: 300,
+    });
+    expect(store.editErrand(node, randomUUID(), { title: 'x', body: '' }, 300)).toBeUndefined();
+    expect(store.editErrand('node-b', made.id, { title: 'x', body: '' }, 300)).toBeUndefined();
+  });
+
+  it('ticks, dismisses and reopens, keeping when it closed', () => {
+    const made = store.addErrand(node, { title: 't', body: '' }, 100);
+    expect(store.setErrandState(node, made.id, 'done', 400)).toMatchObject({
+      state: 'done',
+      closed: 400,
+      updated: 400,
+    });
+    expect(store.setErrandState(node, made.id, 'dismissed', 500)).toMatchObject({
+      state: 'dismissed',
+      closed: 500,
+      updated: 500,
+    });
+    const reopened = store.setErrandState(node, made.id, 'open', 600);
+    expect(reopened).toMatchObject({ state: 'open', updated: 600 });
+    expect(reopened).not.toHaveProperty('closed');
+    expect(store.setErrandState('node-b', made.id, 'done', 700)).toBeUndefined();
+  });
+
+  it('counts open Errands per Kingdom', () => {
+    store.addErrand(node, { title: 'a', body: '' }, 1);
+    store.addErrand(node, { title: 'b', body: '' }, 2);
+    const done = store.addErrand(node, { title: 'c', body: '' }, 3);
+    store.setErrandState(node, done.id, 'done', 4);
+    const other = store.addErrand('node-b', { title: 'd', body: '' }, 5);
+    store.setErrandState('node-b', other.id, 'dismissed', 6);
+    expect(store.openErrandCounts()).toEqual({ 'node-a': 2 });
+  });
+
+  it('deletes closed ones 30 days after they closed, and says whose', () => {
+    const old = store.addErrand(node, { title: 'old', body: '' }, 0);
+    store.setErrandState(node, old.id, 'done', 0);
+    const recent = store.addErrand(node, { title: 'recent', body: '' }, 0);
+    store.setErrandState(node, recent.id, 'dismissed', ERRANDS_KEPT_MS - 1);
+    const open = store.addErrand(node, { title: 'open', body: '' }, 0);
+    expect(store.purgeErrands(ERRANDS_KEPT_MS)).toEqual([node]);
+    expect(
+      store
+        .errands(node)
+        .map((e) => e.id)
+        .sort(),
+    ).toEqual([open.id, recent.id].sort());
+    expect(store.purgeErrands(ERRANDS_KEPT_MS)).toEqual([]);
+  });
+
+  it('forgets a Kingdom’s Errands', () => {
+    store.addErrand(node, { title: 'a', body: '' }, 1);
+    store.addErrand('node-b', { title: 'b', body: '' }, 1);
+    store.forgetErrands(node);
+    expect(store.errands(node)).toEqual([]);
+    expect(store.errands('node-b')).toHaveLength(1);
+  });
+
+  it('names the Patrol whose Quest left it', () => {
+    const session = randomUUID();
+    store.appendEvent(
+      makeEnvelope({
+        node,
+        session,
+        seq: 1,
+        type: 'session.started',
+        payload: { cwd: project, prompt: 'p', label: 'l', patrol: { patrol: 'sweep', run: randomUUID() } },
+      }),
+    );
+    store.recordErrandLeft(left(randomUUID(), { session }));
+    expect(store.errands(node)[0]?.patrol).toBe('sweep');
   });
 });
