@@ -307,7 +307,10 @@ export function openStore(path: string): Store {
      ORDER BY seq DESC LIMIT 1`,
   );
   const lastActivityStmt = db.prepare(`SELECT ts FROM events WHERE session = ? ORDER BY seq DESC LIMIT 1`);
-  const titleStmt = db.prepare(`UPDATE sessions SET label = ?, plain_label = ? WHERE id = ? AND label_by_hand = 0`);
+  // Only a Quest's first title (#287): a plain label means it has one, and a name set by hand has none but wins.
+  const titleStmt = db.prepare(
+    `UPDATE sessions SET label = ?, plain_label = ? WHERE id = ? AND label_by_hand = 0 AND plain_label IS NULL`,
+  );
   const renameStmt = db.prepare(`UPDATE sessions SET label = ?, plain_label = NULL, label_by_hand = 1 WHERE id = ?`);
   const setStatusStmt = db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`);
   // A closed Quest is done for good: its process ending (or a stray resume) arrives after the close and mustn't reopen it.

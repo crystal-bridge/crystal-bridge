@@ -15,9 +15,9 @@ one entry.
   Board. See [Post to a Board](docs/PATROLS.md#post-to-a-board).
 
 - A Quest names itself once it understands the ask, in the theme's voice ("The Siege of the Flaky Smoke Test"), with a
-  plain name for the Classic theme. It does this through `title`, a tool the Crystal gives every Quest and allows up
-  front. On a desktop, rename a Quest from its tab's right-click menu; a name you give it stays, on every device. See
-  [How it fits together](docs/CONCEPTS.md#what-happens-in-a-session).
+  plain name for the Classic theme, and keeps that first name. It does this through `title`, a tool the Crystal gives
+  every Quest and allows up front. On a desktop, rename a Quest from its tab's right-click menu; a name you give it
+  stays, on every device. See [How it fits together](docs/CONCEPTS.md#what-happens-in-a-session).
 
 ### Fixed
 

@@ -18,7 +18,7 @@ export const EventType = z.enum([
   'usage', // payload: UsagePayload  the node account's plan limits, as last reported by its engine
   'session.effort', // payload: { effort? }  the Quest's effort from now on; none is the CLI's default
   'session.mode', // payload: { mode }  the Quest's permission mode from now on
-  'quest.titled', // payload: QuestTitledPayload  the Quest named itself (Crystal's `title` tool); a name set by hand wins
+  'quest.titled', // payload: QuestTitledPayload  the Quest named itself (Crystal's `title` tool); only the first counts; a name set by hand wins
   'terminal.screen', // payload: { open, text?, raised?, held? }  an interactive Quest's screen, while it needs a person
   'error', // payload: { message }
 ]);

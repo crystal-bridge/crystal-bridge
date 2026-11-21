@@ -393,6 +393,10 @@ describe('the title tool (#287)', () => {
     // The system prompt names the tool and how to load it, since the CLI defers it.
     expect(TITLE_INSTRUCTION).toContain('mcp__crystal__title');
     expect(TITLE_INSTRUCTION).toContain('ToolSearch');
+    // Only the first title counts, so nothing invites a second call; the user renames it by hand.
+    expect(TITLE_INSTRUCTION).toMatch(/once/i);
+    expect(TITLE_INSTRUCTION).not.toMatch(/again/i);
+    expect(tool?.description).not.toMatch(/again/i);
     expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(['title', 'plain']);
   });
 

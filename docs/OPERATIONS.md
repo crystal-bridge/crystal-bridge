@@ -499,7 +499,8 @@ A restore loses only what happened after that backup; Crystals resend events the
 ## Quest titles
 
 - A Quest's own title and its plain form are kept on the hub (`sessions.label` and `sessions.plain_label`, migration 12),
-  with `sessions.label_by_hand` set once you rename it, so its later titles don't replace your name.
+  with `sessions.label_by_hand` set once you rename it. The hub keeps only a Quest's first title, and none after you
+  rename it.
 - Update the hub before the Kingdoms. A Kingdom that names its Quests on an older hub still runs, but its Quests keep
   the first words of their prompt, as before.
 - The release that added it applied migration 12, so rolling back past it refuses to start (see Rolling back).
