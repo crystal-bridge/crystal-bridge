@@ -1185,6 +1185,29 @@ describe('Patrols', () => {
     expect(Math.min(...kept.map((kept) => kept.startedAt))).toBe(runs - PATROL_RUNS_KEPT + 1);
   });
 
+  it('marks a run done and not done again, and keeps the mark when the Kingdom reports the run again', () => {
+    const back = run({ finishedAt: 3, outcome: 'finished', summary: 'Nothing to update.' });
+    store.recordPatrolRun('a', 'backup-check', back);
+    expect(store.markPatrolRun('a', 'backup-check', back.id, true, 50)).toEqual([{ ...back, doneAt: 50 }]);
+    // Resent after a reconnect: the hub's own mark stays, and a Kingdom can't set one.
+    expect(store.recordPatrolRun('a', 'backup-check', { ...back, doneAt: 1 } as PatrolRun)).toEqual([
+      { ...back, doneAt: 50 },
+    ]);
+    expect(store.patrols('a')[0]!.lastRun).toEqual(back);
+    expect(store.markPatrolRun('a', 'backup-check', back.id, false, 60)).toEqual([back]);
+  });
+
+  it('marks only a run of the Patrol it names, on a Kingdom that lists it', () => {
+    const other: Patrol = { ...patrol, id: 'other' };
+    store.putPatrols('a', [patrol, other]);
+    const first = run();
+    store.recordPatrolRun('a', 'backup-check', first);
+    expect(store.markPatrolRun('a', 'other', first.id, true, 50)).toBeUndefined();
+    expect(store.markPatrolRun('a', 'backup-check', '00000000-0000-4000-8000-999999999999', true, 50)).toBeUndefined();
+    expect(store.markPatrolRun('b', 'backup-check', first.id, true, 50)).toBeUndefined();
+    expect(store.patrolRuns('a', 'backup-check')).toEqual([first]);
+  });
+
   it('keeps a run under the Patrol it was first reported under', () => {
     const other: Patrol = { ...patrol, id: 'other' };
     store.putPatrols('a', [patrol, other]);

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { ListedPatrol, Patrol, PatrolRun } from '@crystal-bridge/protocol';
+import type { ListedPatrol, ListedPatrolRun, Patrol, PatrolRun } from '@crystal-bridge/protocol';
 
 /** How many runs the hub keeps per Patrol. */
 export const PATROL_RUNS_KEPT = 50;
@@ -18,9 +18,14 @@ export interface Patrols {
    * Records a run, or updates it when the Kingdom reports it again (back from its round, or resent after a reconnect).
    * Returns the Patrol's recent runs as they now stand.
    */
-  recordPatrolRun(node: string, patrol: string, run: PatrolRun): PatrolRun[];
+  recordPatrolRun(node: string, patrol: string, run: PatrolRun): ListedPatrolRun[];
+  /**
+   * Marks a run done on its Board, or not done again. Returns the Patrol's recent runs as they now stand, or undefined
+   * when its Kingdom doesn't list the Patrol or the run isn't one of its.
+   */
+  markPatrolRun(node: string, patrol: string, run: string, done: boolean, now: number): ListedPatrolRun[] | undefined;
   /** A Patrol's recent runs, newest first, or undefined when its Kingdom doesn't list that Patrol. */
-  patrolRuns(node: string, patrol: string, limit?: number): PatrolRun[] | undefined;
+  patrolRuns(node: string, patrol: string, limit?: number): ListedPatrolRun[] | undefined;
   /** Deletes everything held for a Kingdom; part of the store's `forgetNode`. */
   forgetPatrols(node: string): void;
 }
@@ -37,8 +42,9 @@ export function openPatrols(db: Database.Database): Patrols {
        data = excluded.data WHERE patrol_runs.patrol = excluded.patrol`,
   );
   const latestRuns = db.prepare(
-    `SELECT data FROM patrol_runs WHERE node = ? AND patrol = ? ORDER BY started_at DESC, rowid DESC LIMIT ?`,
+    `SELECT data, done_at FROM patrol_runs WHERE node = ? AND patrol = ? ORDER BY started_at DESC, rowid DESC LIMIT ?`,
   );
+  const markRun = db.prepare(`UPDATE patrol_runs SET done_at = ? WHERE node = ? AND patrol = ? AND id = ?`);
   const pruneRuns = db.prepare(
     `DELETE FROM patrol_runs WHERE node = @node AND patrol = @patrol AND id NOT IN
        (SELECT id FROM patrol_runs WHERE node = @node AND patrol = @patrol ORDER BY started_at DESC, rowid DESC LIMIT @keep)`,
@@ -46,15 +52,20 @@ export function openPatrols(db: Database.Database): Patrols {
   const forgetPatrols = db.prepare(`DELETE FROM patrols WHERE node = ?`);
   const forgetRuns = db.prepare(`DELETE FROM patrol_runs WHERE node = ?`);
 
-  const runsOf = (node: string, patrol: string, limit: number) =>
-    (latestRuns.all(node, patrol, limit) as { data: string }[]).map((row) => JSON.parse(row.data) as PatrolRun);
+  const runsOf = (node: string, patrol: string, limit: number): ListedPatrolRun[] =>
+    (latestRuns.all(node, patrol, limit) as { data: string; done_at: number | null }[]).map((row) => ({
+      ...(JSON.parse(row.data) as PatrolRun),
+      ...(row.done_at === null ? {} : { doneAt: row.done_at }),
+    }));
 
   const put = db.transaction((node: string, patrols: readonly Patrol[]) => {
     deletePatrols.run(node);
     patrols.forEach((patrol, ord) => insertPatrol.run(node, patrol.id, ord, JSON.stringify(patrol)));
   });
 
-  const record = db.transaction((node: string, patrol: string, run: PatrolRun) => {
+  const record = db.transaction((node: string, patrol: string, reported: PatrolRun) => {
+    // The done mark is the hub's own: one in the report is left out, and the stored one stays.
+    const { doneAt: _mark, ...run } = reported as ListedPatrolRun;
     upsertRun.run({
       node,
       id: run.id,
@@ -74,8 +85,9 @@ export function openPatrols(db: Database.Database): Patrols {
     patrols(node) {
       return (listPatrols.all(node) as { data: string }[]).map((row) => {
         const patrol = JSON.parse(row.data) as Patrol;
-        const [lastRun] = runsOf(node, patrol.id, 1);
-        return { ...patrol, ...(lastRun ? { lastRun } : {}) };
+        const [latest] = runsOf(node, patrol.id, 1);
+        const { doneAt: _mark, ...lastRun } = latest ?? {};
+        return { ...patrol, ...(latest ? { lastRun: lastRun as PatrolRun } : {}) };
       });
     },
     hasPatrol(node, patrol) {
@@ -83,6 +95,11 @@ export function openPatrols(db: Database.Database): Patrols {
     },
     recordPatrolRun(node, patrol, run) {
       return record(node, patrol, run);
+    },
+    markPatrolRun(node, patrol, run, done, now) {
+      if (!hasPatrol.get(node, patrol)) return undefined;
+      if (markRun.run(done ? now : null, node, patrol, run).changes === 0) return undefined;
+      return runsOf(node, patrol, PATROL_RUNS_SHOWN);
     },
     patrolRuns(node, patrol, limit = PATROL_RUNS_SHOWN) {
       return hasPatrol.get(node, patrol) ? runsOf(node, patrol, limit) : undefined;

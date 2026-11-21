@@ -524,8 +524,15 @@ describe('startNode', () => {
       expect((frame.payload as { patrol: unknown }).patrol).toEqual({ patrol: 'sweep', run: RUN });
       const fake = created.at(-1)!.fake;
       expect(fake.start).toHaveBeenCalledWith('Sweep the deps.');
-      fake.emit('event', { type: 'turn.finished', payload: { outcome: 'success' } });
-      expect(patrols.questEnded).toHaveBeenCalledWith(session, { outcome: 'finished' });
+      fake.emit('event', {
+        type: 'turn.finished',
+        payload: { outcome: 'success', summary: 'Bumped 3 packages.\n\nAll tests pass.' },
+      });
+      // The reply's start, on one line, so the run's Board can say what the work came to.
+      expect(patrols.questEnded).toHaveBeenCalledWith(session, {
+        outcome: 'finished',
+        summary: 'Bumped 3 packages. All tests pass.',
+      });
       fake.emit('event', { type: 'turn.finished', payload: { outcome: 'error' } });
       expect(patrols.questEnded).toHaveBeenCalledTimes(1);
     });

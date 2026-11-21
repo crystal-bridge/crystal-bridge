@@ -98,6 +98,11 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX patrol_runs_patrol ON patrol_runs (node, patrol, started_at);
   `,
+  // 11: a Patrol's run marked done on its Board (docs/PATROLS.md). The hub's own mark, apart from the run's data, so a
+  // Kingdom reporting the run again doesn't undo it.
+  `
+  ALTER TABLE patrol_runs ADD COLUMN done_at INTEGER;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

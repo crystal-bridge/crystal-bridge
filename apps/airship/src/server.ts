@@ -50,6 +50,7 @@ import {
   PatrolChangeRequest,
   PatrolPreviewRequest,
   PatrolId,
+  PatrolRunMark,
   type Cast,
   type Resume,
   type Summon,
@@ -1148,6 +1149,16 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!store.hasPatrol(node, patrol)) return reply.code(404).send({ error: 'no such Patrol on that Kingdom' });
     sendJson(socket, { kind: 'patrol-run-now', patrol } satisfies HubPatrolRunNow);
     return reply.code(202).send();
+  });
+  // Done on a Board is the hub's own mark, so it works while the Kingdom is offline.
+  app.post('/api/nodes/:node/patrols/:patrol/runs/:run/done', async (request, reply) => {
+    const { node, patrol, run } = request.params as { node: string; patrol: string; run: string };
+    const mark = PatrolRunMark.safeParse(request.body);
+    if (!mark.success) return reply.code(400).send({ error: 'expected { done: true } or { done: false }' });
+    const runs = store.markPatrolRun(node, patrol, run, mark.data.done, Date.now());
+    if (!runs) return reply.code(404).send({ error: 'no such run of that Patrol on that Kingdom' });
+    for (const client of clients) sendToClient(client, { kind: 'patrol-runs', node, patrol, runs });
+    return { runs };
   });
   /** Passes a change to the Kingdom and answers with its outcome. Save and delete need a Kingdom that takes them. */
   async function changePatrol(

@@ -79,10 +79,20 @@ describe('store migrations', () => {
     migrate(db);
     db.exec(`
       INSERT INTO patrols VALUES ('n', 'sweep', 0, '{}');
-      INSERT INTO patrol_runs VALUES ('n', 'r', 'sweep', 1, 'running', '{}');
+      INSERT INTO patrol_runs (node, id, patrol, started_at, outcome, data) VALUES ('n', 'r', 'sweep', 1, 'running', '{}');
     `);
     expect(db.prepare('SELECT count(*) AS n FROM scouts').get()).toEqual({ n: 1 });
     expect(db.prepare('SELECT count(*) AS n FROM patrol_runs').get()).toEqual({ n: 1 });
+    db.close();
+  });
+
+  it('adds a done mark to the runs a database already has, unmarked', () => {
+    const db = new Database(path);
+    db.exec(MIGRATIONS.slice(0, 10).join(';'));
+    db.pragma('user_version = 10');
+    db.exec(`INSERT INTO patrol_runs VALUES ('n', 'r', 'sweep', 1, 'finished', '{}')`);
+    migrate(db);
+    expect(db.prepare('SELECT id, done_at FROM patrol_runs').all()).toEqual([{ id: 'r', done_at: null }]);
     db.close();
   });
 

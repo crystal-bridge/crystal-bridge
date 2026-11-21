@@ -76,7 +76,8 @@ A Patrol has exactly one of `quest` and `script`. The exact schema is `PatrolMan
 - **`script`** runs `command` in the Patrol's folder as Crystal's user, with the login environment and no node token,
   as a Scout's collector does. It has `timeoutSeconds` (10 minutes unless set) and gets `CRYSTAL_PATROL` (its id) and
   `CRYSTAL_PATROL_RUN` (the run's id). Its exit code, timing and the last 8000 characters of its stdout and stderr go to
-  the hub, so keep secrets out of both.
+  the hub, so keep secrets out of both. Its last line of output is the run's summary, so end with one that says what
+  the run came to, such as `2 broken links in docs/INSTALL.md`.
 - **`catchUp`** and **`board`** sit at the top level, beside `schedule` (see below).
 
 ## Keep the watch: schedules
@@ -132,8 +133,10 @@ a Quest's run says its Quest can be carried on.
   open: send it a message to carry on. Only the first turn is timed: after it, the Quest is yours.
 - The Quest appears in the Kingdom's list like any other, marked with its Patrol, as a Scout's Quest is marked with its
   item.
-- A run's outcome says how the run ended, not whether the work succeeded. The run record and the Board item keep that
-  difference visible.
+- A run's outcome says how the run ended, not whether the work succeeded. Each run also carries a summary, which is
+  where the work says whether it worked: the start of the Quest's reply (up to 140 characters, on one line), or a
+  script's last line of output (up to 300). So have the prompt ask for a reply that opens with the result, such as
+  "Start your reply with what changed, or 'Nothing to do'."
 
 | Outcome     | Quest Patrol                          | Script Patrol                  |
 | ----------- | ------------------------------------- | ------------------------------ |

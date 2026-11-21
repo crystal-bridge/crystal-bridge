@@ -177,6 +177,24 @@ describe('Patrols', () => {
   });
 
   describe('script Patrols', () => {
+    it('sums a script’s run up in its last line of output, trimmed and cut to fit', async () => {
+      patrolFolder('backup', script());
+      make();
+      await patrols!.tick();
+      now = slot(NOON);
+      await patrols!.tick();
+      await finish(exited(1, `checking\n  2 broken links in docs/INSTALL.md  \n\n`, ''));
+      expect(ended()[0]!.run).toMatchObject({ outcome: 'failed', summary: '2 broken links in docs/INSTALL.md' });
+      now = slot(NOON) + HOUR;
+      await patrols!.tick();
+      await finish(exited(0, `${'y'.repeat(400)}\n`, ''));
+      expect(ended()[1]!.run.summary).toHaveLength(300);
+      now = slot(NOON) + 2 * HOUR;
+      await patrols!.tick();
+      await finish(exited(0, '', ''));
+      expect(ended()[2]!.run).not.toHaveProperty('summary');
+    });
+
     it('runs its command in its folder without the node token, and keeps the end of what it wrote', async () => {
       patrolFolder('backup', script({ script: { command: ['./check.sh', '--quick'], timeoutSeconds: 60 } }));
       make();
@@ -191,11 +209,13 @@ describe('Patrols', () => {
       expect(request.env.CRYSTAL_TOKEN).toBeUndefined();
       expect(request.env.CRYSTAL_PATROL).toBe('backup');
       expect(sent[0]?.run).toMatchObject({ outcome: 'running', trigger: 'schedule', scheduledAt: slot(NOON) });
-      await finish(exited(0, `${'x'.repeat(9000)}done`, 'a warning'));
+      await finish(exited(0, `${'x'.repeat(9000)}\ndone`, 'a warning'));
       const run = ended()[0]!.run;
       expect(run).toMatchObject({ id: sent[0]!.run.id, outcome: 'finished', exitCode: 0, stderr: 'a warning' });
       expect(run.stdout?.endsWith('done')).toBe(true);
       expect(run.stdout?.length).toBe(8000);
+      // Its last line of output says what it came to, for its Board.
+      expect(run.summary).toBe('done');
       expect(run.finishedAt).toBeDefined();
     });
 
@@ -459,12 +479,17 @@ describe('Patrols', () => {
       expect(quests).toHaveLength(1);
       expect(ended('sweep')[0]?.run.outcome).toBe('skipped');
       const session = quests[0]!.session;
-      patrols!.questEnded(session, { outcome: 'needs-you', reason: 'nobody answered within 30m' });
+      patrols!.questEnded(session, {
+        outcome: 'needs-you',
+        reason: 'nobody answered within 30m',
+        summary: 'I want to label 4 issues.',
+      });
       expect(ended('sweep')[1]?.run).toMatchObject({
         id: sent[0]!.run.id,
         outcome: 'needs-you',
         session,
         reason: 'nobody answered within 30m',
+        summary: 'I want to label 4 issues.',
       });
       expect(listed('sweep')?.failures).toBeUndefined();
       // Another end for the same Quest, as its later turns would give, changes nothing.

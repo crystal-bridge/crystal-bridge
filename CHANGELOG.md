@@ -3,6 +3,13 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
+## Unreleased
+
+### Added
+
+- Each Patrol run carries a one-line summary of what it came to: the start of its Quest's reply, or its script's last
+  line of output. A run can be marked done, which the hub keeps for the Board.
+
 ## 0.7.0
 
 ### Added
