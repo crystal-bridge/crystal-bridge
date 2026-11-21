@@ -135,6 +135,8 @@ export interface Store extends Boards, Patrols, Errands {
   markSeen(login: string, session: string): void;
   /** Adds bytes relayed to clients, per session, in one transaction. */
   addRelayed(bytes: ReadonlyMap<string, number>): void;
+  /** Whether any Quest is stored for this Kingdom, so the hub knows it even when it is offline and untokened. */
+  knowsNode(node: string): boolean;
   /** Deletes everything held for a node, in one transaction, and returns the ids of the sessions that went. */
   forgetNode(node: string): string[];
   /**
@@ -364,6 +366,7 @@ export function openStore(path: string): Store {
     for (const [session, n] of bytes) if (n > 0) addRelayedStmt.run(session, n);
   });
   const nodeSessionsStmt = db.prepare(`SELECT id FROM sessions WHERE node = ?`);
+  const knowsNodeStmt = db.prepare(`SELECT 1 FROM sessions WHERE node = ? LIMIT 1`);
   const forgetRelayStmt = db.prepare(`DELETE FROM relay WHERE session IN (SELECT id FROM sessions WHERE node = ?)`);
   const forgetEventsStmt = db.prepare(`DELETE FROM events WHERE node = ?`);
   const forgetSessionsStmt = db.prepare(`DELETE FROM sessions WHERE node = ?`);
@@ -595,6 +598,9 @@ export function openStore(path: string): Store {
     },
     markCastDelivered(id) {
       castDeliveredStmt.run(id);
+    },
+    knowsNode(node) {
+      return knowsNodeStmt.get(node) !== undefined;
     },
     forgetNode(node) {
       const ids = forgetNodeTxn(node);

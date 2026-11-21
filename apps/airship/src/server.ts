@@ -70,6 +70,10 @@ import {
   Engine,
   MAX_QUEST_TITLE,
   QuestTitle,
+  ErrandCreate,
+  ErrandEdit,
+  ErrandStateChange,
+  MAX_ERRAND_BODY,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
@@ -703,6 +707,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     for (const client of clients) sendToClient(client, { kind: 'patrols', node, editable, patrols });
   }
 
+  /** Sends every client a Kingdom's Errands as they now stand. */
+  function sendErrands(node: string): void {
+    const frame = { kind: 'errands', node, errands: store.errands(node) } as const;
+    for (const client of clients) sendToClient(client, frame);
+  }
+
   /** Sends every client a Kingdom's Scouts, with their counts as they now stand. */
   function sendScouts(node: string): void {
     const scouts = store.scouts(node, Date.now());
@@ -1153,6 +1163,45 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     if (!store.hasScout(node, scout)) return reply.code(404).send({ error: 'no such Scout on that Kingdom' });
     sendJson(socket, { kind: 'scout-run-now', scout } satisfies HubScoutRunNow);
     return reply.code(202).send();
+  });
+  // Errands (docs/ERRANDS.md): the hub's own list per Kingdom, so they work while the Kingdom is offline.
+  const errandsHint = `a title is one line of 1 to ${MAX_QUEST_TITLE} characters, a body is at most ${MAX_ERRAND_BODY} characters`;
+  const errandId = z.uuid();
+  app.get('/api/nodes/:node/errands', async (request) => {
+    const { node } = request.params as { node: string };
+    return { errands: store.errands(node) };
+  });
+  app.get('/api/errands/counts', async () => store.openErrandCounts());
+  app.post('/api/nodes/:node/errands', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const create = ErrandCreate.safeParse(request.body);
+    if (!create.success) return reply.code(400).send({ error: errandsHint });
+    if (!nodes.has(node) && !registry?.ids().includes(node) && !store.knowsNode(node)) {
+      return reply.code(404).send({ error: 'this hub does not know that Kingdom' });
+    }
+    const errand = store.addErrand(node, create.data, Date.now());
+    sendErrands(node);
+    return reply.code(201).send({ errand });
+  });
+  app.put('/api/nodes/:node/errands/:id', async (request, reply) => {
+    const { node, id } = request.params as { node: string; id: string };
+    if (!errandId.safeParse(id).success) return reply.code(400).send({ error: 'not an Errand id' });
+    const edit = ErrandEdit.safeParse(request.body);
+    if (!edit.success) return reply.code(400).send({ error: errandsHint });
+    const errand = store.editErrand(node, id, edit.data, Date.now());
+    if (!errand) return reply.code(404).send({ error: 'no such Errand on that Kingdom' });
+    sendErrands(node);
+    return { errand };
+  });
+  app.put('/api/nodes/:node/errands/:id/state', async (request, reply) => {
+    const { node, id } = request.params as { node: string; id: string };
+    if (!errandId.safeParse(id).success) return reply.code(400).send({ error: 'not an Errand id' });
+    const change = ErrandStateChange.safeParse(request.body);
+    if (!change.success) return reply.code(400).send({ error: 'an Errand is open, done or dismissed' });
+    const errand = store.setErrandState(node, id, change.data.state, Date.now());
+    if (!errand) return reply.code(404).send({ error: 'no such Errand on that Kingdom' });
+    sendErrands(node);
+    return { errand };
   });
   // Patrols (docs/PATROLS.md). The hub keeps a Kingdom's list while it's offline too; changes go to the Kingdom, which
   // writes `patrol.json` and reports its list again.
@@ -1807,6 +1856,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
         if (inserted) {
           broadcast(envelope.data);
+          if (envelope.data.type === 'errand.left') sendErrands(helloNode);
           const attention = attentionFor(envelope.data);
           if (attention) {
             for (const client of clients) sendToClient(client, attention);

@@ -89,6 +89,21 @@ describe('store', () => {
     expect(store.listSessions()[0]?.relayedBytes).toBe(20);
   });
 
+  it('knows a Kingdom by its stored Quests', () => {
+    expect(store.knowsNode('seen')).toBe(false);
+    store.appendEvent(
+      makeEnvelope({
+        node: 'seen',
+        session: randomUUID(),
+        seq: 0,
+        type: 'session.started',
+        payload: { cwd: '/a', prompt: 'a', label: 'a' },
+      }),
+    );
+    expect(store.knowsNode('seen')).toBe(true);
+    expect(store.knowsNode('unseen')).toBe(false);
+  });
+
   it('forgetting a node it has never heard of changes nothing', () => {
     expect(store.forgetNode('nobody')).toEqual([]);
   });
