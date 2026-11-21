@@ -279,6 +279,23 @@ export function isTitleSearch(tool: ToolItem): boolean {
   return tool.name === 'ToolSearch' && isObj(tool.input) && tool.input.query === 'select:mcp__crystal__title';
 }
 
+/**
+ * The items the chat shows. It leaves out the search that only loads the title tool, and any name after the first the
+ * Quest gave itself: the hub keeps only the first, so a later line would announce a name the tab never takes. (A name
+ * set by hand before the first call keeps even that one off the tab; the chat can't tell, and it's rare.)
+ */
+export function chatItems(items: readonly ViewItem[]): ViewItem[] {
+  let named = false;
+  return items.filter((item) => {
+    if (item.kind !== 'tool') return true;
+    if (isTitleSearch(item)) return false;
+    if (!isTitleCall(item)) return true;
+    if (named) return false;
+    named = !failureChip(item) && isObj(item.input) && !!str(item.input.title);
+    return true;
+  });
+}
+
 /** A Quest named itself, as one line ("The Bard names your Quest: …"). */
 export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroManifest | undefined }) {
   const input = isObj(tool.input) ? tool.input : {};

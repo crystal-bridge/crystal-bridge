@@ -42,11 +42,11 @@ import { TerminalCard } from './TerminalCard.js';
 import { QuestionCard } from './QuestionCard.js';
 import { PromptBox } from './PromptBox.js';
 import {
+  chatItems,
   HelperBackLine,
   isAgentCall,
   isSummonStart,
   isTitleCall,
-  isTitleSearch,
   SetOutLine,
   SkillLine,
   SummonLine,
@@ -817,29 +817,26 @@ export function SessionView({
                   <LoadingHistory progress={progress} party={party} />
                 ) : (
                   <div className="mx-auto min-w-0 max-w-3xl space-y-3">
-                    {/* The search that only loads the title tool adds nothing to the line that follows. */}
-                    {items
-                      .filter((item) => !(item.kind === 'tool' && isTitleSearch(item)))
-                      .map((item) => (
-                        <div key={item.id} data-waiting={isWaiting(item)}>
-                          <MemoItem
-                            item={item}
-                            sending={item.kind === 'permission' && sending.has(item.requestId)}
-                            onAnswer={stableAnswer}
-                            onKeys={stableKeys}
-                            battle={
-                              item.kind === 'result'
-                                ? stableBattle(item.id, battles.turns.get(item.id))
-                                : item.kind === 'closed'
-                                  ? stableBattle('quest', battles.quest)
-                                  : undefined
-                            }
-                            latest={item.id === latestResult}
-                            manifest={party?.manifest}
-                            ts={tsOf(item.id)}
-                          />
-                        </div>
-                      ))}
+                    {chatItems(items).map((item) => (
+                      <div key={item.id} data-waiting={isWaiting(item)}>
+                        <MemoItem
+                          item={item}
+                          sending={item.kind === 'permission' && sending.has(item.requestId)}
+                          onAnswer={stableAnswer}
+                          onKeys={stableKeys}
+                          battle={
+                            item.kind === 'result'
+                              ? stableBattle(item.id, battles.turns.get(item.id))
+                              : item.kind === 'closed'
+                                ? stableBattle('quest', battles.quest)
+                                : undefined
+                          }
+                          latest={item.id === latestResult}
+                          manifest={party?.manifest}
+                          ts={tsOf(item.id)}
+                        />
+                      </div>
+                    ))}
                     {held.map((send, i) => (
                       <div
                         key={i}
