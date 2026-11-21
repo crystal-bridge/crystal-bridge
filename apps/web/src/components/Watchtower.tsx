@@ -68,7 +68,7 @@ const OUTCOME: Record<string, { dot: string; icon: IconName; text: string }> = {
     text: 'text-neutral-600 dark:text-neutral-400',
   },
 };
-const outcomeLook = (outcome: string) => OUTCOME[outcome] ?? OUTCOME.skipped!;
+export const outcomeLook = (outcome: string) => OUTCOME[outcome] ?? OUTCOME.skipped!;
 
 const DOTS = 16;
 const button =

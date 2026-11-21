@@ -3,7 +3,9 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HubClient, PatrolsFrame } from './hub.js';
 import {
+  boardPatrols,
   changePatrol,
+  markPatrolRun,
   patrolStanding,
   previewPatrol,
   runPatrolNow,
@@ -260,5 +262,52 @@ describe('Patrol actions', () => {
     const previewing = previewPatrol('forge', { cron: '0 9 * * *', timezone: 'Nowhere' }, new AbortController().signal);
     pending[0]!.answer({ error: 'schedule: "Nowhere" is no time zone this machine knows' }, 400);
     await expect(previewing).rejects.toThrow('no time zone');
+  });
+
+  it('marks a run done, or not done again', async () => {
+    const marking = markPatrolRun('forge', 'sweep', RUN, true);
+    expect([pending[0]!.init?.method, pending[0]!.url, JSON.parse(String(pending[0]!.init?.body))]).toEqual([
+      'POST',
+      `/api/nodes/forge/patrols/sweep/runs/${RUN}/done`,
+      { done: true },
+    ]);
+    pending[0]!.answer({ runs: [] }, 200);
+    await marking;
+  });
+});
+
+describe('boardPatrols', () => {
+  const at = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const onBoard = (id: string, extra: Partial<ListedPatrol> = {}) =>
+    patrol({ id, manifest: { ...manifest!, name: id, board: 'repo-watch' }, ...extra });
+
+  it('picks the Patrols that post to this Board, and their reports newest first, without skips', () => {
+    const state = {
+      loaded: true,
+      editable: false,
+      patrols: [
+        onBoard('sweep'),
+        patrol({ id: 'elsewhere', manifest: { ...manifest!, board: 'other' }, lastRun: run({ id: at(9) }) }),
+        onBoard('links', { lastRun: run({ id: at(5), startedAt: 50 }) }),
+      ],
+      runs: {
+        sweep: [
+          run({ id: at(3), startedAt: 30, outcome: 'skipped' }),
+          run({ id: at(2), startedAt: 20 }),
+          run({ id: at(1), startedAt: 10, outcome: 'failed' }),
+        ],
+        elsewhere: [run({ id: at(9), startedAt: 90 })],
+      },
+    };
+    const picked = boardPatrols(state, 'repo-watch');
+    expect(picked.patrols.map((one) => one.id)).toEqual(['sweep', 'links']);
+    // A Patrol whose runs haven't loaded yet shows its latest run.
+    expect(picked.reports.map(({ patrol, run }) => [patrol.id, run.id])).toEqual([
+      ['links', at(5)],
+      ['sweep', at(2)],
+      ['sweep', at(1)],
+    ]);
+    expect(boardPatrols(state, 'repo-watch', 2).reports).toHaveLength(2);
+    expect(boardPatrols(state, 'nobody')).toEqual({ patrols: [], reports: [] });
   });
 });

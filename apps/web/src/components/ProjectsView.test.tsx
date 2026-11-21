@@ -611,4 +611,22 @@ describe('ProjectsView', () => {
       expect(within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('article')).toHaveLength(4);
     });
   });
+
+  it('keeps the Patrol log beside the projects, and under the tiles', () => {
+    const patrol = {
+      id: 'sweep',
+      manifest: {
+        name: 'Nightly sweep',
+        schedule: { cron: '0 2 * * *', timezone: 'UTC' },
+        board: 'code-board',
+        quest: { project: '~/code/app', promptText: 'Sweep.' },
+      },
+    };
+    const run = { id: '00000000-0000-4000-8000-000000000001', startedAt: NOW, trigger: 'now', outcome: 'finished' };
+    const patrols = { patrols: [patrol], reports: [{ patrol, run }], onRun: vi.fn(), onMark: vi.fn() };
+    show({ items: [item('lantern')], patrols });
+    expect(screen.getByRole('region', { name: 'Patrol log' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'Tiles' }));
+    expect(screen.getByRole('region', { name: 'Patrol log' })).toBeTruthy();
+  });
 });

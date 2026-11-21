@@ -1,4 +1,4 @@
-import type { ListedPatrol, PatrolManifest, PatrolRun, Schedule } from '@crystal-bridge/protocol';
+import type { ListedPatrol, ListedPatrolRun, PatrolManifest, PatrolRun, Schedule } from '@crystal-bridge/protocol';
 import { useEffect, useState } from 'react';
 import { refusal, UNREACHABLE } from './api.js';
 import type { HubClient } from './hub.js';
@@ -8,7 +8,8 @@ export interface PatrolsState {
   patrols: ListedPatrol[];
   /** The Kingdom takes new and changed Patrols from the app right now. */
   editable: boolean;
-  runs: Record<string, PatrolRun[]>;
+  /** As the hub lists them: a run marked done on a Board says when. */
+  runs: Record<string, ListedPatrolRun[]>;
   /** The hub's list has arrived, so an empty one means none. */
   loaded: boolean;
 }
@@ -43,7 +44,7 @@ export function usePatrols(hub: HubClient, node: string | undefined): PatrolsSta
           if (round === latest) asked.delete(id);
         };
         void fetch(patrolPath(node, id))
-          .then((response) => (response.ok ? (response.json() as Promise<{ runs?: PatrolRun[] }>) : undefined))
+          .then((response) => (response.ok ? (response.json() as Promise<{ runs?: ListedPatrolRun[] }>) : undefined))
           .then((loaded) => {
             if (!loaded) return failed();
             if (round !== latest || heardRuns.has(id)) return;
@@ -92,6 +93,35 @@ export function usePatrols(hub: HubClient, node: string | undefined): PatrolsSta
     };
   }, [hub, node]);
   return state;
+}
+
+/** How many reports a Board's Patrol log shows. */
+export const BOARD_REPORTS = 12;
+
+/** A run a Patrol posted to a Board, with the Patrol it's from. */
+export interface BoardReport {
+  patrol: ListedPatrol;
+  run: ListedPatrolRun;
+}
+
+/**
+ * The Patrols that post to a Scout's Board, and their reports newest first. A skip (the last run was still out) says
+ * nothing new, so it's left out; a Patrol whose runs haven't loaded yet shows its latest.
+ */
+export function boardPatrols(
+  state: Pick<PatrolsState, 'patrols' | 'runs'>,
+  scout: string,
+  limit = BOARD_REPORTS,
+): { patrols: ListedPatrol[]; reports: BoardReport[] } {
+  const patrols = state.patrols.filter((patrol) => patrol.manifest?.board === scout);
+  const reports = patrols
+    .flatMap((patrol) =>
+      (state.runs[patrol.id] ?? (patrol.lastRun ? [patrol.lastRun] : [])).map((run) => ({ patrol, run })),
+    )
+    .filter(({ run }) => run.outcome !== 'skipped')
+    .sort((a, b) => b.run.startedAt - a.run.startedAt)
+    .slice(0, limit);
+  return { patrols, reports };
 }
 
 /**
@@ -155,6 +185,11 @@ async function send(url: string, method: 'POST' | 'PUT' | 'DELETE', body?: unkno
 /** Asks the Kingdom to send a Patrol out now, outside its schedule. Its card updates when the run starts. */
 export async function runPatrolNow(node: string, patrol: string): Promise<void> {
   await send(`${patrolPath(node, patrol)}/run`, 'POST');
+}
+
+/** Marks a Patrol's run done on its Board, or not done again; every open Board hears the change. */
+export async function markPatrolRun(node: string, patrol: string, run: string, done: boolean): Promise<void> {
+  await send(`${patrolPath(node, patrol)}/runs/${encodeURIComponent(run)}/done`, 'POST', { done });
 }
 
 /** Stands a Patrol down, puts it back on its schedule, or deletes it (its Kingdom keeps the folder in `.deleted/`). */

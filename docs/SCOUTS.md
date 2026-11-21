@@ -244,6 +244,9 @@ misspelt one or none shows the Board's first letter, and never stops the Scout l
 Alt+Arrow to reorder them. Right-click one, or press Unpin from tab strip on the Board, to take it off the strip on this
 device; Pin on its Castle card, or Pin to tab strip on the Board, brings it back.
 
+A Board can also carry a Patrol log: the reports of the [Patrols](PATROLS.md#post-to-a-board) that post to it, beside
+the list.
+
 The Castle lists every Board too, pinned or not, each with how many items are new, or why its Scout is paused or its
 `scout.json` doesn't load. A Board opens at its own address, `#/k/<kingdom>/b/<scout>`. Like the Summoning Circle,
 Boards and their tabs show on wide screens only for now.

@@ -84,6 +84,7 @@ export type Concept =
   | 'patrol'
   | 'patrols'
   | 'watchtower'
+  | 'patrolLog'
   | 'nextRun';
 
 export type Words = Record<Concept, Word>;
@@ -164,6 +165,7 @@ export const CRYSTAL: Words = {
   patrol: { themed: 'Patrol', plain: 'a scheduled Quest or script' },
   patrols: { themed: 'Patrols', plain: 'scheduled Quests and scripts' },
   watchtower: { themed: 'Watchtower', plain: 'this Kingdom’s scheduled Quests and scripts, and their runs' },
+  patrolLog: { themed: 'Patrol log', plain: 'what the Patrols posting here reported' },
   nextRun: { themed: 'Next watch', plain: 'next run' },
 };
 
@@ -245,6 +247,7 @@ export const CLASSIC: Words = {
   patrol: { themed: 'Scheduled task', plain: 'Scheduled task' },
   patrols: { themed: 'Scheduled tasks', plain: 'Scheduled tasks' },
   watchtower: { themed: 'Scheduled tasks', plain: 'Scheduled tasks' },
+  patrolLog: { themed: 'Scheduled task runs', plain: 'Scheduled task runs' },
   nextRun: { themed: 'Next run', plain: 'Next run' },
 };
 

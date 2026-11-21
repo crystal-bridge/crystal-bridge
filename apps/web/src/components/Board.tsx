@@ -52,6 +52,7 @@ import { Gold } from './Gold.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
 import { useBoardMode } from '../boardPrefs.js';
 import { LayoutSwitch, ProjectsView } from './ProjectsView.js';
+import { PatrolLog, PatrolsNext, type BoardPatrolsProps } from './PatrolLog.js';
 
 export interface BoardPageProps {
   /** The Kingdom's name, for the way back. */
@@ -80,6 +81,8 @@ export interface BoardPageProps {
   /** Whether this Board has a pinned tab on this device; without `onPin`, no pin button. */
   pinned?: boolean;
   onPin?: (pinned: boolean) => void;
+  /** The Patrols that post to this Board and their reports; without them, no Patrol log. */
+  patrols?: BoardPatrolsProps | undefined;
 }
 
 const OUTCOME_DOT: Record<string, string> = {
@@ -504,6 +507,7 @@ export function BoardPage({
   pinned = false,
   onPin,
   onQuest,
+  patrols,
 }: BoardPageProps) {
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -608,6 +612,10 @@ export function BoardPage({
   const icon = boardIcon(manifest?.icon);
   // Counsel has a place when something suggests: the synthesis step, or a collector that already has.
   const counsel = Boolean(manifest && (manifest.synthesize || counts.suggested > 0));
+  // The reports this Board's Patrols posted, beside the list (docs/PATROLS.md, Post to a Board).
+  const log =
+    patrols && patrols.patrols.length > 0 ? <PatrolLog {...patrols} onOpenQuest={onOpenQuest} now={now} /> : null;
+  const aside = counsel || log !== null;
   const tiles: { label: string; value: string; hint?: string; icon?: string; tone?: string }[] = [
     { label: 'Open', value: String(counts.open), icon: 'tray', tone: 'sky' },
     {
@@ -835,6 +843,7 @@ export function BoardPage({
                       · no more runs
                     </span>
                   )}
+                  {patrols && <PatrolsNext patrols={patrols.patrols} now={now} />}
                 </p>
                 {lastRun?.outcome === 'succeeded' && lastRun.items !== undefined && (
                   <p className="text-sm" title={scoutReturnLine(lastRun.items).plain}>
@@ -938,10 +947,11 @@ export function BoardPage({
             {...(start ? { start } : {})}
             empty={empty}
             past={pastSections}
+            log={log}
           />
         ) : (
-          <div className={`grid gap-4 px-3 ${counsel ? 'lg:grid-cols-3' : ''}`}>
-            <section aria-label="Items" className={`min-w-0 space-y-4 ${counsel ? 'lg:col-span-2' : ''}`}>
+          <div className={`grid gap-4 px-3 ${aside ? 'lg:grid-cols-3' : ''}`}>
+            <section aria-label="Items" className={`min-w-0 space-y-4 ${aside ? 'lg:col-span-2' : ''}`}>
               {openCount === 0 && ticked.length === 0 ? (
                 empty
               ) : view === 'table' ? (
@@ -972,10 +982,11 @@ export function BoardPage({
               {pastSections}
             </section>
             {/* The plan beside the inbox: sticky, so it stays in view down a long list. Above the list on narrower screens. */}
-            {counsel && (
+            {aside && (
               <aside>
-                <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  {manifest && (
+                <div className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+                  {log}
+                  {counsel && manifest && (
                     <Counsel
                       open={openItems}
                       manifest={manifest}

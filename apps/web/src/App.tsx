@@ -78,7 +78,15 @@ import {
   useBoard,
   useScouts,
 } from './boards.js';
-import { changePatrol, previewPatrol, runPatrolNow, savePatrol, usePatrols } from './patrols.js';
+import {
+  boardPatrols,
+  changePatrol,
+  markPatrolRun,
+  previewPatrol,
+  runPatrolNow,
+  savePatrol,
+  usePatrols,
+} from './patrols.js';
 import { BoardPage } from './components/Board.js';
 import { buildInventory } from './inventory.js';
 import { usePanel } from './panels.js';
@@ -1498,6 +1506,11 @@ export function App({ hub }: { hub: HubClient }) {
                 onBack={() => setPage('castle')}
                 pinned={pinnedBoards.some((tab) => tab.id === boardScout)}
                 onPin={(pin) => pinBoard(kingdom.id, boardScout, pin)}
+                patrols={{
+                  ...boardPatrols(patrols, boardScout),
+                  onRun: (patrol) => runPatrolNow(kingdom.id, patrol),
+                  onMark: (patrol, run, done) => markPatrolRun(kingdom.id, patrol, run, done),
+                }}
               />
             ) : view === 'new' ? (
               <NewSession
