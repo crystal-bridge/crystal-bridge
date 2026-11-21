@@ -1394,7 +1394,7 @@ describe('Errands (#288)', () => {
   });
 
   it('adds one by hand, with or without a project', () => {
-    const made = store.addErrand(node, { title: 'Renew the certificate', body: '' }, 200);
+    const made = store.addErrand(node, { title: 'Renew the certificate', body: '' }, 200)!;
     expect(made).toEqual({
       id: expect.stringMatching(/^[0-9a-f-]{36}$/),
       title: 'Renew the certificate',
@@ -1404,20 +1404,20 @@ describe('Errands (#288)', () => {
       created: 200,
       updated: 200,
     });
-    const scoped = store.addErrand(node, { title: 'Sweep', body: 'x', project }, 201);
+    const scoped = store.addErrand(node, { title: 'Sweep', body: 'x', project }, 201)!;
     expect(scoped.project).toBe(project);
     expect(store.errands(node)).toHaveLength(2);
   });
 
   it('lists a Kingdom’s own, newest first', () => {
-    const first = store.addErrand(node, { title: 'first', body: '' }, 1);
-    const second = store.addErrand(node, { title: 'second', body: '' }, 2);
+    const first = store.addErrand(node, { title: 'first', body: '' }, 1)!;
+    const second = store.addErrand(node, { title: 'second', body: '' }, 2)!;
     store.addErrand('node-b', { title: 'other', body: '' }, 3);
     expect(store.errands(node).map((e) => e.id)).toEqual([second.id, first.id]);
   });
 
   it('edits title and body, and says when', () => {
-    const made = store.addErrand(node, { title: 'old', body: 'old' }, 100);
+    const made = store.addErrand(node, { title: 'old', body: 'old' }, 100)!;
     expect(store.editErrand(node, made.id, { title: 'new', body: 'newer' }, 300)).toEqual({
       ...made,
       title: 'new',
@@ -1429,7 +1429,7 @@ describe('Errands (#288)', () => {
   });
 
   it('ticks, dismisses and reopens, keeping when it closed', () => {
-    const made = store.addErrand(node, { title: 't', body: '' }, 100);
+    const made = store.addErrand(node, { title: 't', body: '' }, 100)!;
     expect(store.setErrandState(node, made.id, 'done', 400)).toMatchObject({
       state: 'done',
       closed: 400,
@@ -1454,19 +1454,19 @@ describe('Errands (#288)', () => {
   it('counts open Errands per Kingdom', () => {
     store.addErrand(node, { title: 'a', body: '' }, 1);
     store.addErrand(node, { title: 'b', body: '' }, 2);
-    const done = store.addErrand(node, { title: 'c', body: '' }, 3);
+    const done = store.addErrand(node, { title: 'c', body: '' }, 3)!;
     store.setErrandState(node, done.id, 'done', 4);
-    const other = store.addErrand('node-b', { title: 'd', body: '' }, 5);
+    const other = store.addErrand('node-b', { title: 'd', body: '' }, 5)!;
     store.setErrandState('node-b', other.id, 'dismissed', 6);
     expect(store.openErrandCounts()).toEqual({ 'node-a': 2 });
   });
 
   it('deletes closed ones 30 days after they closed, and says whose', () => {
-    const old = store.addErrand(node, { title: 'old', body: '' }, 0);
+    const old = store.addErrand(node, { title: 'old', body: '' }, 0)!;
     store.setErrandState(node, old.id, 'done', 0);
-    const recent = store.addErrand(node, { title: 'recent', body: '' }, 0);
+    const recent = store.addErrand(node, { title: 'recent', body: '' }, 0)!;
     store.setErrandState(node, recent.id, 'dismissed', ERRANDS_KEPT_MS - 1);
-    const open = store.addErrand(node, { title: 'open', body: '' }, 0);
+    const open = store.addErrand(node, { title: 'open', body: '' }, 0)!;
     expect(store.purgeErrands(ERRANDS_KEPT_MS)).toEqual([node]);
     expect(
       store
