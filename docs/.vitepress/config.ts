@@ -67,6 +67,7 @@ export default defineConfig({
           { text: 'Summons', link: '/summons' },
           { text: 'Scouts and Boards', link: '/scouts' },
           { text: 'Patrols', link: '/patrols' },
+          { text: 'Errands', link: '/errands' },
         ],
       },
       {
