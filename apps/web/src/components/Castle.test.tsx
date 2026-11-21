@@ -117,9 +117,18 @@ describe('Castle', () => {
       expect(within(phone!).queryByRole('button', { name: /Run now/ })).toBeNull();
     });
 
-    it('stays away on a Kingdom with no Patrols', () => {
+    it('stays away on a Kingdom with no Patrols, unless it can make one there', () => {
       renderCastle({ patrols: { ...patrols, patrols: [] } });
       expect(screen.queryByRole('region', { name: 'Watchtower' })).toBeNull();
+      cleanup();
+      renderCastle({
+        patrols: { ...patrols, patrols: [] },
+        onSavePatrol: vi.fn(),
+        onPreviewPatrol: vi.fn(),
+      });
+      // Only the wide screen's: the phone doesn't make Patrols.
+      expect(screen.getAllByRole('region', { name: 'Watchtower' })).toHaveLength(1);
+      expect(screen.getByRole('button', { name: /New Patrol/ })).toBeTruthy();
     });
   });
 

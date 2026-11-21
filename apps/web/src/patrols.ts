@@ -1,4 +1,4 @@
-import type { ListedPatrol, PatrolRun } from '@crystal-bridge/protocol';
+import type { ListedPatrol, PatrolManifest, PatrolRun, Schedule } from '@crystal-bridge/protocol';
 import { useEffect, useState } from 'react';
 import { refusal, UNREACHABLE } from './api.js';
 import type { HubClient } from './hub.js';
@@ -120,22 +120,66 @@ export function untilText(at: number, now: number): string {
   return `in ${Math.round(hours / 24)}d`;
 }
 
-async function send(url: string, method: 'POST' | 'DELETE'): Promise<void> {
+export function browserZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/** A run's time in a zone, as the Watchtower and the form show it: "Fri 20 Nov, 15:30". */
+export function runTime(at: number, zone: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: zone,
+  }).format(at);
+}
+
+async function send(url: string, method: 'POST' | 'PUT' | 'DELETE', body?: unknown, signal?: AbortSignal) {
   let response: Response;
   try {
-    response = await fetch(url, { method });
-  } catch {
+    response = await fetch(url, {
+      method,
+      ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      ...(signal ? { signal } : {}),
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new Error(UNREACHABLE);
   }
   if (!response.ok) throw await refusal(response);
+  return response;
 }
 
 /** Asks the Kingdom to send a Patrol out now, outside its schedule. Its card updates when the run starts. */
-export function runPatrolNow(node: string, patrol: string): Promise<void> {
-  return send(`${patrolPath(node, patrol)}/run`, 'POST');
+export async function runPatrolNow(node: string, patrol: string): Promise<void> {
+  await send(`${patrolPath(node, patrol)}/run`, 'POST');
 }
 
 /** Stands a Patrol down, puts it back on its schedule, or deletes it (its Kingdom keeps the folder in `.deleted/`). */
-export function changePatrol(node: string, patrol: string, op: 'pause' | 'resume' | 'delete'): Promise<void> {
-  return op === 'delete' ? send(patrolPath(node, patrol), 'DELETE') : send(`${patrolPath(node, patrol)}/${op}`, 'POST');
+export async function changePatrol(node: string, patrol: string, op: 'pause' | 'resume' | 'delete'): Promise<void> {
+  await (op === 'delete'
+    ? send(patrolPath(node, patrol), 'DELETE')
+    : send(`${patrolPath(node, patrol)}/${op}`, 'POST'));
+}
+
+/**
+ * Saves a Quest Patrol: its Kingdom checks it as it would a file, writes `patrol.json` and answers. The card updates when
+ * the Kingdom reports its list again.
+ */
+export async function savePatrol(node: string, patrol: string, manifest: PatrolManifest): Promise<void> {
+  await send(patrolPath(node, patrol), 'PUT', { manifest });
+}
+
+/** The next run times a schedule gives, worked out on its Kingdom; a refusal carries the Kingdom's reason. */
+export async function previewPatrol(node: string, schedule: Schedule, signal: AbortSignal): Promise<number[]> {
+  const response = await send(
+    `/api/nodes/${encodeURIComponent(node)}/patrol-preview`,
+    'POST',
+    { schedule, count: 5 },
+    signal,
+  );
+  const { times } = (await response.json()) as { times?: number[] };
+  return Array.isArray(times) ? times : [];
 }

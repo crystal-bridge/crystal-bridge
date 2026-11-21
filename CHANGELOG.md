@@ -36,8 +36,11 @@ one entry.
 - A Kingdom runs Patrols: each folder under `~/.crystal-bridge/patrols/` names a schedule and either a Quest (a prompt,
   a project and a mode) or a script, and the Kingdom sets out at each time, catches up a missed run only within its
   `catchUp` window, stands a Patrol down after three failures and reports every run to the hub. A permission prompt in a
-  Patrol's Quest that nobody answers within `waitForYou` ends the run as needing you. The app's Watchtower comes in a
-  later release. See [Patrols](docs/PATROLS.md).
+  Patrol's Quest that nobody answers within `waitForYou` ends the run as needing you. See [Patrols](docs/PATROLS.md).
+- The Castle's Watchtower lists a Kingdom's Patrols with their next run, last outcome and run history, and runs, pauses,
+  resumes and deletes them. On a wide screen, New Patrol and Edit open a form for Quest Patrols: a schedule from a
+  preset, a Repeat builder, a rule, cron or a single time, with the next run times worked out on the Kingdom before you
+  save.
 
 ### Changed
 

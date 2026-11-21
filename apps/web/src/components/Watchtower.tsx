@@ -1,9 +1,18 @@
-import type { ListedPatrol, PatrolRun } from '@crystal-bridge/protocol';
+import type { Engine, ListedPatrol, PatrolManifest, PatrolRun, Project, Schedule } from '@crystal-bridge/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { scheduleText } from '../format.js';
-import { patrolStanding, untilText, type PatrolStanding, type PatrolsState } from '../patrols.js';
+import { scheduleWords } from '../patrolForm.js';
+import {
+  browserZone,
+  patrolStanding,
+  runTime as when,
+  untilText,
+  type PatrolStanding,
+  type PatrolsState,
+} from '../patrols.js';
 import { Icon, type IconName } from '../theme/icons.js';
 import { hint, patrolOutcomeWord, patrolStandingWord, w } from '../theme/words.js';
+import { PatrolForm } from './PatrolForm.js';
 
 type Change = 'pause' | 'resume' | 'delete';
 
@@ -16,6 +25,15 @@ export interface WatchtowerProps {
   onOpenQuest?: ((session: string) => void) | undefined;
   /** The browser's time zone, for tests; a schedule in another zone says which. */
   zone?: string;
+  /**
+   * With both, a Kingdom that takes Patrols from the app (`editable`) offers New Patrol and Edit on its Quest Patrols.
+   * A script Patrol is only ever written on its Kingdom.
+   */
+  onSave?: ((patrol: string, manifest: PatrolManifest) => Promise<void>) | undefined;
+  onPreview?: ((schedule: Schedule, signal: AbortSignal) => Promise<number[]>) | undefined;
+  /** The Kingdom's projects and engines, for the form. */
+  projects?: Project[];
+  engines?: Engine[] | undefined;
 }
 
 /** The card's left stripe and its standing word's colour. Blue stays for "someone is waiting on you". */
@@ -55,22 +73,6 @@ const outcomeLook = (outcome: string) => OUTCOME[outcome] ?? OUTCOME.skipped!;
 const DOTS = 16;
 const button =
   'inline-flex items-center gap-1 rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800';
-
-function browserZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
-
-/** A run's time in the browser's zone: "Fri 20 Nov, 15:30". */
-function when(at: number, zone: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: zone,
-  }).format(at);
-}
 
 function took(run: PatrolRun): string | undefined {
   if (run.finishedAt === undefined) return undefined;
@@ -188,6 +190,7 @@ function SentryCard({
   onToggle,
   onRun,
   onChange,
+  onEdit,
 }: {
   patrol: ListedPatrol;
   runs: readonly PatrolRun[];
@@ -197,6 +200,7 @@ function SentryCard({
   onToggle: () => void;
   onRun?: WatchtowerProps['onRun'];
   onChange?: WatchtowerProps['onChange'];
+  onEdit?: (() => void) | undefined;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -240,8 +244,8 @@ function SentryCard({
           {manifest && (
             <div className="truncate text-xs text-neutral-500" title={scheduleText(manifest.schedule)}>
               {manifest.schedule.timezone === zone
-                ? scheduleText(manifest.schedule).replace(` (${zone})`, '')
-                : scheduleText(manifest.schedule)}
+                ? scheduleWords(manifest.schedule)
+                : `${scheduleWords(manifest.schedule)} (${manifest.schedule.timezone})`}
             </div>
           )}
         </div>
@@ -290,8 +294,13 @@ function SentryCard({
         <button type="button" className="text-xs underline" aria-expanded={open} onClick={onToggle}>
           {open ? 'Hide runs' : 'Runs'}
         </button>
-        {(onRun || onChange) && (
+        {(onRun || onChange || onEdit) && (
           <span className="flex flex-wrap items-center gap-1">
+            {onEdit && (
+              <button type="button" className={button} disabled={busy} onClick={onEdit}>
+                <Icon name="quillInk" size={14} /> Edit
+              </button>
+            )}
             {onRun && manifest && (
               <button
                 type="button"
@@ -342,33 +351,84 @@ function SentryCard({
   );
 }
 
-/** The Castle's panel of a Kingdom's Patrols (docs/PATROLS.md): a card each, and one Patrol's runs below. */
-export function Watchtower({ state, now, onRun, onChange, onOpenQuest, zone = browserZone() }: WatchtowerProps) {
+/** The Castle's panel of a Kingdom's Patrols (docs/PATROLS.md): a card each, and one Patrol's runs or its form below. */
+export function Watchtower({
+  state,
+  now,
+  onRun,
+  onChange,
+  onOpenQuest,
+  zone = browserZone(),
+  onSave,
+  onPreview,
+  projects = [],
+  engines,
+}: WatchtowerProps) {
   const [open, setOpen] = useState<string | null>(null);
-  // Hidden until there's a Patrol, as Boards are until there's a Scout.
-  if (!state.loaded || state.patrols.length === 0) return null;
+  /** The Patrol being edited, or `new` for New Patrol. Ids can't hold a space, so the two never meet. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const canEdit = state.editable && onSave !== undefined && onPreview !== undefined;
+  // Hidden until there's a Patrol, as Boards are until there's a Scout, unless one can be made here.
+  if (!state.loaded || (state.patrols.length === 0 && !canEdit)) return null;
   const shown = state.patrols.find((patrol) => patrol.id === open);
+  const edited = editing === NEW ? undefined : state.patrols.find((patrol) => patrol.id === editing);
+  const formOpen = canEdit && (editing === NEW || edited?.manifest?.quest !== undefined);
+  const toggleRuns = (id: string) => {
+    setEditing(null);
+    setOpen(open === id ? null : id);
+  };
+  const edit = (id: string) => {
+    setOpen(null);
+    setEditing(id);
+  };
   return (
     <section aria-label={w('watchtower')} className="space-y-2">
-      <h2 className="cb-display px-3 text-2xl leading-none" title={hint('watchtower')}>
-        {w('watchtower')}
-      </h2>
+      <div className="flex items-center justify-between gap-2 px-3">
+        <h2 className="cb-display text-2xl leading-none" title={hint('watchtower')}>
+          {w('watchtower')}
+        </h2>
+        {canEdit && (
+          <button type="button" className={button} disabled={editing === NEW} onClick={() => edit(NEW)}>
+            <Icon name="treasureMap" size={14} /> {`New ${w('patrol')}`}
+          </button>
+        )}
+      </div>
       <div className="space-y-3 px-3">
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] gap-3">
-          {state.patrols.map((patrol) => (
-            <SentryCard
-              key={patrol.id}
-              patrol={patrol}
-              runs={state.runs[patrol.id] ?? []}
-              now={now}
-              zone={zone}
-              open={open === patrol.id}
-              onToggle={() => setOpen(open === patrol.id ? null : patrol.id)}
-              onRun={onRun}
-              onChange={onChange}
-            />
-          ))}
-        </ul>
+        {state.patrols.length === 0 && !formOpen && (
+          <p className="text-sm text-neutral-500">{`No ${w('patrols')} yet: they run a ${w('quest')} on a schedule.`}</p>
+        )}
+        {state.patrols.length > 0 && (
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] gap-3">
+            {state.patrols.map((patrol) => (
+              <SentryCard
+                key={patrol.id}
+                patrol={patrol}
+                runs={state.runs[patrol.id] ?? []}
+                now={now}
+                zone={zone}
+                open={open === patrol.id}
+                onToggle={() => toggleRuns(patrol.id)}
+                onRun={onRun}
+                onChange={onChange}
+                onEdit={canEdit && patrol.manifest?.quest ? () => edit(patrol.id) : undefined}
+              />
+            ))}
+          </ul>
+        )}
+        {formOpen && (
+          <PatrolForm
+            key={editing ?? NEW}
+            patrol={edited}
+            taken={state.patrols.map((patrol) => patrol.id)}
+            projects={projects}
+            engines={engines}
+            now={now}
+            zone={zone}
+            onPreview={onPreview!}
+            onSave={onSave!}
+            onClose={() => setEditing(null)}
+          />
+        )}
         {shown && (
           <Runs
             name={shown.manifest?.name ?? shown.id}
@@ -381,3 +441,5 @@ export function Watchtower({ state, now, onRun, onChange, onOpenQuest, zone = br
     </section>
   );
 }
+
+const NEW = 'new patrol';

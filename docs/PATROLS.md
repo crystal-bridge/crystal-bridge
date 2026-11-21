@@ -3,8 +3,8 @@
 A Patrol sets out from a Kingdom at the hours you give it, does its round and reports back.
 
 ::: warning Partly built
-Kingdoms run Patrols from their folders, and the app's Watchtower shows them with their runs and can run, pause, resume
-and delete one. The form that creates and edits a Patrol isn't built yet, and Patrols don't post to Boards yet. The work is tracked in the
+Kingdoms run Patrols from their folders, and the app's Watchtower shows them with their runs, creates and edits Quest
+Patrols, and runs, pauses, resumes and deletes any Patrol. Patrols don't post to Boards yet. The work is tracked in the
 [v0.8 Patrols milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/10) and #278.
 :::
 
@@ -150,6 +150,14 @@ a Quest's run says its Quest can be carried on.
 The Watchtower creates, edits, pauses, resumes and deletes Patrols, and runs one now. The hub sends the change to the
 Kingdom, which checks it against `PatrolManifest`, writes `patrol.json` and the prompt file, and answers with the result.
 The app never writes anything the Kingdom wouldn't accept from a file.
+
+**New Patrol** (on a wide screen) opens the form. A schedule comes from a preset, the Repeat builder (every so many
+minutes, hours, days, weeks or months, from a start, with an end date or a number of runs), a rule's text, cron, or a
+single time. As you change it, the form asks the Kingdom for the next five run times and shows them in your time zone,
+with the Patrol's zone beside them when it differs; a schedule the Kingdom refuses shows its reason. A Patrol made in the
+app keeps its prompt in `patrol.json` as `promptText`, so Edit shows it again. Editing a Patrol whose prompt is a file
+keeps the file unless you write a new prompt in the form. Fields the form doesn't show, such as `board` and `except`, are
+kept as the file had them.
 
 The app may create and edit **Quest Patrols only**, in the modes New Quest offers, so every action still passes the
 Quest's permission mode: a click in the hub never removes approvals. A **script Patrol** runs a command with no approval
