@@ -154,6 +154,16 @@ export const ICON_SOURCES = {
   // A projects Board's layouts
   layoutProjects: { pack: 'ph', icon: 'rows-fill' },
   layoutTiles: { pack: 'ph', icon: 'squares-four-fill' },
+  // Errands
+  errands: { pack: 'game-icons', icon: 'checklist', author: 'Delapouite' },
+  errandPatrol: { pack: 'game-icons', icon: 'tower-flag', author: 'Delapouite' },
+  errandOpen: { pack: 'ph', icon: 'square-bold' },
+  errandDone: { pack: 'ph', icon: 'check-square-fill' },
+  errandDismissed: { pack: 'ph', icon: 'eye-slash-fill' },
+  errandCopy: { pack: 'ph', icon: 'copy-fill' },
+  errandDismiss: { pack: 'ph', icon: 'x-bold' },
+  caret: { pack: 'ph', icon: 'caret-right-bold' },
+  layoutCards: { pack: 'ph', icon: 'cards-fill' },
 } as const satisfies Record<string, IconSource>;
 
 export type IconName = keyof typeof ICON_SOURCES;

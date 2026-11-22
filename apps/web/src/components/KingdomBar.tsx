@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import type { KingdomLook, TabStyle } from '../appearance.js';
 import type { Kingdom } from '../kingdoms.js';
 import { reorderHandlers } from '../tabOrder.js';
+import { Icon } from '../theme/icons.js';
 import { hint, w } from '../theme/words.js';
 import { KingdomIcon } from './KingdomIcon.js';
 
@@ -12,6 +13,8 @@ export interface KingdomBarProps {
   onSelect: (id: string) => void;
   /** Quests waiting on the user, per Kingdom. */
   waiting: Record<string, number>;
+  /** Open Errands, per Kingdom. */
+  errands?: Record<string, number>;
   /** Moves a tab to a new position, by drag-and-drop or Alt+Arrow; the order is saved per device. */
   onMove?: (id: string, index: number) => void;
   /** Each Kingdom's icon and colour on this device. */
@@ -26,6 +29,7 @@ export function KingdomBar({
   active,
   onSelect,
   waiting,
+  errands = {},
   onMove,
   looks = {},
   tabStyle = 'underline',
@@ -71,6 +75,16 @@ export function KingdomBar({
                 className="rounded-full bg-amber-500 px-1.5 font-sans text-xs font-bold leading-4 text-white"
               >
                 {waiting[kingdom.id]}
+              </span>
+            )}
+            {(errands[kingdom.id] ?? 0) > 0 && (
+              <span
+                title={`${errands[kingdom.id]} open ${errands[kingdom.id] === 1 ? w('errand') : w('errands')}`}
+                className="inline-flex items-center gap-0.5 rounded-full bg-teal-600 px-1.5 font-sans text-xs font-bold leading-4 text-white dark:bg-teal-500 dark:text-teal-950"
+              >
+                <Icon name="errands" size={12} />
+                {errands[kingdom.id]}
+                <span className="sr-only">{`, ${errands[kingdom.id]} open ${errands[kingdom.id] === 1 ? w('errand') : w('errands')}`}</span>
               </span>
             )}
           </button>

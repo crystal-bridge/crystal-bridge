@@ -16,6 +16,7 @@ import {
   Effort,
   type Engine,
   type Envelope,
+  type ErrandState,
   type ExternalSession,
   type PermissionMode,
   type Project,
@@ -38,6 +39,7 @@ import {
 import { type CheckOutcome, type HubStatus, logAttention } from './components/ShipsLog.js';
 import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
+import { QuestErrands } from './components/Errands.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
 import type { PushState } from './components/DevicePush.js';
 import {
@@ -88,6 +90,7 @@ import {
   savePatrol,
   usePatrols,
 } from './patrols.js';
+import { addErrand, editErrand, errandsBySession, setErrandState, useErrandCounts, useErrands } from './errands.js';
 import { BoardPage } from './components/Board.js';
 import type { PatrolSeed } from './patrolForm.js';
 import { buildInventory } from './inventory.js';
@@ -115,7 +118,7 @@ import {
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
 import { RemovedKingdom } from './components/RemovedKingdom.js';
-import { hint, questLabel, queuedLine, showHeroes, w } from './theme/words.js';
+import { CLASSIC, hint, questLabel, queuedLine, showHeroes, w, words } from './theme/words.js';
 
 const REFRESH_MS = 5000;
 const HOME_REFRESH_MS = 30_000;
@@ -317,6 +320,9 @@ export function App({ hub }: { hub: HubClient }) {
   const circle = useCircle(hub, active ?? undefined);
   const scouts = useScouts(hub, active ?? undefined);
   const patrols = usePatrols(hub, active ?? undefined);
+  const errands = useErrands(hub, active ?? undefined);
+  const errandsPerQuest = useMemo(() => errandsBySession(errands.errands), [errands.errands]);
+  const errandCounts = useErrandCounts(hub);
   // "Patrol this" on a Board: the draft the Castle's Watchtower opens New Patrol from.
   const [patrolSeed, setPatrolSeed] = useState<{ node: string; seed: PatrolSeed } | null>(null);
   // Where you are now, so an answer that arrives after you've left can tell.
@@ -453,6 +459,7 @@ export function App({ hub }: { hub: HubClient }) {
           { ...attention, label: questLabel(attention) },
           p.names[attention.node] || attention.node,
           notifyLevel(p, attention.node),
+          words === CLASSIC,
         );
         if (!shownText) return;
         // Alerts again when it replaces an unread notice for the same Quest, instead of swapping it silently.
@@ -672,6 +679,32 @@ export function App({ hub }: { hub: HubClient }) {
   const focusedClosed = focusedEvents.some((event) => event.type === 'session.closed');
   function sendToFocused(text: string) {
     if (focused) hub.send({ type: 'session.send', session: focused, text });
+  }
+  // The side panel's Errands come from the Quest's own Kingdom: the Castle's list, or, for a split pane on another
+  // Kingdom, that Kingdom's.
+  const otherErrands = useErrands(hub, focusedNode && focusedNode !== active ? focusedNode : undefined);
+  const focusedErrands = focusedNode === active ? errands : otherErrands;
+  function changeErrandState(node: string, id: string, state: ErrandState) {
+    setErrandState(node, id, state).catch((error: unknown) =>
+      setErrors((errs) => [
+        ...errs,
+        {
+          id: Date.now() + Math.random(),
+          message: `Couldn't change the ${w('errand')}: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ]),
+    );
+  }
+  /** The side panel's Errands block for the Quest it follows, once its Kingdom's list is in. */
+  function questErrands(id: string): ReactNode {
+    if (id !== focused || !focusedNode || !focusedErrands.loaded) return undefined;
+    return (
+      <QuestErrands
+        session={id}
+        errands={focusedErrands.errands}
+        onState={(errand, state) => changeErrandState(focusedNode, errand, state)}
+      />
+    );
   }
 
   // The read-only file viewer: one file at a time, of a Quest on screen; its Kingdom reads it through the hub.
@@ -1074,6 +1107,7 @@ export function App({ hub }: { hub: HubClient }) {
         planAt={usage.find((u) => u.node === node)?.ts}
         onOpenFile={openFileFor(id)}
         fileViewer={primary && splitShown === null ? fileViewer : undefined}
+        errands={questErrands(id)}
       />
     );
   }
@@ -1282,6 +1316,7 @@ export function App({ hub }: { hub: HubClient }) {
                 active={page === 'airship' ? null : active}
                 onSelect={selectKingdom}
                 waiting={waitingByKingdom}
+                errands={errandCounts}
                 looks={looks}
                 tabStyle={tabStyle(appearance)}
                 onMove={(id, index) =>
@@ -1531,6 +1566,7 @@ export function App({ hub }: { hub: HubClient }) {
                             }
                             relayedBytes={sessions.find((s) => s.id === focused)?.relayedBytes}
                             activity={focusedActivity}
+                            errands={questErrands(focused)}
                           />
                         </FileOpenContext.Provider>
                       </aside>
@@ -1580,6 +1616,7 @@ export function App({ hub }: { hub: HubClient }) {
                 }
                 patrols={{
                   ...boardPatrols(patrols, boardScout),
+                  errandsBySession: errandsPerQuest,
                   onRun: (patrol) => runPatrolNow(kingdom.id, patrol),
                   onMark: (patrol, run, done) => markPatrolRun(kingdom.id, patrol, run, done),
                 }}
@@ -1629,6 +1666,14 @@ export function App({ hub }: { hub: HubClient }) {
                 patrolSeed={patrolSeed?.node === kingdom.id ? patrolSeed.seed : undefined}
                 onPatrolSeedUsed={() => setPatrolSeed(null)}
                 projects={kingdomProjects}
+                errands={errands}
+                onErrandState={(id, state) => changeErrandState(kingdom.id, id, state)}
+                onAddErrand={async (draft) => {
+                  await addErrand(kingdom.id, draft);
+                }}
+                onEditErrand={async (id, edit) => {
+                  await editErrand(kingdom.id, id, edit);
+                }}
                 pinnedBoards={new Set(pinnedBoards.map((tab) => tab.id))}
                 onPinBoard={(scout) => pinBoard(kingdom.id, scout, true)}
                 onOpenBoard={(scout) => {

@@ -1,12 +1,7 @@
 # Errands
 
-A Quest comes back from the road with a few chores it couldn't do for you.
-
-::: warning Partly built
-The hub and the `errand` tool are built: a Quest leaves Errands, the hub keeps, lists and deletes them, and the chat
-shows a line where a turn left some. The app's panels are planned. The work is tracked in the
+A Quest comes back from the road with a few chores it couldn't do for you. The work is tracked in the
 [v0.9 Errands and Deeds milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/11) and #288.
-:::
 
 An **Errand** is a step a Quest leaves for you to take after a turn: test something by hand, run a command, install an
 update. It lives on the hub, outside the Quest's chat, so you can close the Quest and still find the step from any
@@ -81,7 +76,7 @@ tick at once. Older clients ignore the frame.
 **Keep:** open Errands stay until you act on them, up to 500 open per Kingdom: past that the hub drops a Quest's new
 Errands (the event is still stored) and refuses Add Errand until you tick or dismiss some. Done and dismissed ones fold away and are deleted 30 days after they
 were closed, counted from `closed`. The fold says so. Forgetting a Kingdom deletes its Errands, and closing a Quest keeps
-them. [What Crystal Bridge stores](HUB-DATA.md) gains an `errands` row when this ships.
+them. [What Crystal Bridge stores](HUB-DATA.md) has an `errands` row.
 
 A fork starts with no Errands: its earlier events belong to the Quest it came from.
 
@@ -90,34 +85,40 @@ A fork starts with no Errands: its earlier events belong to the Quest it came fr
 **On the Castle**, the Errands panel lists the Kingdom's open Errands in one of two layouts, chosen by a switch on the
 panel and kept per device:
 
-- **Checklist**, in the right column above Haunts: one line per Errand, grouped by project, each project in its own
-  colour, with a bar across the top showing each project's share.
+- **Checklist**, in the right column above Haunts on a wide screen, or after Needs you on a narrower one: one line per Errand, grouped by project, each project in its own
+  colour, with a bar across the top showing each project's share. A chevron after a title means it has details, which
+  unfold under it.
 - **Cards**, a band across the Castle: a card per Errand with its body shown, grouped by day (today, yesterday, earlier),
-  each card topped in its project's colour, with an icon for what left it.
+  each card topped in its project's colour, with an icon for what left it. A body too long for its card fades at the
+  cut and has **Show all**, so a command can't be copied without being seen.
 
-Each Errand shows what left it: a Quest (with a link to the turn), a Patrol's Quest, or your own hand. A link to a closed Quest opens it as the Chronicle does.
-Done and dismissed ones fold under a count. **Add Errand** writes one by hand, with the same limits as the tool and an
-optional project from the Kingdom's projects, and each Errand can be edited, ticked done, dismissed, or reopened from the
-fold. With no open Errands, the panel says so in one line.
+Each Errand shows what left it: a Quest, a Patrol's Quest, or your own hand. The link opens the Quest, not the turn
+within it, and a link to a closed Quest opens it as the Chronicle does. Checklist is the default layout.
+Done and dismissed ones fold under a count, titled "Done and dismissed", with the 30-day note. **Add Errand** writes one by hand, with the same limits as the tool: a title, Markdown details and an optional
+project from the Kingdom's projects. Edit changes the title and details; the project stays. Each Errand can also be
+ticked done, dismissed, or reopened from the fold. Edit and Dismiss show on hover, and always on a screen that can't
+hover. With no open Errands, the panel says so in one line; if the list couldn't be read, it says why.
 
-**In a Quest**, the side panel shows that Quest's Errands. Where the tool was called, the chat shows a line, such as
-*"Your Quest left you 2 Errands."*, counting only the calls that left one (a refused call, or one with no answer when
-the turn ended, isn't counted). Unfolded, it lists the title of each one left, then why any were refused. Once the side
-panel shows Errands, the line links to it. The Classic theme says Follow-ups.
+**In a Quest**, the side panel shows that Quest's Errands, each with its details open. Where the tool was called, the
+chat shows a teal note, such as *"Your Quest left you 2 Errands. They wait in the side panel and on the Castle."*,
+counting only the calls that left one (a refused call, or one with no answer when the turn ended, isn't counted).
+Unfolded, it lists the title of each one left, then why any were refused. Its Show button opens the side panel at that
+block, on screens wide enough to have the side panel. The side panel has no Add, since an Errand made by hand has no Quest. The Classic theme says Follow-ups.
 
 **On the Kingdom's tab**, a count of open Errands, with an icon and a label for screen readers, in teal, which is neither the
 waiting count's colour nor the gold of a Quest you haven't seen, since an Errand never holds a Quest up.
 
-The body renders as the chat's Markdown does, with no raw HTML. Each code block has a copy button; nothing runs a
-command for you.
+The body renders as the chat's Markdown does, with no raw HTML. Code blocks are compact, with no language row, and each
+has a Copy button; nothing runs a command for you.
 
-**On a phone**, the Castle shows the panel to read, copy a command and tick. Adding, editing and dismissing stay on wide
-screens for now.
+**On a phone**, the Castle shows the list to read, copy a command, tick and reopen. Each row names its project and age,
+and the project opens the Quest that left it. Adding, editing and dismissing stay
+on wider screens.
 
 ## Tie up loose ends: Quests, Patrols and notifications
 
 - **Done notifications.** When a finished turn left Errands, its done notification says so: *"…and left you 2
-  Errands."* No separate notification is sent. At the Discreet level the notification says nothing about Errands, as it
+  Errands."*, or *"…? It left you 2 Errands."* after a summary that ends in a question or an exclamation. No separate notification is sent. At the Discreet level the notification says nothing about Errands, as it
   says nothing about the Quest.
 - **The attention sort** (a finished Quest stays marked until viewed). Ticking an Errand doesn't mark its Quest seen:
   you may tick it from the Castle without reading the turn, or a later turn may have finished since.
@@ -130,7 +131,7 @@ screens for now.
 An Errand's text is written by the Quest, and a Quest reads untrusted text: web pages, pull requests, Board items. A
 prompt injection could leave an Errand with a harmful command in it. Read a command before you run it, as you would one
 in the chat. The app copies it and never runs it, and renders no HTML or scripts from the body. The
-[security model](SECURITY-MODEL.md) gains an Errands row when this ships.
+[security model](SECURITY-MODEL.md) has an Errands row.
 
 ## Who holds what
 

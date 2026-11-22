@@ -364,7 +364,7 @@ describe('SessionPanel', () => {
       fallback: 'paladin',
       frame: { width: 64, height: 64 },
       classes: { paladin: { name: 'Paladin', match: [], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} } },
-    } as unknown as HeroManifest;
+    };
     render(
       <SessionPanel
         info={{
@@ -392,7 +392,7 @@ describe('SessionPanel', () => {
       fallback: 'paladin',
       frame: { width: 64, height: 64 },
       classes: { paladin: { name: 'Paladin', match: [], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} } },
-    } as unknown as HeroManifest;
+    };
     const start = 1_000_000;
     const { rerender } = render(
       <SessionPanel
@@ -442,5 +442,24 @@ describe('SessionPanel', () => {
   it('has no Party section without the Heroes', () => {
     render(<SessionPanel info={info} kingdom="k" />);
     expect(screen.queryByRole('region', { name: 'Party' })).toBeNull();
+  });
+
+  it('draws the Errands block it is given after the Party', () => {
+    const manifest: HeroManifest = {
+      leader: 'paladin',
+      fallback: 'paladin',
+      classes: { paladin: { name: 'Paladin', match: [], work: 'slash', verb: 'Smite', victory: 'emote', anims: {} } },
+    };
+    render(
+      <SessionPanel
+        info={info}
+        kingdom="k"
+        party={{ manifest, leaderState: 'resting' }}
+        errands={<section aria-label="Quest Errands">Two left</section>}
+      />,
+    );
+    const names = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(names.indexOf('Quest Errands')).toBe(names.indexOf('Party') + 1);
+    expect(names.indexOf('Quest Errands')).toBeLessThan(names.indexOf('Stats'));
   });
 });

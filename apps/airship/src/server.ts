@@ -637,6 +637,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       reason,
     };
     if (detail !== undefined) frame.detail = detail;
+    if (reason === 'done' && envelope.type === 'turn.finished') {
+      const left = store.errandsLeftInTurn(envelope.session, envelope.seq);
+      if (left > 0) frame.errands = left;
+    }
     return frame;
   }
 

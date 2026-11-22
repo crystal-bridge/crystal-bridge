@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FileViewer } from './FileViewer.js';
 import { QuestMarkdown } from './markdown.js';
@@ -61,5 +61,42 @@ describe('images in markdown', () => {
     );
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByRole('link', { name: /evil\.example/ })).toBeTruthy();
+  });
+});
+
+describe('code blocks', () => {
+  afterEach(() => cleanup());
+  const block = '```sh\npnpm smoke --hub http://127.0.0.1:7700\n```';
+
+  it('in the chat, have a header naming the language, with Copy', () => {
+    const { container } = render(<QuestMarkdown>{block}</QuestMarkdown>);
+    const header = container.querySelector('[data-code-header]')!;
+    expect(header.textContent).toContain('sh');
+    expect(within(header as HTMLElement).getByRole('button', { name: 'Copy code' })).toBeTruthy();
+  });
+
+  it('compact, as in an Errand, have no language row: a Copy chip with its icon beside the code', () => {
+    const { container } = render(<QuestMarkdown compact>{block}</QuestMarkdown>);
+    expect(container.querySelector('[data-code-header]')).toBeNull();
+    expect(container.textContent).not.toMatch(/^sh/);
+    const copy = screen.getByRole('button', { name: 'Copy code' });
+    expect(copy.textContent).toBe('Copy');
+    expect(copy.querySelector('.cb-icon-errandCopy')).toBeTruthy();
+    expect(container.querySelector('pre')!.textContent).toBe('pnpm smoke --hub http://127.0.0.1:7700\n');
+  });
+
+  it('compact, keep the Copy chip off the code: beside it, never over it, with room at the end of the line', () => {
+    const { container } = render(<QuestMarkdown compact>{block}</QuestMarkdown>);
+    const pre = container.querySelector('pre')!;
+    const copy = screen.getByRole('button', { name: 'Copy code' });
+    // Siblings in a row: the code scrolls in its own box, which ends where the chip begins.
+    expect(copy.parentElement).toBe(pre.parentElement);
+    expect(pre.parentElement!.className).toMatch(/(^| )flex( |$)/);
+    expect(pre.className).toContain('min-w-0');
+    expect(pre.className).toContain('overflow-x-auto');
+    expect(copy.className).toContain('shrink-0');
+    expect(copy.className).not.toMatch(/\b(absolute|fixed|sticky)\b/);
+    // Scrolled to its end, the last character doesn't sit flush against the chip.
+    expect(pre.className).toContain('pr-2');
   });
 });

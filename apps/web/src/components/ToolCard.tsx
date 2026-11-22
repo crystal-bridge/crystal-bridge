@@ -3,7 +3,19 @@ import { type DiffLine, diffLines } from '../diff.js';
 import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
 import { Icon } from '../theme/icons.js';
-import { errandsLeftLine, helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
+import { setPanelOpen } from '../panels.js';
+import {
+  errandsLeftLine,
+  errandsWaitLine,
+  errandWords,
+  helperLine,
+  summonLine,
+  titledLine,
+  toolChip,
+  useLine,
+  w,
+  type Word,
+} from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext } from './markdown.js';
 
@@ -209,6 +221,10 @@ export function ToolCard({ tool, manifest }: { tool: ToolItem; manifest?: HeroMa
   );
 }
 
+/** A one-line entry's detail, folded inside it. */
+const FOLDED =
+  'mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-neutral-300 bg-neutral-50 p-2 font-mono text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300';
+
 /** One themed entry in the chat, with its detail folded inside. */
 function GameLine({
   line,
@@ -216,12 +232,15 @@ function GameLine({
   chip,
   ko = false,
   body,
+  action,
 }: {
   line: Word;
   mark?: ReactNode;
   chip?: Word | undefined;
   ko?: boolean;
   body: string;
+  /** A small button at the end of the line, e.g. to show what it's about elsewhere. */
+  action?: ReactNode;
 }) {
   return (
     <details className="text-sm">
@@ -236,10 +255,9 @@ function GameLine({
             {chip.themed}
           </span>
         )}
+        {action}
       </summary>
-      <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-neutral-300 bg-neutral-50 p-2 font-mono text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
-        {body}
-      </pre>
+      <pre className={FOLDED}>{body}</pre>
     </details>
   );
 }
@@ -379,29 +397,77 @@ export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroM
 }
 
 /**
- * The Errands a turn left, as one line ("Your Quest left you 2 Errands."), at the turn's first errand call. Inside: the
- * title of each one left, one per line, then why any were refused.
+ * The Errands a turn left, as a teal note ("Your Quest left you 2 Errands. They wait in the side panel and on the
+ * Castle."), at the turn's first errand call; red when none could be left. Inside: the title of each one left, one per
+ * line, then why any were refused. `Show` opens the side panel at the Quest's Errands, so it only shows where the panel
+ * does (lg and up).
  */
-export function ErrandLine({ tool, tally }: { tool: ToolItem; tally: ErrandTally | undefined }) {
+/** Scrolls to `id` once it's drawn (a panel just opened may take a few frames), giving up after about a second. */
+function scrollWhenDrawn(id: string, frames = 60): void {
+  requestAnimationFrame(() => {
+    const target = document.getElementById(id);
+    if (target) target.scrollIntoView({ block: 'nearest' });
+    else if (frames > 1) scrollWhenDrawn(id, frames - 1);
+  });
+}
+
+export function ErrandLine({
+  tool,
+  tally,
+  session,
+}: {
+  tool: ToolItem;
+  tally: ErrandTally | undefined;
+  /** The Quest the line belongs to, whose Errands block in the side panel `Show` scrolls to. */
+  session?: string | undefined;
+}) {
   const { left, refused, titles } = tally ?? { left: 0, refused: [], titles: [] };
   // Still running: nothing left yet, but nothing failed either.
   const pending = left === 0 && refused.length === 0;
+  const failed = !pending && left === 0;
   const input = isObj(tool.input) ? tool.input : {};
   const body = pending ? (str(input.title) ?? '') : [titles.join('\n'), ...refused].filter(Boolean).join('\n\n');
+  const line = errandsLeftLine(pending ? 1 : left);
+  const look = failed
+    ? 'bg-red-50 text-red-800 ring-red-200 dark:bg-red-950 dark:text-red-200 dark:ring-red-800'
+    : 'bg-teal-50 text-teal-900 ring-teal-200 dark:bg-teal-950 dark:text-teal-100 dark:ring-teal-800';
   return (
-    <GameLine
-      line={errandsLeftLine(pending ? 1 : left)}
-      mark={
-        <span aria-hidden className="text-teal-600 dark:text-teal-400">
-          <Icon name="boardChecklist" size={16} />
+    <details className="text-sm">
+      <summary
+        title={line.plain}
+        className={`flex w-fit max-w-full list-none items-center gap-2 rounded-md px-2.5 py-1.5 text-xs ring-1 [&::-webkit-details-marker]:hidden ${look}`}
+      >
+        <span aria-hidden className={`inline-flex shrink-0 ${failed ? '' : 'text-teal-600 dark:text-teal-300'}`}>
+          {/* The Errands checklist in a bolder drawing, which reads at this size where the thin one fades. */}
+          <Icon name="boardChecklist" size={20} />
         </span>
-      }
-      chip={
-        refused.length > 0 ? { themed: `${refused.length} refused`, plain: `${refused.length} refused` } : undefined
-      }
-      ko={!pending && left === 0}
-      body={body}
-    />
+        <span className="min-w-0">
+          <span className="font-bold">{line.themed}</span>
+          {!failed && <span className="opacity-80"> {errandsWaitLine(pending ? 1 : left)}</span>}
+        </span>
+        {refused.length > 0 && (
+          <span className="shrink-0 font-bold text-red-700 dark:text-red-400">{`${refused.length} refused`}</span>
+        )}
+        {session && !failed && (
+          <button
+            type="button"
+            aria-label={errandWords().show}
+            title={errandWords().showHint}
+            onClick={(event) => {
+              // Inside <summary>: show the panel without also folding the line open or shut.
+              event.preventDefault();
+              event.stopPropagation();
+              setPanelOpen('details', true);
+              scrollWhenDrawn(`errands-${session}`);
+            }}
+            className="hidden shrink-0 items-center rounded px-1.5 py-0.5 font-sans text-xs font-bold text-teal-700 ring-1 ring-teal-300 hover:bg-white lg:inline-flex dark:text-teal-200 dark:ring-teal-700 dark:hover:bg-teal-900"
+          >
+            Show
+          </button>
+        )}
+      </summary>
+      <pre className={FOLDED}>{body}</pre>
+    </details>
   );
 }
 

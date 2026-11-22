@@ -40,6 +40,7 @@ function fakeHub(): HubClient {
     onCast: () => () => undefined,
     onBoards: () => () => undefined,
     onPatrols: () => () => undefined,
+    onErrands: () => () => undefined,
     onReconnect: () => () => undefined,
     onAttention: (listener: (attention: unknown) => void) => {
       attentionListener = listener;
@@ -1049,6 +1050,59 @@ describe('App Kingdom tabs', () => {
     fireEvent.click(within(main).getByRole('button', { name: 'Exit Split Party' }));
     expect(screen.queryByRole('region', { name: /private work/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Close pane|Unsplit/ })).toBeNull();
+  });
+
+  it('gives a split pane on another Kingdom its own Errands in the side panel, ticked on that Kingdom', async () => {
+    const errandsListeners = new Set<(frame: unknown) => void>();
+    const hub = {
+      ...fakeHub(),
+      onErrands: (listener: (frame: unknown) => void) => {
+        errandsListeners.add(listener);
+        return () => errandsListeners.delete(listener);
+      },
+    } as unknown as HubClient;
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) =>
+      init?.method === 'PUT' ? new Response(JSON.stringify({ errand: {} }), { status: 200 }) : answer(url, init),
+    );
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(screen.getByRole('tab', { name: /node-b/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /fix the build/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Split/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: /Split/ })).getByRole('button', { name: /private work/ }),
+    );
+    fireEvent.pointerDown(screen.getByRole('region', { name: /private work/ }));
+    // node-a's list comes from node-a: the active Kingdom is node-b.
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain('/api/nodes/node-a/errands'),
+    );
+    const id = '44444444-4444-4444-8444-000000000001';
+    const left = {
+      id,
+      title: 'Rotate the private key',
+      body: '',
+      state: 'open',
+      by: 'quest',
+      session: sessions[1]!.id,
+      created: 1,
+      updated: 1,
+    };
+    act(() => errandsListeners.forEach((listener) => listener({ kind: 'errands', node: 'node-a', errands: [left] })));
+    const details = screen.getByRole('complementary', { name: 'Session details' });
+    const block = await within(details).findByRole('region', { name: 'Errands' });
+    fireEvent.click(within(block).getByRole('button', { name: 'Mark done: Rotate the private key' }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/nodes/node-a/errands/${id}/state`,
+        expect.objectContaining({ method: 'PUT' }),
+      ),
+    );
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).startsWith('/api/nodes/node-b/errands/'))).toBe(false);
   });
 
   it('aims the shared Belt at the focused pane: its Kingdom-s slots, and its Quest for sending', async () => {

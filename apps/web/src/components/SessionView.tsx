@@ -147,6 +147,8 @@ export interface SessionViewProps {
   onOpenFile?: (path: string) => void;
   /** The open file's viewer, shown in place of the side panel (full screen on a phone). Unused in a split's panes. */
   fileViewer?: ReactNode;
+  /** The Quest's Errands block for the side panel (`QuestErrands`). Unused in a split's panes. */
+  errands?: ReactNode;
 }
 
 /** A Belt for a view that isn't given one. */
@@ -200,6 +202,7 @@ function Item({
   manifest,
   ts,
   errands,
+  session,
 }: {
   item: ViewItem;
   /** When the event behind this item was stored. */
@@ -214,6 +217,8 @@ function Item({
   manifest?: HeroManifest;
   /** What the turn's errand calls came to, on the turn's first one. */
   errands?: ErrandTally | undefined;
+  /** The Quest shown, so its Errand line can find its Errands in the side panel. */
+  session?: string | undefined;
 }) {
   switch (item.kind) {
     case 'user': {
@@ -268,7 +273,7 @@ function Item({
       if (isAgentCall(item)) return <SetOutLine tool={item} manifest={manifest} />;
       if (isSummonStart(item)) return <SummonLine tool={item} manifest={manifest} />;
       if (isTitleCall(item)) return <TitleLine tool={item} manifest={manifest} />;
-      if (isErrandCall(item)) return <ErrandLine tool={item} tally={errands} />;
+      if (isErrandCall(item)) return <ErrandLine tool={item} tally={errands} session={session} />;
       return <ToolCard tool={item} manifest={manifest} />;
     case 'helper-back':
       return <HelperBackLine item={item} manifest={manifest} />;
@@ -403,6 +408,7 @@ export function SessionView({
   planAt,
   onOpenFile,
   fileViewer,
+  errands: questErrands,
 }: SessionViewProps) {
   const view = useRef<IncrementalView | null>(null);
   view.current ??= new IncrementalView();
@@ -855,6 +861,7 @@ export function SessionView({
                           manifest={party?.manifest}
                           ts={tsOf(item.id)}
                           errands={item.kind === 'tool' ? stableTally(item.id) : undefined}
+                          session={session}
                         />
                       </div>
                     ))}
@@ -976,6 +983,7 @@ export function SessionView({
                   activity={activity}
                   plan={plan}
                   planAt={planAt}
+                  errands={questErrands}
                 />
               </aside>
             )

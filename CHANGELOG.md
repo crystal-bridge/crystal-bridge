@@ -20,6 +20,13 @@ one entry.
   stays, on every device. See [How it fits together](docs/CONCEPTS.md#what-happens-in-a-session).
 - A Quest leaves you Errands, steps to take after a turn, through `errand`, a tool the Crystal gives every new Quest and
   allows up front; the chat says how many a turn left. See [Errands](docs/ERRANDS.md).
+- The Castle's Errands panel lists a Kingdom's open Errands as a Checklist by project or as Cards by day, a choice kept
+  per device. Tick one done, dismiss it, reopen it from the fold, add one by hand, or edit one. On a phone it shows the
+  list to read, copy and tick.
+- A Quest's side panel shows its own Errands, and the chat line's Show button opens it there. Each Kingdom's tab shows a
+  teal count of its open Errands.
+- A done notification adds "and left you 2 Errands." (Follow-ups in the Classic theme), and a Patrol's report in the
+  Patrol log says how many Errands its run left.
 
 ### Fixed
 

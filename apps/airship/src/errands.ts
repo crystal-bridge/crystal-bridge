@@ -44,6 +44,8 @@ export interface Errands {
   addErrand(node: string, errand: ErrandCreate, now: number): Errand | undefined;
   editErrand(node: string, id: string, edit: ErrandEdit, now: number): Errand | undefined;
   setErrandState(node: string, id: string, state: ErrandState, now: number): Errand | undefined;
+  /** How many Errands a Quest left (not by hand) in the turn that ended at `seq`, ticked or not. */
+  errandsLeftInTurn(session: string, seq: number): number;
   /** Deletes Errands closed at least ERRANDS_KEPT_MS before `now`; returns the Kingdoms that lost any. */
   purgeErrands(now: number): string[];
   /** Part of the store's `forgetNode`. */
@@ -109,6 +111,12 @@ export function openErrands(db: Database.Database): Errands {
   const dueNodes = db.prepare(`SELECT DISTINCT node FROM errands WHERE state != 'open' AND closed <= ?`);
   const purge = db.prepare(`DELETE FROM errands WHERE state != 'open' AND closed <= ?`);
   const forget = db.prepare(`DELETE FROM errands WHERE node = ?`);
+  const leftInTurn = db
+    .prepare(
+      `SELECT COUNT(*) FROM errands WHERE session = @session AND left_by = 'quest' AND seq < @seq
+       AND seq > COALESCE((SELECT MAX(seq) FROM events WHERE session = @session AND seq < @seq AND type = 'turn.finished'), -1)`,
+    )
+    .pluck();
 
   const count = (node: string): number => openCount.get(node) as number;
   const get = (node: string, id: string): Errand | undefined => {
@@ -133,6 +141,7 @@ export function openErrands(db: Database.Database): Errands {
       return out;
     },
     openErrandCount: count,
+    errandsLeftInTurn: (session, seq) => leftInTurn.get({ session, seq }) as number,
     addErrand(node, errand, now) {
       if (count(node) >= MAX_OPEN_ERRANDS) return undefined;
       const id = randomUUID();

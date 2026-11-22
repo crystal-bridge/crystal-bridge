@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Attention } from './commands.js';
+import { Attention } from './commands.js';
 import { PushSubscriptionPut, notificationFor, pushNotificationFor } from './notify.js';
 
 const base = { kind: 'attention' as const, node: 'n', session: 's', label: 'Fix the login test' };
@@ -100,5 +100,64 @@ describe('a Quest that named itself (#287)', () => {
   it('names it in plain words to a device on the Classic theme, and in the theme’s words otherwise', () => {
     expect(pushNotificationFor(titled, { names: {}, hidden: [], plainTitles: true })?.body).toBe('Fix the test');
     expect(pushNotificationFor(titled, { names: {}, hidden: [] })?.body).toBe('The Siege');
+  });
+});
+
+describe('a turn that left Errands (#288)', () => {
+  const done = { ...base, reason: 'done' as const, label: 'The Siege', detail: 'Fixed the flaky step.' };
+
+  it('says so after the summary', () => {
+    expect(notificationFor({ ...done, errands: 2 }, 'Emberhold', 'full')?.body).toBe(
+      'The Siege: Fixed the flaky step, and left you 2 Errands.',
+    );
+    expect(
+      notificationFor({ ...base, reason: 'done', label: 'The Siege', errands: 2 }, 'Emberhold', 'full')?.body,
+    ).toBe('The Siege, and left you 2 Errands.');
+    expect(notificationFor({ ...done, errands: 1 }, 'Emberhold', 'full')?.body).toBe(
+      'The Siege: Fixed the flaky step, and left you an Errand.',
+    );
+  });
+
+  it('starts a new sentence after a summary that ends in its own question or exclamation', () => {
+    const asked = { ...done, detail: 'Shall I ship it?', errands: 2 };
+    expect(notificationFor(asked, 'Emberhold', 'full')?.body).toBe(
+      'The Siege: Shall I ship it? It left you 2 Errands.',
+    );
+    expect(notificationFor({ ...done, detail: 'Fixed it!', errands: 1 }, 'Emberhold', 'full')?.body).toBe(
+      'The Siege: Fixed it! It left you an Errand.',
+    );
+    expect(notificationFor(asked, 'Emberhold', 'full', true)?.body).toBe(
+      'The Siege: Shall I ship it? It left you 2 follow-ups.',
+    );
+  });
+
+  it('says only what was left when there is nothing before it', () => {
+    const bare = { ...base, reason: 'done' as const, label: '', errands: 2 };
+    expect(notificationFor(bare, 'Emberhold', 'full')?.body).toBe('Left you 2 Errands.');
+    expect(notificationFor({ ...bare, errands: 1 }, 'Emberhold', 'full', true)?.body).toBe('Left you a follow-up.');
+  });
+
+  it('says follow-ups to a Classic device', () => {
+    const attention = { ...done, errands: 2 };
+    expect(pushNotificationFor(attention, { names: {}, hidden: [], plainTitles: true })?.body).toMatch(
+      /and left you 2 follow-ups\.$/,
+    );
+    expect(notificationFor(attention, 'Emberhold', 'full', true)?.body).toMatch(/and left you 2 follow-ups\.$/);
+    expect(notificationFor({ ...done, errands: 1 }, 'Emberhold', 'full', true)?.body).toMatch(
+      /and left you a follow-up\.$/,
+    );
+  });
+
+  it('says nothing about Errands at Discreet, or for a failure', () => {
+    expect(notificationFor({ ...done, errands: 2 }, 'Emberhold', 'discreet')?.body).toBe(
+      'Open Crystal Bridge to see it.',
+    );
+    expect(notificationFor({ ...base, reason: 'failed', errands: 2 }, 'Emberhold', 'full')?.body).toBe(base.label);
+  });
+
+  it('parses on an Attention, and refuses zero', () => {
+    const frame = { kind: 'attention', node: 'n', session: crypto.randomUUID(), label: 'x', reason: 'done' };
+    expect(Attention.safeParse({ ...frame, errands: 2 }).success).toBe(true);
+    expect(Attention.safeParse({ ...frame, errands: 0 }).success).toBe(false);
   });
 });

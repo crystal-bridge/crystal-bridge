@@ -18,6 +18,7 @@ export function notificationFor(
   attention: Attention,
   kingdomName: string,
   level: NotifyLevel,
+  plain = false,
 ): { title: string; body: string } | null {
   if (level === 'off') return null;
   const title = `${kingdomName} ${TITLES[attention.reason]}`;
@@ -30,7 +31,16 @@ export function notificationFor(
   } else if (attention.reason !== 'failed') {
     what = attention.detail;
   }
-  return { title, body: what ? `${attention.label}: ${what}` : attention.label };
+  let body = what ? `${attention.label}: ${what}` : attention.label;
+  const n = attention.errands;
+  if (attention.reason === 'done' && n) {
+    const left = n === 1 ? (plain ? 'a follow-up' : 'an Errand') : `${n} ${plain ? 'follow-ups' : 'Errands'}`;
+    // A summary that ends on its own question or exclamation keeps it, and the Errands start a sentence of their own.
+    if (!body) body = `Left you ${left}.`;
+    else if (/[?!]$/.test(body)) body = `${body} It left you ${left}.`;
+    else body = `${body.replace(/\.$/, '')}, and left you ${left}.`;
+  }
+  return { title, body };
 }
 
 /**
@@ -63,5 +73,5 @@ export function pushNotificationFor(attention: Attention, prefs: PushPrefs): { t
   if (prefs.hidden.includes(attention.node)) return null;
   const name = prefs.names[attention.node] || attention.node;
   const shown = prefs.plainTitles && attention.plainLabel ? { ...attention, label: attention.plainLabel } : attention;
-  return notificationFor(shown, name, prefs.notify?.[attention.node] ?? 'full');
+  return notificationFor(shown, name, prefs.notify?.[attention.node] ?? 'full', prefs.plainTitles === true);
 }

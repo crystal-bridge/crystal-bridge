@@ -431,6 +431,8 @@ export const Attention = z.object({
   plainLabel: z.string().optional(),
   reason: z.enum(['needs-you', 'done', 'failed', 'cast-done', 'cast-failed']),
   detail: z.string().optional(),
+  /** On a done turn: how many Errands that turn left, #288. */
+  errands: z.number().int().positive().optional(),
 });
 export type Attention = z.infer<typeof Attention>;
 

@@ -469,6 +469,45 @@ export function errandsLeftLine(count: number, theme: Words = words): Word {
   return { themed: `Your ${w('quest', theme)} left you ${what}.`, plain };
 }
 
+/**
+ * How many Errands something left, mid-sentence, e.g. "left 2 Errands" on a Patrol's report. Classic's noun is a
+ * plain word, so it stays lowercase there ("left a follow-up"), as in `errandsLeftLine`.
+ */
+export function errandsLeftPhrase(count: number, theme: Words = words): string {
+  const lower = (word: string) => (theme === CLASSIC ? word.toLowerCase() : word);
+  if (count !== 1) return `left ${count} ${lower(w('errands', theme))}`;
+  const one = lower(w('errand', theme));
+  return `left ${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`;
+}
+
+/** Where the Errands a turn left wait, after `errandsLeftLine` in the chat: "It waits" for one, "They wait" for more. */
+export function errandsWaitLine(count: number, theme: Words = words): string {
+  const wait = count === 1 ? 'It waits' : 'They wait';
+  return theme === CLASSIC
+    ? `${wait} in the side panel and on the Overview page.`
+    : `${wait} in the side panel and on the ${w('castle', theme)}.`;
+}
+
+/**
+ * The Errands panels' lines that name a theme noun. Classic's nouns are plain words, so they stay lowercase
+ * mid-sentence ("Add a follow-up"), as in `errandsLeftPhrase`.
+ */
+export function errandWords(theme: Words = words) {
+  const lower = (word: string) => (theme === CLASSIC ? word.toLowerCase() : word);
+  const one = lower(w('errand', theme));
+  const many = lower(w('errands', theme));
+  return {
+    add: `Add ${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`,
+    edit: `Edit this ${one}`,
+    byYou: `A new ${one}, written by you`,
+    noneOpen: `No open ${many}.`,
+    questLeft: `Steps this ${lower(w('quest', theme))} left for you`,
+    show: `Show the ${many}`,
+    showHint: `Show this ${lower(w('quest', theme))}’s ${many} in the side panel`,
+    loadFailed: `Couldn’t load ${many}.`,
+  };
+}
+
 /** What can happen to a helper, as the chat tells it. */
 export type HelperMoment = 'set-out' | 'returned' | 'failed' | 'stopped';
 

@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import type { BoardItem, BoardItemState, BoardQuest, ScoutManifest } from '@crystal-bridge/protocol';
 import { actionsFor } from '../boards.js';
 import { type BoardMode, useFolded } from '../boardPrefs.js';
@@ -22,6 +22,7 @@ import { markIcon } from '../theme/boardIcons.js';
 import { markToneClass, PROJECT_CLASSES, projectTone, SENDER_CLASSES, toneChipClass } from '../theme/boardTones.js';
 import { labelColours } from '../theme/labelColours.js';
 import { Icon, type IconName } from '../theme/icons.js';
+import type { LayoutOption } from './LayoutSwitch.js';
 import {
   Avatar,
   type ButtonLook,
@@ -873,41 +874,11 @@ function ProjectTile({
   );
 }
 
-const LAYOUTS: { mode: BoardMode; label: string; icon: IconName; hint: string }[] = [
+/** A projects Board's two layouts, for the banner's `LayoutSwitch`. */
+export const BOARD_LAYOUTS: LayoutOption<BoardMode>[] = [
   { mode: 'projects', label: 'Projects', icon: 'layoutProjects', hint: 'A section per project with all its items' },
   { mode: 'tiles', label: 'Tiles', icon: 'layoutTiles', hint: 'A tile per project, what needs you across the top' },
 ];
-
-/** The banner's switch between a projects Board's layouts: native radios, so arrow keys move between them. */
-export function LayoutSwitch({ mode, onMode }: { mode: BoardMode; onMode: (mode: BoardMode) => void }) {
-  const name = useId();
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Layout"
-      className="inline-flex rounded-md border border-(--prompt-border) bg-(--prompt-bg) p-0.5"
-    >
-      {LAYOUTS.map((layout) => (
-        <label
-          key={layout.mode}
-          title={layout.hint}
-          className="cb-display flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-lg leading-6 text-(--prompt-muted) hover:text-(--prompt-ink) has-checked:bg-white has-checked:text-neutral-950 has-checked:shadow-sm has-checked:ring-1 has-checked:ring-neutral-300 dark:has-checked:bg-neutral-700 dark:has-checked:text-white dark:has-checked:ring-neutral-600 has-focus-visible:ring-2 has-focus-visible:ring-sky-500"
-        >
-          <input
-            type="radio"
-            name={name}
-            value={layout.mode}
-            checked={mode === layout.mode}
-            onChange={() => onMode(layout.mode)}
-            className="sr-only"
-          />
-          <Icon name={layout.icon} size={16} />
-          {layout.label}
-        </label>
-      ))}
-    </div>
-  );
-}
 
 /**
  * The projects view. Projects: its sections in two thirds of the page, the Needs-you and queue windows in the last,

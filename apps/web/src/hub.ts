@@ -18,6 +18,7 @@ export type HubStatus = 'connecting' | 'open' | 'closed';
 /** The frames that keep Boards current: a Kingdom's Scouts, a Board after a run, and items whose state changed. */
 export type BoardsFrame = Extract<HubToClient, { kind: 'scouts' | 'board' | 'board-items' }>;
 export type PatrolsFrame = Extract<HubToClient, { kind: 'patrols' | 'patrol-runs' }>;
+export type ErrandsFrame = Extract<HubToClient, { kind: 'errands' }>;
 
 /** How far a session's history has loaded: events received of the replay's total, and whether it's complete. */
 export interface ReplayProgress {
@@ -76,6 +77,7 @@ export class HubClient {
   private readonly castListeners = new Set<(node: string, cast: Cast) => void>();
   private readonly boardListeners = new Set<(frame: BoardsFrame) => void>();
   private readonly patrolListeners = new Set<(frame: PatrolsFrame) => void>();
+  private readonly errandListeners = new Set<(frame: ErrandsFrame) => void>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
   private readonly seenListeners = new Set<(session: string) => void>();
   private readonly reconnectListeners = new Set<() => void>();
@@ -127,6 +129,12 @@ export class HubClient {
   onPatrols(listener: (frame: PatrolsFrame) => void): () => void {
     this.patrolListeners.add(listener);
     return () => this.patrolListeners.delete(listener);
+  }
+
+  /** A Kingdom's Errands changed, on any Kingdom: the whole list as it now stands. */
+  onErrands(listener: (frame: ErrandsFrame) => void): () => void {
+    this.errandListeners.add(listener);
+    return () => this.errandListeners.delete(listener);
   }
 
   /** The socket came back after a drop. Sessions catch up by themselves; anything else may have missed frames. */
@@ -377,6 +385,10 @@ export class HubClient {
     }
     if (frame.data.kind === 'patrols' || frame.data.kind === 'patrol-runs') {
       for (const listener of this.patrolListeners) listener(frame.data);
+      return;
+    }
+    if (frame.data.kind === 'errands') {
+      for (const listener of this.errandListeners) listener(frame.data);
       return;
     }
     if (frame.data.kind === 'seen') {
