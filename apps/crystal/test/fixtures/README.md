@@ -30,6 +30,7 @@ JSON-RPC `params` the CLI sends, so the "wire" section of `permission-calls.json
 | `resume.ndjson` | `--resume <interrupt session>`, "Reply with the single word RESUMED." | none | exit 0, `result/success`, `result: "RESUMED"`, same `session_id` |
 | `slow-allow.ndjson` | same prompt as allow; answer held for 60 s | allow after 60 s | exit 0, `result/success`, `duration_ms` 64688 |
 | `synthesis.ndjson`, `synthesis-no-settings.ndjson` | a Scout's synthesis call: rank three items against a schema (2.1.327); the second adds `--setting-sources ""` | none | exit 0, one `result/success` line; see The synthesis call |
+| `errand.ndjson` | add a README the user will push, as a new Quest runs, with `--setting-sources project,local` (2.1.330) | allow | exit 0, `result/success`; see The `errand` tool |
 | `weekly-only.ndjson` | "Reply with the single word DONE.", on a plan with only a weekly limit (2.1.316) | none | exit 0, `result/success`; see Plan windows |
 | `permission-calls.json` | `onRequest`: what Task 4's `onRequest` received. `wire`: raw `initialize`, `tools/list` and `tools/call` params per scenario | | |
 
@@ -309,11 +310,16 @@ skills or CLAUDE.md files would save more.
 keys: `tools` keeps only built-in names (it drops `mcp__*` except `mcp__crystal__approve`), `mcp_servers` keeps only
 `crystal`, `slash_commands`, `skills`, `agents` and `plugins` become `[]`, `output_style` becomes `"default"`, and
 `cwd` becomes `/tmp/FIXTURE`. On every line: the temp repo path (and its `-tmp-…` project-dir form) becomes
-`/tmp/FIXTURE`, `$HOME` becomes `/HOME`, email addresses become the `user` placeholder at `example.com`, and account/org/user `*_id`/`*_uuid` keys
+`/tmp/FIXTURE`, `$HOME` becomes `/HOME`, the OS user name and the git user name (`git config user.name`) become
+`user`, email addresses (never starting at the `n` of a JSON `\n` escape) become the `user` placeholder at `example.com`, and account/org/user `*_id`/`*_uuid` keys
 holding UUIDs become zero UUIDs, and `credential_expires_at` becomes the epoch. Model identifiers become `claude-model` (`claude-model-2` and so on for further
 distinct models). Each `rate_limit_event`'s `rate_limit_info` keeps its keys but gets fixed values: `status` is `allowed`,
 every `resetsAt` and `utilization` is `0`, `overageStatus` is `rejected`, and `overageDisabledReason` is dropped.
 `--rescrub` re-applies all of this to the existing fixtures without running the CLI. Session ids, message uuids and tool-use ids are kept as recorded.
+
+The scrub can't catch what a Quest quotes from the recording user's own instructions: the CLI loads the user-level
+`CLAUDE.md` and settings unless told not to, and a reply may repeat them. New scenarios should pass
+`--setting-sources project,local`, as `errand` does.
 
 ## Plan windows
 
@@ -396,6 +402,23 @@ runs a Quest, with `--allowedTools mcp__crystal__title` and the `--append-system
   Later processes then skipped the server without trying, including real Quests on that machine, since they use the
   same name. The proxy now names the server's own host. If a capture ever reports `crystal` as `needs-auth`, remove
   that entry before running Quests there.
+
+## The `errand` tool (`errand.ndjson`, CLI 2.1.330)
+
+Recorded by `scripts/capture.ts errand` while building #288: an ask to add a README that the user will "review and
+push myself later", which never mentions Errands, run as Crystal runs a new Quest, with `--allowedTools` for both of
+`CRYSTAL_TOOLS` and the `--append-system-prompt` text `QUEST_PROMPT` (`src/permissions.ts`). It also passes
+`--setting-sources project,local`: without it, the CLI loaded the recording user's own `CLAUDE.md`, and the Errands
+and replies quoted it.
+
+- **Every run left an Errand.** 3 of 3 recordings left one each, after the `Write`, for the step the user named
+  (review, commit and push the README), with the commands in a fenced block. The `title` call still came first.
+- **Both tools load in one search.** Each run loaded them together with one `ToolSearch` query,
+  `select:mcp__crystal__title,mcp__crystal__errand`, before any other tool. In three earlier runs that loaded the
+  user's settings, `errand` got its own `ToolSearch` after the `Write` instead.
+- **The call never reached `approve`.** `permission-calls.json` shows `approve` only for the `Write`. That `Write`
+  asked because no user-level allow rules were loaded.
+- **The reply still carries the steps.** Every reply also gave the commit and push commands, as the errand line asks.
 
 ## The appended system prompt on resume (CLI 2.1.330)
 

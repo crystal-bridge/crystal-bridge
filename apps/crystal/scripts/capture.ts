@@ -5,7 +5,7 @@
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
  * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command, synthesis,
- * title, weekly-only.
+ * title, errand, weekly-only.
  * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
  * Every fixture line is passed through `scrub()`.
  *
@@ -23,6 +23,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createPermissionServer,
+  CRYSTAL_TOOLS,
+  QUEST_PROMPT,
   TITLE_INSTRUCTION,
   TITLE_TOOL,
   type PermissionDecision,
@@ -48,6 +50,9 @@ const MODEL_RE = /\bclaude-(?!code\b|model\b)[a-z0-9][a-z0-9.-]*[a-z0-9]\b/g;
 // permission tool. `touch` has a side effect, so it goes through `approve`.
 const BASH_PROMPT = 'Run the shell command `touch crystal.txt` with Bash, then reply with the single word DONE.';
 const TITLE_PROMPT = 'Add a short README.md to this repository that says it is a scratch repo for trying things out.';
+const ERRAND_PROMPT =
+  'Add a short README.md to this repository that says it is a scratch repo for trying things out. I will review it ' +
+  'and push it myself later.';
 const BACKGROUND_COMMAND_PROMPT =
   'Start three things, then reply with the single word started and end your turn: (1) Bash with run_in_background, ' +
   'description "Short ping", command `ping -c 12 127.0.0.1`; (2) Bash with run_in_background, description "Long ping", ' +
@@ -490,6 +495,7 @@ async function main(): Promise<void> {
     PermissionRequest & { scenario: string; at: string; answeredAt?: string; decision?: PermissionDecision }
   > = [];
   const titles: { scenario: string; title: string; plain: string }[] = [];
+  const errands: { scenario: string; title: string; body: string }[] = [];
   const server = await createPermissionServer({
     port: 0,
     onRequest: async (r) => {
@@ -508,6 +514,11 @@ async function main(): Promise<void> {
     onTitle: (session, title) => {
       titles.push({ scenario: sessionScenario.get(session) ?? '?', ...title });
       return undefined;
+    },
+    // Crystal's tool for leaving the user a step (#288); what it was given goes in the summary.
+    onErrand: (session, errand) => {
+      errands.push({ scenario: sessionScenario.get(session) ?? '?', ...errand });
+      return { ok: true, id: randomUUID() };
     },
   });
   const rawCalls: RawCall[] = [];
@@ -576,6 +587,36 @@ async function main(): Promise<void> {
           onLine: closeAfterFirstResult,
         }),
         { titles: titles.filter((title) => title.scenario === 'title') },
+      );
+    }
+    if (want('errand')) {
+      // An ask that leaves the user steps but never mentions the tool, run as Crystal runs a new Quest: both of
+      // Crystal's tools allowed up front, and the Quest prompt's title and errand lines. No user-level settings, so the
+      // recording user's own instructions stay out of the Quest and its replies.
+      const session = randomUUID();
+      sessionScenario.set(session, 'errand');
+      await record(
+        'errand',
+        await runClaude({
+          repo,
+          mcpUrl: mcpUrl(session),
+          sessionArgs: [
+            '--session-id',
+            session,
+            '--allowedTools',
+            ...CRYSTAL_TOOLS,
+            '--append-system-prompt',
+            QUEST_PROMPT,
+            '--setting-sources',
+            'project,local',
+          ],
+          firstPrompt: ERRAND_PROMPT,
+          onLine: closeAfterFirstResult,
+        }),
+        {
+          titles: titles.filter((title) => title.scenario === 'errand'),
+          errands: errands.filter((errand) => errand.scenario === 'errand'),
+        },
       );
     }
     if (want('synthesis')) {
