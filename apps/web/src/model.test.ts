@@ -129,7 +129,8 @@ describe('buildView over errand.ndjson (#288)', () => {
     const errands = shown.filter((item) => item.kind === 'tool' && isErrandCall(item));
     expect(errands).toHaveLength(1);
     expect(shown.filter((item) => item.kind === 'tool' && isCrystalSearch(item))).toEqual([]);
-    expect(errandTally(items).get(errands[0]!.id)).toEqual({ left: 1, refused: [] });
+    expect(errandTally(items).get(errands[0]!.id)).toMatchObject({ left: 1, refused: [] });
+    expect(errandTally(items).get(errands[0]!.id)?.titles).toHaveLength(1);
   });
 });
 

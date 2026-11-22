@@ -2,7 +2,6 @@ import { type ReactNode, useContext, useState } from 'react';
 import { type DiffLine, diffLines } from '../diff.js';
 import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
-import { setPanelOpen } from '../panels.js';
 import { Icon } from '../theme/icons.js';
 import { errandsLeftLine, helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
@@ -217,15 +216,12 @@ function GameLine({
   chip,
   ko = false,
   body,
-  action,
 }: {
   line: Word;
   mark?: ReactNode;
   chip?: Word | undefined;
   ko?: boolean;
   body: string;
-  /** A small button at the end of the line, e.g. to show what it's about elsewhere. */
-  action?: ReactNode;
 }) {
   return (
     <details className="text-sm">
@@ -240,7 +236,6 @@ function GameLine({
             {chip.themed}
           </span>
         )}
-        {action}
       </summary>
       <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-neutral-300 bg-neutral-50 p-2 font-mono text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
         {body}
@@ -291,40 +286,50 @@ export function isCrystalSearch(tool: ToolItem): boolean {
   const query = str(tool.input.query);
   if (!query?.startsWith('select:')) return false;
   const names = query.slice('select:'.length).split(',');
-  return names.every((name) => name.trim().startsWith('mcp__crystal__'));
+  return names.every((name) => LINED_TOOLS.has(name.trim()));
 }
 
-/** Whether a call only loads the `title` tool: a Crystal search, kept for its name. */
-export function isTitleSearch(tool: ToolItem): boolean {
-  return isCrystalSearch(tool);
-}
+/** Crystal's tools whose calls the chat draws as their own lines, so the search that loads them can go. */
+const LINED_TOOLS = new Set(['mcp__crystal__title', 'mcp__crystal__errand']);
 
-/** What a turn's errand calls came to: how many left an Errand, and why the others were refused. */
+/** What a turn's errand calls came to: how many left an Errand, their titles in order, and why the others were refused. */
 export interface ErrandTally {
   left: number;
   refused: string[];
+  titles: string[];
 }
+
+/** Why a call that never got an answer counts as refused once its turn is over. */
+const UNANSWERED = 'No answer came before the turn ended.';
 
 /** Where one turn stops and the next begins, for counting Errands per turn. */
 const endsTurn = (item: ViewItem) => item.kind === 'result' || item.kind === 'ended';
 
 /**
  * Per turn (the items between two turn ends), keyed by the turn's first errand call: what its calls came to. A call
- * counts as left once it's done, not an error and not denied; a refused one gives its reason; one still running neither.
+ * counts as left once it's done, not an error and not denied; a refused one gives its reason. One still running in the
+ * current turn counts as neither; one with no answer when its turn ended counts as refused.
  */
 export function errandTally(items: readonly ViewItem[]): Map<string, ErrandTally> {
   const tallies = new Map<string, ErrandTally>();
   let current: ErrandTally | undefined;
+  let unanswered = 0;
   for (const item of items) {
-    if (endsTurn(item)) current = undefined;
+    if (endsTurn(item)) {
+      for (; unanswered > 0; unanswered -= 1) current?.refused.push(UNANSWERED);
+      current = undefined;
+    }
     if (item.kind !== 'tool' || !isErrandCall(item)) continue;
     if (!current) {
-      current = { left: 0, refused: [] };
+      current = { left: 0, refused: [], titles: [] };
       tallies.set(item.id, current);
     }
-    if (!item.done) continue;
-    if (item.isError || item.denied) current.refused.push(item.output ?? '');
-    else current.left += 1;
+    if (!item.done) unanswered += 1;
+    else if (item.isError || item.denied) current.refused.push(item.output ?? '');
+    else {
+      current.left += 1;
+      current.titles.push((isObj(item.input) && str(item.input.title)) || '');
+    }
   }
   return tallies;
 }
@@ -374,25 +379,15 @@ export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroM
 }
 
 /**
- * The Errands a turn left, as one line ("Your Quest left you 2 Errands."), at the turn's first errand call. Inside: why
- * any were refused, or the Errand's title. `Show` opens the side panel's details at the Quest's Errands.
+ * The Errands a turn left, as one line ("Your Quest left you 2 Errands."), at the turn's first errand call. Inside: the
+ * title of each one left, one per line, then why any were refused.
  */
-export function ErrandLine({
-  tool,
-  tally,
-  session,
-}: {
-  tool: ToolItem;
-  tally: ErrandTally | undefined;
-  /** The Quest the line belongs to, to find its Errands in the side panel. */
-  session?: string | undefined;
-}) {
-  const { left, refused } = tally ?? { left: 0, refused: [] };
+export function ErrandLine({ tool, tally }: { tool: ToolItem; tally: ErrandTally | undefined }) {
+  const { left, refused, titles } = tally ?? { left: 0, refused: [], titles: [] };
   // Still running: nothing left yet, but nothing failed either.
   const pending = left === 0 && refused.length === 0;
   const input = isObj(tool.input) ? tool.input : {};
-  const title = str(input.title) ?? '';
-  const more = left > 1 ? `\n…and ${left - 1} more` : '';
+  const body = pending ? (str(input.title) ?? '') : [titles.join('\n'), ...refused].filter(Boolean).join('\n\n');
   return (
     <GameLine
       line={errandsLeftLine(pending ? 1 : left)}
@@ -405,24 +400,7 @@ export function ErrandLine({
         refused.length > 0 ? { themed: `${refused.length} refused`, plain: `${refused.length} refused` } : undefined
       }
       ko={!pending && left === 0}
-      body={refused.length > 0 ? refused.join('\n\n') : `${title}${more}`}
-      action={
-        <button
-          type="button"
-          onClick={(e) => {
-            // Inside <summary>: show the panel without also folding the line open or shut.
-            e.preventDefault();
-            e.stopPropagation();
-            setPanelOpen('details', true);
-            requestAnimationFrame(() =>
-              document.getElementById(`errands-${session}`)?.scrollIntoView({ block: 'nearest' }),
-            );
-          }}
-          className="ml-auto shrink-0 rounded px-1.5 text-xs text-teal-700 hover:bg-teal-50 dark:text-teal-300 dark:hover:bg-teal-950"
-        >
-          Show
-        </button>
-      }
+      body={body}
     />
   );
 }

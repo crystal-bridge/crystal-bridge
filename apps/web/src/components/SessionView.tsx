@@ -200,7 +200,6 @@ function Item({
   manifest,
   ts,
   errands,
-  session,
 }: {
   item: ViewItem;
   /** When the event behind this item was stored. */
@@ -215,8 +214,6 @@ function Item({
   manifest?: HeroManifest;
   /** What the turn's errand calls came to, on the turn's first one. */
   errands?: ErrandTally | undefined;
-  /** The Quest shown, so a line can find its part of the side panel. */
-  session?: string | undefined;
 }) {
   switch (item.kind) {
     case 'user': {
@@ -271,7 +268,7 @@ function Item({
       if (isAgentCall(item)) return <SetOutLine tool={item} manifest={manifest} />;
       if (isSummonStart(item)) return <SummonLine tool={item} manifest={manifest} />;
       if (isTitleCall(item)) return <TitleLine tool={item} manifest={manifest} />;
-      if (isErrandCall(item)) return <ErrandLine tool={item} tally={errands} session={session} />;
+      if (isErrandCall(item)) return <ErrandLine tool={item} tally={errands} />;
       return <ToolCard tool={item} manifest={manifest} />;
     case 'helper-back':
       return <HelperBackLine item={item} manifest={manifest} />;
@@ -858,7 +855,6 @@ export function SessionView({
                           manifest={party?.manifest}
                           ts={tsOf(item.id)}
                           errands={item.kind === 'tool' ? stableTally(item.id) : undefined}
-                          session={session}
                         />
                       </div>
                     ))}

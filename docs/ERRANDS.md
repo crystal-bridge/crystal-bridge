@@ -99,8 +99,9 @@ optional project from the Kingdom's projects, and each Errand can be edited, tic
 fold. With no open Errands, the panel says so in one line.
 
 **In a Quest**, the side panel shows that Quest's Errands. Where the tool was called, the chat shows a line, such as
-*"Your Quest left you 2 Errands."*, counting only the calls that left one (a refused call isn't counted), and linking to
-the side panel. The Classic theme says Follow-ups.
+*"Your Quest left you 2 Errands."*, counting only the calls that left one (a refused call, or one with no answer when
+the turn ended, isn't counted). Unfolded, it lists the title of each one left, then why any were refused. Once the side
+panel shows Errands, the line links to it. The Classic theme says Follow-ups.
 
 **On the Kingdom's tab**, a count of open Errands, with an icon and a label for screen readers, in teal, which is neither the
 waiting count's colour nor the gold of a Quest you haven't seen, since an Errand never holds a Quest up.

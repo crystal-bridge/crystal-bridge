@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HeroManifest } from '../heroes.js';
-import { panelOpen, setPanelOpen } from '../panels.js';
 import {
   chatItems,
   ErrandLine,
@@ -13,7 +12,6 @@ import {
   isErrandCall,
   isSummonStart,
   isTitleCall,
-  isTitleSearch,
   SetOutLine,
   SkillLine,
   SummonLine,
@@ -235,10 +233,9 @@ describe('TitleLine (#287)', () => {
 
   it('knows the search that only loads the title tool, which the chat leaves out', () => {
     const search = { ...call, name: 'ToolSearch', input: { query: 'select:mcp__crystal__title' } };
-    expect(isTitleSearch(search)).toBe(true);
-    expect(isTitleSearch({ ...search, input: { query: 'select:mcp__crystal__title,Read' } })).toBe(false);
-    expect(isTitleSearch({ ...search, input: { query: 'notebook' } })).toBe(false);
     expect(isCrystalSearch(search)).toBe(true);
+    expect(isCrystalSearch({ ...search, input: { query: 'select:mcp__crystal__title,Read' } })).toBe(false);
+    expect(isCrystalSearch({ ...search, input: { query: 'notebook' } })).toBe(false);
   });
 
   it('shows only the first name the Quest gave itself, the one the hub keeps, and leaves out the title search', () => {
@@ -257,6 +254,7 @@ describe('TitleLine (#287)', () => {
 });
 
 describe('ErrandLine (#288)', () => {
+  afterEach(() => cleanup());
   const call = {
     kind: 'tool',
     id: 'e',
@@ -288,6 +286,11 @@ describe('ErrandLine (#288)', () => {
     expect(isCrystalSearch(search('notebook'))).toBe(false);
   });
 
+  it('keeps a search that loads any other Crystal tool, such as summon, which has no line of its own to stand in', () => {
+    expect(isCrystalSearch(search('select:mcp__crystal__summon'))).toBe(false);
+    expect(isCrystalSearch(search('select:mcp__crystal__errand,mcp__crystal__summon'))).toBe(false);
+  });
+
   it('keeps one line per turn, at the turn’s first Errand, and leaves out the search', () => {
     const items = [
       search('select:mcp__crystal__title,mcp__crystal__errand'),
@@ -299,27 +302,64 @@ describe('ErrandLine (#288)', () => {
     ];
     expect(chatItems(items).map((item) => item.id)).toEqual(['e1', 'read', 'result', 'e3']);
     const tally = errandTally(items);
-    expect(tally.get('e1')).toEqual({ left: 2, refused: [] });
-    expect(tally.get('e3')).toEqual({ left: 1, refused: [] });
+    expect(tally.get('e1')).toEqual({
+      left: 2,
+      refused: [],
+      titles: ['Rotate the deploy key', 'Rotate the deploy key'],
+    });
+    expect(tally.get('e3')).toEqual({ left: 1, refused: [], titles: ['Rotate the deploy key'] });
     expect(tally.size).toBe(2);
   });
 
   it('counts only the calls that left one', () => {
     const refused = { ...call, id: 'e2', isError: true, output: reason };
     const running = { ...call, id: 'e3', output: undefined, done: false };
-    expect(errandTally([{ ...call, id: 'e1' }, refused, running]).get('e1')).toEqual({ left: 1, refused: [reason] });
+    expect(errandTally([{ ...call, id: 'e1' }, refused, running]).get('e1')).toEqual({
+      left: 1,
+      refused: [reason],
+      titles: ['Rotate the deploy key'],
+    });
   });
 
-  it('ErrandLine says how many, with the refusals folded inside, and opens the side panel', () => {
-    setPanelOpen('details', false);
-    const { container } = render(<ErrandLine tool={call} tally={{ left: 2, refused: [reason] }} session="q1" />);
+  it('puts the line at a refused first call, and lists the title a later call left', () => {
+    const items = [
+      { ...call, id: 'e1', isError: true, output: reason },
+      { ...call, id: 'e2', input: { title: 'Push the README', body: 'Review it first.' } },
+    ];
+    expect(chatItems(items).map((item) => item.id)).toEqual(['e1']);
+    expect(errandTally(items).get('e1')).toEqual({ left: 1, refused: [reason], titles: ['Push the README'] });
+  });
+
+  it('counts a denied call as refused', () => {
+    const denied = { ...call, id: 'e1', denied: true, output: 'The user said no.' };
+    expect(errandTally([denied]).get('e1')).toEqual({ left: 0, refused: ['The user said no.'], titles: [] });
+  });
+
+  it('counts a call that got no answer before its turn ended as refused, and one still running as pending', () => {
+    const unanswered = { ...call, id: 'e1', output: undefined, done: false };
+    expect(errandTally([unanswered, turnEnd]).get('e1')).toEqual({
+      left: 0,
+      refused: ['No answer came before the turn ended.'],
+      titles: [],
+    });
+    expect(errandTally([turnEnd, unanswered]).get('e1')).toEqual({ left: 0, refused: [], titles: [] });
+  });
+
+  it('ErrandLine says how many, and lists each title left, then the refusals, folded inside', () => {
+    const { container } = render(
+      <ErrandLine tool={call} tally={{ left: 2, refused: [reason], titles: ['Rotate the deploy key', 'Push it'] }} />,
+    );
     expect(screen.getByText('Your Quest left you 2 Errands.')).toBeTruthy();
     expect(screen.getByText('1 refused')).toBeTruthy();
-    expect(container.querySelector('pre')?.textContent).toContain(reason);
-    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
-    expect(panelOpen('details')).toBe(true);
-    cleanup();
-    render(<ErrandLine tool={call} tally={{ left: 0, refused: [reason] }} session="q1" />);
+    expect(container.querySelector('pre')?.textContent).toBe(`Rotate the deploy key\nPush it\n\n${reason}`);
+    // The side panel's Errands block comes later; until then the line has nothing to show there.
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('draws the failed line for a turn whose calls were all refused', () => {
+    const items = [{ ...call, id: 'e1', isError: true, output: reason }];
+    render(<ErrandLine tool={items[0]!} tally={errandTally(items).get('e1')} />);
     expect(screen.getByText('Your Quest couldn’t leave you an Errand.')).toBeTruthy();
+    expect(screen.getByText('1 refused')).toBeTruthy();
   });
 });
