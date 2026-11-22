@@ -343,3 +343,12 @@ function subscribeLayout(listener: () => void): () => void {
 export function useErrandLayout(): [ErrandLayout, (layout: ErrandLayout) => void] {
   return [useSyncExternalStore(subscribeLayout, readLayout), setLayout];
 }
+
+/** How many Errands each Quest left, in any state; hand-made ones (no session) aren't counted. */
+export function errandsBySession(errands: readonly Errand[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const errand of errands) {
+    if (errand.session) counts[errand.session] = (counts[errand.session] ?? 0) + 1;
+  }
+  return counts;
+}

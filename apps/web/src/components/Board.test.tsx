@@ -1022,6 +1022,30 @@ describe('BoardPage', () => {
       run: { id: at(1), startedAt: NOW - 60_000, trigger: 'schedule', outcome: 'finished', ...extra },
     });
 
+    it('a Patrol run’s report says how many Errands its Quest left', () => {
+      const reports = [
+        report(sweep, { id: at(3), session: SESSION, summary: 'Two things.' }),
+        report(sweep, { id: at(2), session: at(9), summary: 'One thing.' }),
+        report(sweep, { id: at(4), session: at(8), summary: 'Nothing.' }),
+        report(links, { id: at(5), summary: 'Script.' }),
+      ];
+      show({
+        patrols: {
+          patrols: [sweep, links],
+          reports,
+          onRun: vi.fn(),
+          onMark: vi.fn(),
+          errandsBySession: { [SESSION]: 2, [at(9)]: 1 },
+        },
+      });
+      const entries = within(screen.getByRole('region', { name: 'Patrol log' })).getAllByRole('listitem');
+      expect(entries[0]!.textContent).toContain('left 2 Errands');
+      expect(entries[1]!.textContent).toContain('left an Errand');
+      expect(entries[1]!.textContent).not.toContain('left an Errands');
+      expect(entries[2]!.textContent).not.toContain('left');
+      expect(entries[3]!.textContent).not.toContain('left');
+    });
+
     function withPatrols(
       reports = [
         report(sweep, { id: at(3), outcome: 'needs-you', session: SESSION, summary: 'I need to run gh.' }),

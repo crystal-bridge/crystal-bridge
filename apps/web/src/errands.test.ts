@@ -8,6 +8,7 @@ import {
   ERRAND_TONES,
   editErrand,
   errandSource,
+  errandsBySession,
   errandTone,
   openOnes,
   projectGroups,
@@ -157,6 +158,20 @@ describe('Errands data', () => {
 const LANTERN = '/r/acme/lantern';
 const QUARRY = '/r/acme/quarry';
 const mk = (n: number, extra: Partial<Errand> = {}) => errand({ id: `id-${n}`, created: n, updated: n, ...extra });
+
+describe('errandsBySession', () => {
+  it('counts every Errand of a Quest, any state', () => {
+    const S = '55555555-5555-4555-8555-555555555555';
+    const counts = errandsBySession([
+      errand({ session: S }),
+      errand({ session: S, state: 'done' }),
+      errand({ session: S, state: 'dismissed' }),
+      errand({ session: '66666666-6666-4666-8666-666666666666' }),
+      errand(),
+    ]);
+    expect(counts).toEqual({ [S]: 3, '66666666-6666-4666-8666-666666666666': 1 });
+  });
+});
 
 describe('Errand sorting', () => {
   it('splits by state, closed ones newest closed first', () => {

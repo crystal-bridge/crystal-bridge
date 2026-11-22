@@ -16,6 +16,8 @@ export interface BoardPatrolsProps {
   onRun: (patrol: string) => Promise<void> | void;
   /** Marks a report done, or not done again; rejects with the hub's reason. */
   onMark: (patrol: string, run: string, done: boolean) => Promise<void> | void;
+  /** How many Errands each Quest left (`errandsBySession` in errands.ts), to say so on its run's report. */
+  errandsBySession?: Record<string, number> | undefined;
 }
 
 const button =
@@ -59,6 +61,7 @@ function Entry({
   onMark,
   onOpenQuest,
   patrolOut,
+  errandCount,
 }: {
   report: BoardReport;
   now: number;
@@ -66,6 +69,8 @@ function Entry({
   onOpenQuest: (session: string) => void;
   /** The Patrol has a run out now: running it again would only be skipped. */
   patrolOut: boolean;
+  /** How many Errands the run's Quest left. */
+  errandCount: number;
 } & Pick<BoardPatrolsProps, 'onRun' | 'onMark'>) {
   const { patrol, run } = report;
   const name = patrol.manifest?.name ?? patrol.id;
@@ -98,6 +103,14 @@ function Entry({
         {word.themed}
         {run.trigger === 'now' ? ' · run now' : run.trigger === 'catch-up' ? ' · caught up' : ''}
       </p>
+      {errandCount > 0 && (
+        <p className="flex items-center gap-1 text-xs font-semibold text-teal-700 dark:text-teal-300">
+          <Icon name="errands" size={13} />
+          {errandCount === 1
+            ? `left ${/^[aeiou]/i.test(w('errand')) ? 'an' : 'a'} ${w('errand')}`
+            : `left ${errandCount} ${w('errands')}`}
+        </p>
+      )}
       {run.summary && <p className="text-sm break-words">{run.summary}</p>}
       {run.reason && (!run.summary || run.outcome !== 'finished') && (
         <p className="text-xs text-neutral-600 dark:text-neutral-400">{run.reason}</p>
@@ -178,6 +191,7 @@ export function PatrolLog({
   onRun,
   onMark,
   onOpenQuest,
+  errandsBySession,
   now,
 }: BoardPatrolsProps & { onOpenQuest: (session: string) => void; now: number }) {
   const [error, setError] = useState<string | null>(null);
@@ -228,6 +242,7 @@ export function PatrolLog({
               onMark={onMark}
               onOpenQuest={onOpenQuest}
               patrolOut={out.has(report.patrol.id)}
+              errandCount={(report.run.session && errandsBySession?.[report.run.session]) || 0}
             />
           ))}
         </ol>
