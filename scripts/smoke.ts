@@ -4,6 +4,7 @@
  * real Claude Code session in a fresh temp git repo, approves the one permission
  * request it raises, and checks the side effect actually happened on disk. The Quest also names itself with
  * Crystal's `title` tool, which must not ask, and the hub must list it under that name and then a name set by hand.
+ * It also leaves an Errand, unasked, for the one step only the user can take; the hub must list it open, then done.
  *
  * Run with: `pnpm smoke` (= `tsx scripts/smoke.ts`). `SMOKE_ENGINE=interactive pnpm smoke` runs it on the
  * interactive engine instead, which the node must offer (`CRYSTAL_ENGINES=stream,interactive`).
@@ -23,8 +24,9 @@ import { join } from 'node:path';
 const CLIENT_URL = process.env.AIRSHIP_CLIENT_URL ?? 'ws://127.0.0.1:7700/client';
 const ENGINE = process.env.SMOKE_ENGINE || undefined;
 const RENAMED = 'Smoke test, renamed';
-// Never mentions naming: the Quest's system prompt asks for that, as for every Quest.
-const PROMPT = 'Run the shell command `touch crystal.txt` with Bash, then reply with the single word DONE.';
+// Never mentions naming or Errands: the Quest's system prompt asks for those, as for every Quest.
+const PROMPT =
+  'Run the shell command `touch crystal.txt` with Bash. I will delete crystal.txt by hand myself later. Then reply with the single word DONE.';
 const RESULT_TIMEOUT_MS = 120_000;
 const CHANGES_TIMEOUT_MS = 5_000;
 const MAX_RECENT = 10;
@@ -67,6 +69,8 @@ interface WaitOutcome {
   message?: string;
   /** What the Quest named itself. */
   titled?: { title: unknown; plain: unknown };
+  /** The `errand.left` payloads the Quest sent. */
+  left?: Array<Record<string, unknown>>;
 }
 
 interface WaitOptions {
@@ -88,6 +92,7 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
   return new Promise<WaitOutcome>((resolve) => {
     let settled = false;
     let titled: { title: unknown; plain: unknown } | undefined;
+    const left: Array<Record<string, unknown>> = [];
     let changesTimer: NodeJS.Timeout | undefined;
     const socket = new WebSocket(clientUrl);
 
@@ -152,6 +157,11 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
         finish({ ok: false, message: 'the title tool asked for permission; Crystal should allow it up front' });
         return;
       }
+      if (envelope.type === 'permission.request' && isObj(payload) && String(payload.toolName).includes('__errand')) {
+        finish({ ok: false, message: 'the errand tool asked for permission; Crystal should allow it up front' });
+        return;
+      }
+      if (envelope.type === 'errand.left' && isObj(payload)) left.push(payload);
       if (envelope.type === 'permission.request' && isObj(payload) && typeof payload.requestId === 'string') {
         console.log(`smoke: approving permission request for ${String(payload.toolName)}`);
         send({
@@ -168,10 +178,9 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
           clearTimeout(changesTimer);
           const seen = Array.isArray(raw.files) && raw.files.includes('crystal.txt');
           if (!seen) finish({ ok: false, message: `turn_changes missed crystal.txt: ${String(raw.files)}` });
-          else
-            finish(
-              titled ? { ok: true, titled } : { ok: false, message: 'the Quest never named itself (no quest.titled)' },
-            );
+          else if (!titled) finish({ ok: false, message: 'the Quest never named itself (no quest.titled)' });
+          else if (left.length === 0) finish({ ok: false, message: 'the Quest left no Errand (no errand.left)' });
+          else finish({ ok: true, titled, left });
           return;
         }
         if (raw.type === 'result') {
@@ -217,6 +226,52 @@ async function checkTitles(
   const renamed = await listed();
   if (!isObj(renamed) || renamed.label !== RENAMED) return `after a rename the hub lists ${JSON.stringify(renamed)}`;
   console.log(`smoke: the Quest named itself "${String(titled.title)}" and took "${RENAMED}" by hand`);
+  return undefined;
+}
+
+/** The Errands the Quest left, as the hub lists them: open, then done by hand. Why not, or nothing. */
+async function checkErrands(
+  base: string,
+  node: string,
+  session: string,
+  cwd: string,
+  left: Array<Record<string, unknown>>,
+): Promise<string | undefined> {
+  const url = `${base}/api/nodes/${encodeURIComponent(node)}/errands`;
+  const listed = async (): Promise<unknown[]> => {
+    const body = (await (await fetch(url)).json()) as unknown;
+    return isObj(body) && Array.isArray(body.errands) ? body.errands : [];
+  };
+  const find = (rows: unknown[], id: unknown) => rows.find((row) => isObj(row) && row.id === id);
+
+  const open = await listed();
+  for (const errand of left) {
+    const row = find(open, errand.id);
+    if (!isObj(row)) return `the hub does not list the Errand ${String(errand.id)}`;
+    if (row.session !== session || row.project !== cwd || row.state !== 'open' || row.by !== 'quest') {
+      return `the hub lists the Errand as ${JSON.stringify(row)}, not open, by the Quest, in this session and folder`;
+    }
+  }
+  for (const errand of left) {
+    const response = await fetch(`${url}/${encodeURIComponent(String(errand.id))}/state`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'done' }),
+    });
+    if (response.status !== 200) return `marking an Errand done returned HTTP ${response.status}`;
+    const body = (await response.json()) as unknown;
+    if (!isObj(body) || !isObj(body.errand) || body.errand.closed === undefined) {
+      return `marking an Errand done answered ${JSON.stringify(body)}, with no closed time`;
+    }
+  }
+  const done = await listed();
+  for (const errand of left) {
+    const row = find(done, errand.id);
+    if (!isObj(row) || row.state !== 'done') return `after marking it done the hub lists ${JSON.stringify(row)}`;
+  }
+  console.log(
+    `smoke: the Quest left ${left.length} Errand(s), "${String(left[0].title)}" first, and they closed by hand`,
+  );
   return undefined;
 }
 
@@ -270,8 +325,14 @@ async function main(): Promise<void> {
       return;
     }
 
+    const errandFailure = await checkErrands(base, node, session, repo, outcome.left!);
+    if (errandFailure) {
+      reportFailure(errandFailure, recent);
+      return;
+    }
+
     console.log(
-      'smoke: PASS - result event arrived, crystal.txt exists, the turn reported it, and the Quest was named',
+      'smoke: PASS - result event arrived, crystal.txt exists, the turn reported it, the Quest was named and left an Errand',
     );
   } finally {
     await rm(repo, { recursive: true, force: true });
