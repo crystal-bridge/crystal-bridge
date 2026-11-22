@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { Effort, EventType, PermissionMode, UsagePayload } from '@crystal-bridge/protocol';
-import { mcpConfig, TITLE_INSTRUCTION, TITLE_TOOL } from './permissions.js';
+import { CRYSTAL_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
 import { usageFromRaw } from './usage.js';
 
 /** The subset of protocol event types a running `claude` process can emit on its own. */
@@ -158,8 +158,8 @@ function buildArgs(
   chrome = false,
   effort?: Effort,
   addDirs: readonly string[] = [],
-  /** A new Quest (or a fork) names itself; a resumed one was named already. */
-  askTitle = true,
+  /** A new Quest (or a fork) gets Crystal's prompt; the CLI keeps it for every resume and ignores one passed then (test/fixtures/README.md). */
+  newQuest = true,
 ): string[] {
   return [
     '-p',
@@ -173,11 +173,12 @@ function buildArgs(
     mcpConfig(permissionUrl),
     '--permission-prompt-tool',
     'mcp__crystal__approve',
-    // Naming the Quest (#287) never asks. The flag takes a list, so another flag follows it.
+    // Naming the Quest (#287) and leaving Errands (#288) never ask. The flag takes a list, so another flag follows it
+    // (--append-system-prompt on a new Quest, else --permission-mode).
     '--allowedTools',
-    TITLE_TOOL,
-    // The CLI defers MCP tools, so the Quest only names itself when its system prompt says how.
-    ...(askTitle ? ['--append-system-prompt', TITLE_INSTRUCTION] : []),
+    ...CRYSTAL_TOOLS,
+    // The CLI defers MCP tools, so the Quest only uses them when its system prompt says how: one value, one flag.
+    ...(newQuest ? ['--append-system-prompt', QUEST_PROMPT] : []),
     '--permission-mode',
     mode,
     ...(chrome ? ['--chrome'] : []),
