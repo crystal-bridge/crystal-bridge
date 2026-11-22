@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { spawn as nodePtySpawn } from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
-import { CRYSTAL_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
+import { QUEST_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
 import { type ClaudeSessionEvent, neutralTokens } from './session.js';
 import {
   applyListing,
@@ -584,7 +584,7 @@ export class InteractiveSession extends EventEmitter {
     const addDirs = this.opts.addDirs ?? [];
     // With Crystal's MCP server comes its title tool (#287) and errand tool (#288), allowed up front so
     // naming the Quest or leaving an Errand never asks.
-    const allow = this.opts.permissionUrl ? [...CRYSTAL_TOOLS] : [];
+    const allow = this.opts.permissionUrl ? [...QUEST_TOOLS] : [];
     const permissions =
       allow.length || addDirs.length
         ? {

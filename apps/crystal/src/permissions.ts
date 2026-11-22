@@ -128,7 +128,7 @@ const ErrandInputShape = {
 export const ERRAND_TOOL = 'mcp__crystal__errand';
 
 /** Crystal's tools a Quest may call without asking: allowed up front on both engines. */
-export const CRYSTAL_TOOLS = [TITLE_TOOL, ERRAND_TOOL] as const;
+export const QUEST_TOOLS = [TITLE_TOOL, ERRAND_TOOL] as const;
 
 /** The Errand line of every new Quest's system prompt (the CLI defers MCP tools, test/fixtures/README.md). */
 export const ERRAND_INSTRUCTION =

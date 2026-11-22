@@ -407,7 +407,7 @@ runs a Quest, with `--allowedTools mcp__crystal__title` and the `--append-system
 
 Recorded by `scripts/capture.ts errand` while building #288: an ask to add a README that the user will "review and
 push myself later", which never mentions Errands, run as Crystal runs a new Quest, with `--allowedTools` for both of
-`CRYSTAL_TOOLS` and the `--append-system-prompt` text `QUEST_PROMPT` (`src/permissions.ts`). It also passes
+`QUEST_TOOLS` and the `--append-system-prompt` text `QUEST_PROMPT` (`src/permissions.ts`). It also passes
 `--setting-sources project,local`: without it, the CLI loaded the recording user's own `CLAUDE.md`, and the Errands
 and replies quoted it.
 

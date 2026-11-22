@@ -5,7 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createPermissionServer,
-  CRYSTAL_TOOLS,
+  QUEST_TOOLS,
   ERRAND_INSTRUCTION,
   type PermissionDecision,
   type PermissionRequest,
@@ -461,7 +461,7 @@ describe('the errand tool (#288)', () => {
     expect(ERRAND_INSTRUCTION).toContain('reply');
     expect(QUEST_PROMPT).toContain(TITLE_INSTRUCTION);
     expect(QUEST_PROMPT).toContain(ERRAND_INSTRUCTION);
-    expect(CRYSTAL_TOOLS).toEqual(['mcp__crystal__title', 'mcp__crystal__errand']);
+    expect(QUEST_TOOLS).toEqual(['mcp__crystal__title', 'mcp__crystal__errand']);
   });
 
   it('passes an Errand on with the Quest it came from, and answers with its id', async () => {

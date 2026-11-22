@@ -23,7 +23,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createPermissionServer,
-  CRYSTAL_TOOLS,
+  QUEST_TOOLS,
   QUEST_PROMPT,
   TITLE_INSTRUCTION,
   TITLE_TOOL,
@@ -604,7 +604,7 @@ async function main(): Promise<void> {
             '--session-id',
             session,
             '--allowedTools',
-            ...CRYSTAL_TOOLS,
+            ...QUEST_TOOLS,
             '--append-system-prompt',
             QUEST_PROMPT,
             '--setting-sources',

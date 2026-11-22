@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { Effort, EventType, PermissionMode, UsagePayload } from '@crystal-bridge/protocol';
-import { CRYSTAL_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
+import { QUEST_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
 import { usageFromRaw } from './usage.js';
 
 /** The subset of protocol event types a running `claude` process can emit on its own. */
@@ -176,7 +176,7 @@ function buildArgs(
     // Naming the Quest (#287) and leaving Errands (#288) never ask. The flag takes a list, so another flag follows it
     // (--append-system-prompt on a new Quest, else --permission-mode).
     '--allowedTools',
-    ...CRYSTAL_TOOLS,
+    ...QUEST_TOOLS,
     // The CLI defers MCP tools, so the Quest only uses them when its system prompt says how: one value, one flag.
     ...(newQuest ? ['--append-system-prompt', QUEST_PROMPT] : []),
     '--permission-mode',
