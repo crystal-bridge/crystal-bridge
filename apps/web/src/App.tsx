@@ -88,6 +88,7 @@ import {
   savePatrol,
   usePatrols,
 } from './patrols.js';
+import { addErrand, editErrand, setErrandState, useErrands } from './errands.js';
 import { BoardPage } from './components/Board.js';
 import type { PatrolSeed } from './patrolForm.js';
 import { buildInventory } from './inventory.js';
@@ -317,6 +318,7 @@ export function App({ hub }: { hub: HubClient }) {
   const circle = useCircle(hub, active ?? undefined);
   const scouts = useScouts(hub, active ?? undefined);
   const patrols = usePatrols(hub, active ?? undefined);
+  const errands = useErrands(hub, active ?? undefined);
   // "Patrol this" on a Board: the draft the Castle's Watchtower opens New Patrol from.
   const [patrolSeed, setPatrolSeed] = useState<{ node: string; seed: PatrolSeed } | null>(null);
   // Where you are now, so an answer that arrives after you've left can tell.
@@ -1630,6 +1632,24 @@ export function App({ hub }: { hub: HubClient }) {
                 patrolSeed={patrolSeed?.node === kingdom.id ? patrolSeed.seed : undefined}
                 onPatrolSeedUsed={() => setPatrolSeed(null)}
                 projects={kingdomProjects}
+                errands={errands}
+                onErrandState={(id, state) => {
+                  setErrandState(kingdom.id, id, state).catch((error: unknown) =>
+                    setErrors((errs) => [
+                      ...errs,
+                      {
+                        id: Date.now() + Math.random(),
+                        message: `Couldn't change the ${w('errand')}: ${error instanceof Error ? error.message : String(error)}`,
+                      },
+                    ]),
+                  );
+                }}
+                onAddErrand={async (draft) => {
+                  await addErrand(kingdom.id, draft);
+                }}
+                onEditErrand={async (id, edit) => {
+                  await editErrand(kingdom.id, id, edit);
+                }}
                 pinnedBoards={new Set(pinnedBoards.map((tab) => tab.id))}
                 onPinBoard={(scout) => pinBoard(kingdom.id, scout, true)}
                 onOpenBoard={(scout) => {

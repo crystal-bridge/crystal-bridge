@@ -49,6 +49,11 @@ export interface ErrandsPanelProps {
   onEdit?: (id: string, edit: ErrandEdit) => Promise<void>;
   /** Shows the Errands without Add, Edit or Dismiss; ticking one and reopening one stay, as the phone needs. */
   readOnly?: boolean;
+  /**
+   * The phone's list: read, copy and tick only (so read-only, whatever `readOnly` says), compact rows with a stripe in
+   * each project's colour and larger ticks, and no layout switch.
+   */
+  phone?: boolean;
 }
 
 /** Markdown as the chat shows it: code blocks scroll in their own box, each with its copy button. */
@@ -74,8 +79,10 @@ export function ErrandsPanel({
   onState,
   onAdd,
   onEdit,
-  readOnly = false,
+  readOnly: readOnlyAsked = false,
+  phone = false,
 }: ErrandsPanelProps) {
+  const readOnly = readOnlyAsked || phone;
   const [layout, setLayout] = useErrandLayout();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string>();
@@ -121,7 +128,7 @@ export function ErrandsPanel({
         <h2 className="cb-display text-2xl leading-none" title={hint('errands')}>
           {w('errands')}
         </h2>
-        {layout === 'checklist' && open.length > 0 && (
+        {(phone || layout === 'checklist') && open.length > 0 && (
           <span
             title={`${open.length} open`}
             className="inline-flex items-center gap-0.5 rounded-full bg-teal-600 py-0 pl-1 pr-1.5 text-xs font-bold leading-4 text-white dark:bg-teal-500 dark:text-teal-950"
@@ -131,11 +138,11 @@ export function ErrandsPanel({
           </span>
         )}
         <span className="flex-1" />
-        {layout === 'cards' && open.length > 0 && (
+        {!phone && layout === 'cards' && open.length > 0 && (
           <span className="text-xs text-neutral-500">{`${open.length} open`}</span>
         )}
         {addButton}
-        <LayoutSwitch mode={layout} onMode={setLayout} options={LAYOUTS} />
+        {!phone && <LayoutSwitch mode={layout} onMode={setLayout} options={LAYOUTS} />}
       </div>
       {adding && onAdd && (
         <ErrandForm
@@ -149,12 +156,15 @@ export function ErrandsPanel({
       )}
       {open.length === 0 ? (
         <p className="px-3 text-sm text-neutral-500">{`No open ${w('errands')}.`}</p>
+      ) : phone ? (
+        <PhoneList open={open} {...rows} />
       ) : layout === 'cards' ? (
         <Cards open={open} {...rows} />
       ) : (
         <Checklist open={open} {...rows} />
       )}
       <ClosedFold closed={closed} onState={onState} />
+      {phone && <p className="px-3 pt-1 text-[11px] text-neutral-500">Add, edit and dismiss on a wider screen.</p>}
     </section>
   );
 }
@@ -266,6 +276,51 @@ function ErrandRow({ errand, now, onState, canDismiss, onEdit, editForm, ...know
           </button>
         )}
       </span>
+    </li>
+  );
+}
+
+/** The audition's phone view: a row per Errand, newest first, striped in its project's colour, with a thumb-sized tick. */
+function PhoneList({ open, ...rest }: RowProps & { open: Errand[] }) {
+  const newest = [...open].sort((a, b) => b.created - a.created);
+  return (
+    <ul className="mx-3 divide-y divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+      {newest.map((errand) => (
+        <PhoneRow key={errand.id} errand={errand} {...rest} />
+      ))}
+    </ul>
+  );
+}
+
+function PhoneRow({ errand, now, onState, sessions, patrols, onOpenQuest }: RowProps & { errand: Errand }) {
+  const tone = ERRAND_TONES[errandTone(errand.project)];
+  const title = <span className="block font-medium leading-snug">{errand.title}</span>;
+  return (
+    <li aria-label={errand.title} className={`flex gap-2.5 border-l-4 ${tone.stripe} px-2.5 py-2`}>
+      {onState && (
+        <button
+          type="button"
+          aria-label={`Mark done: ${errand.title}`}
+          title="Mark done"
+          onClick={() => onState(errand.id, 'done')}
+          className="mt-0.5 inline-flex shrink-0 items-center justify-center self-start rounded text-neutral-400 hover:text-emerald-600 dark:text-neutral-500 dark:hover:text-emerald-400"
+        >
+          <Icon name="errandOpen" size={24} />
+        </button>
+      )}
+      <div className="min-w-0 flex-1 text-sm">
+        {errand.body.trim() ? (
+          <details>
+            <summary>{title}</summary>
+            <div className={BODY}>
+              <QuestMarkdown>{errand.body}</QuestMarkdown>
+            </div>
+          </details>
+        ) : (
+          title
+        )}
+        <SourceLine errand={errand} now={now} sessions={sessions} patrols={patrols} onOpenQuest={onOpenQuest} />
+      </div>
     </li>
   );
 }

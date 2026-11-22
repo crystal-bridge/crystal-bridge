@@ -1,5 +1,7 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Errand } from '@crystal-bridge/protocol';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ERRAND_TONES, errandTone, type ErrandsState } from '../errands.js';
 import { levelFor } from '../levels.js';
 import type { PatrolsState } from '../patrols.js';
 import { RECENT_MS } from '../quests.js';
@@ -129,6 +131,104 @@ describe('Castle', () => {
       // Only the wide screen's: the phone doesn't make Patrols.
       expect(screen.getAllByRole('region', { name: 'Watchtower' })).toHaveLength(1);
       expect(screen.getByRole('button', { name: /New Patrol/ })).toBeTruthy();
+    });
+  });
+
+  describe('Errands', () => {
+    const LAYOUT_KEY = 'crystal-bridge.errands-layout';
+    const errand = (id: number, extra: Partial<Errand> = {}): Errand => ({
+      id: `44444444-4444-4444-8444-${String(id).padStart(12, '0')}`,
+      title: `Errand ${id}`,
+      body: '',
+      state: 'open',
+      by: 'you',
+      created: NOW - 1000,
+      updated: NOW - 1000,
+      ...extra,
+    });
+    const smoke = errand(1, { title: 'Run the smoke test', project: '/r/acme/lantern', session: 'a', by: 'quest' });
+    const backup = errand(2, { title: 'Restore the backup', project: '/r/acme/quarry' });
+    const tagged = errand(3, { title: 'Tag the release', state: 'done', closed: NOW - 500 });
+    const errands: ErrandsState = { errands: [smoke, backup, tagged], loaded: true };
+    const regions = () => screen.queryAllByRole('region', { name: 'Errands' });
+    const wide = () => regions().find((r) => r.closest('.hidden.md\\:block'))!;
+    const phone = () => regions().find((r) => r.closest('.md\\:hidden'))!;
+    const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    beforeEach(() => localStorage.setItem(LAYOUT_KEY, 'checklist'));
+
+    it('puts the Checklist in the right column above Haunts', () => {
+      renderCastle({ sessions: [], waiting: new Set(), errands, onAddErrand: vi.fn() });
+      // No Haunts and no Garrison, yet the right column shows, for the Errands.
+      expect(screen.queryByRole('region', { name: 'Haunts' })).toBeNull();
+      const column = wide().closest('[class*="xl:grid-cols-"]');
+      expect(column).not.toBeNull();
+      expect(within(wide()).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
+      cleanup();
+      renderCastle({ errands });
+      const haunts = screen.getByRole('region', { name: 'Haunts' });
+      expect(before(wide(), haunts)).toBe(true);
+      expect(before(screen.getByRole('region', { name: 'Active Quests' }), wide())).toBe(true);
+    });
+
+    it('puts Cards in a band across the Castle, above the columns', () => {
+      localStorage.setItem(LAYOUT_KEY, 'cards');
+      renderCastle({ errands });
+      expect(before(wide(), screen.getByRole('region', { name: 'Needs you' }))).toBe(true);
+    });
+
+    it('moves the panel when its switch changes the layout', () => {
+      renderCastle({ errands });
+      const needs = screen.getByRole('region', { name: 'Needs you' });
+      expect(before(needs, wide())).toBe(true);
+      act(() => fireEvent.click(within(wide()).getByRole('radio', { name: /Cards/ })));
+      expect(before(wide(), screen.getByRole('region', { name: 'Needs you' }))).toBe(true);
+    });
+
+    it('on a phone, shows the list to read, copy and tick only', () => {
+      const onErrandState = vi.fn();
+      renderCastle({
+        errands,
+        onErrandState,
+        onAddErrand: vi.fn(),
+        onEditErrand: vi.fn(),
+      });
+      const list = phone();
+      expect(wide().closest('.hidden.md\\:block')!.className).toContain('hidden md:block');
+      expect(before(screen.getByRole('region', { name: 'Needs you' }), list)).toBe(true);
+      expect(before(list, screen.getByRole('region', { name: 'Active Quests' }))).toBe(true);
+      expect(within(list).queryByRole('button', { name: 'Add an Errand' })).toBeNull();
+      expect(within(list).queryByRole('button', { name: /^Edit:/ })).toBeNull();
+      expect(within(list).queryByRole('button', { name: /^Dismiss:/ })).toBeNull();
+      expect(within(list).queryByRole('radiogroup')).toBeNull();
+      expect(within(list).queryByRole('radio')).toBeNull();
+      const row = within(list).getByRole('listitem', { name: 'Run the smoke test' });
+      expect(row.className).toContain('border-l-4');
+      expect(row.className).toContain(ERRAND_TONES[errandTone('/r/acme/lantern')].stripe);
+      const tick = within(row).getByRole('button', { name: 'Mark done: Run the smoke test' });
+      expect(tick.querySelector('svg')!.getAttribute('width')).toBe('24');
+      fireEvent.click(tick);
+      expect(onErrandState).toHaveBeenCalledWith(smoke.id, 'done');
+      // Reopening undoes a tick, so it stays.
+      fireEvent.click(within(list).getByText('Done and dismissed'));
+      fireEvent.click(within(list).getByRole('button', { name: 'Reopen: Tag the release' }));
+      expect(onErrandState).toHaveBeenCalledWith(tagged.id, 'open');
+      expect(list.textContent).toContain('Add, edit and dismiss on a wider screen.');
+    });
+
+    it('waits for the list, keeps Add reachable on a wide screen, and leaves a phone without one', () => {
+      renderCastle({ errands: { errands: [], loaded: false }, onAddErrand: vi.fn() });
+      expect(regions()).toHaveLength(0);
+      cleanup();
+      renderCastle({ errands: { errands: [], loaded: true }, onAddErrand: vi.fn() });
+      expect(regions()).toHaveLength(1);
+      expect(phone()).toBeUndefined();
+      expect(within(wide()).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
+    });
+
+    it('shows nothing for a Kingdom without errands data', () => {
+      renderCastle();
+      expect(regions()).toHaveLength(0);
     });
   });
 

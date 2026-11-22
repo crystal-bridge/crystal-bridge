@@ -5,6 +5,9 @@ import { KingdomIcon } from './KingdomIcon.js';
 import { hint, postingsLine, w } from '../theme/words.js';
 import type {
   Engine,
+  ErrandCreate,
+  ErrandEdit,
+  ErrandState,
   ExternalSession,
   ListedScout,
   PatrolManifest,
@@ -12,6 +15,7 @@ import type {
   Schedule,
   SelfUpdate,
 } from '@crystal-bridge/protocol';
+import { type ErrandsState, useErrandLayout } from '../errands.js';
 import type { Kingdom } from '../kingdoms.js';
 import type { PatrolsState } from '../patrols.js';
 import { isActiveQuest, type UnseenQuest } from '../quests.js';
@@ -23,6 +27,7 @@ import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
+import { ErrandsPanel } from './Errands.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
 import { Watchtower } from './Watchtower.js';
 import { hasCircle, SummoningCircle } from './SummoningCircle.js';
@@ -82,8 +87,16 @@ export interface CastleProps {
   /** A Board item's draft ("Patrol this"): the Watchtower opens New Patrol from it, then lets it go. */
   patrolSeed?: PatrolSeed | undefined;
   onPatrolSeedUsed?: () => void;
-  /** The Kingdom's projects, for the Patrol form's picker. */
+  /** The Kingdom's projects, for the Patrol form's and Add Errand's pickers. */
   projects?: Project[];
+  /**
+   * This Kingdom's Errands; without them (an older hub), no Errands panel. On a wide screen the Checklist sits atop the
+   * right column and Cards in a band above the columns, as this device's layout says; a phone reads and ticks them.
+   */
+  errands?: ErrandsState;
+  onErrandState?: (id: string, state: ErrandState) => void;
+  onAddErrand?: (draft: ErrandCreate) => Promise<void>;
+  onEditErrand?: (id: string, edit: ErrandEdit) => Promise<void>;
   /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
   pinnedBoards?: ReadonlySet<string>;
   onPinBoard?: (scout: string) => void;
@@ -396,6 +409,10 @@ export function Castle({
   patrolSeed,
   onPatrolSeedUsed,
   projects,
+  errands,
+  onErrandState,
+  onAddErrand,
+  onEditErrand,
   pinnedBoards,
   onPinBoard,
   sessions,
@@ -448,6 +465,30 @@ export function Castle({
   const active = sessions.filter((s) => !waiting.has(s.id) && isActiveQuest(s, now, marked));
   const history = sessions.filter((s) => !isActiveQuest(s, now, marked));
   const searching = query.trim().length >= 2;
+  // The same per-device choice the panel's switch writes, so switching there moves the panel here.
+  const [errandLayout] = useErrandLayout();
+  // Once the list is in, so an empty panel doesn't flash first.
+  const errandList = errands?.loaded ? errands.errands : undefined;
+  const errandsPanel = (phone: boolean) =>
+    errandList && (
+      <ErrandsPanel
+        errands={errandList}
+        sessions={sessions}
+        patrols={patrols?.patrols ?? []}
+        projects={projects}
+        now={now}
+        onOpenQuest={onSelect}
+        onState={onErrandState}
+        onAdd={onAddErrand}
+        onEdit={onEditErrand}
+        phone={phone}
+      />
+    );
+  // A wide screen shows it even with none open, so Add stays in reach.
+  const wideErrands = errandList && <div className="hidden md:block">{errandsPanel(false)}</div>;
+  const errandsBand = errandLayout === 'cards' && wideErrands;
+  const errandsHere = errandLayout === 'checklist' && wideErrands;
+  const rightColumn = haunts.length > 0 || garrison || errandsHere;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -515,15 +556,18 @@ export function Castle({
           <StatTiles title={w('thisWeek')} plain={hint('thisWeek')} stats={week} />
         </div>
 
-        <div
-          className={`grid items-start gap-5 ${haunts.length > 0 || garrison ? 'xl:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}
-        >
+        {errandsBand}
+
+        <div className={`grid items-start gap-5 ${rightColumn ? 'xl:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}>
           <div className="min-w-0 space-y-5">
             {needsYou.length > 0 && (
               <Section title={w('needsYou')} plain={hint('needsYou')}>
                 <ul className={`${QUEST_GRID} px-3`}>{needsYou.map(card)}</ul>
               </Section>
             )}
+
+            {/* The phone reads and ticks Errands only: adding, editing and dismissing need their own design there. */}
+            {errandList && errandList.length > 0 && <div className="md:hidden">{errandsPanel(true)}</div>}
 
             <Section title={w('activeQuests')} plain={hint('activeQuests')}>
               {active.length === 0 ? (
@@ -567,8 +611,9 @@ export function Castle({
               </Folded>
             )}
           </div>
-          {(haunts.length > 0 || garrison) && (
+          {rightColumn && (
             <div className="min-w-0 space-y-5">
+              {errandsHere}
               {haunts.length > 0 && (
                 <Section title={w('haunts')} plain={hint('haunts')}>
                   <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">
