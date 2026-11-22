@@ -171,6 +171,20 @@ describe('ErrandsPanel, Checklist', () => {
     expect(within(row).getByText(/<img src=x onerror=alert\(1\)>/)).toBeTruthy();
   });
 
+  it('folds a body under its title with no default marker, and a chevron only where there are details', () => {
+    const { region } = panel();
+    const row = within(region).getByRole('listitem', { name: smoke.title });
+    const summary = row.querySelector('summary')!;
+    expect(summary.className).toContain('list-none');
+    expect(summary.className).toContain('[&::-webkit-details-marker]:hidden');
+    // The title and the chevron share one line, so the tick lines up with the title.
+    expect(summary.textContent).toBe(smoke.title);
+    expect(summary.querySelector('.cb-icon-caret')).toBeTruthy();
+    const bare = within(region).getByRole('listitem', { name: update.title });
+    expect(bare.querySelector('summary')).toBeNull();
+    expect(bare.querySelector('.cb-icon-caret')).toBeNull();
+  });
+
   it('ticks one done, and dismisses one', () => {
     const { region, onState } = panel();
     fireEvent.click(within(region).getByRole('button', { name: `Mark done: ${update.title}` }));
@@ -183,6 +197,8 @@ describe('ErrandsPanel, Checklist', () => {
     const { region, onState } = panel();
     const summary = within(region).getByText('Done and dismissed').closest('summary')!;
     expect(summary.textContent?.replace(/\s+/g, ' ').trim()).toBe('Done and dismissed 2');
+    expect(summary.className).toContain('list-none');
+    expect(summary.querySelector('.cb-icon-caret')).toBeTruthy();
     const fold = summary.closest('details')!;
     expect(fold.open).toBe(false);
     fireEvent.click(summary);
@@ -381,6 +397,31 @@ describe('ErrandsPanel, Add and Edit', () => {
   });
 });
 
+describe('ErrandsPanel, on a phone', () => {
+  it('names each row’s project and age beside what left it, since the stripe alone doesn’t', () => {
+    const { region, onOpenQuest } = panel(ALL, { phone: true });
+    const row = within(region).getByRole('listitem', { name: smoke.title });
+    const source = row.querySelector<HTMLElement>('[data-source]')!;
+    expect([...source.children].map((part) => part.textContent)).toEqual(['', 'lantern', '·', '12m']);
+    expect(source.querySelector('.cb-icon-scrollUnfurled')).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { name: `Open ${w('quest')}: The Siege of the Flaky Smoke Test` }));
+    expect(onOpenQuest).toHaveBeenCalledWith(QUEST);
+    const hand = within(region).getByRole('listitem', { name: certificate.title });
+    expect(hand.querySelector('[data-source]')!.textContent).toBe('No project·4d');
+    expect(hand.querySelector('.cb-icon-quillInk')).toBeTruthy();
+  });
+
+  it('folds a body under its title with no default marker, and a chevron', () => {
+    const { region } = panel(ALL, { phone: true });
+    const row = within(region).getByRole('listitem', { name: smoke.title });
+    const summary = row.querySelector('summary')!;
+    expect(summary.className).toContain('list-none');
+    expect(summary.textContent).toBe(smoke.title);
+    expect(summary.querySelector('.cb-icon-caret')).toBeTruthy();
+    expect(within(region).getByRole('listitem', { name: update.title }).querySelector('.cb-icon-caret')).toBeNull();
+  });
+});
+
 describe("QuestErrands, in a Quest's side panel", () => {
   function block(errands: Errand[], quest = QUEST, extra: Partial<Parameters<typeof QuestErrands>[0]> = {}) {
     const onState = vi.fn();
@@ -418,6 +459,15 @@ describe("QuestErrands, in a Quest's side panel", () => {
     for (const element of [region, ...region.querySelectorAll('*')]) {
       expect(element.getAttribute('class') ?? '').not.toContain('blue-');
     }
+  });
+
+  it('shows each body open, with no fold', () => {
+    block(ALL);
+    const region = screen.getByRole('region', { name: w('errands') });
+    const row = within(region).getByRole('listitem', { name: smoke.title });
+    expect(row.querySelector('details')).toBeNull();
+    expect(within(row).getByText('pnpm smoke --hub http://127.0.0.1:7700')).toBeTruthy();
+    expect(within(row).getByRole('button', { name: 'Copy code' })).toBeTruthy();
   });
 
   it('says All done. when none are open but some are closed', () => {

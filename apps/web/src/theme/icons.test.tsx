@@ -55,6 +55,7 @@ describe('icon build', () => {
       'attach',
       'boardChecklist',
       'layoutCards',
+      'caret',
     ]) {
       expect(Object.keys(ICON_DATA), name).toContain(name);
     }

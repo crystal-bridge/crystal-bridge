@@ -236,7 +236,6 @@ function QuestRow({
   onState?: ((id: string, state: ErrandState) => void) | undefined;
   canDismiss: boolean;
 }) {
-  const title = <span className="font-medium leading-snug">{errand.title}</span>;
   return (
     <li
       aria-label={errand.title}
@@ -254,15 +253,11 @@ function QuestRow({
         </button>
       )}
       <div className="min-w-0 flex-1">
-        {errand.body.trim() ? (
-          <details>
-            <summary className="cursor-pointer">{title}</summary>
-            <div className={BODY}>
-              <QuestMarkdown>{errand.body}</QuestMarkdown>
-            </div>
-          </details>
-        ) : (
-          <span className="block">{title}</span>
+        <span className="block font-medium leading-snug [overflow-wrap:anywhere]">{errand.title}</span>
+        {errand.body.trim() && (
+          <div className={BODY}>
+            <QuestMarkdown>{errand.body}</QuestMarkdown>
+          </div>
         )}
       </div>
       {onState && canDismiss && (
@@ -343,7 +338,6 @@ function ProjectRows({ group, ...rest }: RowProps & { group: ProjectGroup }) {
 function ErrandRow({ errand, now, onState, canDismiss, onEdit, editForm, ...known }: RowProps & { errand: Errand }) {
   const form = editForm?.(errand);
   if (form) return <li className="px-2.5 py-1">{form}</li>;
-  const title = <span className="block truncate font-medium leading-6">{errand.title}</span>;
   return (
     <li
       aria-label={errand.title}
@@ -361,16 +355,7 @@ function ErrandRow({ errand, now, onState, canDismiss, onEdit, editForm, ...know
         </button>
       )}
       <div className="min-w-0 flex-1 text-sm">
-        {errand.body.trim() ? (
-          <details>
-            <summary>{title}</summary>
-            <div className={BODY}>
-              <QuestMarkdown>{errand.body}</QuestMarkdown>
-            </div>
-          </details>
-        ) : (
-          title
-        )}
+        <TitleFold errand={errand} />
         <SourceLine errand={errand} now={now} {...known} />
       </div>
       <span className="flex opacity-0 focus-within:opacity-100 group-hover:opacity-100">
@@ -405,7 +390,6 @@ function PhoneList({ open, ...rest }: RowProps & { open: Errand[] }) {
 
 function PhoneRow({ errand, now, onState, sessions, patrols, onOpenQuest }: RowProps & { errand: Errand }) {
   const tone = ERRAND_TONES[errandTone(errand.project)];
-  const title = <span className="block font-medium leading-snug">{errand.title}</span>;
   return (
     <li aria-label={errand.title} className={`flex gap-2.5 border-l-4 ${tone.stripe} px-2.5 py-2`}>
       {onState && (
@@ -420,20 +404,102 @@ function PhoneRow({ errand, now, onState, sessions, patrols, onOpenQuest }: RowP
         </button>
       )}
       <div className="min-w-0 flex-1 text-sm">
-        {errand.body.trim() ? (
-          <details>
-            <summary>{title}</summary>
-            <div className={BODY}>
-              <QuestMarkdown>{errand.body}</QuestMarkdown>
-            </div>
-          </details>
-        ) : (
-          title
-        )}
-        <SourceLine errand={errand} now={now} sessions={sessions} patrols={patrols} onOpenQuest={onOpenQuest} />
+        <TitleFold errand={errand} wrap />
+        <PhoneSource errand={errand} now={now} sessions={sessions} patrols={patrols} onOpenQuest={onOpenQuest} />
       </div>
     </li>
   );
+}
+
+/** A fold's "has details" cue after its title, turning down while open; `group/fold` is the `details` it belongs to. */
+function Caret() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex shrink-0 text-neutral-400 transition-transform group-open/fold:rotate-90 dark:text-neutral-500"
+    >
+      <Icon name="caret" size={10} />
+    </span>
+  );
+}
+
+/** No browser marker on a fold's summary: the Caret stands in for it. */
+const SUMMARY = 'list-none [&::-webkit-details-marker]:hidden';
+
+/**
+ * An Errand's title, with its details folded under it and a Caret after it as the cue; a title alone without them.
+ * One line that truncates on the Checklist, or that wraps (`wrap`) on the phone.
+ */
+function TitleFold({ errand, wrap = false }: { errand: Errand; wrap?: boolean }) {
+  const look = wrap ? 'font-medium leading-snug [overflow-wrap:anywhere]' : 'min-w-0 truncate font-medium leading-6';
+  if (!errand.body.trim()) return <span className={`block ${look}`}>{errand.title}</span>;
+  return (
+    <details className="group/fold">
+      <summary className={wrap ? SUMMARY : `flex min-w-0 items-center gap-1 ${SUMMARY}`}>
+        <span className={look}>{errand.title}</span>
+        {wrap ? (
+          <span className="ml-1 inline-flex align-middle">
+            <Caret />
+          </span>
+        ) : (
+          <Caret />
+        )}
+      </summary>
+      <div className={BODY}>
+        <QuestMarkdown>{errand.body}</QuestMarkdown>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * The phone's source line: the project and age, as the stripe's colour alone doesn't name it, after the icon of what
+ * left it; the project opens that Quest.
+ */
+function PhoneSource({
+  errand,
+  now,
+  sessions,
+  patrols,
+  onOpenQuest,
+}: Pick<RowProps, 'sessions' | 'patrols' | 'now' | 'onOpenQuest'> & { errand: Errand }) {
+  const source = errandSource(errand, { sessions, patrols });
+  const label = sourceLabel(source);
+  const project = errand.project === undefined ? 'No project' : projectName(errand.project);
+  return (
+    <span
+      data-source
+      className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400"
+    >
+      <span title={label} className="inline-flex shrink-0">
+        <Icon name={SOURCE_LOOKS[source.kind].icon} size={12} />
+      </span>
+      {source.kind !== 'hand' && onOpenQuest ? (
+        <button
+          type="button"
+          onClick={() => onOpenQuest(source.session)}
+          aria-label={`Open ${w('quest')}: ${source.kind === 'quest' ? source.label : source.name}`}
+          title={`Open this ${w('quest')}`}
+          className="min-w-0 truncate text-left hover:underline"
+        >
+          {project}
+        </button>
+      ) : (
+        <span className="min-w-0 truncate">{project}</span>
+      )}
+      <span aria-hidden="true">·</span>
+      <span className="shrink-0">{ago(errand.created, now)}</span>
+    </span>
+  );
+}
+
+/** What left an Errand, in words: the Quest's name, the Patrol's, or you. */
+function sourceLabel(source: ErrandSource): string {
+  return source.kind === 'quest'
+    ? source.label
+    : source.kind === 'patrol'
+      ? `${w('patrol')}: ${source.name}`
+      : 'Written by you';
 }
 
 /**
@@ -450,12 +516,7 @@ function SourceLine({
 }: Pick<RowProps, 'sessions' | 'patrols' | 'now' | 'onOpenQuest'> & { errand: Errand; age?: boolean }) {
   const source = errandSource(errand, { sessions, patrols });
   const { icon } = SOURCE_LOOKS[source.kind];
-  const label =
-    source.kind === 'quest'
-      ? source.label
-      : source.kind === 'patrol'
-        ? `${w('patrol')}: ${source.name}`
-        : 'Written by you';
+  const label = sourceLabel(source);
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
       <Icon name={icon} size={12} />
@@ -746,8 +807,11 @@ function ClosedFold({
 }) {
   if (closed.length === 0) return null;
   return (
-    <details className="mx-3 mt-1 text-sm">
-      <summary className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-bold text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900">
+    <details className="group/fold mx-3 mt-1 text-sm">
+      <summary
+        className={`inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-bold text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 ${SUMMARY}`}
+      >
+        <Caret />
         <span>Done and dismissed</span>{' '}
         <span className="rounded-full bg-neutral-200 px-1.5 text-[10px] text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
           {closed.length}

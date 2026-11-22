@@ -162,6 +162,7 @@ export const ICON_SOURCES = {
   errandDismissed: { pack: 'ph', icon: 'eye-slash-fill' },
   errandCopy: { pack: 'ph', icon: 'copy-fill' },
   errandDismiss: { pack: 'ph', icon: 'x-bold' },
+  caret: { pack: 'ph', icon: 'caret-right-bold' },
   layoutCards: { pack: 'ph', icon: 'cards-fill' },
 } as const satisfies Record<string, IconSource>;
 
