@@ -13,6 +13,7 @@ import {
   questLabel,
   titledLine,
   errandsLeftLine,
+  errandsLeftPhrase,
   errandsWaitLine,
   postingsLine,
   scoutReturnLine,
@@ -297,6 +298,13 @@ describe('Quest titles (#287)', () => {
       themed: 'Your Quest couldn’t leave you an Errand.',
       plain: 'Leaving a follow-up failed',
     });
+  });
+
+  it('says how many Errands a Patrol’s run left, mid-sentence, so Classic keeps its noun lowercase', () => {
+    expect(errandsLeftPhrase(2, CRYSTAL)).toBe('left 2 Errands');
+    expect(errandsLeftPhrase(1, CRYSTAL)).toBe('left an Errand');
+    expect(errandsLeftPhrase(2, CLASSIC)).toBe('left 2 follow-ups');
+    expect(errandsLeftPhrase(1, CLASSIC)).toBe('left a follow-up');
   });
 
   it('says where the Errands a turn left wait', () => {

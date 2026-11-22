@@ -2,7 +2,7 @@ import type { ListedPatrol } from '@crystal-bridge/protocol';
 import { useState } from 'react';
 import { untilText, type BoardReport } from '../patrols.js';
 import { Icon } from '../theme/icons.js';
-import { hint, patrolOutcomeWord, patrolStandingWord, w } from '../theme/words.js';
+import { errandsLeftPhrase, hint, patrolOutcomeWord, patrolStandingWord, w } from '../theme/words.js';
 import { agoText } from './HomeParts.js';
 import { outcomeLook } from './Watchtower.js';
 
@@ -106,9 +106,7 @@ function Entry({
       {errandCount > 0 && (
         <p className="flex items-center gap-1 text-xs font-semibold text-teal-700 dark:text-teal-300">
           <Icon name="errands" size={13} />
-          {errandCount === 1
-            ? `left ${/^[aeiou]/i.test(w('errand')) ? 'an' : 'a'} ${w('errand')}`
-            : `left ${errandCount} ${w('errands')}`}
+          {errandsLeftPhrase(errandCount)}
         </p>
       )}
       {run.summary && <p className="text-sm break-words">{run.summary}</p>}

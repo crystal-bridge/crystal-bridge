@@ -224,6 +224,14 @@ describe('ErrandsPanel, Checklist', () => {
     const layout = within(region).getByRole('radiogroup', { name: 'Layout' });
     const checklist = within(layout).getByRole('radio', { name: 'Checklist' }) as HTMLInputElement;
     expect(checklist.checked).toBe(true);
+    // Compact beside the heading: small sans text, not the Board's display face.
+    for (const radio of within(layout).getAllByRole('radio')) {
+      const label = radio.closest('label')!;
+      expect(label.className).not.toContain('cb-display');
+      expect(label.className).toContain('text-xs');
+      expect(label.title).toBeTruthy();
+      expect(label.querySelector('svg')!.getAttribute('width')).toBe('14');
+    }
     fireEvent.click(within(layout).getByRole('radio', { name: 'Cards' }));
     expect(within(region).queryByRole('group', { name: 'lantern' })).toBeNull();
     cleanup();

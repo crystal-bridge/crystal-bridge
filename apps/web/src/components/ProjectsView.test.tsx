@@ -320,6 +320,8 @@ describe('ProjectsView', () => {
     const layout = screen.getByRole('radiogroup', { name: 'Layout' });
     const radios = within(layout).getAllByRole('radio');
     expect(radios.map((radio) => radio.closest('label')?.textContent)).toEqual(['Projects', 'Tiles']);
+    // The Board's switch keeps its full size, in the display face; only the Errands header's is compact.
+    for (const radio of radios) expect(radio.closest('label')?.className).toContain('cb-display');
     expect((within(layout).getByRole('radio', { name: 'Projects' }) as HTMLInputElement).checked).toBe(true);
     expect((within(layout).getByRole('radio', { name: 'Tiles' }) as HTMLInputElement).checked).toBe(false);
     cleanup();

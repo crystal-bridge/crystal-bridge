@@ -469,6 +469,17 @@ export function errandsLeftLine(count: number, theme: Words = words): Word {
   return { themed: `Your ${w('quest', theme)} left you ${what}.`, plain };
 }
 
+/**
+ * How many Errands something left, mid-sentence, e.g. "left 2 Errands" on a Patrol's report. Classic's noun is a
+ * plain word, so it stays lowercase there ("left a follow-up"), as in `errandsLeftLine`.
+ */
+export function errandsLeftPhrase(count: number, theme: Words = words): string {
+  const lower = (word: string) => (theme === CLASSIC ? word.toLowerCase() : word);
+  if (count !== 1) return `left ${count} ${lower(w('errands', theme))}`;
+  const one = lower(w('errand', theme));
+  return `left ${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`;
+}
+
 /** Where the Errands a turn left wait, after `errandsLeftLine` in the chat. */
 export function errandsWaitLine(theme: Words = words): string {
   return theme === CLASSIC

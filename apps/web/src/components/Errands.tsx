@@ -142,7 +142,7 @@ export function ErrandsPanel({
           <span className="text-xs text-neutral-500">{`${open.length} open`}</span>
         )}
         {addButton}
-        {!phone && <LayoutSwitch mode={layout} onMode={setLayout} options={LAYOUTS} />}
+        {!phone && <LayoutSwitch mode={layout} onMode={setLayout} options={LAYOUTS} size="compact" />}
       </div>
       {adding && onAdd && (
         <ErrandForm
