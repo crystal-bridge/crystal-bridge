@@ -393,7 +393,7 @@ export function ErrandLine({ tool, tally }: { tool: ToolItem; tally: ErrandTally
       line={errandsLeftLine(pending ? 1 : left)}
       mark={
         <span aria-hidden className="text-teal-600 dark:text-teal-400">
-          <Icon name="boardChecklist" size={16} />
+          <Icon name="errands" size={16} />
         </span>
       }
       chip={

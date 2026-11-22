@@ -40,6 +40,26 @@ describe('icon build', () => {
     expect(Object.keys(ICON_DATA).sort()).toEqual(Object.keys(ICON_SOURCES).sort());
   });
 
+  it('has the Errands icons', () => {
+    // errandQuest, errandHand, errandAdd and layoutChecklist reuse scrollUnfurled, quillInk, attach and boardChecklist.
+    for (const name of [
+      'errands',
+      'scrollUnfurled',
+      'errandPatrol',
+      'quillInk',
+      'errandOpen',
+      'errandDone',
+      'errandDismissed',
+      'errandCopy',
+      'errandDismiss',
+      'attach',
+      'boardChecklist',
+      'layoutCards',
+    ]) {
+      expect(Object.keys(ICON_DATA), name).toContain(name);
+    }
+  });
+
   it('credits every Game-icons artist used', () => {
     expect(iconAuthors('game-icons')).toEqual([
       'Carl Olsen',
