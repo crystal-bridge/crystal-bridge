@@ -1119,6 +1119,26 @@ describe('airship server', () => {
       expect((await call('PUT', `/api/nodes/node-a/errands/${id}/state`, { state: 'done' })).status).toBe(200);
     });
 
+    it('tells clients and pushes how many Errands a done turn left', async () => {
+      const node = await leaving();
+      const client = await connectClient();
+      const next = (seq: number, type: Envelope['type'], payload: unknown) =>
+        send(node.socket, makeEnvelope({ session: SESSION, node: 'node-a', seq, type, payload }));
+      const done = () => client.frames.waitFor((f) => f.kind === 'attention' && f.reason === 'done');
+      next(1, 'errand.left', { id: ERRAND, title: 'One', body: '' });
+      next(2, 'errand.left', { id: '55555555-5555-4555-8555-555555555555', title: 'Two', body: '' });
+      next(3, 'turn.finished', { outcome: 'success' });
+      expect(await done()).toMatchObject({ reason: 'done', errands: 2 });
+      client.frames.frames.length = 0;
+      next(4, 'turn.finished', { outcome: 'success' });
+      expect(await done()).not.toHaveProperty('errands');
+      next(5, 'errand.left', { id: '66666666-6666-4666-8666-666666666666', title: 'Three', body: '' });
+      next(6, 'turn.finished', { outcome: 'failure' });
+      expect(await client.frames.waitFor((f) => f.kind === 'attention' && f.reason === 'failed')).not.toHaveProperty(
+        'errands',
+      );
+    });
+
     it('tells clients when a forgotten Kingdom’s Errands go', async () => {
       await added();
       await goOffline();

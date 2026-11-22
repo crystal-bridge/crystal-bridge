@@ -1393,6 +1393,26 @@ describe('Errands (#288)', () => {
     ]);
   });
 
+  it('counts the Errands a turn left', () => {
+    const session = randomUUID();
+    const at = (seq: number, type: Envelope['type'], payload: unknown = {}) =>
+      store.appendEvent(makeEnvelope({ node, session, seq, type, payload }));
+    const errand = (seq: number) => at(seq, 'errand.left', { id: randomUUID(), title: 'Oil', body: '' });
+    at(0, 'session.started', { cwd: '/r/lantern', prompt: 'Go', label: 'Go' });
+    errand(1);
+    errand(2);
+    at(3, 'turn.finished', { outcome: 'success' });
+    errand(4);
+    at(5, 'turn.finished', { outcome: 'success' });
+    expect(store.errandsLeftInTurn(session, 3)).toBe(2);
+    expect(store.errandsLeftInTurn(session, 5)).toBe(1);
+    const [mine] = store.errands(node).filter((e) => e.seq === 4);
+    store.setErrandState(node, mine!.id, 'done', 300);
+    expect(store.errandsLeftInTurn(session, 5)).toBe(1);
+    store.addErrand(node, { title: 'By hand', body: '' }, 400);
+    expect(store.errandsLeftInTurn(session, 5)).toBe(1);
+  });
+
   it('adds one by hand, with or without a project', () => {
     const made = store.addErrand(node, { title: 'Renew the certificate', body: '' }, 200)!;
     expect(made).toEqual({
