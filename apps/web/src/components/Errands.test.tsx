@@ -2,7 +2,7 @@ import type { Errand, ListedPatrol, Project } from '@crystal-bridge/protocol';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { w } from '../theme/words.js';
-import { ErrandsPanel } from './Errands.js';
+import { ErrandsPanel, QuestErrands } from './Errands.js';
 import type { SessionSummary } from './SessionList.js';
 
 const NOW = Date.parse('2026-11-20T21:40:00Z');
@@ -378,5 +378,81 @@ describe('ErrandsPanel, Add and Edit', () => {
       expect(onState).toHaveBeenLastCalledWith(rotated.id, 'open');
       cleanup();
     }
+  });
+});
+
+describe("QuestErrands, in a Quest's side panel", () => {
+  function block(errands: Errand[], quest = QUEST, extra: Partial<Parameters<typeof QuestErrands>[0]> = {}) {
+    const onState = vi.fn();
+    const { container } = render(<QuestErrands session={quest} errands={errands} onState={onState} {...extra} />);
+    return { onState, container };
+  }
+
+  it("shows only this Quest's Errands, open first, with the fold", () => {
+    const { onState } = block(ALL);
+    const region = screen.getByRole('region', { name: w('errands') });
+    expect(region.className).toContain('teal-');
+    expect(region.querySelector('.cb-icon-errands')).toBeTruthy();
+    expect(within(region).getByRole('heading', { name: w('errands') })).toBeTruthy();
+    expect(within(region).getByTitle('2 open').textContent).toBe('2');
+    expect(within(region).getByText('Steps this Quest left for you')).toBeTruthy();
+    const rows = within(region)
+      .getAllByRole('listitem')
+      .map((row) => row.getAttribute('aria-label'))
+      .filter(Boolean);
+    expect(rows).toEqual([smoke.title, update.title]);
+    expect(within(region).queryByText(restore.title)).toBeNull();
+    expect(within(region).queryByText(certificate.title)).toBeNull();
+    // No Add: a hand-written Errand has no Quest, so one added here couldn't belong to it.
+    expect(within(region).queryByRole('button', { name: /^Add/ })).toBeNull();
+    fireEvent.click(within(region).getByRole('button', { name: `Mark done: ${update.title}` }));
+    expect(onState).toHaveBeenCalledWith(update.id, 'done');
+    fireEvent.click(within(region).getByRole('button', { name: `Dismiss: ${smoke.title}` }));
+    expect(onState).toHaveBeenLastCalledWith(smoke.id, 'dismissed');
+    const summary = within(region).getByText('Done and dismissed').closest('summary')!;
+    expect(summary.textContent?.replace(/\s+/g, ' ').trim()).toBe('Done and dismissed 1');
+    fireEvent.click(summary);
+    fireEvent.click(within(region).getByRole('button', { name: `Reopen: ${tagged.title}` }));
+    expect(onState).toHaveBeenLastCalledWith(tagged.id, 'open');
+    expect(within(region).queryByText(rotated.title)).toBeNull();
+    for (const element of [region, ...region.querySelectorAll('*')]) {
+      expect(element.getAttribute('class') ?? '').not.toContain('blue-');
+    }
+  });
+
+  it('says All done. when none are open but some are closed', () => {
+    block([restore, tagged]);
+    const region = screen.getByRole('region', { name: w('errands') });
+    expect(within(region).getByText('All done.')).toBeTruthy();
+    expect(within(region).queryByTitle(/open$/)).toBeNull();
+    expect(within(region).getByText('Done and dismissed')).toBeTruthy();
+  });
+
+  it('leaves out Dismiss when read-only, but still ticks', () => {
+    const { onState } = block(ALL, QUEST, { readOnly: true });
+    expect(screen.queryByRole('button', { name: /^Dismiss:/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: `Mark done: ${smoke.title}` }));
+    expect(onState).toHaveBeenCalledWith(smoke.id, 'done');
+  });
+
+  it('a fork lists none of the Quest it came from', () => {
+    const FORK = '55555555-5555-4555-8555-555555555555';
+    const own = errand({ title: 'Check the fork’s branch', session: FORK });
+    block([...ALL, own], FORK);
+    const region = screen.getByRole('region', { name: w('errands') });
+    expect(within(region).getByText(own.title)).toBeTruthy();
+    expect(within(region).queryByText(smoke.title)).toBeNull();
+    expect(within(region).queryByText(update.title)).toBeNull();
+    expect(within(region).queryByText('Done and dismissed')).toBeNull();
+  });
+
+  it('has the id the chat line scrolls to', () => {
+    block(ALL);
+    expect(screen.getByRole('region', { name: w('errands') }).id).toBe(`errands-${QUEST}`);
+  });
+
+  it('renders nothing when the Quest left none', () => {
+    const { container } = block(ALL, '55555555-5555-4555-8555-555555555555');
+    expect(container.innerHTML).toBe('');
   });
 });

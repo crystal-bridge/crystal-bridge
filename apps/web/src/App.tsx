@@ -16,6 +16,7 @@ import {
   Effort,
   type Engine,
   type Envelope,
+  type ErrandState,
   type ExternalSession,
   type PermissionMode,
   type Project,
@@ -38,6 +39,7 @@ import {
 import { type CheckOutcome, type HubStatus, logAttention } from './components/ShipsLog.js';
 import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
+import { QuestErrands } from './components/Errands.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
 import type { PushState } from './components/DevicePush.js';
 import {
@@ -676,6 +678,32 @@ export function App({ hub }: { hub: HubClient }) {
   function sendToFocused(text: string) {
     if (focused) hub.send({ type: 'session.send', session: focused, text });
   }
+  // The side panel's Errands come from the Quest's own Kingdom: the Castle's list, or, for a split pane on another
+  // Kingdom, that Kingdom's.
+  const otherErrands = useErrands(hub, focusedNode && focusedNode !== active ? focusedNode : undefined);
+  const focusedErrands = focusedNode === active ? errands : otherErrands;
+  function changeErrandState(node: string, id: string, state: ErrandState) {
+    setErrandState(node, id, state).catch((error: unknown) =>
+      setErrors((errs) => [
+        ...errs,
+        {
+          id: Date.now() + Math.random(),
+          message: `Couldn't change the ${w('errand')}: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ]),
+    );
+  }
+  /** The side panel's Errands block for the Quest it follows, once its Kingdom's list is in. */
+  function questErrands(id: string): ReactNode {
+    if (id !== focused || !focusedNode || !focusedErrands.loaded) return undefined;
+    return (
+      <QuestErrands
+        session={id}
+        errands={focusedErrands.errands}
+        onState={(errand, state) => changeErrandState(focusedNode, errand, state)}
+      />
+    );
+  }
 
   // The read-only file viewer: one file at a time, of a Quest on screen; its Kingdom reads it through the hub.
   const [fileView, setFileView] = useState<FileViewState | null>(null);
@@ -1077,6 +1105,7 @@ export function App({ hub }: { hub: HubClient }) {
         planAt={usage.find((u) => u.node === node)?.ts}
         onOpenFile={openFileFor(id)}
         fileViewer={primary && splitShown === null ? fileViewer : undefined}
+        errands={questErrands(id)}
       />
     );
   }
@@ -1534,6 +1563,7 @@ export function App({ hub }: { hub: HubClient }) {
                             }
                             relayedBytes={sessions.find((s) => s.id === focused)?.relayedBytes}
                             activity={focusedActivity}
+                            errands={questErrands(focused)}
                           />
                         </FileOpenContext.Provider>
                       </aside>
@@ -1633,17 +1663,7 @@ export function App({ hub }: { hub: HubClient }) {
                 onPatrolSeedUsed={() => setPatrolSeed(null)}
                 projects={kingdomProjects}
                 errands={errands}
-                onErrandState={(id, state) => {
-                  setErrandState(kingdom.id, id, state).catch((error: unknown) =>
-                    setErrors((errs) => [
-                      ...errs,
-                      {
-                        id: Date.now() + Math.random(),
-                        message: `Couldn't change the ${w('errand')}: ${error instanceof Error ? error.message : String(error)}`,
-                      },
-                    ]),
-                  );
-                }}
+                onErrandState={(id, state) => changeErrandState(kingdom.id, id, state)}
                 onAddErrand={async (draft) => {
                   await addErrand(kingdom.id, draft);
                 }}

@@ -274,6 +274,8 @@ export interface SessionPanelProps {
   preStart?: boolean;
   /** In place of the Party, when there's no leader to draw yet. */
   partyNote?: string;
+  /** The Quest's Errands block (`QuestErrands`), drawn after the Party. */
+  errands?: ReactNode;
 }
 
 /** The session's side panel: where it runs, how full its context is, what it cost, what it changed and started. */
@@ -288,6 +290,7 @@ export function SessionPanel({
   now,
   preStart = false,
   partyNote,
+  errands,
 }: SessionPanelProps) {
   const open = useContext(FileOpenContext);
   const room = contextRoom(info.context);
@@ -319,6 +322,8 @@ export function SessionPanel({
           <p className="text-xs text-neutral-500">{partyNote}</p>
         </Section>
       )}
+
+      {errands}
 
       <Section title={w('stats')} tooltip={hint('stats')} plate="stats">
         {hp && <PlanMeter concept="hp" bar={hp} label="Plan left" now={clock} asOf={planAt} />}

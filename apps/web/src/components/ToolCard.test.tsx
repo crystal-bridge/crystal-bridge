@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { panelOpen, setPanelOpen } from '../panels.js';
 import type { HeroManifest } from '../heroes.js';
 import {
   chatItems,
@@ -352,7 +353,37 @@ describe('ErrandLine (#288)', () => {
     expect(screen.getByText('Your Quest left you 2 Errands.')).toBeTruthy();
     expect(screen.getByText('1 refused')).toBeTruthy();
     expect(container.querySelector('pre')?.textContent).toBe(`Rotate the deploy key\nPush it\n\n${reason}`);
-    // The side panel's Errands block comes later; until then the line has nothing to show there.
+  });
+
+  it('Show opens the side panel and scrolls to the Quest’s Errands, without folding the line', async () => {
+    setPanelOpen('details', false);
+    const target = document.createElement('div');
+    target.id = 'errands-q1';
+    const scrollIntoView = vi.fn();
+    target.scrollIntoView = scrollIntoView;
+    document.body.append(target);
+    try {
+      const { container } = render(
+        <ErrandLine tool={call} tally={{ left: 2, refused: [], titles: ['Rotate the deploy key'] }} session="q1" />,
+      );
+      const show = screen.getByRole('button', { name: 'Show the Errands' });
+      expect(show.textContent).toBe('Show');
+      expect(show.className).not.toContain('blue-');
+      expect(show.className).toContain('teal-');
+      fireEvent.click(show);
+      expect(panelOpen('details')).toBe(true);
+      expect(container.querySelector('details')!.open).toBe(false);
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' }));
+      // Already open: it stays open.
+      fireEvent.click(show);
+      expect(panelOpen('details')).toBe(true);
+    } finally {
+      target.remove();
+    }
+  });
+
+  it('has no Show without the Quest to show it for', () => {
+    render(<ErrandLine tool={call} tally={{ left: 1, refused: [], titles: ['Rotate the deploy key'] }} />);
     expect(screen.queryByRole('button')).toBeNull();
   });
 

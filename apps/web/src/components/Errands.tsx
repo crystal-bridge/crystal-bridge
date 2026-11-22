@@ -169,6 +169,117 @@ export function ErrandsPanel({
   );
 }
 
+/**
+ * One Quest's Errands, in its side panel: the open ones, each with its details, a tick and Dismiss, then the closed ones
+ * folded. A fork has its own id, so it lists none of the Quest it came from. No Add here: a hand-written Errand has no
+ * Quest, so one added here couldn't belong to it. Its id is what the chat line's Show scrolls to.
+ */
+export function QuestErrands({
+  session,
+  errands,
+  onState,
+  readOnly = false,
+}: {
+  session: string;
+  /** The Kingdom's Errands, open and closed; only this Quest's show. */
+  errands: readonly Errand[];
+  onState?: ((id: string, state: ErrandState) => void) | undefined;
+  /** Without Dismiss; ticking and reopening stay. */
+  readOnly?: boolean | undefined;
+}) {
+  const mine = errands.filter((errand) => errand.session === session);
+  if (mine.length === 0) return null;
+  const open = openOnes(mine);
+  return (
+    <section
+      id={`errands-${session}`}
+      aria-label={w('errands')}
+      className="scroll-mt-3 rounded-lg border border-teal-300 bg-teal-50/60 dark:border-teal-800 dark:bg-teal-950/40"
+    >
+      <div className="flex items-center gap-2 px-2.5 pt-2">
+        <span aria-hidden="true" className="text-teal-700 dark:text-teal-300">
+          <Icon name="errands" size={18} />
+        </span>
+        <h3 className="cb-display text-xl leading-none" title={hint('errands')}>
+          {w('errands')}
+        </h3>
+        {open.length > 0 && (
+          <span
+            title={`${open.length} open`}
+            className="rounded-full bg-teal-600 px-1.5 text-[11px] font-bold leading-4 text-white dark:bg-teal-500 dark:text-teal-950"
+          >
+            {open.length}
+          </span>
+        )}
+      </div>
+      <p className="px-2.5 text-[11px] text-neutral-500">{`Steps this ${w('quest')} left for you`}</p>
+      <ul className="mt-1.5 space-y-1 px-1.5 pb-2">
+        {open.length === 0 ? (
+          <li className="px-1 text-xs text-neutral-500">All done.</li>
+        ) : (
+          open.map((errand) => <QuestRow key={errand.id} errand={errand} onState={onState} canDismiss={!readOnly} />)
+        )}
+      </ul>
+      <div className="pb-2">
+        <ClosedFold closed={closedOnes(mine)} onState={onState} />
+      </div>
+    </section>
+  );
+}
+
+function QuestRow({
+  errand,
+  onState,
+  canDismiss,
+}: {
+  errand: Errand;
+  onState?: ((id: string, state: ErrandState) => void) | undefined;
+  canDismiss: boolean;
+}) {
+  const title = <span className="font-medium leading-snug">{errand.title}</span>;
+  return (
+    <li
+      aria-label={errand.title}
+      className="group flex items-start gap-2 rounded-md bg-white p-2 text-sm ring-1 ring-neutral-200 dark:bg-neutral-950 dark:ring-neutral-800"
+    >
+      {onState && (
+        <button
+          type="button"
+          aria-label={`Mark done: ${errand.title}`}
+          title="Mark done"
+          onClick={() => onState(errand.id, 'done')}
+          className="inline-flex shrink-0 items-center justify-center rounded text-neutral-400 hover:text-emerald-600 dark:text-neutral-500 dark:hover:text-emerald-400"
+        >
+          <Icon name="errandOpen" size={18} />
+        </button>
+      )}
+      <div className="min-w-0 flex-1">
+        {errand.body.trim() ? (
+          <details>
+            <summary className="cursor-pointer">{title}</summary>
+            <div className={BODY}>
+              <QuestMarkdown>{errand.body}</QuestMarkdown>
+            </div>
+          </details>
+        ) : (
+          <span className="block">{title}</span>
+        )}
+      </div>
+      {onState && canDismiss && (
+        <button
+          type="button"
+          aria-label={`Dismiss: ${errand.title}`}
+          title="Dismiss"
+          onClick={() => onState(errand.id, 'dismissed')}
+          className="inline-flex shrink-0 items-center justify-center rounded p-0.5 text-neutral-400 opacity-0 hover:bg-neutral-100 hover:text-neutral-700 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+        >
+          <Icon name="errandDismiss" size={16} />
+        </button>
+      )}
+    </li>
+  );
+}
+
 interface RowProps {
   sessions: readonly SessionSummary[];
   patrols: readonly ListedPatrol[];

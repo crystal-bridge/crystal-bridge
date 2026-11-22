@@ -3,7 +3,17 @@ import { type DiffLine, diffLines } from '../diff.js';
 import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
 import { Icon } from '../theme/icons.js';
-import { errandsLeftLine, helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
+import { setPanelOpen } from '../panels.js';
+import {
+  errandsLeftLine,
+  helperLine,
+  summonLine,
+  titledLine,
+  toolChip,
+  useLine,
+  w,
+  type Word,
+} from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext } from './markdown.js';
 
@@ -216,12 +226,15 @@ function GameLine({
   chip,
   ko = false,
   body,
+  action,
 }: {
   line: Word;
   mark?: ReactNode;
   chip?: Word | undefined;
   ko?: boolean;
   body: string;
+  /** A small button at the end of the line, e.g. to show what it's about elsewhere. */
+  action?: ReactNode;
 }) {
   return (
     <details className="text-sm">
@@ -236,6 +249,7 @@ function GameLine({
             {chip.themed}
           </span>
         )}
+        {action}
       </summary>
       <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-neutral-300 bg-neutral-50 p-2 font-mono text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
         {body}
@@ -380,9 +394,18 @@ export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroM
 
 /**
  * The Errands a turn left, as one line ("Your Quest left you 2 Errands."), at the turn's first errand call. Inside: the
- * title of each one left, one per line, then why any were refused.
+ * title of each one left, one per line, then why any were refused. `Show` opens the side panel at the Quest's Errands.
  */
-export function ErrandLine({ tool, tally }: { tool: ToolItem; tally: ErrandTally | undefined }) {
+export function ErrandLine({
+  tool,
+  tally,
+  session,
+}: {
+  tool: ToolItem;
+  tally: ErrandTally | undefined;
+  /** The Quest the line belongs to, whose Errands block in the side panel `Show` scrolls to. */
+  session?: string | undefined;
+}) {
   const { left, refused, titles } = tally ?? { left: 0, refused: [], titles: [] };
   // Still running: nothing left yet, but nothing failed either.
   const pending = left === 0 && refused.length === 0;
@@ -401,6 +424,28 @@ export function ErrandLine({ tool, tally }: { tool: ToolItem; tally: ErrandTally
       }
       ko={!pending && left === 0}
       body={body}
+      action={
+        session && (
+          <button
+            type="button"
+            aria-label={`Show the ${w('errands')}`}
+            title={`Show this ${w('quest')}'s ${w('errands')} in the side panel`}
+            onClick={(event) => {
+              // Inside <summary>: show the panel without also folding the line open or shut.
+              event.preventDefault();
+              event.stopPropagation();
+              setPanelOpen('details', true);
+              // Once the panel has drawn.
+              requestAnimationFrame(() =>
+                document.getElementById(`errands-${session}`)?.scrollIntoView({ block: 'nearest' }),
+              );
+            }}
+            className="ml-auto shrink-0 rounded px-1.5 font-sans text-xs text-teal-700 hover:bg-teal-50 dark:text-teal-300 dark:hover:bg-teal-950"
+          >
+            Show
+          </button>
+        )
+      }
     />
   );
 }
