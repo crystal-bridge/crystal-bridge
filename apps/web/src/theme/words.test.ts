@@ -15,6 +15,7 @@ import {
   errandsLeftLine,
   errandsLeftPhrase,
   errandsWaitLine,
+  errandWords,
   postingsLine,
   scoutReturnLine,
   sourceLine,
@@ -307,8 +308,30 @@ describe('Quest titles (#287)', () => {
     expect(errandsLeftPhrase(1, CLASSIC)).toBe('left a follow-up');
   });
 
-  it('says where the Errands a turn left wait', () => {
-    expect(errandsWaitLine(CRYSTAL)).toBe('They wait in the side panel and on the Castle.');
-    expect(errandsWaitLine(CLASSIC)).toBe('They wait in the side panel and on the Overview page.');
+  it('says where the Errands a turn left wait, one or more', () => {
+    expect(errandsWaitLine(2, CRYSTAL)).toBe('They wait in the side panel and on the Castle.');
+    expect(errandsWaitLine(1, CRYSTAL)).toBe('It waits in the side panel and on the Castle.');
+    expect(errandsWaitLine(2, CLASSIC)).toBe('They wait in the side panel and on the Overview page.');
+    expect(errandsWaitLine(1, CLASSIC)).toBe('It waits in the side panel and on the Overview page.');
+  });
+
+  it('names Errands in the panels, Classic’s noun lowercase mid-sentence', () => {
+    const crystal = errandWords(CRYSTAL);
+    expect(crystal.add).toBe('Add an Errand');
+    expect(crystal.edit).toBe('Edit this Errand');
+    expect(crystal.byYou).toBe('A new Errand, written by you');
+    expect(crystal.noneOpen).toBe('No open Errands.');
+    expect(crystal.questLeft).toBe('Steps this Quest left for you');
+    expect(crystal.show).toBe('Show the Errands');
+    expect(crystal.loadFailed).toBe('Couldn’t load Errands.');
+    const classic = errandWords(CLASSIC);
+    expect(classic.add).toBe('Add a follow-up');
+    expect(classic.edit).toBe('Edit this follow-up');
+    expect(classic.byYou).toBe('A new follow-up, written by you');
+    expect(classic.noneOpen).toBe('No open follow-ups.');
+    expect(classic.questLeft).toBe('Steps this session left for you');
+    expect(classic.show).toBe('Show the follow-ups');
+    expect(classic.showHint).toBe('Show this session’s follow-ups in the side panel');
+    expect(classic.loadFailed).toBe('Couldn’t load follow-ups.');
   });
 });

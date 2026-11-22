@@ -7,6 +7,7 @@ import { setPanelOpen } from '../panels.js';
 import {
   errandsLeftLine,
   errandsWaitLine,
+  errandWords,
   helperLine,
   summonLine,
   titledLine,
@@ -401,6 +402,15 @@ export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroM
  * line, then why any were refused. `Show` opens the side panel at the Quest's Errands, so it only shows where the panel
  * does (lg and up).
  */
+/** Scrolls to `id` once it's drawn (a panel just opened may take a few frames), giving up after about a second. */
+function scrollWhenDrawn(id: string, frames = 60): void {
+  requestAnimationFrame(() => {
+    const target = document.getElementById(id);
+    if (target) target.scrollIntoView({ block: 'nearest' });
+    else if (frames > 1) scrollWhenDrawn(id, frames - 1);
+  });
+}
+
 export function ErrandLine({
   tool,
   tally,
@@ -433,25 +443,22 @@ export function ErrandLine({
         </span>
         <span className="min-w-0">
           <span className="font-bold">{line.themed}</span>
-          {!failed && <span className="opacity-80"> {errandsWaitLine()}</span>}
+          {!failed && <span className="opacity-80"> {errandsWaitLine(pending ? 1 : left)}</span>}
         </span>
         {refused.length > 0 && (
           <span className="shrink-0 font-bold text-red-700 dark:text-red-400">{`${refused.length} refused`}</span>
         )}
-        {session && (
+        {session && !failed && (
           <button
             type="button"
-            aria-label={`Show the ${w('errands')}`}
-            title={`Show this ${w('quest')}'s ${w('errands')} in the side panel`}
+            aria-label={errandWords().show}
+            title={errandWords().showHint}
             onClick={(event) => {
               // Inside <summary>: show the panel without also folding the line open or shut.
               event.preventDefault();
               event.stopPropagation();
               setPanelOpen('details', true);
-              // Once the panel has drawn.
-              requestAnimationFrame(() =>
-                document.getElementById(`errands-${session}`)?.scrollIntoView({ block: 'nearest' }),
-              );
+              scrollWhenDrawn(`errands-${session}`);
             }}
             className="hidden shrink-0 items-center rounded px-1.5 py-0.5 font-sans text-xs font-bold text-teal-700 ring-1 ring-teal-300 hover:bg-white lg:inline-flex dark:text-teal-200 dark:ring-teal-700 dark:hover:bg-teal-900"
           >

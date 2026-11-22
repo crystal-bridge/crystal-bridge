@@ -401,6 +401,61 @@ describe('ErrandLine (#288)', () => {
     }
   });
 
+  it('Show waits for the side panel to draw the Quest’s Errands, frame by frame, then scrolls to them', () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+    const nextFrame = () => frames.splice(0).forEach((callback) => callback(0));
+    const target = document.createElement('div');
+    target.id = 'errands-q1';
+    const scrollIntoView = vi.fn();
+    target.scrollIntoView = scrollIntoView;
+    try {
+      render(
+        <ErrandLine tool={call} tally={{ left: 2, refused: [], titles: ['Rotate the deploy key'] }} session="q1" />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Show the Errands' }));
+      nextFrame();
+      nextFrame();
+      nextFrame();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      // The panel draws the block a few frames later.
+      document.body.append(target);
+      nextFrame();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      // And stops asking.
+      expect(frames).toHaveLength(0);
+    } finally {
+      target.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('Show gives up after about a second when the block never draws', () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+    try {
+      render(
+        <ErrandLine tool={call} tally={{ left: 2, refused: [], titles: ['Rotate the deploy key'] }} session="q9" />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Show the Errands' }));
+      for (let i = 0; i < 200 && frames.length > 0; i += 1) frames.splice(0).forEach((callback) => callback(0));
+      expect(frames).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('says "It waits" for one Errand', () => {
+    render(<ErrandLine tool={call} tally={{ left: 1, refused: [], titles: ['Rotate the deploy key'] }} />);
+    expect(screen.getByText('It waits in the side panel and on the Castle.')).toBeTruthy();
+  });
+
+  it('has no Show on the failed line, which left nothing to show', () => {
+    const items = [{ ...call, id: 'e1', isError: true, output: reason }];
+    render(<ErrandLine tool={items[0]!} tally={errandTally(items).get('e1')} session="q1" />);
+    expect(screen.queryByRole('button', { name: 'Show the Errands' })).toBeNull();
+  });
+
   it('has no Show without the Quest to show it for', () => {
     render(<ErrandLine tool={call} tally={{ left: 1, refused: [], titles: ['Rotate the deploy key'] }} />);
     expect(screen.queryByRole('button')).toBeNull();
