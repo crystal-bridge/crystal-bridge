@@ -1,4 +1,4 @@
-import { TITLE_INSTRUCTION } from './permissions.js';
+import { QUEST_PROMPT } from './permissions.js';
 import type { TurnChanges } from './changes.js';
 import type { DescriptionReporter } from './descriptions.js';
 import { EventEmitter } from 'node:events';
@@ -197,17 +197,19 @@ describe('ClaudeSession', () => {
       JSON.stringify({ mcpServers: { crystal: { type: 'http', url: PERMISSION_URL, timeout: 86_400_000 } } }),
       '--permission-prompt-tool',
       'mcp__crystal__approve',
-      // Crystal's own tool for naming the Quest (#287) never asks.
+      // Crystal's own tools for naming the Quest (#287) and leaving Errands (#288) never ask.
       '--allowedTools',
       'mcp__crystal__title',
-      // The CLI defers MCP tools, so only the system prompt gets the Quest to name itself (test/fixtures/README.md).
+      'mcp__crystal__errand',
+      // The CLI defers MCP tools, so only the system prompt gets the Quest to use them (test/fixtures/README.md).
       '--append-system-prompt',
-      TITLE_INSTRUCTION,
+      QUEST_PROMPT,
       '--permission-mode',
       'manual',
       '--session-id',
       SESSION_ID,
     ]);
+    expect(call.args.filter((a) => a === '--append-system-prompt')).toHaveLength(1);
     expect(call.args).not.toContain('--bare');
     expect(call.options.cwd).toBe(CWD);
     expect(call.options.stdio).toEqual(['pipe', 'pipe', 'pipe']);

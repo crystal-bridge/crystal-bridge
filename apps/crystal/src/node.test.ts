@@ -1208,6 +1208,73 @@ describe('startNode', () => {
     });
   });
 
+  describe('Errands (#288)', () => {
+    async function startQuest(crystal: CrystalNode) {
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'go' }));
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      expect(crystal.holds(session)).toBe(true);
+      return { conn, session };
+    }
+    const errands = (conn: ConnRecorder) => conn.frames.filter((frame) => frame.type === 'errand.left');
+
+    it('passes on an Errand a Quest leaves, as an event in its stream, with a new id', async () => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      const result = crystal.leaveErrand(session, { title: 'Try it', body: '' });
+      expect(result).toMatchObject({ ok: true, id: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+      const id = (result as { id: string }).id;
+      expect(await waitForFrame(conn, (frame) => frame.type === 'errand.left')).toMatchObject({
+        type: 'errand.left',
+        session,
+        payload: { id, title: 'Try it', body: '' },
+      });
+    });
+
+    it('refuses an Errand for a Quest it doesn’t run', async () => {
+      const crystal = createNode({});
+      await waitForFrame(await nextConnection(harness, 0), (frame) => frame.kind === 'hello');
+      expect(crystal.leaveErrand(randomUUID(), { title: 'x', body: '' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/not running on this node/),
+      });
+    });
+
+    it.each([
+      ['the turn finishes', { type: 'turn.finished', payload: { outcome: 'success' } }],
+      ['the turn ends in an error', { type: 'turn.finished', payload: { outcome: 'error' } }],
+      ['the turn is interrupted', { type: 'turn.finished', payload: { outcome: 'interrupted' } }],
+      ['the process ends mid-turn', { type: 'session.ended', payload: { exitCode: 0, signal: null } }],
+    ])('refuses the eleventh Errand of a turn, and counts again after %s', async (_name, event) => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      for (let i = 0; i < 10; i++) expect(crystal.leaveErrand(session, { title: `E${i}`, body: '' }).ok).toBe(true);
+      expect(crystal.leaveErrand(session, { title: 'E10', body: '' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/at most 10 Errands in one turn/),
+      });
+      await waitForFrame(conn, (frame) => frame.type === 'errand.left' && errands(conn).length === 10);
+      expect(errands(conn)).toHaveLength(10);
+      created.at(-1)!.fake.emit('event', event);
+      expect(crystal.leaveErrand(session, { title: 'Again', body: '' }).ok).toBe(true);
+    });
+
+    it('counts each Quest’s Errands apart', async () => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      const other = randomUUID();
+      conn.socket.send(
+        JSON.stringify({ type: 'session.start', node: 'test', session: other, cwd: '/w', prompt: 'go' }),
+      );
+      await waitForFrame(conn, (frame) => frame.type === 'session.started' && frame.session === other);
+      for (let i = 0; i < 10; i++) expect(crystal.leaveErrand(session, { title: `E${i}`, body: '' }).ok).toBe(true);
+      expect(crystal.leaveErrand(session, { title: 'E10', body: '' }).ok).toBe(false);
+      expect(crystal.leaveErrand(other, { title: 'Mine', body: '' }).ok).toBe(true);
+    });
+  });
+
   function createNode(extra: Partial<Parameters<typeof startNode>[0]> = {}): CrystalNode {
     attachmentsBase = mkdtempSync(join(tmpdir(), 'cb-node-files-'));
     node = startNode({

@@ -5,9 +5,10 @@
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
  * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command, synthesis,
- * title, weekly-only.
+ * title, errand, weekly-only.
  * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
- * Every fixture line is passed through `scrub()`.
+ * Every fixture line is passed through `scrub()`, and a capture whose streamed pieces still name this machine's home
+ * folder, user or an email address once joined (`streamedLeaks()`) stops without writing the fixture.
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts --rescrub
  *
@@ -23,6 +24,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createPermissionServer,
+  QUEST_TOOLS,
+  QUEST_PROMPT,
   TITLE_INSTRUCTION,
   TITLE_TOOL,
   type PermissionDecision,
@@ -35,7 +38,8 @@ const USER = userInfo().username;
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 const EPOCH = '1970-01-01T00:00:00.000Z';
 const TIMEOUT_MS = 180_000;
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g;
+// Not starting right after a backslash, so the `n` of a JSON `\n` escape before an address stays.
+const EMAIL_RE = /(?<!\\)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Identity-like keys (account, org, user); session ids and message uuids are kept.
 const ACCOUNT_KEY_RE = /^(account|org|organization|user)[_A-Za-z]*(id|uuid)$/i;
@@ -47,6 +51,9 @@ const MODEL_RE = /\bclaude-(?!code\b|model\b)[a-z0-9][a-z0-9.-]*[a-z0-9]\b/g;
 // permission tool. `touch` has a side effect, so it goes through `approve`.
 const BASH_PROMPT = 'Run the shell command `touch crystal.txt` with Bash, then reply with the single word DONE.';
 const TITLE_PROMPT = 'Add a short README.md to this repository that says it is a scratch repo for trying things out.';
+const ERRAND_PROMPT =
+  'Add a short README.md to this repository that says it is a scratch repo for trying things out. I will review it ' +
+  'and push it myself later.';
 const BACKGROUND_COMMAND_PROMPT =
   'Start three things, then reply with the single word started and end your turn: (1) Bash with run_in_background, ' +
   'description "Short ping", command `ping -c 12 127.0.0.1`; (2) Bash with run_in_background, description "Long ping", ' +
@@ -94,12 +101,30 @@ function neutralRateLimit(value: unknown): unknown {
   return value;
 }
 
+let gitUser: string | undefined;
+/** The git user name a Quest in the temp repo would see (`git config user.name`), read once; '' when unset. */
+function gitUserName(): string {
+  if (gitUser === undefined) {
+    try {
+      gitUser = execFileSync('git', ['config', 'user.name'], { cwd: tmpdir(), encoding: 'utf8' }).trim();
+    } catch {
+      gitUser = '';
+    }
+  }
+  return gitUser;
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Replace the temp repo path (and its encoded project-dir form), $HOME paths and emails in raw text. */
-function scrubText(text: string, tempPath: string): string {
+/** A whole-word match for a name, where a word is made of letters and digits in any script, not just ASCII. */
+function nameRe(name: string): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRe(name)}(?![\\p{L}\\p{N}_])`, 'gu');
+}
+
+/** Replace the temp repo path (and its encoded project-dir form), $HOME paths, user names and emails in raw text. */
+function scrubText(text: string, tempPath: string, gitName = gitUserName()): string {
   // A background task's output file, under a folder named after this machine's temp path.
   let out = text.replace(/\/(?:private\/)?tmp\/claude-[^/"\s]+\/[^"\s]*?\/tasks\//g, '/tmp/FIXTURE-tasks/');
   if (tempPath) {
@@ -111,7 +136,9 @@ function scrubText(text: string, tempPath: string): string {
   out = out.replace(/-[A-Za-z0-9-]*-crystal-capture-[A-Za-z0-9]+/g, '-tmp-FIXTURE');
   out = out.replace(new RegExp(escapeRe(HOME), 'g'), '/HOME');
   // Outside a path too, as a file listing's owner and group show it.
-  out = out.replace(new RegExp(`\\b${escapeRe(USER)}\\b`, 'g'), 'user');
+  out = out.replace(nameRe(USER), 'user');
+  // The git user name, as a commit's author or `git config user.name` shows it.
+  if (gitName) out = out.replace(nameRe(gitName), 'user');
   // The CLI's messaging socket names this machine's user id and a process id.
   out = out.replace(/\/run\/user\/\d+\/cc-socks\/\d+\.sock/g, '/run/user/0/cc-socks/0.sock');
   out = out.replace(EMAIL_RE, 'user@example.com');
@@ -134,12 +161,12 @@ function scrubAccountIds(value: unknown): unknown {
 }
 
 /** Sanitize one stdout line. Lines carrying machine inventories (system/init) are rebuilt; others get text replacement. */
-export function scrub(line: string, tempPath: string): string {
+export function scrub(line: string, tempPath: string, gitName = gitUserName()): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(line);
   } catch {
-    return scrubText(line, tempPath);
+    return scrubText(line, tempPath, gitName);
   }
   const obj = parsed as Record<string, unknown>;
   const carriesInventory =
@@ -164,7 +191,56 @@ export function scrub(line: string, tempPath: string): string {
   if (isRateLimit) next = { ...next, rate_limit_info: neutralRateLimit(obj.rate_limit_info) };
   const scrubbed = scrubAccountIds(next);
   const changed = carriesInventory || isRateLimit || JSON.stringify(scrubbed) !== JSON.stringify(obj);
-  return scrubText(changed ? JSON.stringify(scrubbed) : line, tempPath);
+  return scrubText(changed ? JSON.stringify(scrubbed) : line, tempPath, gitName);
+}
+
+/** Who recorded a capture: what must not reach a fixture. An empty field isn't checked. */
+export interface Recorder {
+  home: string;
+  user: string;
+  gitName: string;
+}
+
+/**
+ * The CLI streams text, thinking and tool input in pieces (`stream_event` deltas), and `scrub()` sees one line at a
+ * time, so a value split across two pieces gets past it. This joins each content block's pieces and names what it
+ * finds (a home folder, a user name, an email address), never the value itself. Run it on the scrubbed lines.
+ */
+export function streamedLeaks(lines: string[], who: Recorder): string[] {
+  const blocks = new Map<string, string>();
+  for (const line of lines) {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (msg.type !== 'stream_event') continue;
+    const event = msg.event as { type?: string; index?: number; delta?: Record<string, unknown> } | undefined;
+    if (!event || typeof event.index !== 'number') continue;
+    const key = `${String(msg.session_id)} ${String(msg.parent_tool_use_id ?? '')} ${event.index}`;
+    if (event.type === 'content_block_start') {
+      // A new message reuses the indexes, so the earlier block is checked under its own key.
+      if (blocks.has(key)) blocks.set(`${key} #${blocks.size}`, blocks.get(key) ?? '');
+      blocks.set(key, '');
+      continue;
+    }
+    if (event.type !== 'content_block_delta' || !event.delta) continue;
+    const piece = event.delta.text ?? event.delta.partial_json ?? event.delta.thinking;
+    if (typeof piece === 'string') blocks.set(key, (blocks.get(key) ?? '') + piece);
+  }
+  const leaks: string[] = [];
+  for (const [key, text] of blocks) {
+    const where = `streamed block ${key}`;
+    if (who.home && text.includes(who.home)) leaks.push(`a home folder path in ${where}`);
+    if (who.user && who.user !== 'user' && nameRe(who.user).test(text)) leaks.push(`the OS user name in ${where}`);
+    if (who.gitName && who.gitName !== 'user' && nameRe(who.gitName).test(text)) {
+      leaks.push(`the git user name in ${where}`);
+    }
+    if ([...text.matchAll(EMAIL_RE)].some((m) => m[0] !== 'user@example.com'))
+      leaks.push(`an email address in ${where}`);
+  }
+  return leaks;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +550,7 @@ async function main(): Promise<void> {
     PermissionRequest & { scenario: string; at: string; answeredAt?: string; decision?: PermissionDecision }
   > = [];
   const titles: { scenario: string; title: string; plain: string }[] = [];
+  const errands: { scenario: string; title: string; body: string }[] = [];
   const server = await createPermissionServer({
     port: 0,
     onRequest: async (r) => {
@@ -493,6 +570,11 @@ async function main(): Promise<void> {
       titles.push({ scenario: sessionScenario.get(session) ?? '?', ...title });
       return undefined;
     },
+    // Crystal's tool for leaving the user a step (#288); what it was given goes in the summary.
+    onErrand: (session, errand) => {
+      errands.push({ scenario: sessionScenario.get(session) ?? '?', ...errand });
+      return { ok: true, id: randomUUID() };
+    },
   });
   const rawCalls: RawCall[] = [];
   const proxy = await startRecordingProxy(server.port, rawCalls);
@@ -502,7 +584,13 @@ async function main(): Promise<void> {
   const summary: Record<string, unknown> = {};
 
   const record = async (name: string, res: RunResult, extra: Record<string, unknown> = {}) => {
-    await writeFile(join(FIXTURES, `${name}.ndjson`), res.lines.map((l) => `${scrub(l, repo)}\n`).join(''));
+    const lines = res.lines.map((l) => scrub(l, repo));
+    // A value the CLI streamed in pieces gets past the per-line scrub; stop rather than write it.
+    const leaks = streamedLeaks(lines, { home: HOME, user: USER, gitName: gitUserName() });
+    if (leaks.length > 0) {
+      throw new Error(`[${name}] not written: the scrub missed ${leaks.join('; ')}. Extend scrub() and record again.`);
+    }
+    await writeFile(join(FIXTURES, `${name}.ndjson`), lines.map((l) => `${l}\n`).join(''));
     summary[name] = {
       exitCode: res.exitCode,
       signal: res.signal,
@@ -560,6 +648,36 @@ async function main(): Promise<void> {
           onLine: closeAfterFirstResult,
         }),
         { titles: titles.filter((title) => title.scenario === 'title') },
+      );
+    }
+    if (want('errand')) {
+      // An ask that leaves the user steps but never mentions the tool, run as Crystal runs a new Quest: both of
+      // Crystal's tools allowed up front, and the Quest prompt's title and errand lines. No user-level settings, so the
+      // recording user's own instructions stay out of the Quest and its replies.
+      const session = randomUUID();
+      sessionScenario.set(session, 'errand');
+      await record(
+        'errand',
+        await runClaude({
+          repo,
+          mcpUrl: mcpUrl(session),
+          sessionArgs: [
+            '--session-id',
+            session,
+            '--allowedTools',
+            ...QUEST_TOOLS,
+            '--append-system-prompt',
+            QUEST_PROMPT,
+            '--setting-sources',
+            'project,local',
+          ],
+          firstPrompt: ERRAND_PROMPT,
+          onLine: closeAfterFirstResult,
+        }),
+        {
+          titles: titles.filter((title) => title.scenario === 'errand'),
+          errands: errands.filter((errand) => errand.scenario === 'errand'),
+        },
       );
     }
     if (want('synthesis')) {

@@ -30,6 +30,7 @@ JSON-RPC `params` the CLI sends, so the "wire" section of `permission-calls.json
 | `resume.ndjson` | `--resume <interrupt session>`, "Reply with the single word RESUMED." | none | exit 0, `result/success`, `result: "RESUMED"`, same `session_id` |
 | `slow-allow.ndjson` | same prompt as allow; answer held for 60 s | allow after 60 s | exit 0, `result/success`, `duration_ms` 64688 |
 | `synthesis.ndjson`, `synthesis-no-settings.ndjson` | a Scout's synthesis call: rank three items against a schema (2.1.327); the second adds `--setting-sources ""` | none | exit 0, one `result/success` line; see The synthesis call |
+| `errand.ndjson` | add a README the user will push, as a new Quest runs, with `--setting-sources project,local` (2.1.330) | allow | exit 0, `result/success`; see The `errand` tool |
 | `weekly-only.ndjson` | "Reply with the single word DONE.", on a plan with only a weekly limit (2.1.316) | none | exit 0, `result/success`; see Plan windows |
 | `permission-calls.json` | `onRequest`: what Task 4's `onRequest` received. `wire`: raw `initialize`, `tools/list` and `tools/call` params per scenario | | |
 
@@ -309,11 +310,23 @@ skills or CLAUDE.md files would save more.
 keys: `tools` keeps only built-in names (it drops `mcp__*` except `mcp__crystal__approve`), `mcp_servers` keeps only
 `crystal`, `slash_commands`, `skills`, `agents` and `plugins` become `[]`, `output_style` becomes `"default"`, and
 `cwd` becomes `/tmp/FIXTURE`. On every line: the temp repo path (and its `-tmp-…` project-dir form) becomes
-`/tmp/FIXTURE`, `$HOME` becomes `/HOME`, email addresses become the `user` placeholder at `example.com`, and account/org/user `*_id`/`*_uuid` keys
+`/tmp/FIXTURE`, `$HOME` becomes `/HOME`, the OS user name and the git user name (`git config user.name`) become
+`user`, email addresses (never starting at the `n` of a JSON `\n` escape) become the `user` placeholder at `example.com`, and account/org/user `*_id`/`*_uuid` keys
 holding UUIDs become zero UUIDs, and `credential_expires_at` becomes the epoch. Model identifiers become `claude-model` (`claude-model-2` and so on for further
 distinct models). Each `rate_limit_event`'s `rate_limit_info` keeps its keys but gets fixed values: `status` is `allowed`,
 every `resetsAt` and `utilization` is `0`, `overageStatus` is `rejected`, and `overageDisabledReason` is dropped.
 `--rescrub` re-applies all of this to the existing fixtures without running the CLI. Session ids, message uuids and tool-use ids are kept as recorded.
+
+A name is replaced as a whole word, where a word's letters may be in any script, so `Zoë` and `Émile` are caught and
+a longer word that starts with the name is left alone. The CLI streams text, thinking and tool input in pieces
+(`stream_event` deltas), and the scrub sees one line at a time, so a value split across two pieces gets past it. Once
+a scenario is scrubbed, `streamedLeaks()` joins each content block's pieces and, if they name the home folder, the OS
+or git user name or an email address, the capture stops without writing the fixture. The error says which kind of
+value, never the value.
+
+The scrub can't catch what a Quest quotes from the recording user's own instructions: the CLI loads the user-level
+`CLAUDE.md` and settings unless told not to, and a reply may repeat them. New scenarios should pass
+`--setting-sources project,local`, as `errand` does.
 
 ## Plan windows
 
@@ -397,6 +410,23 @@ runs a Quest, with `--allowedTools mcp__crystal__title` and the `--append-system
   same name. The proxy now names the server's own host. If a capture ever reports `crystal` as `needs-auth`, remove
   that entry before running Quests there.
 
+## The `errand` tool (`errand.ndjson`, CLI 2.1.330)
+
+Recorded by `scripts/capture.ts errand` while building #288: an ask to add a README that the user will "review and
+push myself later", which never mentions Errands, run as Crystal runs a new Quest, with `--allowedTools` for both of
+`QUEST_TOOLS` and the `--append-system-prompt` text `QUEST_PROMPT` (`src/permissions.ts`). It also passes
+`--setting-sources project,local`: without it, the CLI loaded the recording user's own `CLAUDE.md`, and the Errands
+and replies quoted it.
+
+- **Every run left an Errand.** 3 of 3 recordings left one each, after the `Write`, for the step the user named
+  (review, commit and push the README), with the commands in a fenced block. The `title` call still came first.
+- **Both tools load in one search.** Each run loaded them together with one `ToolSearch` query,
+  `select:mcp__crystal__title,mcp__crystal__errand`, before any other tool. In three earlier runs that loaded the
+  user's settings, `errand` got its own `ToolSearch` after the `Write` instead.
+- **The call never reached `approve`.** `permission-calls.json` shows `approve` only for the `Write`. That `Write`
+  asked because no user-level allow rules were loaded.
+- **The reply still carries the steps.** Every reply also gave the commit and push commands, as the errand line asks.
+
 ## The appended system prompt on resume (CLI 2.1.330)
 
 Checked by hand while designing Errands (#288), with `claude -p --output-format json` in an empty folder, no fixture
@@ -408,8 +438,13 @@ for that fact.
 - **A prompt passed on `--resume` is ignored.** Started without the line, then resumed with it, the Quest didn't know
   the fact (2 of 2, against 1 of 1 on a fresh session) and didn't mark its replies (2 of 2).
 
-So anything Crystal appends must go on the first process of a Quest (or fork), as `TITLE_INSTRUCTION` does, and
-reaches every later turn from there. A Quest started before a new line shipped never gets it.
+- **A fork carries its source's prompt.** A fork (`--resume <source> --fork-session`) of a session started with the
+  line knew the fact and marked its replies (2 of 2); a fork of one started without it, with the line passed on the
+  fork, did neither (2 of 2). The prompt passed with a fork is ignored, as on any resume.
+
+So anything Crystal appends must go on the first process of a Quest, as `QUEST_PROMPT` does, and reaches every later
+turn from there. A Quest started before a new line shipped never gets it, and nor does a fork of one; a fork of a newer
+Quest has it from its source. Crystal still passes the prompt with a fork, which does no harm.
 
 ## The `summon` tool (live check, CLI 2.1.316)
 

@@ -173,6 +173,7 @@ async function main(): Promise<void> {
       },
     },
     onTitle: (session, title) => node.titleQuest(session, title),
+    onErrand: (session, errand) => node.leaveErrand(session, errand),
     status: () => node.status(),
     onHook: (session, event, body) => hooks.dispatch(session, event, body),
   });

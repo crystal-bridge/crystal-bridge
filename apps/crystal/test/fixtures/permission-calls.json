@@ -80,6 +80,22 @@
       "decision": {
         "behavior": "allow"
       }
+    },
+    {
+      "session": "f583bf50-326e-448e-a754-034067b6a30a",
+      "requestId": "dfdf4d8b-3c71-43d1-8792-5bf5865bb44d",
+      "toolName": "Write",
+      "input": {
+        "file_path": "/tmp/FIXTURE/README.md",
+        "content": "# Scratch Repo\n\nThis is a scratch repository for trying things out. Nothing here is meant to be stable or production-ready, so expect experiments, half-finished ideas, and code that may be changed or deleted at any time.\n"
+      },
+      "toolUseId": "toolu_01RbkQjFU2MUGCpqLvWV8HXb",
+      "scenario": "errand",
+      "at": "2026-11-22T03:13:19.960Z",
+      "answeredAt": "2026-11-22T03:13:19.960Z",
+      "decision": {
+        "behavior": "allow"
+      }
     }
   ],
   "wire": [
@@ -446,6 +462,93 @@
         }
       },
       "at": "2026-11-21T14:39:35.863Z"
+    },
+    {
+      "scenario": "errand",
+      "session": "f583bf50-326e-448e-a754-034067b6a30a",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.330",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "at": "2026-11-22T03:13:13.617Z"
+    },
+    {
+      "scenario": "errand",
+      "session": "f583bf50-326e-448e-a754-034067b6a30a",
+      "method": "tools/list",
+      "params": null,
+      "at": "2026-11-22T03:13:13.631Z"
+    },
+    {
+      "scenario": "errand",
+      "session": "f583bf50-326e-448e-a754-034067b6a30a",
+      "method": "tools/call",
+      "params": {
+        "name": "title",
+        "arguments": {
+          "title": "The Scroll of the Scratch Repository",
+          "plain": "Add a short scratch-repo README"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_018QgGUN76wYTUGuAaZ6VC8Z",
+          "progressToken": 2
+        }
+      },
+      "at": "2026-11-22T03:13:16.950Z"
+    },
+    {
+      "scenario": "errand",
+      "session": "f583bf50-326e-448e-a754-034067b6a30a",
+      "method": "tools/call",
+      "params": {
+        "name": "approve",
+        "arguments": {
+          "tool_name": "Write",
+          "input": {
+            "file_path": "/tmp/FIXTURE/README.md",
+            "content": "# Scratch Repo\n\nThis is a scratch repository for trying things out. Nothing here is meant to be stable or production-ready, so expect experiments, half-finished ideas, and code that may be changed or deleted at any time.\n"
+          },
+          "tool_use_id": "toolu_01RbkQjFU2MUGCpqLvWV8HXb"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01RbkQjFU2MUGCpqLvWV8HXb",
+          "progressToken": 3
+        }
+      },
+      "at": "2026-11-22T03:13:19.958Z"
+    },
+    {
+      "scenario": "errand",
+      "session": "f583bf50-326e-448e-a754-034067b6a30a",
+      "method": "tools/call",
+      "params": {
+        "name": "errand",
+        "arguments": {
+          "title": "Review README.md, then commit and push it",
+          "body": "```\ncd /tmp/FIXTURE\ngit add README.md\ngit commit -m \"Add scratch repo README\"\ngit push\n```"
+        },
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01H6YUwMM94qUGVSop5x3rwL",
+          "progressToken": 4
+        }
+      },
+      "at": "2026-11-22T03:13:21.261Z"
     }
   ]
 }

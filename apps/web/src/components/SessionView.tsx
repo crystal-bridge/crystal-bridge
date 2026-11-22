@@ -43,8 +43,12 @@ import { QuestionCard } from './QuestionCard.js';
 import { PromptBox } from './PromptBox.js';
 import {
   chatItems,
+  ErrandLine,
+  type ErrandTally,
+  errandTally,
   HelperBackLine,
   isAgentCall,
+  isErrandCall,
   isSummonStart,
   isTitleCall,
   SetOutLine,
@@ -195,6 +199,7 @@ function Item({
   latest,
   manifest,
   ts,
+  errands,
 }: {
   item: ViewItem;
   /** When the event behind this item was stored. */
@@ -207,6 +212,8 @@ function Item({
   /** This `result` is the Quest's latest turn, with nothing after it yet. */
   latest?: boolean;
   manifest?: HeroManifest;
+  /** What the turn's errand calls came to, on the turn's first one. */
+  errands?: ErrandTally | undefined;
 }) {
   switch (item.kind) {
     case 'user': {
@@ -261,6 +268,7 @@ function Item({
       if (isAgentCall(item)) return <SetOutLine tool={item} manifest={manifest} />;
       if (isSummonStart(item)) return <SummonLine tool={item} manifest={manifest} />;
       if (isTitleCall(item)) return <TitleLine tool={item} manifest={manifest} />;
+      if (isErrandCall(item)) return <ErrandLine tool={item} tally={errands} />;
       return <ToolCard tool={item} manifest={manifest} />;
     case 'helper-back':
       return <HelperBackLine item={item} manifest={manifest} />;
@@ -652,6 +660,18 @@ export function SessionView({
     battleCache.current.set(id, { key, value });
     return value;
   }
+  // Each turn's Errands, the same tally object until its numbers change, for the same reason.
+  const tallies = useMemo(() => errandTally(items), [items]);
+  const tallyCache = useRef(new Map<string, { key: string; value: ErrandTally }>());
+  function stableTally(id: string): ErrandTally | undefined {
+    const value = tallies.get(id);
+    if (!value) return undefined;
+    const key = JSON.stringify(value);
+    const cached = tallyCache.current.get(id);
+    if (cached?.key === key) return cached.value;
+    tallyCache.current.set(id, { key, value });
+    return value;
+  }
   // Shared with Split View's panels, so the toggles act on whichever is drawn.
   const [details] = usePanel('details');
   const inventory = useMemo(() => buildInventory(deferred), [deferred]);
@@ -834,6 +854,7 @@ export function SessionView({
                           latest={item.id === latestResult}
                           manifest={party?.manifest}
                           ts={tsOf(item.id)}
+                          errands={item.kind === 'tool' ? stableTally(item.id) : undefined}
                         />
                       </div>
                     ))}

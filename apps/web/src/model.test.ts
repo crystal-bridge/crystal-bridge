@@ -3,8 +3,10 @@ import type { Envelope } from '@crystal-bridge/protocol';
 import allowFixture from './__fixtures__/allow.ndjson?raw';
 import backgroundAgentFixture from './__fixtures__/background-agent.ndjson?raw';
 import denyFixture from './__fixtures__/deny.ndjson?raw';
+import errandFixture from './__fixtures__/errand.ndjson?raw';
 import spokenThinkingFixture from './__fixtures__/spoken-thinking.ndjson?raw';
 import titleFixture from './__fixtures__/title.ndjson?raw';
+import { chatItems, errandTally, isCrystalSearch, isErrandCall } from './components/ToolCard.js';
 import {
   buildView,
   IncrementalView,
@@ -100,6 +102,35 @@ describe('buildView over title.ndjson (#287)', () => {
       isError: false,
       denied: false,
     });
+  });
+});
+
+describe('buildView over errand.ndjson (#288)', () => {
+  it('shows the Quest leaving Errands as calls to Crystal’s errand tool, after its work', () => {
+    const items = buildView(new Stream().started().claude(lines(errandFixture)).envelopes);
+    const tools = items.filter((item) => item.kind === 'tool');
+    const names = tools.map((tool) => tool.kind === 'tool' && tool.name);
+    const errands = tools.filter((tool) => tool.kind === 'tool' && tool.name === 'mcp__crystal__errand');
+    expect(errands.length).toBeGreaterThan(0);
+    for (const errand of errands) {
+      expect(errand).toMatchObject({ input: { title: expect.stringMatching(/\S/) }, isError: false, denied: false });
+    }
+    const title = names.indexOf('mcp__crystal__title');
+    const write = names.indexOf('Write');
+    expect(title).toBeGreaterThanOrEqual(0);
+    expect(names.slice(0, title)).not.toContain('Write');
+    expect(write).toBeGreaterThan(title);
+    expect(names.indexOf('mcp__crystal__errand')).toBeGreaterThan(write);
+  });
+
+  it('gives the chat one line for the turn’s Errands, without the search that loads Crystal’s tools', () => {
+    const items = buildView(new Stream().started().claude(lines(errandFixture)).envelopes);
+    const shown = chatItems(items).filter((item) => item.kind === 'tool');
+    const errands = shown.filter((item) => item.kind === 'tool' && isErrandCall(item));
+    expect(errands).toHaveLength(1);
+    expect(shown.filter((item) => item.kind === 'tool' && isCrystalSearch(item))).toEqual([]);
+    expect(errandTally(items).get(errands[0]!.id)).toMatchObject({ left: 1, refused: [] });
+    expect(errandTally(items).get(errands[0]!.id)?.titles).toHaveLength(1);
   });
 });
 

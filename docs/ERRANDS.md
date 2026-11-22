@@ -2,8 +2,9 @@
 
 A Quest comes back from the road with a few chores it couldn't do for you.
 
-::: warning Planned
-The hub part is built: it keeps, lists and deletes Errands. The `errand` tool and the app are planned. The work is tracked in the
+::: warning Partly built
+The hub and the `errand` tool are built: a Quest leaves Errands, the hub keeps, lists and deletes them, and the chat
+shows a line where a turn left some. The app's panels are planned. The work is tracked in the
 [v0.9 Errands and Deeds milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/11) and #288.
 :::
 
@@ -46,9 +47,10 @@ The CLI defers MCP tools behind ToolSearch, so a Quest only uses one its system 
 steps the user must take themselves, load `mcp__crystal__errand` and leave one Errand for each, and still say them in
 your reply. The reply keeps them, so nothing is lost if the Errand isn't stored.
 
-The Errand line goes with the title line, in the one `--append-system-prompt` value Crystal passes when a Quest or a
-fork starts. The CLI stores a session's appended prompt and applies it again on every `--resume`, and it ignores one
-passed on a resume, so the line lasts the Quest's life ([recorded](https://github.com/crystal-bridge/crystal-bridge/blob/main/apps/crystal/test/fixtures/README.md#the-appended-system-prompt-on-resume-cli-21330)).
+The Errand line goes with the title line, in the one `--append-system-prompt` value Crystal passes when a Quest starts.
+The CLI stores a session's appended prompt and applies it again on every `--resume`, and it ignores one passed on a
+resume, so the line lasts the Quest's life. A fork carries its source's line and ignores one passed with it, so a fork
+of a Quest started before Errands shipped has none ([recorded](https://github.com/crystal-bridge/crystal-bridge/blob/main/apps/crystal/test/fixtures/README.md#the-appended-system-prompt-on-resume-cli-21330)).
 A Quest started before Errands shipped, or adopted from outside the bridge, has no line and leaves no Errands; its
 replies still carry the steps.
 
@@ -99,8 +101,9 @@ optional project from the Kingdom's projects, and each Errand can be edited, tic
 fold. With no open Errands, the panel says so in one line.
 
 **In a Quest**, the side panel shows that Quest's Errands. Where the tool was called, the chat shows a line, such as
-*"Your Quest left you 2 Errands."*, counting only the calls that left one (a refused call isn't counted), and linking to
-the side panel. The Classic theme says Follow-ups.
+*"Your Quest left you 2 Errands."*, counting only the calls that left one (a refused call, or one with no answer when
+the turn ended, isn't counted). Unfolded, it lists the title of each one left, then why any were refused. Once the side
+panel shows Errands, the line links to it. The Classic theme says Follow-ups.
 
 **On the Kingdom's tab**, a count of open Errands, with an icon and a label for screen readers, in teal, which is neither the
 waiting count's colour nor the gold of a Quest you haven't seen, since an Errand never holds a Quest up.

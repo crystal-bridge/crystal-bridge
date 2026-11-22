@@ -2,7 +2,8 @@ import { type ReactNode, useContext, useState } from 'react';
 import { type DiffLine, diffLines } from '../diff.js';
 import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
-import { helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
+import { Icon } from '../theme/icons.js';
+import { errandsLeftLine, helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext } from './markdown.js';
 
@@ -271,24 +272,86 @@ export function isTitleCall(tool: ToolItem): boolean {
   return tool.name === 'mcp__crystal__title';
 }
 
-/**
- * Whether a call only loads the `title` tool. The CLI defers MCP tools, so every new Quest makes this search before it
- * names itself; the chat leaves it out, as it adds nothing to the line that follows.
- */
-export function isTitleSearch(tool: ToolItem): boolean {
-  return tool.name === 'ToolSearch' && isObj(tool.input) && tool.input.query === 'select:mcp__crystal__title';
+/** Whether a tool call is a Quest leaving an Errand with Crystal's `errand` tool (#288). */
+export function isErrandCall(tool: ToolItem): boolean {
+  return tool.name === 'mcp__crystal__errand';
 }
 
 /**
- * The items the chat shows. It leaves out the search that only loads the title tool, and any name after the first the
- * Quest gave itself: the hub keeps only the first, so a later line would announce a name the tab never takes. (A name
- * set by hand before the first call keeps even that one off the tab; the chat can't tell, and it's rare.)
+ * Whether a call only loads Crystal's own tools (`title`, `errand`). The CLI defers MCP tools, so a Quest makes this
+ * search before it names itself or leaves an Errand; the chat leaves it out, as it adds nothing to the lines that follow.
+ */
+export function isCrystalSearch(tool: ToolItem): boolean {
+  if (tool.name !== 'ToolSearch' || !isObj(tool.input)) return false;
+  const query = str(tool.input.query);
+  if (!query?.startsWith('select:')) return false;
+  const names = query.slice('select:'.length).split(',');
+  return names.every((name) => LINED_TOOLS.has(name.trim()));
+}
+
+/** Crystal's tools whose calls the chat draws as their own lines, so the search that loads them can go. */
+const LINED_TOOLS = new Set(['mcp__crystal__title', 'mcp__crystal__errand']);
+
+/** What a turn's errand calls came to: how many left an Errand, their titles in order, and why the others were refused. */
+export interface ErrandTally {
+  left: number;
+  refused: string[];
+  titles: string[];
+}
+
+/** Why a call that never got an answer counts as refused once its turn is over. */
+const UNANSWERED = 'No answer came before the turn ended.';
+
+/** Where one turn stops and the next begins, for counting Errands per turn. */
+const endsTurn = (item: ViewItem) => item.kind === 'result' || item.kind === 'ended';
+
+/**
+ * Per turn (the items between two turn ends), keyed by the turn's first errand call: what its calls came to. A call
+ * counts as left once it's done, not an error and not denied; a refused one gives its reason. One still running in the
+ * current turn counts as neither; one with no answer when its turn ended counts as refused.
+ */
+export function errandTally(items: readonly ViewItem[]): Map<string, ErrandTally> {
+  const tallies = new Map<string, ErrandTally>();
+  let current: ErrandTally | undefined;
+  let unanswered = 0;
+  for (const item of items) {
+    if (endsTurn(item)) {
+      for (; unanswered > 0; unanswered -= 1) current?.refused.push(UNANSWERED);
+      current = undefined;
+    }
+    if (item.kind !== 'tool' || !isErrandCall(item)) continue;
+    if (!current) {
+      current = { left: 0, refused: [], titles: [] };
+      tallies.set(item.id, current);
+    }
+    if (!item.done) unanswered += 1;
+    else if (item.isError || item.denied) current.refused.push(item.output ?? '');
+    else {
+      current.left += 1;
+      current.titles.push((isObj(item.input) && str(item.input.title)) || '');
+    }
+  }
+  return tallies;
+}
+
+/**
+ * The items the chat shows. It leaves out the search that only loads Crystal's tools; any name after the first the
+ * Quest gave itself, since the hub keeps only the first, so a later line would announce a name the tab never takes (a
+ * name set by hand before the first call keeps even that one off the tab; the chat can't tell, and it's rare); and every
+ * errand call but each turn's first, which carries the turn's one Errands line.
  */
 export function chatItems(items: readonly ViewItem[]): ViewItem[] {
   let named = false;
+  let errandShown = false;
   return items.filter((item) => {
+    if (endsTurn(item)) errandShown = false;
     if (item.kind !== 'tool') return true;
-    if (isTitleSearch(item)) return false;
+    if (isCrystalSearch(item)) return false;
+    if (isErrandCall(item)) {
+      if (errandShown) return false;
+      errandShown = true;
+      return true;
+    }
     if (!isTitleCall(item)) return true;
     if (named) return false;
     named = !failureChip(item) && isObj(item.input) && !!str(item.input.title);
@@ -311,6 +374,33 @@ export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroM
       chip={chip}
       ko={!named}
       body={named ? plain : (tool.output ?? '')}
+    />
+  );
+}
+
+/**
+ * The Errands a turn left, as one line ("Your Quest left you 2 Errands."), at the turn's first errand call. Inside: the
+ * title of each one left, one per line, then why any were refused.
+ */
+export function ErrandLine({ tool, tally }: { tool: ToolItem; tally: ErrandTally | undefined }) {
+  const { left, refused, titles } = tally ?? { left: 0, refused: [], titles: [] };
+  // Still running: nothing left yet, but nothing failed either.
+  const pending = left === 0 && refused.length === 0;
+  const input = isObj(tool.input) ? tool.input : {};
+  const body = pending ? (str(input.title) ?? '') : [titles.join('\n'), ...refused].filter(Boolean).join('\n\n');
+  return (
+    <GameLine
+      line={errandsLeftLine(pending ? 1 : left)}
+      mark={
+        <span aria-hidden className="text-teal-600 dark:text-teal-400">
+          <Icon name="boardChecklist" size={16} />
+        </span>
+      }
+      chip={
+        refused.length > 0 ? { themed: `${refused.length} refused`, plain: `${refused.length} refused` } : undefined
+      }
+      ko={!pending && left === 0}
+      body={body}
     />
   );
 }

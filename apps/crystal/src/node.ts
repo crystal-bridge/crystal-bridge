@@ -56,6 +56,7 @@ import {
   type ScoutLink,
   type ScoutRun,
   type QuestTitledPayload,
+  MAX_ERRANDS_PER_TURN,
 } from '@crystal-bridge/protocol';
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
@@ -213,6 +214,11 @@ export interface CrystalNode {
   holds(session: string): boolean;
   /** Passes on the name a Quest gave itself (the `title` tool, #287), or says why not: it isn't a Quest here. */
   titleQuest(session: string, title: QuestTitledPayload): string | undefined;
+  /** Passes on a step a Quest left the user (the `errand` tool, #288), or says why not. */
+  leaveErrand(
+    session: string,
+    errand: { title: string; body: string },
+  ): { ok: true; id: string } | { ok: false; reason: string };
   /**
    * Closes every session, stops reconnecting and closes the socket. Resolves once the sessions' processes have
    * stopped (each engine escalates to SIGTERM after its grace period), or after `CLOSE_WAIT_MS` regardless, so a
@@ -331,6 +337,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   const sessions = new Map<string, SessionState>();
   const pendingPermissions = new Map<string, PendingPermission>();
   const patrolQuests = new Map<string, PatrolQuest>();
+  /** Errands each Quest has left this turn; in memory only, counted again once the turn or process ends. */
+  const errandsThisTurn = new Map<string, number>();
   /** Patrol Quests let go while they were still starting, so they aren't watched once they've started. */
   const forgottenQuests = new Set<string>();
 
@@ -461,6 +469,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     runtime.on('event', (event: ClaudeSessionEvent) => {
       // The process that asked can no longer use an answer; deny so nothing stays pending forever.
       if (event.type === 'session.ended') denyPending(sessionId);
+      if (event.type === 'turn.finished' || event.type === 'session.ended') errandsThisTurn.delete(sessionId);
       sendEnvelope(sessionId, event.type, event.payload);
       watchPatrolQuest(sessionId, event);
     });
@@ -1273,6 +1282,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     denyPending();
     // A Patrol's Quest ended by closing hasn't ended its run: the Patrols say so on the next start.
     patrolQuests.clear();
+    errandsThisTurn.clear();
     const stopping: Promise<void>[] = [];
     for (const [id, state] of sessions) {
       // One that won't stop mustn't leave the rest running after Crystal has gone.
@@ -1347,6 +1357,24 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     return undefined;
   }
 
+  function leaveErrand(
+    session: string,
+    errand: { title: string; body: string },
+  ): { ok: true; id: string } | { ok: false; reason: string } {
+    if (!holds(session)) return { ok: false, reason: 'This session is not running on this node.' };
+    const left = errandsThisTurn.get(session) ?? 0;
+    if (left >= MAX_ERRANDS_PER_TURN) {
+      return {
+        ok: false,
+        reason: `A Quest may leave at most ${MAX_ERRANDS_PER_TURN} Errands in one turn; say the rest in your reply.`,
+      };
+    }
+    const id = randomUUID();
+    sendEnvelope(session, 'errand.left', { id, title: errand.title, body: errand.body });
+    errandsThisTurn.set(session, left + 1);
+    return { ok: true, id };
+  }
+
   return {
     handlePermissionRequest,
     status,
@@ -1364,6 +1392,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     },
     holds,
     titleQuest,
+    leaveErrand,
     close,
   };
 }
