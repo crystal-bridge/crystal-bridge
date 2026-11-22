@@ -86,7 +86,8 @@ A fork starts with no Errands: its earlier events belong to the Quest it came fr
 panel and kept per device:
 
 - **Checklist**, in the right column above Haunts: one line per Errand, grouped by project, each project in its own
-  colour, with a bar across the top showing each project's share.
+  colour, with a bar across the top showing each project's share. A chevron after a title means it has details, which
+  unfold under it.
 - **Cards**, a band across the Castle: a card per Errand with its body shown, grouped by day (today, yesterday, earlier),
   each card topped in its project's colour, with an icon for what left it.
 
@@ -96,18 +97,20 @@ Done and dismissed ones fold under a count, titled "Done and dismissed", with th
 project from the Kingdom's projects. Edit changes the title and details; the project stays. Each Errand can also be
 ticked done, dismissed, or reopened from the fold. With no open Errands, the panel says so in one line.
 
-**In a Quest**, the side panel shows that Quest's Errands. Where the tool was called, the chat shows a line, such as
-*"Your Quest left you 2 Errands."*, counting only the calls that left one (a refused call, or one with no answer when
-the turn ended, isn't counted). Unfolded, it lists the title of each one left, then why any were refused. Its Show
-button opens the side panel at that block. The side panel has no Add, since an Errand made by hand has no Quest. The Classic theme says Follow-ups.
+**In a Quest**, the side panel shows that Quest's Errands, each with its details open. Where the tool was called, the
+chat shows a teal note, such as *"Your Quest left you 2 Errands. They wait in the side panel and on the Castle."*,
+counting only the calls that left one (a refused call, or one with no answer when the turn ended, isn't counted).
+Unfolded, it lists the title of each one left, then why any were refused. Its Show button opens the side panel at that
+block, on screens wide enough to have the side panel. The side panel has no Add, since an Errand made by hand has no Quest. The Classic theme says Follow-ups.
 
 **On the Kingdom's tab**, a count of open Errands, with an icon and a label for screen readers, in teal, which is neither the
 waiting count's colour nor the gold of a Quest you haven't seen, since an Errand never holds a Quest up.
 
-The body renders as the chat's Markdown does, with no raw HTML. Each code block has a copy button; nothing runs a
-command for you.
+The body renders as the chat's Markdown does, with no raw HTML. Code blocks are compact, with no language row, and each
+has a Copy button; nothing runs a command for you.
 
-**On a phone**, the Castle shows the list to read, copy a command, tick and reopen. Adding, editing and dismissing stay
+**On a phone**, the Castle shows the list to read, copy a command, tick and reopen. Each row names its project and age,
+and the project opens the Quest that left it. Adding, editing and dismissing stay
 on wider screens.
 
 ## Tie up loose ends: Quests, Patrols and notifications
