@@ -1,6 +1,6 @@
 import type { Errand, ListedPatrol } from '@crystal-bridge/protocol';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { w } from '../theme/words.js';
 import { ErrandsPanel } from './Errands.js';
 import type { SessionSummary } from './SessionList.js';
@@ -99,7 +99,6 @@ function panel(errands: Errand[] = ALL, extra: Partial<Parameters<typeof Errands
   render(
     <ErrandsPanel
       errands={errands}
-      layout="checklist"
       sessions={SESSIONS}
       patrols={PATROLS}
       now={NOW}
@@ -111,6 +110,8 @@ function panel(errands: Errand[] = ALL, extra: Partial<Parameters<typeof Errands
   return { onOpenQuest, onState, region: screen.getByRole('region', { name: w('errands') }) };
 }
 
+const LAYOUT_KEY = 'crystal-bridge.errands-layout';
+beforeEach(() => localStorage.setItem(LAYOUT_KEY, 'checklist'));
 afterEach(cleanup);
 
 describe('ErrandsPanel, Checklist', () => {
@@ -200,8 +201,74 @@ describe('ErrandsPanel, Checklist', () => {
     expect(within(region).getByText('Done and dismissed')).toBeTruthy();
   });
 
+  it('offers Checklist and Cards, and remembers the choice on this device', () => {
+    const { region } = panel();
+    const layout = within(region).getByRole('radiogroup', { name: 'Layout' });
+    const checklist = within(layout).getByRole('radio', { name: 'Checklist' }) as HTMLInputElement;
+    expect(checklist.checked).toBe(true);
+    fireEvent.click(within(layout).getByRole('radio', { name: 'Cards' }));
+    expect(within(region).queryByRole('group', { name: 'lantern' })).toBeNull();
+    cleanup();
+    const again = panel().region;
+    const cards = within(again).getByRole('radio', { name: 'Cards' }) as HTMLInputElement;
+    expect(cards.checked).toBe(true);
+    expect(localStorage.getItem(LAYOUT_KEY)).toBe('cards');
+  });
+
   it('marks nothing in blue', () => {
     const { region } = panel();
+    for (const element of [region, ...region.querySelectorAll('*')]) {
+      expect(element.getAttribute('class') ?? '').not.toContain('blue-');
+    }
+  });
+});
+
+describe('ErrandsPanel, Cards', () => {
+  // Local noon, so the days don't move with the time zone the tests run in.
+  const NOON = new Date(2026, 10, 20, 12, 0).getTime();
+  const HOUR = 60 * MINUTE;
+  const fresh = { ...smoke, created: NOON - HOUR, updated: NOON - HOUR };
+  const older = { ...packages, created: NOON - 24 * HOUR, updated: NOON - 24 * HOUR };
+  const oldest = { ...certificate, created: NOON - 4 * 24 * HOUR, updated: NOON - 4 * 24 * HOUR };
+  const CARDS = [oldest, fresh, older, tagged, rotated];
+  beforeEach(() => localStorage.setItem(LAYOUT_KEY, 'cards'));
+
+  it('groups by day, each card topped in its project colour, with an icon for what left it', () => {
+    const { region, onState } = panel(CARDS, { now: NOON });
+    const days = within(region)
+      .getAllByRole('heading', { level: 3 })
+      .map((heading) => heading.textContent);
+    expect(days).toEqual(['Today', 'Yesterday', 'Earlier']);
+
+    const card = within(region).getByRole('listitem', { name: fresh.title });
+    // The body shows without opening anything, with its copy button.
+    expect(within(card).getByText('pnpm smoke --hub http://127.0.0.1:7700')).toBeTruthy();
+    expect(within(card).getByRole('button', { name: 'Copy code' })).toBeTruthy();
+    expect(card.querySelector('[data-card-top]')!.className).toMatch(/\bbg-\w+-400\b/);
+    expect(within(card).getByText('lantern')).toBeTruthy();
+    expect(within(card).getByText('1h ago')).toBeTruthy();
+    expect(within(card).getByTitle('Quest').querySelector('.cb-icon-scrollUnfurled')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Done' }));
+    expect(onState).toHaveBeenCalledWith(fresh.id, 'done');
+    fireEvent.click(within(card).getByRole('button', { name: `Dismiss: ${fresh.title}` }));
+    expect(onState).toHaveBeenLastCalledWith(fresh.id, 'dismissed');
+
+    const patrol = within(region).getByRole('listitem', { name: older.title });
+    expect(within(patrol).getByTitle('Patrol').querySelector('.cb-icon-errandPatrol')).toBeTruthy();
+    expect(within(patrol).getByText('kelp')).toBeTruthy();
+    const hand = within(region).getByRole('listitem', { name: oldest.title });
+    expect(within(hand).getByTitle('By hand').querySelector('.cb-icon-quillInk')).toBeTruthy();
+    expect(within(hand).getByText('No project')).toBeTruthy();
+  });
+
+  it('shows the open count in its header, and the closed fold below', () => {
+    const { region } = panel(CARDS, { now: NOON });
+    expect(within(region).getByText('3 open')).toBeTruthy();
+    expect(within(region).getByText('Done and dismissed')).toBeTruthy();
+  });
+
+  it('marks nothing in blue', () => {
+    const { region } = panel(CARDS, { now: NOON });
     for (const element of [region, ...region.querySelectorAll('*')]) {
       expect(element.getAttribute('class') ?? '').not.toContain('blue-');
     }

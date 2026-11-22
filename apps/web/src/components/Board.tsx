@@ -52,7 +52,8 @@ import {
 import { Gold } from './Gold.js';
 import { ago, Folded, HOME_PAGE } from './HomeParts.js';
 import { useBoardMode } from '../boardPrefs.js';
-import { LayoutSwitch, ProjectsView } from './ProjectsView.js';
+import { LayoutSwitch } from './LayoutSwitch.js';
+import { BOARD_LAYOUTS, ProjectsView } from './ProjectsView.js';
 import { PatrolLog, PatrolsNext, type BoardPatrolsProps } from './PatrolLog.js';
 
 export interface BoardPageProps {
@@ -873,7 +874,7 @@ export function BoardPage({
                 </div>
               </div>
               <span className="flex items-center gap-2">
-                {projectsLook && <LayoutSwitch mode={mode} onMode={setMode} />}
+                {projectsLook && <LayoutSwitch mode={mode} onMode={setMode} options={BOARD_LAYOUTS} />}
                 {onPin && (
                   <button
                     type="button"
