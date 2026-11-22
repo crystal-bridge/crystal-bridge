@@ -1,5 +1,5 @@
-import type { Errand, ListedPatrol } from '@crystal-bridge/protocol';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import type { Errand, ListedPatrol, Project } from '@crystal-bridge/protocol';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { w } from '../theme/words.js';
 import { ErrandsPanel } from './Errands.js';
@@ -271,6 +271,112 @@ describe('ErrandsPanel, Cards', () => {
     const { region } = panel(CARDS, { now: NOON });
     for (const element of [region, ...region.querySelectorAll('*')]) {
       expect(element.getAttribute('class') ?? '').not.toContain('blue-');
+    }
+  });
+});
+
+describe('ErrandsPanel, Add and Edit', () => {
+  const PROJECTS: Project[] = [
+    { path: '/r/acme/lantern', name: 'lantern' },
+    { path: '/r/acme/quarry', name: 'quarry' },
+  ];
+  const fill = (form: HTMLElement, title: string, body = '') => {
+    fireEvent.change(within(form).getByLabelText('Title'), { target: { value: title } });
+    if (body) fireEvent.change(within(form).getByLabelText('Details'), { target: { value: body } });
+  };
+
+  it("adds one by hand, with an optional project from the Kingdom's projects", async () => {
+    const onAdd = vi.fn().mockResolvedValue(undefined);
+    const { region } = panel(ALL, { projects: PROJECTS, onAdd });
+    fireEvent.click(within(region).getByRole('button', { name: 'Add an Errand' }));
+    const form = within(region).getByRole('form', { name: 'A new Errand, written by you' });
+    const select = within(form).getByLabelText('Project') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(['No project', 'lantern', 'quarry']);
+    fill(form, '  Order the new keyboard  ', 'Details here');
+    fireEvent.change(select, { target: { value: '/r/acme/quarry' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await waitFor(() =>
+      expect(onAdd).toHaveBeenCalledWith({
+        title: 'Order the new keyboard',
+        body: 'Details here',
+        project: '/r/acme/quarry',
+      }),
+    );
+    await waitFor(() => expect(within(region).queryByRole('form')).toBeNull());
+
+    fireEvent.click(within(region).getByRole('button', { name: 'Add an Errand' }));
+    fill(within(region).getByRole('form'), 'No project one');
+    fireEvent.click(within(region).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(onAdd).toHaveBeenLastCalledWith({ title: 'No project one', body: '' }));
+    expect(onAdd.mock.calls[1]![0]).not.toHaveProperty('project');
+  });
+
+  it("keeps the tool's limits", async () => {
+    const onAdd = vi.fn().mockRejectedValue(new Error('The hub is full of Errands'));
+    const { region } = panel(ALL, { projects: PROJECTS, onAdd });
+    fireEvent.click(within(region).getByRole('button', { name: 'Add an Errand' }));
+    const form = within(region).getByRole('form');
+    const title = within(form).getByLabelText('Title') as HTMLInputElement;
+    expect(title.maxLength).toBe(120);
+    expect(title.required).toBe(true);
+    fill(form, 'Too wordy', 'x'.repeat(8001));
+    fireEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(within(form).getByText('At most 8000 characters')).toBeTruthy();
+    expect(onAdd).not.toHaveBeenCalled();
+    fill(form, 'Too wordy', 'x'.repeat(8000));
+    fireEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(await within(region).findByText('The hub is full of Errands')).toBeTruthy();
+    expect(within(region).getByRole('form')).toBeTruthy();
+  });
+
+  it('edits one', async () => {
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    const { region } = panel(ALL, { onEdit });
+    fireEvent.click(within(region).getByRole('button', { name: `Edit: ${smoke.title}` }));
+    const form = within(region).getByRole('form');
+    expect((within(form).getByLabelText('Title') as HTMLInputElement).value).toBe(smoke.title);
+    expect((within(form).getByLabelText('Details') as HTMLTextAreaElement).value).toBe(smoke.body);
+    expect(within(form).queryByLabelText('Project')).toBeNull();
+    fill(form, 'Run the smoke test twice');
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(onEdit).toHaveBeenCalledWith(smoke.id, { title: 'Run the smoke test twice', body: smoke.body }),
+    );
+    await waitFor(() => expect(within(region).queryByRole('form')).toBeNull());
+  });
+
+  it('offers Add and Edit in Cards too, in place of the card', () => {
+    localStorage.setItem(LAYOUT_KEY, 'cards');
+    const { region } = panel(ALL, { onAdd: vi.fn(), onEdit: vi.fn() });
+    expect(within(region).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
+    fireEvent.click(within(region).getByRole('button', { name: `Edit: ${update.title}` }));
+    expect(within(region).queryByRole('listitem', { name: update.title })).toBeNull();
+    expect(within(region).getByRole('form')).toBeTruthy();
+  });
+
+  it('offers no add or edit without the handlers', () => {
+    const { region } = panel();
+    expect(within(region).queryByRole('button', { name: 'Add an Errand' })).toBeNull();
+    expect(within(region).queryByRole('button', { name: /^Edit:/ })).toBeNull();
+  });
+
+  it('offers no add, edit or dismiss when read-only, but still ticks and reopens', () => {
+    for (const layout of ['checklist', 'cards']) {
+      localStorage.setItem(LAYOUT_KEY, layout);
+      const { region, onState } = panel(ALL, { readOnly: true, onAdd: vi.fn(), onEdit: vi.fn() });
+      expect(within(region).queryByRole('button', { name: 'Add an Errand' })).toBeNull();
+      expect(within(region).queryByRole('button', { name: /^Edit:/ })).toBeNull();
+      expect(within(region).queryByRole('button', { name: /^Dismiss:/ })).toBeNull();
+      fireEvent.click(
+        layout === 'cards'
+          ? within(within(region).getByRole('listitem', { name: update.title })).getByRole('button', { name: 'Done' })
+          : within(region).getByRole('button', { name: `Mark done: ${update.title}` }),
+      );
+      expect(onState).toHaveBeenCalledWith(update.id, 'done');
+      fireEvent.click(within(region).getByText('Done and dismissed'));
+      fireEvent.click(within(region).getByRole('button', { name: `Reopen: ${rotated.title}` }));
+      expect(onState).toHaveBeenLastCalledWith(rotated.id, 'open');
+      cleanup();
     }
   });
 });

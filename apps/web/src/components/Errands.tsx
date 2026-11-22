@@ -1,4 +1,14 @@
-import type { Errand, ErrandCreate, ErrandEdit, ErrandState, ListedPatrol, Project } from '@crystal-bridge/protocol';
+import {
+  type Errand,
+  type ErrandCreate,
+  type ErrandEdit,
+  type ErrandState,
+  type ListedPatrol,
+  MAX_ERRAND_BODY,
+  MAX_QUEST_TITLE,
+  type Project,
+} from '@crystal-bridge/protocol';
+import { type FormEvent, type ReactNode, useId, useState } from 'react';
 import {
   closedOnes,
   type ErrandDay,
@@ -37,7 +47,7 @@ export interface ErrandsPanelProps {
   onState?: (id: string, state: ErrandState) => void;
   onAdd?: (draft: ErrandCreate) => Promise<void>;
   onEdit?: (id: string, edit: ErrandEdit) => Promise<void>;
-  /** Shows the Errands to read and copy, with no way to change them. */
+  /** Shows the Errands without Add, Edit or Dismiss; ticking one and reopening one stay, as the phone needs. */
   readOnly?: boolean;
 }
 
@@ -58,16 +68,53 @@ export function ErrandsPanel({
   errands,
   sessions,
   patrols,
+  projects = [],
   now = Date.now(),
   onOpenQuest,
   onState,
+  onAdd,
+  onEdit,
   readOnly = false,
 }: ErrandsPanelProps) {
   const [layout, setLayout] = useErrandLayout();
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string>();
   const open = openOnes(errands);
   const closed = closedOnes(errands);
-  const change = readOnly ? undefined : onState;
-  const rows = { sessions, patrols, now, onOpenQuest, onState: change };
+  const canAdd = !readOnly && onAdd !== undefined;
+  const canEdit = !readOnly && onEdit !== undefined;
+  const rows: RowProps = {
+    sessions,
+    patrols,
+    now,
+    onOpenQuest,
+    onState,
+    canDismiss: !readOnly,
+    onEdit: canEdit ? setEditing : undefined,
+    editForm: (errand) =>
+      editing === errand.id && onEdit ? (
+        <ErrandForm
+          initial={errand}
+          onSubmit={async (edit) => {
+            await onEdit(errand.id, { title: edit.title, body: edit.body });
+            setEditing(undefined);
+          }}
+          onCancel={() => setEditing(undefined)}
+        />
+      ) : undefined,
+  };
+  const addButton = canAdd && (
+    <button
+      type="button"
+      aria-label="Add an Errand"
+      title="Add an Errand"
+      onClick={() => setAdding(true)}
+      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-bold text-neutral-600 ring-1 ring-neutral-300 hover:bg-neutral-100 dark:text-neutral-300 dark:ring-neutral-700 dark:hover:bg-neutral-800"
+    >
+      <Icon name="attach" size={14} />
+      Add
+    </button>
+  );
   return (
     <section aria-label={w('errands')} className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 px-3">
@@ -87,8 +134,19 @@ export function ErrandsPanel({
         {layout === 'cards' && open.length > 0 && (
           <span className="text-xs text-neutral-500">{`${open.length} open`}</span>
         )}
+        {addButton}
         <LayoutSwitch mode={layout} onMode={setLayout} options={LAYOUTS} />
       </div>
+      {adding && onAdd && (
+        <ErrandForm
+          projects={projects}
+          onSubmit={async (draft) => {
+            await onAdd(draft);
+            setAdding(false);
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
       {open.length === 0 ? (
         <p className="px-3 text-sm text-neutral-500">{`No open ${w('errands')}.`}</p>
       ) : layout === 'cards' ? (
@@ -96,7 +154,7 @@ export function ErrandsPanel({
       ) : (
         <Checklist open={open} {...rows} />
       )}
-      <ClosedFold closed={closed} onState={change} />
+      <ClosedFold closed={closed} onState={onState} />
     </section>
   );
 }
@@ -107,6 +165,12 @@ interface RowProps {
   now: number;
   onOpenQuest?: ((session: string) => void) | undefined;
   onState?: ((id: string, state: ErrandState) => void) | undefined;
+  /** Whether Dismiss shows; a read-only panel keeps ticking and reopening but not this. */
+  canDismiss?: boolean | undefined;
+  /** Opens an Errand's edit form; without it, no Edit button shows. */
+  onEdit?: ((id: string) => void) | undefined;
+  /** The edit form for an Errand that is being edited, to show in place of its row or card. */
+  editForm?: ((errand: Errand) => ReactNode) | undefined;
 }
 
 /** The audition's view B: a share bar, then a washed header and a row per Errand for each project. */
@@ -155,7 +219,9 @@ function ProjectRows({ group, ...rest }: RowProps & { group: ProjectGroup }) {
   );
 }
 
-function ErrandRow({ errand, now, onState, ...known }: RowProps & { errand: Errand }) {
+function ErrandRow({ errand, now, onState, canDismiss, onEdit, editForm, ...known }: RowProps & { errand: Errand }) {
+  const form = editForm?.(errand);
+  if (form) return <li className="px-2.5 py-1">{form}</li>;
   const title = <span className="block truncate font-medium leading-6">{errand.title}</span>;
   return (
     <li
@@ -186,8 +252,9 @@ function ErrandRow({ errand, now, onState, ...known }: RowProps & { errand: Erra
         )}
         <SourceLine errand={errand} now={now} {...known} />
       </div>
-      {onState && (
-        <span className="opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+      <span className="flex opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+        {onEdit && <EditButton errand={errand} onEdit={onEdit} className="mt-1" />}
+        {onState && canDismiss && (
           <button
             type="button"
             aria-label={`Dismiss: ${errand.title}`}
@@ -197,8 +264,8 @@ function ErrandRow({ errand, now, onState, ...known }: RowProps & { errand: Erra
           >
             <Icon name="errandDismiss" size={16} />
           </button>
-        </span>
-      )}
+        )}
+      </span>
     </li>
   );
 }
@@ -214,7 +281,7 @@ function SourceLine({
   patrols,
   onOpenQuest,
   age = true,
-}: Omit<RowProps, 'onState'> & { errand: Errand; age?: boolean }) {
+}: Pick<RowProps, 'sessions' | 'patrols' | 'now' | 'onOpenQuest'> & { errand: Errand; age?: boolean }) {
   const source = errandSource(errand, { sessions, patrols });
   const { icon } = SOURCE_LOOKS[source.kind];
   const label =
@@ -290,7 +357,9 @@ function Cards({ open, ...rest }: RowProps & { open: Errand[] }) {
   );
 }
 
-function ErrandCard({ errand, now, onState, ...known }: RowProps & { errand: Errand }) {
+function ErrandCard({ errand, now, onState, canDismiss, onEdit, editForm, ...known }: RowProps & { errand: Errand }) {
+  const form = editForm?.(errand);
+  if (form) return <li className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">{form}</li>;
   const source = errandSource(errand, known);
   const look = SOURCE_LOOKS[source.kind];
   const tone = ERRAND_TONES[errandTone(errand.project)];
@@ -311,7 +380,8 @@ function ErrandCard({ errand, now, onState, ...known }: RowProps & { errand: Err
               <SourceLine errand={errand} now={now} age={false} {...known} />
             </div>
           </div>
-          {onState && (
+          {onEdit && <EditButton errand={errand} onEdit={onEdit} />}
+          {onState && canDismiss && (
             <button
               type="button"
               aria-label={`Dismiss: ${errand.title}`}
@@ -347,6 +417,142 @@ function ErrandCard({ errand, now, onState, ...known }: RowProps & { errand: Err
         </div>
       </div>
     </li>
+  );
+}
+
+function EditButton({
+  errand,
+  onEdit,
+  className = '',
+}: {
+  errand: Errand;
+  onEdit: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Edit: ${errand.title}`}
+      title="Edit"
+      onClick={() => onEdit(errand.id)}
+      className={`inline-flex shrink-0 items-center justify-center self-start rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 ${className}`}
+    >
+      <Icon name="edit" size={16} />
+    </button>
+  );
+}
+
+const FIELD =
+  'w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950';
+
+/**
+ * Writes an Errand by hand, or edits one (`initial`): a title, Markdown details and, for a new one, a project. An edit
+ * changes the title and details only; the project stays as it was made. The hub's refusal shows here and keeps the form.
+ */
+export function ErrandForm({
+  initial,
+  projects = [],
+  onSubmit,
+  onCancel,
+}: {
+  initial?: Errand | undefined;
+  projects?: Project[] | undefined;
+  onSubmit: (draft: ErrandCreate) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const id = useId();
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [body, setBody] = useState(initial?.body ?? '');
+  const [project, setProject] = useState('');
+  const [problem, setProblem] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const tooLong = body.length > MAX_ERRAND_BODY;
+  const heading = initial ? 'Edit this Errand' : 'A new Errand, written by you';
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (tooLong || saving) return;
+    const trimmed = title.trim();
+    if (!trimmed) return setProblem('Give it a title.');
+    setProblem(undefined);
+    setSaving(true);
+    try {
+      await onSubmit({ title: trimmed, body, ...(project ? { project } : {}) });
+    } catch (failure) {
+      setProblem(failure instanceof Error ? failure.message : String(failure));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form
+      aria-label={heading}
+      onSubmit={submit}
+      className="mx-3 mb-2 space-y-2 rounded-md border border-dashed border-neutral-300 p-3 dark:border-neutral-700"
+    >
+      <div className="flex items-center gap-2 text-xs font-bold text-fuchsia-700 dark:text-fuchsia-300">
+        <Icon name="quillInk" size={16} />
+        {heading}
+      </div>
+      <input
+        aria-label="Title"
+        required
+        maxLength={MAX_QUEST_TITLE}
+        placeholder="What to do"
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        className={FIELD}
+      />
+      <textarea
+        aria-label="Details"
+        rows={3}
+        placeholder="Details, in Markdown: commands in fenced ``` blocks get a Copy button"
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        className={`${FIELD} font-mono text-xs`}
+      />
+      {tooLong && (
+        <p role="alert" className="text-xs text-red-700 dark:text-red-400">{`At most ${MAX_ERRAND_BODY} characters`}</p>
+      )}
+      {problem && (
+        <p role="alert" className="text-xs text-red-700 dark:text-red-400">
+          {problem}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {!initial && (
+          <select
+            id={`${id}-project`}
+            aria-label="Project"
+            value={project}
+            onChange={(event) => setProject(event.target.value)}
+            className="rounded border border-neutral-300 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950"
+          >
+            <option value="">No project</option>
+            {projects.map((p) => (
+              <option key={p.path} value={p.path}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <span className="flex-1" />
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded px-2 py-1 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded bg-neutral-800 px-2.5 py-1 text-xs font-bold text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-neutral-200 dark:text-neutral-900"
+        >
+          {initial ? 'Save' : 'Add'}
+        </button>
+      </div>
+    </form>
   );
 }
 
