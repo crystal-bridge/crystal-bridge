@@ -195,6 +195,29 @@ describe('ErrandsPanel, Checklist', () => {
     expect(onState).toHaveBeenLastCalledWith(restore.id, 'dismissed');
   });
 
+  it('keeps Edit and Dismiss in sight where nothing can hover, as on a tablet', () => {
+    const { region } = panel(ALL, { onEdit: vi.fn() });
+    const row = within(region).getByRole('listitem', { name: restore.title });
+    const actions = within(row).getByRole('button', { name: `Dismiss: ${restore.title}` }).parentElement!;
+    expect(actions.contains(within(row).getByRole('button', { name: `Edit: ${restore.title}` }))).toBe(true);
+    expect(actions.className).toContain('opacity-0');
+    expect(actions.className).toContain('[@media(hover:none)]:opacity-100');
+  });
+
+  it('gives the tick a 28px target, its drawing still 18px', () => {
+    const { region } = panel();
+    const tick = within(region).getByRole('button', { name: `Mark done: ${update.title}` });
+    expect(tick.className).toContain('size-7');
+    expect(tick.querySelector('svg')!.getAttribute('width')).toBe('18');
+  });
+
+  it('says why when the list couldn’t be read', () => {
+    const { region } = panel([], { error: 'the Kingdom is busy' });
+    expect(within(region).getByText('Couldn’t load Errands.')).toBeTruthy();
+    expect(within(region).getByText('the Kingdom is busy')).toBeTruthy();
+    expect(within(region).queryByText('No open Errands.')).toBeNull();
+  });
+
   it('folds done and dismissed ones under a count, says they go after 30 days, and reopens one', () => {
     const { region, onState } = panel();
     const summary = within(region).getByText('Done and dismissed').closest('summary')!;
@@ -285,6 +308,42 @@ describe('ErrandsPanel, Cards', () => {
     const hand = within(region).getByRole('listitem', { name: oldest.title });
     expect(within(hand).getByTitle('By hand').querySelector('.cb-icon-quillInk')).toBeTruthy();
     expect(within(hand).getByText('No project')).toBeTruthy();
+  });
+
+  describe('a body taller than the card', () => {
+    const measure = (scroll: number, client: number) => {
+      vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+        return this.hasAttribute('data-card-body') ? scroll : 0;
+      });
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+        return this.hasAttribute('data-card-body') ? client : 0;
+      });
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    it('is clipped with a fade and a Show all toggle, so every line Copy takes can be seen', () => {
+      measure(400, 176);
+      const { region } = panel(CARDS, { now: NOON });
+      const card = within(region).getByRole('listitem', { name: fresh.title });
+      const body = card.querySelector('[data-card-body]')!;
+      expect(body.className).toContain('max-h-44');
+      expect(card.querySelector('[data-card-fade]')).toBeTruthy();
+      const toggle = within(card).getByRole('button', { name: 'Show all' });
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(toggle);
+      expect(body.className).not.toContain('max-h-44');
+      expect(card.querySelector('[data-card-fade]')).toBeNull();
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      fireEvent.click(within(card).getByRole('button', { name: 'Show less' }));
+      expect(body.className).toContain('max-h-44');
+    });
+
+    it('has no toggle and no fade when the body fits', () => {
+      measure(120, 120);
+      const { region } = panel(CARDS, { now: NOON });
+      expect(within(region).queryByRole('button', { name: 'Show all' })).toBeNull();
+      expect(region.querySelector('[data-card-fade]')).toBeNull();
+    });
   });
 
   it('shows the open count in its header, and the closed fold below', () => {
@@ -493,6 +552,12 @@ describe("QuestErrands, in a Quest's side panel", () => {
     expect(screen.queryByRole('button', { name: /^Dismiss:/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: `Mark done: ${smoke.title}` }));
     expect(onState).toHaveBeenCalledWith(smoke.id, 'done');
+  });
+
+  it('keeps Dismiss in sight where nothing can hover', () => {
+    block(ALL);
+    const dismiss = screen.getByRole('button', { name: `Dismiss: ${smoke.title}` });
+    expect(dismiss.className).toContain('[@media(hover:none)]:opacity-100');
   });
 
   it('a fork lists none of the Quest it came from', () => {

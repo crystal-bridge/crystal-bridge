@@ -8,7 +8,7 @@ import {
   MAX_QUEST_TITLE,
   type Project,
 } from '@crystal-bridge/protocol';
-import { type FormEvent, type ReactNode, useId, useState } from 'react';
+import { type FormEvent, type ReactNode, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   closedOnes,
   type ErrandDay,
@@ -25,7 +25,7 @@ import {
 } from '../errands.js';
 import { projectName } from '../quests.js';
 import { Icon, type IconName } from '../theme/icons.js';
-import { hint, w } from '../theme/words.js';
+import { errandWords, hint, w } from '../theme/words.js';
 import { ago, agoText } from './HomeParts.js';
 import { type LayoutOption, LayoutSwitch } from './LayoutSwitch.js';
 import { QuestMarkdown } from './markdown.js';
@@ -54,6 +54,8 @@ export interface ErrandsPanelProps {
    * each project's colour and larger ticks, and no layout switch.
    */
   phone?: boolean;
+  /** Why the hub's list couldn't be read, said in place of the list. */
+  error?: string | undefined;
 }
 
 /** An Errand's Markdown: compact code blocks (`QuestMarkdown compact`) that scroll in their own box, each with Copy. */
@@ -81,7 +83,9 @@ export function ErrandsPanel({
   onEdit,
   readOnly: readOnlyAsked = false,
   phone = false,
+  error,
 }: ErrandsPanelProps) {
+  const say = errandWords();
   const readOnly = readOnlyAsked || phone;
   const [layout, setLayout] = useErrandLayout();
   const [adding, setAdding] = useState(false);
@@ -113,8 +117,8 @@ export function ErrandsPanel({
   const addButton = canAdd && (
     <button
       type="button"
-      aria-label="Add an Errand"
-      title="Add an Errand"
+      aria-label={say.add}
+      title={say.add}
       onClick={() => setAdding(true)}
       className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-bold text-neutral-600 ring-1 ring-neutral-300 hover:bg-neutral-100 dark:text-neutral-300 dark:ring-neutral-700 dark:hover:bg-neutral-800"
     >
@@ -154,8 +158,12 @@ export function ErrandsPanel({
           onCancel={() => setAdding(false)}
         />
       )}
-      {open.length === 0 ? (
-        <p className="px-3 text-sm text-neutral-500">{`No open ${w('errands')}.`}</p>
+      {error !== undefined ? (
+        <p role="alert" className="px-3 text-sm text-red-700 dark:text-red-400">
+          <span className="font-bold">{say.loadFailed}</span> <span>{error}</span>
+        </p>
+      ) : open.length === 0 ? (
+        <p className="px-3 text-sm text-neutral-500">{say.noneOpen}</p>
       ) : phone ? (
         <PhoneList open={open} {...rows} />
       ) : layout === 'cards' ? (
@@ -212,7 +220,7 @@ export function QuestErrands({
           </span>
         )}
       </div>
-      <p className="px-2.5 text-[11px] text-neutral-500">{`Steps this ${w('quest')} left for you`}</p>
+      <p className="px-2.5 text-[11px] text-neutral-500">{errandWords().questLeft}</p>
       <ul className="mt-1.5 space-y-1 px-1.5 pb-2">
         {open.length === 0 ? (
           <li className="px-1 text-xs text-neutral-500">All done.</li>
@@ -266,7 +274,7 @@ function QuestRow({
           aria-label={`Dismiss: ${errand.title}`}
           title="Dismiss"
           onClick={() => onState(errand.id, 'dismissed')}
-          className="inline-flex shrink-0 items-center justify-center rounded p-0.5 text-neutral-400 opacity-0 hover:bg-neutral-100 hover:text-neutral-700 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 text-neutral-400 opacity-0 hover:bg-neutral-100 hover:text-neutral-700 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 ${NO_HOVER_SHOWS}`}
         >
           <Icon name="errandDismiss" size={16} />
         </button>
@@ -288,6 +296,9 @@ interface RowProps {
   /** The edit form for an Errand that is being edited, to show in place of its row or card. */
   editForm?: ((errand: Errand) => ReactNode) | undefined;
 }
+
+/** Hover-only actions stay in sight on a device that can't hover (a tablet, a touch screen), or they'd never show. */
+const NO_HOVER_SHOWS = '[@media(hover:none)]:opacity-100';
 
 /** The audition's view B: a share bar, then a washed header and a row per Errand for each project. */
 function Checklist({ open, ...rest }: RowProps & { open: Errand[] }) {
@@ -349,7 +360,8 @@ function ErrandRow({ errand, now, onState, canDismiss, onEdit, editForm, ...know
           aria-label={`Mark done: ${errand.title}`}
           title="Mark done"
           onClick={() => onState(errand.id, 'done')}
-          className="mt-1 inline-flex shrink-0 items-center justify-center self-start rounded text-neutral-400 hover:text-emerald-600 dark:text-neutral-500 dark:hover:text-emerald-400"
+          // A 28px target round the 18px tick, its margins drawing it back to where the tick alone sat.
+          className="-mx-[5px] -mt-px inline-flex size-7 shrink-0 items-center justify-center self-start rounded text-neutral-400 hover:text-emerald-600 dark:text-neutral-500 dark:hover:text-emerald-400"
         >
           <Icon name="errandOpen" size={18} />
         </button>
@@ -358,7 +370,7 @@ function ErrandRow({ errand, now, onState, canDismiss, onEdit, editForm, ...know
         <TitleFold errand={errand} />
         <SourceLine errand={errand} now={now} {...known} />
       </div>
-      <span className="flex opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+      <span className={`flex opacity-0 focus-within:opacity-100 group-hover:opacity-100 ${NO_HOVER_SHOWS}`}>
         {onEdit && <EditButton errand={errand} onEdit={onEdit} className="mt-1" />}
         {onState && canDismiss && (
           <button
@@ -546,12 +558,12 @@ function SourceLine({
 const SOURCE_LOOKS: Record<ErrandSource['kind'], { icon: IconName; short: string; tile: string }> = {
   quest: {
     icon: 'scrollUnfurled',
-    short: 'Quest',
+    short: w('quest'),
     tile: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200',
   },
   patrol: {
     icon: 'errandPatrol',
-    short: 'Patrol',
+    short: w('patrol'),
     tile: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200',
   },
   hand: {
@@ -620,13 +632,7 @@ function ErrandCard({ errand, now, onState, canDismiss, onEdit, editForm, ...kno
             </button>
           )}
         </div>
-        {errand.body.trim() && (
-          <div className="max-h-44 overflow-hidden">
-            <div className={BODY}>
-              <QuestMarkdown compact>{errand.body}</QuestMarkdown>
-            </div>
-          </div>
-        )}
+        {errand.body.trim() && <CardBody body={errand.body} />}
         <div className="mt-auto flex items-center gap-2 pt-1">
           <ProjectChip project={errand.project} />
           <span className="shrink-0 text-[11px] text-neutral-500">{agoText(errand.created, now)}</span>
@@ -644,6 +650,58 @@ function ErrandCard({ errand, now, onState, canDismiss, onEdit, editForm, ...kno
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * A card's body, clipped at a set height so the cards line up. Copy takes a whole code block, so nothing it takes may be
+ * out of sight: a body taller than the clip fades at the cut and gets Show all, which lets the card grow to show it.
+ */
+function CardBody({ body }: { body: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  useLayoutEffect(() => {
+    const element = box.current;
+    // Open, nothing is clipped to measure: it keeps the answer it had while clipped.
+    if (!element || expanded) return;
+    const check = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    // The card's width, a font arriving or a picture loading can each change what fits.
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, [body, expanded]);
+  return (
+    <div>
+      <div ref={box} data-card-body className={`relative ${expanded ? '' : 'max-h-44 overflow-hidden'}`}>
+        <div className={BODY}>
+          <QuestMarkdown compact>{body}</QuestMarkdown>
+        </div>
+        {overflows && !expanded && (
+          <div
+            data-card-fade
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-white to-transparent dark:from-neutral-950"
+          />
+        )}
+      </div>
+      {overflows && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 inline-flex items-center gap-1 rounded px-1 text-xs font-bold text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          <span aria-hidden="true" className={`inline-flex ${expanded ? '-rotate-90' : 'rotate-90'}`}>
+            <Icon name="caret" size={10} />
+          </span>
+          {expanded ? 'Show less' : 'Show all'}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -694,7 +752,7 @@ export function ErrandForm({
   const [problem, setProblem] = useState<string>();
   const [saving, setSaving] = useState(false);
   const tooLong = body.length > MAX_ERRAND_BODY;
-  const heading = initial ? 'Edit this Errand' : 'A new Errand, written by you';
+  const heading = initial ? errandWords().edit : errandWords().byYou;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
