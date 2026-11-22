@@ -5,9 +5,12 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createPermissionServer,
+  CRYSTAL_TOOLS,
+  ERRAND_INSTRUCTION,
   type PermissionDecision,
   type PermissionRequest,
   type PermissionServer,
+  QUEST_PROMPT,
   TITLE_INSTRUCTION,
 } from './permissions.js';
 
@@ -420,5 +423,74 @@ describe('the title tool (#287)', () => {
     expect(refused.content).toEqual([{ type: 'text', text: 'This session is not running on this node.' }]);
     await stranger.close();
     expect(titles).toEqual([]);
+  });
+});
+
+describe('the errand tool (#288)', () => {
+  let server: PermissionServer;
+  let client: Client;
+  let errands: { session: string; errand: { title: string; body: string } }[];
+  let refusal: string | undefined;
+
+  beforeEach(async () => {
+    errands = [];
+    refusal = undefined;
+    server = await createPermissionServer({
+      port: 0,
+      onRequest: async () => ({ behavior: 'allow' }),
+      onErrand: (session, errand) => {
+        if (refusal) return { ok: false, reason: refusal };
+        errands.push({ session, errand });
+        return { ok: true, id: 'errand-1' };
+      },
+    });
+    client = await connectClient(server, 'quest-1');
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it('offers a title and a Markdown body, and the prompt line names the tool and ToolSearch', async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((candidate) => candidate.name === 'errand');
+    expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(['title', 'body']);
+    expect(ERRAND_INSTRUCTION).toContain('mcp__crystal__errand');
+    expect(ERRAND_INSTRUCTION).toContain('ToolSearch');
+    expect(ERRAND_INSTRUCTION).toContain('reply');
+    expect(QUEST_PROMPT).toContain(TITLE_INSTRUCTION);
+    expect(QUEST_PROMPT).toContain(ERRAND_INSTRUCTION);
+    expect(CRYSTAL_TOOLS).toEqual(['mcp__crystal__title', 'mcp__crystal__errand']);
+  });
+
+  it('passes an Errand on with the Quest it came from, and answers with its id', async () => {
+    const result = await client.callTool({
+      name: 'errand',
+      arguments: { title: ' Try the export by hand ', body: 'Press **Export**.' },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.stringify(result.content)).toContain('errand-1');
+    expect(errands).toEqual([
+      { session: 'quest-1', errand: { title: 'Try the export by hand', body: 'Press **Export**.' } },
+    ]);
+  });
+
+  it('takes an Errand with no body', async () => {
+    const result = await client.callTool({ name: 'errand', arguments: { title: 'Install the update' } });
+    expect(result.isError).toBeFalsy();
+    expect(errands[0]?.errand).toEqual({ title: 'Install the update', body: '' });
+  });
+
+  it('turns a bad title, a long body or a refusal into an error the Quest can read', async () => {
+    const empty = await client.callTool({ name: 'errand', arguments: { title: ' ' } });
+    expect(empty.isError).toBe(true);
+    const long = await client.callTool({ name: 'errand', arguments: { title: 'x', body: 'a'.repeat(8001) } });
+    expect(long.isError).toBe(true);
+    expect(errands).toEqual([]);
+    refusal = 'A Quest may leave at most 10 Errands in one turn; say the rest in your reply.';
+    const refused = await client.callTool({ name: 'errand', arguments: { title: 'x' } });
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toEqual([{ type: 'text', text: refusal }]);
   });
 });

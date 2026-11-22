@@ -3,7 +3,7 @@ import type { Server as HttpServer } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { QuestTitle, type QuestTitledPayload } from '@crystal-bridge/protocol';
+import { ErrandBody, MAX_ERRANDS_PER_TURN, QuestTitle, type QuestTitledPayload } from '@crystal-bridge/protocol';
 import { z } from 'zod';
 
 /**
@@ -53,6 +53,14 @@ export interface CreatePermissionServerOptions {
    * was, as the tool's error.
    */
   onTitle?: (session: string, title: QuestTitledPayload) => string | undefined;
+  /**
+   * Offers Quests the `errand` tool (#288): passes on a step the user must take. Returns the new Errand's id, or why it
+   * was refused, as the tool's error.
+   */
+  onErrand?: (
+    session: string,
+    errand: { title: string; body: string },
+  ) => { ok: true; id: string } | { ok: false; reason: string };
   /** Served on `GET /status` (localhost only), e.g. so a deploy can wait until no session is mid-turn. */
   status?: () => unknown;
   /** Hook calls other than PermissionRequest from interactive sessions (SessionStart, Stop, Notification). */
@@ -111,11 +119,36 @@ export const TITLE_DESCRIPTION =
   "Name this session for the user's list of sessions. Call it once, as soon as you understand what the user is " +
   'asking. Keep each name under about 50 characters. The first name stays until the user renames the session.';
 
+const ErrandInputShape = {
+  title: QuestTitle.describe('One line: the step, e.g. "Try the new export by hand"'),
+  body: ErrandBody.default('').describe('Markdown: how to do it; commands in fenced code blocks'),
+};
+
+/** The `errand` tool as the CLI names it, for allowing it up front. */
+export const ERRAND_TOOL = 'mcp__crystal__errand';
+
+/** Crystal's tools a Quest may call without asking: allowed up front on both engines. */
+export const CRYSTAL_TOOLS = [TITLE_TOOL, ERRAND_TOOL] as const;
+
+/** The Errand line of every new Quest's system prompt (the CLI defers MCP tools, test/fixtures/README.md). */
+export const ERRAND_INSTRUCTION =
+  'When you finish with steps the user must take themselves (test something by hand, run a command, install an ' +
+  'update), load mcp__crystal__errand with ToolSearch and leave one Errand for each, then still say them in your reply.';
+
+export const ERRAND_DESCRIPTION =
+  'Leave the user a step to take after this turn, kept outside the chat until they tick it off. One call per step, ' +
+  `at most ${MAX_ERRANDS_PER_TURN} a turn. Only for what the user must do: if you can do the step, do it instead. ` +
+  'Answers with its id.';
+
+/** The one `--append-system-prompt` value a new Quest or fork gets: the CLI keeps it for every later resume. */
+export const QUEST_PROMPT = `${TITLE_INSTRUCTION} ${ERRAND_INSTRUCTION}`;
+
 function buildMcpServer(
   session: string,
   onRequest: OnPermissionRequest,
   summon?: SummonTool,
   onTitle?: CreatePermissionServerOptions['onTitle'],
+  onErrand?: CreatePermissionServerOptions['onErrand'],
 ): McpServer {
   const server = new McpServer({ name: 'crystal-permissions', version: '0.0.0' });
 
@@ -170,6 +203,15 @@ function buildMcpServer(
     });
   }
 
+  if (onErrand) {
+    server.registerTool('errand', { description: ERRAND_DESCRIPTION, inputSchema: ErrandInputShape }, async (args) => {
+      const result = onErrand(session, { title: args.title, body: args.body });
+      return result.ok
+        ? { content: [{ type: 'text' as const, text: `Left Errand ${result.id}.` }] }
+        : { content: [{ type: 'text' as const, text: result.reason }], isError: true };
+    });
+  }
+
   return server;
 }
 
@@ -194,7 +236,7 @@ export async function createPermissionServer(options: CreatePermissionServerOpti
 
   app.post('/mcp/:session', async (req, res) => {
     const session = req.params.session as string;
-    const mcpServer = buildMcpServer(session, onRequest, options.summon, options.onTitle);
+    const mcpServer = buildMcpServer(session, onRequest, options.summon, options.onTitle, options.onErrand);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {
