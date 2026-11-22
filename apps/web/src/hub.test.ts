@@ -76,6 +76,18 @@ describe('HubClient replay', () => {
     expect(heard).toHaveBeenCalledTimes(2);
   });
 
+  it('hands Errands frames to their listeners', () => {
+    const { hub, socket } = connected();
+    const heard = vi.fn();
+    const stop = hub.onErrands(heard);
+    socket.deliver({ kind: 'errands', node: 'forge', errands: [] });
+    socket.deliver({ kind: 'errands', node: 'forge', errands: [{ id: 'nope' }] });
+    expect(heard.mock.calls.map(([frame]) => frame.node)).toEqual(['forge']);
+    stop();
+    socket.deliver({ kind: 'errands', node: 'forge', errands: [] });
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
   it('hands seen frames to their listeners', () => {
     const { hub, socket } = connected();
     const heard = vi.fn();
