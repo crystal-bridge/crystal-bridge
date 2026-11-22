@@ -115,7 +115,7 @@ import {
 import { type ActivityItem, startOfDay, startOfWeek, type TurnStats } from './home.js';
 import { BUILD_RELEASE, isOutdated } from './release.js';
 import { RemovedKingdom } from './components/RemovedKingdom.js';
-import { hint, questLabel, queuedLine, showHeroes, w } from './theme/words.js';
+import { CLASSIC, hint, questLabel, queuedLine, showHeroes, w, words } from './theme/words.js';
 
 const REFRESH_MS = 5000;
 const HOME_REFRESH_MS = 30_000;
@@ -453,6 +453,7 @@ export function App({ hub }: { hub: HubClient }) {
           { ...attention, label: questLabel(attention) },
           p.names[attention.node] || attention.node,
           notifyLevel(p, attention.node),
+          words === CLASSIC,
         );
         if (!shownText) return;
         // Alerts again when it replaces an unread notice for the same Quest, instead of swapping it silently.
