@@ -68,6 +68,7 @@ export default defineConfig({
           { text: 'Scouts and Boards', link: '/scouts' },
           { text: 'Patrols', link: '/patrols' },
           { text: 'Errands', link: '/errands' },
+          { text: 'Deeds', link: '/deeds' },
         ],
       },
       {
