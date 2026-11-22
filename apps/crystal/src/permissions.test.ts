@@ -493,4 +493,35 @@ describe('the errand tool (#288)', () => {
     expect(refused.isError).toBe(true);
     expect(refused.content).toEqual([{ type: 'text', text: refusal }]);
   });
+
+  const errorText = (result: Awaited<ReturnType<Client['callTool']>>) => JSON.stringify(result.content);
+
+  it('takes a body of exactly 8000 characters, the limit', async () => {
+    const result = await client.callTool({ name: 'errand', arguments: { title: 'x', body: 'a'.repeat(8000) } });
+    expect(result.isError).toBeFalsy();
+    expect(errands[0]?.errand.body).toHaveLength(8000);
+  });
+
+  it('names the field and the limit when a title or body is refused', async () => {
+    const long = await client.callTool({ name: 'errand', arguments: { title: 'x'.repeat(121) } });
+    expect(long.isError).toBe(true);
+    expect(errorText(long)).toContain('title');
+    expect(errorText(long)).toContain('120');
+    const blank = await client.callTool({ name: 'errand', arguments: { title: '   ' } });
+    expect(blank.isError).toBe(true);
+    expect(errorText(blank)).toContain('title');
+    const body = await client.callTool({ name: 'errand', arguments: { title: 'x', body: 'a'.repeat(8001) } });
+    expect(errorText(body)).toContain('body');
+    expect(errorText(body)).toContain('8000');
+    expect(errands).toEqual([]);
+  });
+
+  it('is not offered when Crystal has nowhere to send an Errand', async () => {
+    const bare = await createPermissionServer({ port: 0, onRequest: async () => ({ behavior: 'allow' }) });
+    const other = await connectClient(bare, 'quest-1');
+    const { tools } = await other.listTools();
+    expect(tools.map((tool) => tool.name)).not.toContain('errand');
+    await other.close();
+    await bare.close();
+  });
 });

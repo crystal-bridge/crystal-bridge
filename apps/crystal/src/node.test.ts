@@ -1244,6 +1244,8 @@ describe('startNode', () => {
 
     it.each([
       ['the turn finishes', { type: 'turn.finished', payload: { outcome: 'success' } }],
+      ['the turn ends in an error', { type: 'turn.finished', payload: { outcome: 'error' } }],
+      ['the turn is interrupted', { type: 'turn.finished', payload: { outcome: 'interrupted' } }],
       ['the process ends mid-turn', { type: 'session.ended', payload: { exitCode: 0, signal: null } }],
     ])('refuses the eleventh Errand of a turn, and counts again after %s', async (_name, event) => {
       const crystal = createNode({});
@@ -1257,6 +1259,19 @@ describe('startNode', () => {
       expect(errands(conn)).toHaveLength(10);
       created.at(-1)!.fake.emit('event', event);
       expect(crystal.leaveErrand(session, { title: 'Again', body: '' }).ok).toBe(true);
+    });
+
+    it('counts each Quest’s Errands apart', async () => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      const other = randomUUID();
+      conn.socket.send(
+        JSON.stringify({ type: 'session.start', node: 'test', session: other, cwd: '/w', prompt: 'go' }),
+      );
+      await waitForFrame(conn, (frame) => frame.type === 'session.started' && frame.session === other);
+      for (let i = 0; i < 10; i++) expect(crystal.leaveErrand(session, { title: `E${i}`, body: '' }).ok).toBe(true);
+      expect(crystal.leaveErrand(session, { title: 'E10', body: '' }).ok).toBe(false);
+      expect(crystal.leaveErrand(other, { title: 'Mine', body: '' }).ok).toBe(true);
     });
   });
 
