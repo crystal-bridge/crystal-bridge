@@ -2,7 +2,9 @@ import { type ReactNode, useContext, useState } from 'react';
 import { type DiffLine, diffLines } from '../diff.js';
 import { type Helper, helperClass, type HeroManifest, type HeroState, PartyContext } from '../heroes.js';
 import { AGENT_TOOLS, type ViewItem } from '../model.js';
-import { helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
+import { setPanelOpen } from '../panels.js';
+import { Icon } from '../theme/icons.js';
+import { errandsLeftLine, helperLine, summonLine, titledLine, toolChip, useLine, type Word } from '../theme/words.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext } from './markdown.js';
 
@@ -215,12 +217,15 @@ function GameLine({
   chip,
   ko = false,
   body,
+  action,
 }: {
   line: Word;
   mark?: ReactNode;
   chip?: Word | undefined;
   ko?: boolean;
   body: string;
+  /** A small button at the end of the line, e.g. to show what it's about elsewhere. */
+  action?: ReactNode;
 }) {
   return (
     <details className="text-sm">
@@ -235,6 +240,7 @@ function GameLine({
             {chip.themed}
           </span>
         )}
+        {action}
       </summary>
       <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-neutral-300 bg-neutral-50 p-2 font-mono text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
         {body}
@@ -271,24 +277,76 @@ export function isTitleCall(tool: ToolItem): boolean {
   return tool.name === 'mcp__crystal__title';
 }
 
-/**
- * Whether a call only loads the `title` tool. The CLI defers MCP tools, so every new Quest makes this search before it
- * names itself; the chat leaves it out, as it adds nothing to the line that follows.
- */
-export function isTitleSearch(tool: ToolItem): boolean {
-  return tool.name === 'ToolSearch' && isObj(tool.input) && tool.input.query === 'select:mcp__crystal__title';
+/** Whether a tool call is a Quest leaving an Errand with Crystal's `errand` tool (#288). */
+export function isErrandCall(tool: ToolItem): boolean {
+  return tool.name === 'mcp__crystal__errand';
 }
 
 /**
- * The items the chat shows. It leaves out the search that only loads the title tool, and any name after the first the
- * Quest gave itself: the hub keeps only the first, so a later line would announce a name the tab never takes. (A name
- * set by hand before the first call keeps even that one off the tab; the chat can't tell, and it's rare.)
+ * Whether a call only loads Crystal's own tools (`title`, `errand`). The CLI defers MCP tools, so a Quest makes this
+ * search before it names itself or leaves an Errand; the chat leaves it out, as it adds nothing to the lines that follow.
+ */
+export function isCrystalSearch(tool: ToolItem): boolean {
+  if (tool.name !== 'ToolSearch' || !isObj(tool.input)) return false;
+  const query = str(tool.input.query);
+  if (!query?.startsWith('select:')) return false;
+  const names = query.slice('select:'.length).split(',');
+  return names.every((name) => name.trim().startsWith('mcp__crystal__'));
+}
+
+/** Whether a call only loads the `title` tool: a Crystal search, kept for its name. */
+export function isTitleSearch(tool: ToolItem): boolean {
+  return isCrystalSearch(tool);
+}
+
+/** What a turn's errand calls came to: how many left an Errand, and why the others were refused. */
+export interface ErrandTally {
+  left: number;
+  refused: string[];
+}
+
+/** Where one turn stops and the next begins, for counting Errands per turn. */
+const endsTurn = (item: ViewItem) => item.kind === 'result' || item.kind === 'ended';
+
+/**
+ * Per turn (the items between two turn ends), keyed by the turn's first errand call: what its calls came to. A call
+ * counts as left once it's done, not an error and not denied; a refused one gives its reason; one still running neither.
+ */
+export function errandTally(items: readonly ViewItem[]): Map<string, ErrandTally> {
+  const tallies = new Map<string, ErrandTally>();
+  let current: ErrandTally | undefined;
+  for (const item of items) {
+    if (endsTurn(item)) current = undefined;
+    if (item.kind !== 'tool' || !isErrandCall(item)) continue;
+    if (!current) {
+      current = { left: 0, refused: [] };
+      tallies.set(item.id, current);
+    }
+    if (!item.done) continue;
+    if (item.isError || item.denied) current.refused.push(item.output ?? '');
+    else current.left += 1;
+  }
+  return tallies;
+}
+
+/**
+ * The items the chat shows. It leaves out the search that only loads Crystal's tools; any name after the first the
+ * Quest gave itself, since the hub keeps only the first, so a later line would announce a name the tab never takes (a
+ * name set by hand before the first call keeps even that one off the tab; the chat can't tell, and it's rare); and every
+ * errand call but each turn's first, which carries the turn's one Errands line.
  */
 export function chatItems(items: readonly ViewItem[]): ViewItem[] {
   let named = false;
+  let errandShown = false;
   return items.filter((item) => {
+    if (endsTurn(item)) errandShown = false;
     if (item.kind !== 'tool') return true;
-    if (isTitleSearch(item)) return false;
+    if (isCrystalSearch(item)) return false;
+    if (isErrandCall(item)) {
+      if (errandShown) return false;
+      errandShown = true;
+      return true;
+    }
     if (!isTitleCall(item)) return true;
     if (named) return false;
     named = !failureChip(item) && isObj(item.input) && !!str(item.input.title);
@@ -311,6 +369,60 @@ export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroM
       chip={chip}
       ko={!named}
       body={named ? plain : (tool.output ?? '')}
+    />
+  );
+}
+
+/**
+ * The Errands a turn left, as one line ("Your Quest left you 2 Errands."), at the turn's first errand call. Inside: why
+ * any were refused, or the Errand's title. `Show` opens the side panel's details at the Quest's Errands.
+ */
+export function ErrandLine({
+  tool,
+  tally,
+  session,
+}: {
+  tool: ToolItem;
+  tally: ErrandTally | undefined;
+  /** The Quest the line belongs to, to find its Errands in the side panel. */
+  session?: string | undefined;
+}) {
+  const { left, refused } = tally ?? { left: 0, refused: [] };
+  // Still running: nothing left yet, but nothing failed either.
+  const pending = left === 0 && refused.length === 0;
+  const input = isObj(tool.input) ? tool.input : {};
+  const title = str(input.title) ?? '';
+  const more = left > 1 ? `\n…and ${left - 1} more` : '';
+  return (
+    <GameLine
+      line={errandsLeftLine(pending ? 1 : left)}
+      mark={
+        <span aria-hidden className="text-teal-600 dark:text-teal-400">
+          <Icon name="boardChecklist" size={16} />
+        </span>
+      }
+      chip={
+        refused.length > 0 ? { themed: `${refused.length} refused`, plain: `${refused.length} refused` } : undefined
+      }
+      ko={!pending && left === 0}
+      body={refused.length > 0 ? refused.join('\n\n') : `${title}${more}`}
+      action={
+        <button
+          type="button"
+          onClick={(e) => {
+            // Inside <summary>: show the panel without also folding the line open or shut.
+            e.preventDefault();
+            e.stopPropagation();
+            setPanelOpen('details', true);
+            requestAnimationFrame(() =>
+              document.getElementById(`errands-${session}`)?.scrollIntoView({ block: 'nearest' }),
+            );
+          }}
+          className="ml-auto shrink-0 rounded px-1.5 text-xs text-teal-700 hover:bg-teal-50 dark:text-teal-300 dark:hover:bg-teal-950"
+        >
+          Show
+        </button>
+      }
     />
   );
 }

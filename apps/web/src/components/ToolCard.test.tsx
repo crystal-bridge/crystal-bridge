@@ -2,10 +2,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HeroManifest } from '../heroes.js';
+import { panelOpen, setPanelOpen } from '../panels.js';
 import {
   chatItems,
+  ErrandLine,
+  errandTally,
   HelperBackLine,
   isAgentCall,
+  isCrystalSearch,
+  isErrandCall,
   isSummonStart,
   isTitleCall,
   isTitleSearch,
@@ -233,6 +238,7 @@ describe('TitleLine (#287)', () => {
     expect(isTitleSearch(search)).toBe(true);
     expect(isTitleSearch({ ...search, input: { query: 'select:mcp__crystal__title,Read' } })).toBe(false);
     expect(isTitleSearch({ ...search, input: { query: 'notebook' } })).toBe(false);
+    expect(isCrystalSearch(search)).toBe(true);
   });
 
   it('shows only the first name the Quest gave itself, the one the hub keeps, and leaves out the title search', () => {
@@ -247,5 +253,73 @@ describe('TitleLine (#287)', () => {
   it('takes only Crystal’s title tool', () => {
     expect(isTitleCall(call)).toBe(true);
     expect(isTitleCall({ ...call, name: 'mcp__other__title' })).toBe(false);
+  });
+});
+
+describe('ErrandLine (#288)', () => {
+  const call = {
+    kind: 'tool',
+    id: 'e',
+    name: 'mcp__crystal__errand',
+    input: { title: 'Rotate the deploy key', body: 'It expires next week.' },
+    output: 'Left Errand 1.',
+    isError: false,
+    denied: false,
+    done: true,
+  } as unknown as ComponentProps<typeof ErrandLine>['tool'];
+  const search = (query: string) => ({ ...call, id: 's', name: 'ToolSearch', input: { query } });
+  const turnEnd = {
+    kind: 'result',
+    id: 'result',
+    subtype: 'success',
+    isError: false,
+    text: 'Done.',
+    costUsd: undefined,
+    durationMs: undefined,
+  } as const;
+  const reason = 'A Quest may leave at most 10 Errands in one turn; say the rest in your reply.';
+
+  it('takes only Crystal’s errand tool, and searches that load only Crystal’s tools', () => {
+    expect(isErrandCall(call)).toBe(true);
+    expect(isErrandCall({ ...call, name: 'mcp__other__errand' })).toBe(false);
+    expect(isCrystalSearch(search('select:mcp__crystal__errand'))).toBe(true);
+    expect(isCrystalSearch(search('select:mcp__crystal__title,mcp__crystal__errand'))).toBe(true);
+    expect(isCrystalSearch(search('select:mcp__crystal__errand,Bash'))).toBe(false);
+    expect(isCrystalSearch(search('notebook'))).toBe(false);
+  });
+
+  it('keeps one line per turn, at the turn’s first Errand, and leaves out the search', () => {
+    const items = [
+      search('select:mcp__crystal__title,mcp__crystal__errand'),
+      { ...call, id: 'e1' },
+      { ...call, id: 'read', name: 'Read', input: { file_path: '/r/a.ts' } },
+      { ...call, id: 'e2' },
+      turnEnd,
+      { ...call, id: 'e3' },
+    ];
+    expect(chatItems(items).map((item) => item.id)).toEqual(['e1', 'read', 'result', 'e3']);
+    const tally = errandTally(items);
+    expect(tally.get('e1')).toEqual({ left: 2, refused: [] });
+    expect(tally.get('e3')).toEqual({ left: 1, refused: [] });
+    expect(tally.size).toBe(2);
+  });
+
+  it('counts only the calls that left one', () => {
+    const refused = { ...call, id: 'e2', isError: true, output: reason };
+    const running = { ...call, id: 'e3', output: undefined, done: false };
+    expect(errandTally([{ ...call, id: 'e1' }, refused, running]).get('e1')).toEqual({ left: 1, refused: [reason] });
+  });
+
+  it('ErrandLine says how many, with the refusals folded inside, and opens the side panel', () => {
+    setPanelOpen('details', false);
+    const { container } = render(<ErrandLine tool={call} tally={{ left: 2, refused: [reason] }} session="q1" />);
+    expect(screen.getByText('Your Quest left you 2 Errands.')).toBeTruthy();
+    expect(screen.getByText('1 refused')).toBeTruthy();
+    expect(container.querySelector('pre')?.textContent).toContain(reason);
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(panelOpen('details')).toBe(true);
+    cleanup();
+    render(<ErrandLine tool={call} tally={{ left: 0, refused: [reason] }} session="q1" />);
+    expect(screen.getByText('Your Quest couldn’t leave you an Errand.')).toBeTruthy();
   });
 });
