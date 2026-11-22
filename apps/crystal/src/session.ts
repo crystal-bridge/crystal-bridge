@@ -158,7 +158,10 @@ function buildArgs(
   chrome = false,
   effort?: Effort,
   addDirs: readonly string[] = [],
-  /** A new Quest (or a fork) gets Crystal's prompt; the CLI keeps it for every resume and ignores one passed then (test/fixtures/README.md). */
+  /**
+   * A new Quest gets Crystal's prompt; the CLI keeps it for every resume and ignores one passed then. A fork carries its
+   * source's prompt and ignores one passed with it, so passing it there is harmless (test/fixtures/README.md).
+   */
   newQuest = true,
 ): string[] {
   return [

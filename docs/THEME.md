@@ -91,6 +91,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Patrol** | a scheduled Quest or script on a Kingdom | See [Patrols](./PATROLS.md). A run **sets out**, **returns** or **turns back**; a run skipped because the last was still out says **Still out**; a paused Patrol is **stood down**. The Classic theme says Scheduled task, since Scheduled job is a Scout there. |
 | **Patrol log** | a Board's reports from the Patrols that post to it | Beside the Board's list, newest first. The Classic theme says Scheduled task runs. |
 | **Watchtower** | where a Kingdom's Patrols are listed | A panel on the Castle: a card per Patrol with its next run and its latest runs. The Classic theme says Scheduled tasks. |
+| **Errand** | a step a Quest left for you | The chat says "Your Quest left you 2 Errands." where a turn left some. The Classic theme says Follow-up. |
 | **Config** | settings | The app-bar gear menu. |
 
 ### Inventory
@@ -198,7 +199,6 @@ HP, Stamina and MP bars drain in five colour steps, green when full through yell
 | **Command Sigil** | shell mode: a follow-up starting with `!` on an interactive Quest (the prompt box turns rose) |
 | **Loot** | files changed |
 | **Expedition** | where and how a Quest runs (Kingdom, project, branch, model, mode): the side panel's section under Stats |
-| **Errand** | a step a Quest left for you | The chat says "Your Quest left you 2 Errands." where a turn left some. The Classic theme says Follow-up. |
 | **Resting at the Inn** | plan usage resetting (flavour text, not a label) |
 
 ### Battle results

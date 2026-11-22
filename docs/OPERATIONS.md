@@ -512,7 +512,8 @@ A restore loses only what happened after that backup; Crystals resend events the
   hand.
 - Update the hub before the Kingdoms. An older hub stores `errand.left` as an event it doesn't know and shows no Errand;
   the steps are still in the Quest's reply.
-- A Quest started before this release, or adopted, has no Errand line and leaves none.
+- A Quest started before this release, or adopted, has no Errand line and leaves none, and nor does a fork of one: a
+  fork carries its source's line.
 - The release that added it applied migration 13, so rolling back past it refuses to start (see
   [Rolling back](#rolling-back)).
 

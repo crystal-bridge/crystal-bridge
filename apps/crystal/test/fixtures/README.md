@@ -438,8 +438,13 @@ for that fact.
 - **A prompt passed on `--resume` is ignored.** Started without the line, then resumed with it, the Quest didn't know
   the fact (2 of 2, against 1 of 1 on a fresh session) and didn't mark its replies (2 of 2).
 
-So anything Crystal appends must go on the first process of a Quest (or fork), as `TITLE_INSTRUCTION` does, and
-reaches every later turn from there. A Quest started before a new line shipped never gets it.
+- **A fork carries its source's prompt.** A fork (`--resume <source> --fork-session`) of a session started with the
+  line knew the fact and marked its replies (2 of 2); a fork of one started without it, with the line passed on the
+  fork, did neither (2 of 2). The prompt passed with a fork is ignored, as on any resume.
+
+So anything Crystal appends must go on the first process of a Quest, as `QUEST_PROMPT` does, and reaches every later
+turn from there. A Quest started before a new line shipped never gets it, and nor does a fork of one; a fork of a newer
+Quest has it from its source. Crystal still passes the prompt with a fork, which does no harm.
 
 ## The `summon` tool (live check, CLI 2.1.316)
 

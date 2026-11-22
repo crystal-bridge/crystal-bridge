@@ -522,8 +522,9 @@ export class InteractiveSession extends EventEmitter {
         ? [
             '--mcp-config',
             mcpConfig(this.opts.permissionUrl),
-            // The CLI defers MCP tools, so a new Quest (or a fork) only names itself when its system prompt says how
-            // (#287). A resumed one was named already.
+            // The CLI defers MCP tools, so a new Quest only names itself when its system prompt says how (#287). A
+            // resumed one was named already. A fork carries its source's prompt and the CLI ignores this one there,
+            // so passing it is harmless (test/fixtures/README.md).
             ...(resume ? [] : ['--append-system-prompt', QUEST_PROMPT]),
           ]
         : []),
