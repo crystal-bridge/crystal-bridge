@@ -116,6 +116,10 @@ Each entry marks its Quest with an icon: open, closed with Deeds, or closed with
 Chronicle does. A Patrol's Quest shows its Patrol's icon. A script Patrol's finished or failed run is an entry of its
 own with the run's summary line, the same line the Patrol log shows; skipped and missed runs aren't Deeds.
 
+A Quest that runs over several days has an entry on each day it worked; its Deeds from Close land on the day it
+closed, beside any it wrote in turns, which stay. The call's cost counts on that day's totals, not as a turn. A
+script Patrol's entry links to its run in the Patrol log, since it has no Quest.
+
 The feed loads older days as you scroll. With no records yet, it says so in one line; if it couldn't be read, it says
 why. In a Quest, the side panel shows that Quest's Deeds.
 
