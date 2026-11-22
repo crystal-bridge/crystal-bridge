@@ -1,7 +1,10 @@
-import type { Errand, ErrandCreate, ErrandEdit, ErrandState } from '@crystal-bridge/protocol';
-import { useEffect, useState } from 'react';
+import type { Errand, ErrandCreate, ErrandEdit, ErrandState, ListedPatrol } from '@crystal-bridge/protocol';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { refusal, UNREACHABLE } from './api.js';
 import type { HubClient } from './hub.js';
+import { projectName } from './quests.js';
+import { SENDER_TONES, type SenderTone } from './theme/boardTones.js';
+import { questLabel, w } from './theme/words.js';
 
 /** A Kingdom's Errands (docs/ERRANDS.md) as the hub lists them. */
 export interface ErrandsState {
@@ -127,4 +130,212 @@ export function editErrand(node: string, id: string, edit: ErrandEdit): Promise<
 /** Ticks an Errand done, dismisses it, or opens it again. */
 export function setErrandState(node: string, id: string, state: ErrandState): Promise<Errand> {
   return send(`${errandPath(node, id)}/state`, 'PUT', { state });
+}
+
+/** The colours an Errand's project can take: a Board's sender colours, less the blues, which only mean "needs you". */
+const PROJECT_TONES = SENDER_TONES.filter((tone) => tone !== 'blue' && tone !== 'sky') as Exclude<
+  SenderTone,
+  'blue' | 'sky'
+>[];
+export type ErrandTone = (typeof PROJECT_TONES)[number] | 'slate';
+
+/** The classes for each tone, written out whole so the stylesheet build keeps them. */
+export const ERRAND_TONES: Record<
+  ErrandTone,
+  { bar: string; dot: string; wash: string; text: string; chip: string; stripe: string }
+> = {
+  rose: {
+    bar: 'bg-rose-400 dark:bg-rose-500',
+    dot: 'bg-rose-500',
+    wash: 'from-rose-100 dark:from-rose-950',
+    text: 'text-rose-700 dark:text-rose-300',
+    chip: 'bg-rose-100 text-rose-900 ring-rose-300 dark:bg-rose-950 dark:text-rose-200 dark:ring-rose-800',
+    stripe: 'border-l-rose-400 dark:border-l-rose-500',
+  },
+  orange: {
+    bar: 'bg-orange-400 dark:bg-orange-500',
+    dot: 'bg-orange-500',
+    wash: 'from-orange-100 dark:from-orange-950',
+    text: 'text-orange-700 dark:text-orange-300',
+    chip: 'bg-orange-100 text-orange-900 ring-orange-300 dark:bg-orange-950 dark:text-orange-200 dark:ring-orange-800',
+    stripe: 'border-l-orange-400 dark:border-l-orange-500',
+  },
+  amber: {
+    bar: 'bg-amber-400 dark:bg-amber-500',
+    dot: 'bg-amber-500',
+    wash: 'from-amber-100 dark:from-amber-950',
+    text: 'text-amber-700 dark:text-amber-300',
+    chip: 'bg-amber-100 text-amber-900 ring-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-800',
+    stripe: 'border-l-amber-400 dark:border-l-amber-500',
+  },
+  lime: {
+    bar: 'bg-lime-400 dark:bg-lime-500',
+    dot: 'bg-lime-500',
+    wash: 'from-lime-100 dark:from-lime-950',
+    text: 'text-lime-700 dark:text-lime-300',
+    chip: 'bg-lime-100 text-lime-900 ring-lime-300 dark:bg-lime-950 dark:text-lime-200 dark:ring-lime-800',
+    stripe: 'border-l-lime-400 dark:border-l-lime-500',
+  },
+  emerald: {
+    bar: 'bg-emerald-400 dark:bg-emerald-500',
+    dot: 'bg-emerald-500',
+    wash: 'from-emerald-100 dark:from-emerald-950',
+    text: 'text-emerald-700 dark:text-emerald-300',
+    chip: 'bg-emerald-100 text-emerald-900 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-800',
+    stripe: 'border-l-emerald-400 dark:border-l-emerald-500',
+  },
+  teal: {
+    bar: 'bg-teal-400 dark:bg-teal-500',
+    dot: 'bg-teal-500',
+    wash: 'from-teal-100 dark:from-teal-950',
+    text: 'text-teal-700 dark:text-teal-300',
+    chip: 'bg-teal-100 text-teal-900 ring-teal-300 dark:bg-teal-950 dark:text-teal-200 dark:ring-teal-800',
+    stripe: 'border-l-teal-400 dark:border-l-teal-500',
+  },
+  violet: {
+    bar: 'bg-violet-400 dark:bg-violet-500',
+    dot: 'bg-violet-500',
+    wash: 'from-violet-100 dark:from-violet-950',
+    text: 'text-violet-700 dark:text-violet-300',
+    chip: 'bg-violet-100 text-violet-900 ring-violet-300 dark:bg-violet-950 dark:text-violet-200 dark:ring-violet-800',
+    stripe: 'border-l-violet-400 dark:border-l-violet-500',
+  },
+  fuchsia: {
+    bar: 'bg-fuchsia-400 dark:bg-fuchsia-500',
+    dot: 'bg-fuchsia-500',
+    wash: 'from-fuchsia-100 dark:from-fuchsia-950',
+    text: 'text-fuchsia-700 dark:text-fuchsia-300',
+    chip: 'bg-fuchsia-100 text-fuchsia-900 ring-fuchsia-300 dark:bg-fuchsia-950 dark:text-fuchsia-200 dark:ring-fuchsia-800',
+    stripe: 'border-l-fuchsia-400 dark:border-l-fuchsia-500',
+  },
+  slate: {
+    bar: 'bg-neutral-300 dark:bg-neutral-600',
+    dot: 'bg-neutral-400',
+    wash: 'from-neutral-100 dark:from-neutral-900',
+    text: 'text-neutral-600 dark:text-neutral-300',
+    chip: 'bg-neutral-100 text-neutral-800 ring-neutral-300 dark:bg-neutral-900 dark:text-neutral-200 dark:ring-neutral-700',
+    stripe: 'border-l-neutral-300 dark:border-l-neutral-600',
+  },
+};
+
+/** A project's colour, stable for its folder (hashed as a sender's colour is, so it may differ from its Board colour). */
+export function errandTone(project: string | undefined): ErrandTone {
+  if (!project) return 'slate';
+  let hash = 0x811c9dc5;
+  for (const char of project.trim().toLowerCase()) {
+    hash ^= char.codePointAt(0)!;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return PROJECT_TONES[hash % PROJECT_TONES.length]!;
+}
+
+export const openOnes = (errands: readonly Errand[]): Errand[] => errands.filter((e) => e.state === 'open');
+
+/** Done and dismissed Errands, the latest to close first. */
+export const closedOnes = (errands: readonly Errand[]): Errand[] =>
+  errands.filter((e) => e.state !== 'open').sort((a, b) => (b.closed ?? b.updated) - (a.closed ?? a.updated));
+
+export interface ProjectGroup {
+  project: string | undefined;
+  name: string;
+  tone: ErrandTone;
+  errands: Errand[];
+  /** This project's part of the open Errands, 0 to 1; all groups sum to 1. */
+  share: number;
+}
+
+/** Open Errands by project, the project with the newest Errand first and no project last; each newest first. */
+export function projectGroups(open: readonly Errand[]): ProjectGroup[] {
+  const by = new Map<string | undefined, Errand[]>();
+  for (const errand of [...open].sort((a, b) => b.created - a.created)) {
+    const list = by.get(errand.project);
+    if (list) list.push(errand);
+    else by.set(errand.project, [errand]);
+  }
+  const groups = [...by].map(([project, errands]) => ({
+    project,
+    name: project === undefined ? 'No project' : projectName(project),
+    tone: errandTone(project),
+    errands,
+    share: errands.length / open.length,
+  }));
+  return [...groups.filter((g) => g.project !== undefined), ...groups.filter((g) => g.project === undefined)];
+}
+
+export type ErrandDay = 'today' | 'yesterday' | 'earlier';
+
+/** Open Errands by the local day they were made, newest first, leaving out days with none. */
+export function dayGroups(open: readonly Errand[], now: number): { day: ErrandDay; errands: Errand[] }[] {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const today = midnight.getTime();
+  midnight.setDate(midnight.getDate() - 1);
+  const yesterday = midnight.getTime();
+  const days: Record<ErrandDay, Errand[]> = { today: [], yesterday: [], earlier: [] };
+  for (const errand of [...open].sort((a, b) => b.created - a.created)) {
+    days[errand.created >= today ? 'today' : errand.created >= yesterday ? 'yesterday' : 'earlier'].push(errand);
+  }
+  return (['today', 'yesterday', 'earlier'] as const)
+    .filter((day) => days[day].length > 0)
+    .map((day) => ({ day, errands: days[day] }));
+}
+
+export type ErrandSource =
+  | { kind: 'quest'; session: string; label: string }
+  | { kind: 'patrol'; session: string; name: string }
+  | { kind: 'hand' };
+
+/** Where an Errand came from: a Quest (still linked if the list lacks it), a Patrol's Quest, or you. */
+export function errandSource(
+  errand: Errand,
+  known: {
+    sessions: readonly { id: string; label: string; plainLabel?: string | undefined }[];
+    patrols: readonly ListedPatrol[];
+  },
+): ErrandSource {
+  const { session } = errand;
+  if (session === undefined) return { kind: 'hand' };
+  if (errand.patrol !== undefined) {
+    const patrol = known.patrols.find((p) => p.id === errand.patrol);
+    return { kind: 'patrol', session, name: patrol?.manifest?.name ?? errand.patrol };
+  }
+  const quest = known.sessions.find((s) => s.id === session);
+  return { kind: 'quest', session, label: quest ? questLabel(quest) : w('quest') };
+}
+
+export type ErrandLayout = 'checklist' | 'cards';
+
+const LAYOUT_KEY = 'crystal-bridge.errands-layout';
+const layoutListeners = new Set<() => void>();
+// Storage can be missing or refuse writes (private windows); the choice still holds for this page.
+let pageLayout: ErrandLayout | undefined;
+
+function readLayout(): ErrandLayout {
+  try {
+    const saved = globalThis.localStorage?.getItem(LAYOUT_KEY);
+    if (saved === 'cards' || saved === 'checklist') return saved;
+  } catch {
+    // Fall through to this page's choice.
+  }
+  return pageLayout ?? 'checklist';
+}
+
+function setLayout(layout: ErrandLayout): void {
+  pageLayout = layout;
+  try {
+    globalThis.localStorage?.setItem(LAYOUT_KEY, layout);
+  } catch {
+    // Not saved; the choice still applies to this page.
+  }
+  for (const listener of layoutListeners) listener();
+}
+
+function subscribeLayout(listener: () => void): () => void {
+  layoutListeners.add(listener);
+  return () => layoutListeners.delete(listener);
+}
+
+/** Whether Errands show as a checklist by project or as cards by day on this device, and a way to change it. */
+export function useErrandLayout(): [ErrandLayout, (layout: ErrandLayout) => void] {
+  return [useSyncExternalStore(subscribeLayout, readLayout), setLayout];
 }
