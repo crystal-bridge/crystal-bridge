@@ -90,7 +90,7 @@ import {
   savePatrol,
   usePatrols,
 } from './patrols.js';
-import { addErrand, editErrand, setErrandState, useErrands } from './errands.js';
+import { addErrand, editErrand, setErrandState, useErrandCounts, useErrands } from './errands.js';
 import { BoardPage } from './components/Board.js';
 import type { PatrolSeed } from './patrolForm.js';
 import { buildInventory } from './inventory.js';
@@ -321,6 +321,7 @@ export function App({ hub }: { hub: HubClient }) {
   const scouts = useScouts(hub, active ?? undefined);
   const patrols = usePatrols(hub, active ?? undefined);
   const errands = useErrands(hub, active ?? undefined);
+  const errandCounts = useErrandCounts(hub);
   // "Patrol this" on a Board: the draft the Castle's Watchtower opens New Patrol from.
   const [patrolSeed, setPatrolSeed] = useState<{ node: string; seed: PatrolSeed } | null>(null);
   // Where you are now, so an answer that arrives after you've left can tell.
@@ -1314,6 +1315,7 @@ export function App({ hub }: { hub: HubClient }) {
                 active={page === 'airship' ? null : active}
                 onSelect={selectKingdom}
                 waiting={waitingByKingdom}
+                errands={errandCounts}
                 looks={looks}
                 tabStyle={tabStyle(appearance)}
                 onMove={(id, index) =>

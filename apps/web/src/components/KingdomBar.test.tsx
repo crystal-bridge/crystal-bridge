@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { w } from '../theme/words.js';
 import { KingdomBar } from './KingdomBar.js';
 
 const visible = [
@@ -85,5 +86,25 @@ describe('KingdomBar', () => {
     fireEvent.dragStart(screen.getByRole('tab', { name: /Lantern/ }), { dataTransfer });
     fireEvent.drop(screen.getByRole('tab', { name: /node-b/ }), { dataTransfer });
     expect(onMove).toHaveBeenCalledWith('node-a', 0);
+  });
+
+  it("shows each Kingdom's open Errands in teal, with an icon and words for screen readers", () => {
+    renderBar({ waiting: { 'node-b': 2 }, errands: { 'node-b': 3, 'node-a': 0 } } as never);
+    const [first, second] = screen.getAllByRole('tab');
+    const badge = first!.querySelector(`[title="3 open ${w('errands')}"]`)!;
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toContain('3');
+    expect(badge.querySelector('svg')).not.toBeNull();
+    expect(badge.className).toContain('bg-teal-');
+    expect(badge.querySelector('.sr-only')!.textContent).toBe(`, 3 open ${w('errands')}`);
+    const badges = first!.querySelectorAll('span[title]:not([data-connected])');
+    expect(badges[0]!.className).toContain('bg-amber-500');
+    expect(badges[1]).toBe(badge);
+    expect(second!.querySelector('[class*="bg-teal-"]')).toBeNull();
+  });
+
+  it('says one open Errand in the singular', () => {
+    renderBar({ errands: { 'node-b': 1 } } as never);
+    expect(screen.getAllByRole('tab')[0]!.querySelector(`[title="1 open ${w('errand')}"]`)).not.toBeNull();
   });
 });
