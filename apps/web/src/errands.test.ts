@@ -245,6 +245,11 @@ describe('errandTone', () => {
       expect(Object.keys(ERRAND_TONES[tone]).sort()).toEqual(['bar', 'chip', 'dot', 'stripe', 'text', 'wash']);
     }
   });
+
+  it('spreads a few nearby projects across colours', () => {
+    const few = ['/r/acme/lantern', '/r/acme/quarry', '/r/tidepool/kelp', '/r/acme/atlas', '/r/acme/forge'];
+    expect(new Set(few.map(errandTone)).size).toBeGreaterThanOrEqual(4);
+  });
 });
 
 describe('useErrandLayout', () => {

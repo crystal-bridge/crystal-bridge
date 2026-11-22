@@ -226,6 +226,10 @@ export function errandTone(project: string | undefined): ErrandTone {
     hash ^= char.codePointAt(0)!;
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
+  // FNV-1a's low bits follow only the low bits of each character, so nearby paths would share a colour: mix first.
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x45d9f3b) >>> 0;
+  hash = (hash ^ (hash >>> 16)) >>> 0;
   return PROJECT_TONES[hash % PROJECT_TONES.length]!;
 }
 
