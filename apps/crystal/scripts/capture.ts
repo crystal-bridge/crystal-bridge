@@ -35,7 +35,8 @@ const USER = userInfo().username;
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 const EPOCH = '1970-01-01T00:00:00.000Z';
 const TIMEOUT_MS = 180_000;
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g;
+// Not starting right after a backslash, so the `n` of a JSON `\n` escape before an address stays.
+const EMAIL_RE = /(?<!\\)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Identity-like keys (account, org, user); session ids and message uuids are kept.
 const ACCOUNT_KEY_RE = /^(account|org|organization|user)[_A-Za-z]*(id|uuid)$/i;
@@ -94,12 +95,25 @@ function neutralRateLimit(value: unknown): unknown {
   return value;
 }
 
+let gitUser: string | undefined;
+/** The git user name a Quest in the temp repo would see (`git config user.name`), read once; '' when unset. */
+function gitUserName(): string {
+  if (gitUser === undefined) {
+    try {
+      gitUser = execFileSync('git', ['config', 'user.name'], { cwd: tmpdir(), encoding: 'utf8' }).trim();
+    } catch {
+      gitUser = '';
+    }
+  }
+  return gitUser;
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Replace the temp repo path (and its encoded project-dir form), $HOME paths and emails in raw text. */
-function scrubText(text: string, tempPath: string): string {
+/** Replace the temp repo path (and its encoded project-dir form), $HOME paths, user names and emails in raw text. */
+function scrubText(text: string, tempPath: string, gitName = gitUserName()): string {
   // A background task's output file, under a folder named after this machine's temp path.
   let out = text.replace(/\/(?:private\/)?tmp\/claude-[^/"\s]+\/[^"\s]*?\/tasks\//g, '/tmp/FIXTURE-tasks/');
   if (tempPath) {
@@ -112,6 +126,8 @@ function scrubText(text: string, tempPath: string): string {
   out = out.replace(new RegExp(escapeRe(HOME), 'g'), '/HOME');
   // Outside a path too, as a file listing's owner and group show it.
   out = out.replace(new RegExp(`\\b${escapeRe(USER)}\\b`, 'g'), 'user');
+  // The git user name, as a commit's author or `git config user.name` shows it.
+  if (gitName) out = out.replace(new RegExp(`\\b${escapeRe(gitName)}\\b`, 'g'), 'user');
   // The CLI's messaging socket names this machine's user id and a process id.
   out = out.replace(/\/run\/user\/\d+\/cc-socks\/\d+\.sock/g, '/run/user/0/cc-socks/0.sock');
   out = out.replace(EMAIL_RE, 'user@example.com');
@@ -134,12 +150,12 @@ function scrubAccountIds(value: unknown): unknown {
 }
 
 /** Sanitize one stdout line. Lines carrying machine inventories (system/init) are rebuilt; others get text replacement. */
-export function scrub(line: string, tempPath: string): string {
+export function scrub(line: string, tempPath: string, gitName = gitUserName()): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(line);
   } catch {
-    return scrubText(line, tempPath);
+    return scrubText(line, tempPath, gitName);
   }
   const obj = parsed as Record<string, unknown>;
   const carriesInventory =
@@ -164,7 +180,7 @@ export function scrub(line: string, tempPath: string): string {
   if (isRateLimit) next = { ...next, rate_limit_info: neutralRateLimit(obj.rate_limit_info) };
   const scrubbed = scrubAccountIds(next);
   const changed = carriesInventory || isRateLimit || JSON.stringify(scrubbed) !== JSON.stringify(obj);
-  return scrubText(changed ? JSON.stringify(scrubbed) : line, tempPath);
+  return scrubText(changed ? JSON.stringify(scrubbed) : line, tempPath, gitName);
 }
 
 // ---------------------------------------------------------------------------

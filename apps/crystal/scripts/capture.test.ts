@@ -27,4 +27,18 @@ describe('scrub', () => {
     });
     expect(JSON.parse(scrub(line, '')).messaging_socket_path).toBe('/run/user/0/cc-socks/0.sock');
   });
+
+  it('replaces an email after a JSON \\n escape and keeps the escape, so the line stays valid JSON', () => {
+    const line = JSON.stringify({ type: 'user', content: 'name\nsomeone@example.org' });
+    const scrubbed = scrub(line, '');
+    expect(() => JSON.parse(scrubbed)).not.toThrow();
+    expect(JSON.parse(scrubbed).content).toBe('name\nuser@example.com');
+  });
+
+  it('keeps the git user name out, as `git config user.name` prints it', () => {
+    const line = JSON.stringify({ type: 'user', content: 'Ada Fakename\nby Ada Fakename' });
+    const scrubbed = scrub(line, '', 'Ada Fakename');
+    expect(scrubbed).not.toContain('Ada Fakename');
+    expect(JSON.parse(scrubbed).content).toBe('user\nby user');
+  });
 });
