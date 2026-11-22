@@ -91,7 +91,8 @@ export interface CastleProps {
   projects?: Project[];
   /**
    * This Kingdom's Errands; without them (an older hub), no Errands panel. On a wide screen the Checklist sits atop the
-   * right column and Cards in a band above the columns, as this device's layout says; a phone reads and ticks them.
+   * right column (from xl; after Needs you below it) and Cards in a band above the columns, as this device's layout
+   * says; a phone reads and ticks them.
    */
   errands?: ErrandsState;
   onErrandState?: (id: string, state: ErrandState) => void;
@@ -467,8 +468,9 @@ export function Castle({
   const searching = query.trim().length >= 2;
   // The same per-device choice the panel's switch writes, so switching there moves the panel here.
   const [errandLayout] = useErrandLayout();
-  // Once the list is in, so an empty panel doesn't flash first.
-  const errandList = errands?.loaded ? errands.errands : undefined;
+  // Once the list is in, so an empty panel doesn't flash first; a list that failed shows why, on a wide screen.
+  const errandError = errands && !errands.loaded ? errands.error : undefined;
+  const errandList = errands?.loaded ? errands.errands : errandError !== undefined ? [] : undefined;
   const errandsPanel = (phone: boolean) =>
     errandList && (
       <ErrandsPanel
@@ -482,13 +484,20 @@ export function Castle({
         onAdd={onAddErrand}
         onEdit={onEditErrand}
         phone={phone}
+        error={errandError}
       />
     );
   // A wide screen shows it even with none open, so Add stays in reach.
-  const wideErrands = errandList && <div className="hidden md:block">{errandsPanel(false)}</div>;
-  const errandsBand = errandLayout === 'cards' && wideErrands;
-  const errandsHere = errandLayout === 'checklist' && wideErrands;
-  const rightColumn = haunts.length > 0 || garrison || errandsHere;
+  const errandsBand = errandLayout === 'cards' && errandList && (
+    <div className="hidden md:block">{errandsPanel(false)}</div>
+  );
+  // The Checklist sits atop the right column from xl, where the columns are side by side; below that the column
+  // would land under everything, so it shows after Needs you instead, as the phone's list does.
+  const checklist = errandLayout === 'checklist' && errandList !== undefined;
+  const errandsBelowXl = checklist && <div className="hidden md:block xl:hidden">{errandsPanel(false)}</div>;
+  const errandsHere = checklist && <div className="hidden xl:block">{errandsPanel(false)}</div>;
+  const rightOthers = haunts.length > 0 || Boolean(garrison);
+  const rightColumn = rightOthers || checklist;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -568,6 +577,7 @@ export function Castle({
 
             {/* The phone reads and ticks Errands only: adding, editing and dismissing need their own design there. */}
             {errandList && errandList.length > 0 && <div className="md:hidden">{errandsPanel(true)}</div>}
+            {errandsBelowXl}
 
             <Section title={w('activeQuests')} plain={hint('activeQuests')}>
               {active.length === 0 ? (
@@ -612,7 +622,8 @@ export function Castle({
             )}
           </div>
           {rightColumn && (
-            <div className="min-w-0 space-y-5">
+            // Holding only the Checklist, it has nothing to show below xl, so it takes no grid gap there.
+            <div className={`min-w-0 space-y-5 ${rightOthers ? '' : 'hidden xl:block'}`}>
               {errandsHere}
               {haunts.length > 0 && (
                 <Section title={w('haunts')} plain={hint('haunts')}>

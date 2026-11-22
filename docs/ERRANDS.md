@@ -85,17 +85,19 @@ A fork starts with no Errands: its earlier events belong to the Quest it came fr
 **On the Castle**, the Errands panel lists the Kingdom's open Errands in one of two layouts, chosen by a switch on the
 panel and kept per device:
 
-- **Checklist**, in the right column above Haunts: one line per Errand, grouped by project, each project in its own
+- **Checklist**, in the right column above Haunts on a wide screen, or after Needs you on a narrower one: one line per Errand, grouped by project, each project in its own
   colour, with a bar across the top showing each project's share. A chevron after a title means it has details, which
   unfold under it.
 - **Cards**, a band across the Castle: a card per Errand with its body shown, grouped by day (today, yesterday, earlier),
-  each card topped in its project's colour, with an icon for what left it.
+  each card topped in its project's colour, with an icon for what left it. A body too long for its card fades at the
+  cut and has **Show all**, so a command can't be copied without being seen.
 
 Each Errand shows what left it: a Quest, a Patrol's Quest, or your own hand. The link opens the Quest, not the turn
 within it, and a link to a closed Quest opens it as the Chronicle does. Checklist is the default layout.
 Done and dismissed ones fold under a count, titled "Done and dismissed", with the 30-day note. **Add Errand** writes one by hand, with the same limits as the tool: a title, Markdown details and an optional
 project from the Kingdom's projects. Edit changes the title and details; the project stays. Each Errand can also be
-ticked done, dismissed, or reopened from the fold. With no open Errands, the panel says so in one line.
+ticked done, dismissed, or reopened from the fold. Edit and Dismiss show on hover, and always on a screen that can't
+hover. With no open Errands, the panel says so in one line; if the list couldn't be read, it says why.
 
 **In a Quest**, the side panel shows that Quest's Errands, each with its details open. Where the tool was called, the
 chat shows a teal note, such as *"Your Quest left you 2 Errands. They wait in the side panel and on the Castle."*,

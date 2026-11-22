@@ -152,23 +152,41 @@ describe('Castle', () => {
     const errands: ErrandsState = { errands: [smoke, backup, tagged], loaded: true };
     const regions = () => screen.queryAllByRole('region', { name: 'Errands' });
     const wide = () => regions().find((r) => r.closest('.hidden.md\\:block'))!;
+    // The Checklist is drawn twice on a wide screen: in the main column below xl, atop the right column from xl.
+    const middle = () => regions().find((r) => r.closest('.hidden.md\\:block.xl\\:hidden'))!;
+    const right = () => regions().find((r) => r.closest('.hidden.xl\\:block'))!;
     const phone = () => regions().find((r) => r.closest('.md\\:hidden'))!;
     const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
     beforeEach(() => localStorage.setItem(LAYOUT_KEY, 'checklist'));
 
-    it('puts the Checklist in the right column above Haunts', () => {
+    it('puts the Checklist in the right column above Haunts, from xl', () => {
       renderCastle({ sessions: [], waiting: new Set(), errands, onAddErrand: vi.fn() });
-      // No Haunts and no Garrison, yet the right column shows, for the Errands.
+      // No Haunts and no Garrison, yet the right column shows from xl, for the Errands; below xl it has nothing.
       expect(screen.queryByRole('region', { name: 'Haunts' })).toBeNull();
-      const column = wide().closest('[class*="xl:grid-cols-"]');
+      const column = right().closest('[class*="xl:grid-cols-"]');
       expect(column).not.toBeNull();
-      expect(within(wide()).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
+      expect(right().closest('.hidden.xl\\:block')!.parentElement!.className).toContain('hidden xl:block');
+      expect(within(right()).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
       cleanup();
       renderCastle({ errands });
       const haunts = screen.getByRole('region', { name: 'Haunts' });
-      expect(before(wide(), haunts)).toBe(true);
-      expect(before(screen.getByRole('region', { name: 'Active Quests' }), wide())).toBe(true);
+      expect(before(right(), haunts)).toBe(true);
+      expect(before(screen.getByRole('region', { name: 'Active Quests' }), right())).toBe(true);
+      // With Haunts in it, the right column shows at every width.
+      expect(haunts.closest('.min-w-0.space-y-5')!.className).not.toContain('hidden');
+    });
+
+    it('below xl, puts the Checklist after Needs you and before Active Quests, the whole panel', () => {
+      renderCastle({ errands, onAddErrand: vi.fn(), onEditErrand: vi.fn() });
+      const panel = middle();
+      expect(panel.closest('.xl\\:hidden')!.className).toContain('hidden md:block xl:hidden');
+      expect(before(screen.getByRole('region', { name: 'Needs you' }), panel)).toBe(true);
+      expect(before(panel, screen.getByRole('region', { name: 'Active Quests' }))).toBe(true);
+      expect(within(panel).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
+      expect(within(panel).getByRole('radiogroup')).toBeTruthy();
+      expect(right()).toBeDefined();
+      expect(regions()).toHaveLength(3);
     });
 
     it('puts Cards in a band across the Castle, above the columns', () => {
@@ -180,8 +198,10 @@ describe('Castle', () => {
     it('moves the panel when its switch changes the layout', () => {
       renderCastle({ errands });
       const needs = screen.getByRole('region', { name: 'Needs you' });
-      expect(before(needs, wide())).toBe(true);
-      act(() => fireEvent.click(within(wide()).getByRole('radio', { name: /Cards/ })));
+      expect(before(needs, right())).toBe(true);
+      act(() => fireEvent.click(within(right()).getByRole('radio', { name: /Cards/ })));
+      expect(right()).toBeUndefined();
+      expect(middle()).toBeUndefined();
       expect(before(wide(), screen.getByRole('region', { name: 'Needs you' }))).toBe(true);
     });
 
@@ -221,9 +241,32 @@ describe('Castle', () => {
       expect(regions()).toHaveLength(0);
       cleanup();
       renderCastle({ errands: { errands: [], loaded: true }, onAddErrand: vi.fn() });
-      expect(regions()).toHaveLength(1);
+      // The two wide copies, one per breakpoint; none on the phone.
+      expect(regions()).toHaveLength(2);
       expect(phone()).toBeUndefined();
-      expect(within(wide()).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
+      expect(within(right()).getByRole('button', { name: 'Add an Errand' })).toBeTruthy();
+    });
+
+    it('says why on a wide screen when the list couldn’t be read', () => {
+      renderCastle({ errands: { errands: [], loaded: false, error: 'the Kingdom is busy' } });
+      expect(phone()).toBeUndefined();
+      expect(within(right()).getByRole('alert').textContent).toBe('Couldn’t load Errands. the Kingdom is busy');
+    });
+
+    it('on a phone, keeps the read-only list in the Cards layout too', () => {
+      localStorage.setItem(LAYOUT_KEY, 'cards');
+      renderCastle({ errands, onErrandState: vi.fn(), onAddErrand: vi.fn(), onEditErrand: vi.fn() });
+      const list = phone();
+      expect(before(screen.getByRole('region', { name: 'Needs you' }), list)).toBe(true);
+      expect(before(list, screen.getByRole('region', { name: 'Active Quests' }))).toBe(true);
+      expect(within(list).queryByRole('button', { name: 'Add an Errand' })).toBeNull();
+      expect(within(list).queryByRole('button', { name: /^Edit:/ })).toBeNull();
+      expect(within(list).queryByRole('button', { name: /^Dismiss:/ })).toBeNull();
+      expect(within(list).queryByRole('radio')).toBeNull();
+      expect(within(list).queryByRole('button', { name: 'Done' })).toBeNull();
+      const row = within(list).getByRole('listitem', { name: 'Run the smoke test' });
+      expect(row.className).toContain('border-l-4');
+      expect(within(row).getByRole('button', { name: 'Mark done: Run the smoke test' })).toBeTruthy();
     });
 
     it('shows nothing for a Kingdom without errands data', () => {
