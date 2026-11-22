@@ -17,6 +17,7 @@ import {
   useErrandLayout,
   useErrands,
 } from './errands.js';
+import { UNREACHABLE } from './api.js';
 import type { ErrandsFrame, HubClient } from './hub.js';
 import { w } from './theme/words.js';
 
@@ -102,6 +103,49 @@ describe('Errands data', () => {
     expect(result.current.errands[0]?.title).toBe('Newest');
   });
 
+  it('useErrands lets a frame that lands before the first list win', async () => {
+    const { hub, frame } = fakeHub();
+    const { result } = renderHook(() => useErrands(hub, 'forge'));
+    act(() => frame({ kind: 'errands', node: 'forge', errands: [errand({ title: 'From the frame' })] }));
+    expect(result.current).toEqual({ errands: [errand({ title: 'From the frame' })], loaded: true });
+    await act(async () => pending[0]?.answer({ errands: [errand({ title: 'From the list' })] }));
+    expect(result.current.errands[0]?.title).toBe('From the frame');
+  });
+
+  it('useErrands drops a late list for the Kingdom it left', async () => {
+    const { hub } = fakeHub();
+    const { result, rerender } = renderHook(({ node }) => useErrands(hub, node), {
+      initialProps: { node: 'forge' },
+    });
+    rerender({ node: 'keep' });
+    expect(pending.map((p) => p.url)).toEqual(['/api/nodes/forge/errands', '/api/nodes/keep/errands']);
+    await act(async () => pending[0]?.answer({ errands: [errand({ title: 'Forge’s' })] }));
+    expect(result.current).toEqual({ errands: [], loaded: false });
+    await act(async () => pending[1]?.answer({ errands: [errand({ title: 'Keep’s' })] }));
+    expect(result.current.errands[0]?.title).toBe('Keep’s');
+  });
+
+  it('useErrands says why a list failed, stays unloaded, and reads it again on reconnect', async () => {
+    const { hub, reconnect } = fakeHub();
+    const { result } = renderHook(() => useErrands(hub, 'forge'));
+    await act(async () => pending[0]?.answer({ error: 'the Kingdom is busy' }, 503));
+    expect(result.current).toEqual({ errands: [], loaded: false, error: 'the Kingdom is busy' });
+    act(() => reconnect());
+    await act(async () => pending[1]?.answer({ errands: [errand()] }));
+    expect(result.current).toEqual({ errands: [errand()], loaded: true });
+  });
+
+  it('useErrands says the hub was unreachable when the list never arrived', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    );
+    const { hub } = fakeHub();
+    const { result } = renderHook(() => useErrands(hub, 'forge'));
+    await waitFor(() => expect(result.current.error).toBe(UNREACHABLE));
+    expect(result.current.loaded).toBe(false);
+  });
+
   it('useErrands holds nothing without a Kingdom', () => {
     const { hub } = fakeHub();
     const { result } = renderHook(() => useErrands(hub, undefined));
@@ -125,6 +169,29 @@ describe('Errands data', () => {
     expect(result.current).toEqual({ forge: 2, keep: 1 });
     act(() => frame({ kind: 'errands', node: 'keep', errands: [errand({ state: 'dismissed' })] }));
     expect(result.current).toEqual({ forge: 2 });
+  });
+
+  it('useErrandCounts lets a frame that lands before the counts win', async () => {
+    const { hub, frame } = fakeHub();
+    const { result } = renderHook(() => useErrandCounts(hub));
+    act(() => frame({ kind: 'errands', node: 'forge', errands: [errand()] }));
+    expect(result.current).toEqual({ forge: 1 });
+    // The list was read before the frame: its 3 for forge is older.
+    await act(async () => pending[0]?.answer({ forge: 3, keep: 2 }));
+    expect(result.current).toEqual({ forge: 1, keep: 2 });
+  });
+
+  it('useErrandCounts reads the counts again on reconnect', async () => {
+    const { hub, frame, reconnect } = fakeHub();
+    const { result } = renderHook(() => useErrandCounts(hub));
+    await act(async () => pending[0]?.answer({ forge: 2 }));
+    act(() => frame({ kind: 'errands', node: 'keep', errands: [errand()] }));
+    expect(result.current).toEqual({ forge: 2, keep: 1 });
+    act(() => reconnect());
+    expect(pending[1]?.url).toBe('/api/errands/counts');
+    // Frames heard before the reconnect are no newer than the fresh read, so it replaces them.
+    await act(async () => pending[1]?.answer({ forge: 4 }));
+    expect(result.current).toEqual({ forge: 4 });
   });
 
   it('addErrand, editErrand and setErrandState send their bodies, and throw the hub’s refusal', async () => {

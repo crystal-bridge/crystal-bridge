@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { readPref as read, subscribePrefs as subscribe, writePref as write } from './devicePrefs.js';
 
 /**
  * This device's choices for a Board (shown by Kingdom and Scout): its mode, and which project sections are folded.
@@ -7,36 +8,8 @@ export type BoardMode = 'projects' | 'tiles';
 
 const MODE_PREFIX = 'crystal-bridge.board-mode.';
 const FOLDS_PREFIX = 'crystal-bridge.board-folds.';
-const listeners = new Set<() => void>();
-// Storage can be missing or refuse writes (private windows); the choice still holds for this page.
-const fallback = new Map<string, string>();
 // useSyncExternalStore needs the same Set back until the saved text changes.
 const parsed = new Map<string, { raw: string; set: ReadonlySet<string> }>();
-
-function read(key: string): string | null {
-  try {
-    const saved = globalThis.localStorage?.getItem(key);
-    if (saved !== null && saved !== undefined) return saved;
-  } catch {
-    // Fall through to this page's choice.
-  }
-  return fallback.get(key) ?? null;
-}
-
-function write(key: string, value: string): void {
-  fallback.set(key, value);
-  try {
-    globalThis.localStorage?.setItem(key, value);
-  } catch {
-    // Not saved; the choice still applies to this page.
-  }
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
 
 function boardMode(node: string, scout: string): BoardMode {
   return read(`${MODE_PREFIX}${node}.${scout}`) === 'tiles' ? 'tiles' : 'projects';

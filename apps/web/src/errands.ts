@@ -1,6 +1,7 @@
 import type { Errand, ErrandCreate, ErrandEdit, ErrandState, ListedPatrol } from '@crystal-bridge/protocol';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { refusal, UNREACHABLE } from './api.js';
+import { readPref, subscribePrefs, writePref } from './devicePrefs.js';
 import type { HubClient } from './hub.js';
 import { projectName } from './quests.js';
 import { SENDER_TONES, type SenderTone } from './theme/boardTones.js';
@@ -11,6 +12,8 @@ export interface ErrandsState {
   errands: Errand[];
   /** The hub's list has arrived, so an empty one means none. */
   loaded: boolean;
+  /** Why the list couldn't be read, while none has arrived; the socket coming back reads it again. */
+  error?: string;
 }
 
 const NONE: ErrandsState = { errands: [], loaded: false };
@@ -20,7 +23,8 @@ const errandPath = (node: string, id: string) => `${errandsPath(node)}/${encodeU
 
 /**
  * A Kingdom's Errands: the hub's list, then its frames. A frame that lands while the list is on its way is newer than
- * it, so it wins. Frames aren't replayed, so the list is read again when the socket comes back.
+ * it, so it wins. Frames aren't replayed, so the list is read again when the socket comes back. A list that fails
+ * leaves the state unloaded with the reason (`error`), until the socket comes back and it's read again.
  */
 export function useErrands(hub: HubClient, node: string | undefined): ErrandsState {
   const [state, setState] = useState<ErrandsState>(NONE);
@@ -33,13 +37,25 @@ export function useErrands(hub: HubClient, node: string | undefined): ErrandsSta
       latest += 1;
       const round = latest;
       heardList = false;
+      const fresh = () => round === latest && !heardList;
       void fetch(errandsPath(node))
-        .then((response) => (response.ok ? (response.json() as Promise<{ errands?: Errand[] }>) : undefined))
+        .then(
+          async (response) => {
+            if (!response.ok) throw await refusal(response);
+            return (await response.json()) as { errands?: Errand[] };
+          },
+          () => {
+            throw new Error(UNREACHABLE);
+          },
+        )
         .then((loaded) => {
-          if (!loaded || round !== latest || heardList) return;
-          setState({ errands: loaded.errands ?? [], loaded: true });
+          if (fresh()) setState({ errands: loaded.errands ?? [], loaded: true });
         })
-        .catch(() => {});
+        .catch((error: unknown) => {
+          // Stays unloaded, so the panel can say why; a list already shown stays shown.
+          const reason = error instanceof Error ? error.message : String(error);
+          if (fresh()) setState((known) => (known.loaded ? known : { errands: [], loaded: false, error: reason }));
+        });
     };
     load();
     const stopFrames = hub.onErrands((frame) => {
@@ -310,38 +326,16 @@ export function errandSource(
 export type ErrandLayout = 'checklist' | 'cards';
 
 const LAYOUT_KEY = 'crystal-bridge.errands-layout';
-const layoutListeners = new Set<() => void>();
-// Storage can be missing or refuse writes (private windows); the choice still holds for this page.
-let pageLayout: ErrandLayout | undefined;
 
 function readLayout(): ErrandLayout {
-  try {
-    const saved = globalThis.localStorage?.getItem(LAYOUT_KEY);
-    if (saved === 'cards' || saved === 'checklist') return saved;
-  } catch {
-    // Fall through to this page's choice.
-  }
-  return pageLayout ?? 'checklist';
+  return readPref(LAYOUT_KEY) === 'cards' ? 'cards' : 'checklist';
 }
 
-function setLayout(layout: ErrandLayout): void {
-  pageLayout = layout;
-  try {
-    globalThis.localStorage?.setItem(LAYOUT_KEY, layout);
-  } catch {
-    // Not saved; the choice still applies to this page.
-  }
-  for (const listener of layoutListeners) listener();
-}
-
-function subscribeLayout(listener: () => void): () => void {
-  layoutListeners.add(listener);
-  return () => layoutListeners.delete(listener);
-}
+const setLayout = (layout: ErrandLayout): void => writePref(LAYOUT_KEY, layout);
 
 /** Whether Errands show as a checklist by project or as cards by day on this device, and a way to change it. */
 export function useErrandLayout(): [ErrandLayout, (layout: ErrandLayout) => void] {
-  return [useSyncExternalStore(subscribeLayout, readLayout), setLayout];
+  return [useSyncExternalStore(subscribePrefs, readLayout), setLayout];
 }
 
 /** How many Errands each Quest left, in any state; hand-made ones (no session) aren't counted. */
