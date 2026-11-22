@@ -317,6 +317,13 @@ distinct models). Each `rate_limit_event`'s `rate_limit_info` keeps its keys but
 every `resetsAt` and `utilization` is `0`, `overageStatus` is `rejected`, and `overageDisabledReason` is dropped.
 `--rescrub` re-applies all of this to the existing fixtures without running the CLI. Session ids, message uuids and tool-use ids are kept as recorded.
 
+A name is replaced as a whole word, where a word's letters may be in any script, so `Zoë` and `Émile` are caught and
+a longer word that starts with the name is left alone. The CLI streams text, thinking and tool input in pieces
+(`stream_event` deltas), and the scrub sees one line at a time, so a value split across two pieces gets past it. Once
+a scenario is scrubbed, `streamedLeaks()` joins each content block's pieces and, if they name the home folder, the OS
+or git user name or an email address, the capture stops without writing the fixture. The error says which kind of
+value, never the value.
+
 The scrub can't catch what a Quest quotes from the recording user's own instructions: the CLI loads the user-level
 `CLAUDE.md` and settings unless told not to, and a reply may repeat them. New scenarios should pass
 `--setting-sources project,local`, as `errand` does.

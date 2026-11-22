@@ -7,7 +7,8 @@
  * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command, synthesis,
  * title, errand, weekly-only.
  * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
- * Every fixture line is passed through `scrub()`.
+ * Every fixture line is passed through `scrub()`, and a capture whose streamed pieces still name this machine's home
+ * folder, user or an email address once joined (`streamedLeaks()`) stops without writing the fixture.
  *
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts --rescrub
  *
@@ -117,6 +118,11 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** A whole-word match for a name, where a word is made of letters and digits in any script, not just ASCII. */
+function nameRe(name: string): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRe(name)}(?![\\p{L}\\p{N}_])`, 'gu');
+}
+
 /** Replace the temp repo path (and its encoded project-dir form), $HOME paths, user names and emails in raw text. */
 function scrubText(text: string, tempPath: string, gitName = gitUserName()): string {
   // A background task's output file, under a folder named after this machine's temp path.
@@ -130,9 +136,9 @@ function scrubText(text: string, tempPath: string, gitName = gitUserName()): str
   out = out.replace(/-[A-Za-z0-9-]*-crystal-capture-[A-Za-z0-9]+/g, '-tmp-FIXTURE');
   out = out.replace(new RegExp(escapeRe(HOME), 'g'), '/HOME');
   // Outside a path too, as a file listing's owner and group show it.
-  out = out.replace(new RegExp(`\\b${escapeRe(USER)}\\b`, 'g'), 'user');
+  out = out.replace(nameRe(USER), 'user');
   // The git user name, as a commit's author or `git config user.name` shows it.
-  if (gitName) out = out.replace(new RegExp(`\\b${escapeRe(gitName)}\\b`, 'g'), 'user');
+  if (gitName) out = out.replace(nameRe(gitName), 'user');
   // The CLI's messaging socket names this machine's user id and a process id.
   out = out.replace(/\/run\/user\/\d+\/cc-socks\/\d+\.sock/g, '/run/user/0/cc-socks/0.sock');
   out = out.replace(EMAIL_RE, 'user@example.com');
@@ -186,6 +192,55 @@ export function scrub(line: string, tempPath: string, gitName = gitUserName()): 
   const scrubbed = scrubAccountIds(next);
   const changed = carriesInventory || isRateLimit || JSON.stringify(scrubbed) !== JSON.stringify(obj);
   return scrubText(changed ? JSON.stringify(scrubbed) : line, tempPath, gitName);
+}
+
+/** Who recorded a capture: what must not reach a fixture. An empty field isn't checked. */
+export interface Recorder {
+  home: string;
+  user: string;
+  gitName: string;
+}
+
+/**
+ * The CLI streams text, thinking and tool input in pieces (`stream_event` deltas), and `scrub()` sees one line at a
+ * time, so a value split across two pieces gets past it. This joins each content block's pieces and names what it
+ * finds (a home folder, a user name, an email address), never the value itself. Run it on the scrubbed lines.
+ */
+export function streamedLeaks(lines: string[], who: Recorder): string[] {
+  const blocks = new Map<string, string>();
+  for (const line of lines) {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (msg.type !== 'stream_event') continue;
+    const event = msg.event as { type?: string; index?: number; delta?: Record<string, unknown> } | undefined;
+    if (!event || typeof event.index !== 'number') continue;
+    const key = `${String(msg.session_id)} ${String(msg.parent_tool_use_id ?? '')} ${event.index}`;
+    if (event.type === 'content_block_start') {
+      // A new message reuses the indexes, so the earlier block is checked under its own key.
+      if (blocks.has(key)) blocks.set(`${key} #${blocks.size}`, blocks.get(key) ?? '');
+      blocks.set(key, '');
+      continue;
+    }
+    if (event.type !== 'content_block_delta' || !event.delta) continue;
+    const piece = event.delta.text ?? event.delta.partial_json ?? event.delta.thinking;
+    if (typeof piece === 'string') blocks.set(key, (blocks.get(key) ?? '') + piece);
+  }
+  const leaks: string[] = [];
+  for (const [key, text] of blocks) {
+    const where = `streamed block ${key}`;
+    if (who.home && text.includes(who.home)) leaks.push(`a home folder path in ${where}`);
+    if (who.user && who.user !== 'user' && nameRe(who.user).test(text)) leaks.push(`the OS user name in ${where}`);
+    if (who.gitName && who.gitName !== 'user' && nameRe(who.gitName).test(text)) {
+      leaks.push(`the git user name in ${where}`);
+    }
+    if ([...text.matchAll(EMAIL_RE)].some((m) => m[0] !== 'user@example.com'))
+      leaks.push(`an email address in ${where}`);
+  }
+  return leaks;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,7 +584,13 @@ async function main(): Promise<void> {
   const summary: Record<string, unknown> = {};
 
   const record = async (name: string, res: RunResult, extra: Record<string, unknown> = {}) => {
-    await writeFile(join(FIXTURES, `${name}.ndjson`), res.lines.map((l) => `${scrub(l, repo)}\n`).join(''));
+    const lines = res.lines.map((l) => scrub(l, repo));
+    // A value the CLI streamed in pieces gets past the per-line scrub; stop rather than write it.
+    const leaks = streamedLeaks(lines, { home: HOME, user: USER, gitName: gitUserName() });
+    if (leaks.length > 0) {
+      throw new Error(`[${name}] not written: the scrub missed ${leaks.join('; ')}. Extend scrub() and record again.`);
+    }
+    await writeFile(join(FIXTURES, `${name}.ndjson`), lines.map((l) => `${l}\n`).join(''));
     summary[name] = {
       exitCode: res.exitCode,
       signal: res.signal,
