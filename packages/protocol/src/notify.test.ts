@@ -118,6 +118,25 @@ describe('a turn that left Errands (#288)', () => {
     );
   });
 
+  it('starts a new sentence after a summary that ends in its own question or exclamation', () => {
+    const asked = { ...done, detail: 'Shall I ship it?', errands: 2 };
+    expect(notificationFor(asked, 'Emberhold', 'full')?.body).toBe(
+      'The Siege: Shall I ship it? It left you 2 Errands.',
+    );
+    expect(notificationFor({ ...done, detail: 'Fixed it!', errands: 1 }, 'Emberhold', 'full')?.body).toBe(
+      'The Siege: Fixed it! It left you an Errand.',
+    );
+    expect(notificationFor(asked, 'Emberhold', 'full', true)?.body).toBe(
+      'The Siege: Shall I ship it? It left you 2 follow-ups.',
+    );
+  });
+
+  it('says only what was left when there is nothing before it', () => {
+    const bare = { ...base, reason: 'done' as const, label: '', errands: 2 };
+    expect(notificationFor(bare, 'Emberhold', 'full')?.body).toBe('Left you 2 Errands.');
+    expect(notificationFor({ ...bare, errands: 1 }, 'Emberhold', 'full', true)?.body).toBe('Left you a follow-up.');
+  });
+
   it('says follow-ups to a Classic device', () => {
     const attention = { ...done, errands: 2 };
     expect(pushNotificationFor(attention, { names: {}, hidden: [], plainTitles: true })?.body).toMatch(

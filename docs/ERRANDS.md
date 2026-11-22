@@ -116,7 +116,7 @@ on wider screens.
 ## Tie up loose ends: Quests, Patrols and notifications
 
 - **Done notifications.** When a finished turn left Errands, its done notification says so: *"…and left you 2
-  Errands."* No separate notification is sent. At the Discreet level the notification says nothing about Errands, as it
+  Errands."*, or *"…? It left you 2 Errands."* after a summary that ends in a question or an exclamation. No separate notification is sent. At the Discreet level the notification says nothing about Errands, as it
   says nothing about the Quest.
 - **The attention sort** (a finished Quest stays marked until viewed). Ticking an Errand doesn't mark its Quest seen:
   you may tick it from the Castle without reading the turn, or a later turn may have finished since.

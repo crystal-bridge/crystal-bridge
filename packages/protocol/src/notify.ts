@@ -35,7 +35,10 @@ export function notificationFor(
   const n = attention.errands;
   if (attention.reason === 'done' && n) {
     const left = n === 1 ? (plain ? 'a follow-up' : 'an Errand') : `${n} ${plain ? 'follow-ups' : 'Errands'}`;
-    body = `${body.replace(/\.$/, '')}, and left you ${left}.`;
+    // A summary that ends on its own question or exclamation keeps it, and the Errands start a sentence of their own.
+    if (!body) body = `Left you ${left}.`;
+    else if (/[?!]$/.test(body)) body = `${body} It left you ${left}.`;
+    else body = `${body.replace(/\.$/, '')}, and left you ${left}.`;
   }
   return { title, body };
 }
