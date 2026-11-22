@@ -32,6 +32,9 @@ yourself on a desktop, right-click its tab and pick Rename. A name you give it s
 4. When Claude needs permission, or has a question, a card appears in the app and a notification goes to your devices.
    Your answer goes back the same way, and Claude carries on.
 
+When a turn ends with steps only you can take, the Quest can leave them as **Errands**: a checklist on the Castle that
+stays until you tick it off, from any device. See [Errands](ERRANDS.md).
+
 Each Claude agent in a Quest is a **Hero**. The leader runs the Quest, and subagents join the party for a task. Heroes
 gain pointless levels as you use them.
 
