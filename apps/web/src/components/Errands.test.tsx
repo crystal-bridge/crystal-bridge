@@ -159,12 +159,14 @@ describe('ErrandsPanel, Checklist', () => {
     expect(handRow.querySelector('.cb-icon-quillInk')).toBeTruthy();
   });
 
-  it('renders the body as the chat does, with a copy button per code block and no raw HTML', () => {
+  it('renders the body’s Markdown, with a compact copy button per code block and no raw HTML', () => {
     const { region } = panel();
     const row = within(region).getByRole('listitem', { name: smoke.title });
     fireEvent.click(within(row).getByText(smoke.title));
     expect(within(row).getByText('pnpm smoke --hub http://127.0.0.1:7700')).toBeTruthy();
     expect(within(row).getByRole('button', { name: 'Copy code' })).toBeTruthy();
+    // Compact: no language row above a one-line command.
+    expect(row.querySelector('[data-code-header]')).toBeNull();
     expect(row.querySelector('img')).toBeNull();
     // The tag shows as the text it is, never as an element.
     expect(row.querySelector('[onerror]')).toBeNull();

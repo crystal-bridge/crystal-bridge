@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FileViewer } from './FileViewer.js';
 import { QuestMarkdown } from './markdown.js';
@@ -61,5 +61,27 @@ describe('images in markdown', () => {
     );
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByRole('link', { name: /evil\.example/ })).toBeTruthy();
+  });
+});
+
+describe('code blocks', () => {
+  afterEach(() => cleanup());
+  const block = '```sh\npnpm smoke --hub http://127.0.0.1:7700\n```';
+
+  it('in the chat, have a header naming the language, with Copy', () => {
+    const { container } = render(<QuestMarkdown>{block}</QuestMarkdown>);
+    const header = container.querySelector('[data-code-header]')!;
+    expect(header.textContent).toContain('sh');
+    expect(within(header as HTMLElement).getByRole('button', { name: 'Copy code' })).toBeTruthy();
+  });
+
+  it('compact, as in an Errand, have no language row: a Copy chip with its icon beside the code', () => {
+    const { container } = render(<QuestMarkdown compact>{block}</QuestMarkdown>);
+    expect(container.querySelector('[data-code-header]')).toBeNull();
+    expect(container.textContent).not.toMatch(/^sh/);
+    const copy = screen.getByRole('button', { name: 'Copy code' });
+    expect(copy.textContent).toBe('Copy');
+    expect(copy.querySelector('.cb-icon-errandCopy')).toBeTruthy();
+    expect(container.querySelector('pre')!.textContent).toBe('pnpm smoke --hub http://127.0.0.1:7700\n');
   });
 });

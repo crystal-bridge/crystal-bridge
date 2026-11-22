@@ -1,4 +1,5 @@
 import { type ComponentPropsWithoutRef, isValidElement, type ReactNode, useRef, useState } from 'react';
+import { Icon } from '../theme/icons.js';
 
 /** The fenced block's language (`language-sh` → `sh`), from the `<code>` react-markdown puts inside `<pre>`. */
 function languageOf(children: ReactNode): string | undefined {
@@ -10,9 +11,10 @@ function languageOf(children: ReactNode): string | undefined {
 /**
  * A markdown code block: a header row naming its language with a copy button, then the code, which scrolls
  * sideways in its own box, never the pane. The header keeps the button off the code, even on a one-liner.
+ * `compact` (an Errand's body) drops the header: the code sits one line tall beside a small Copy chip.
  */
-export function CodeBlock(props: ComponentPropsWithoutRef<'pre'> & { node?: unknown }) {
-  const { node: _node, children, className, ...rest } = props;
+export function CodeBlock(props: ComponentPropsWithoutRef<'pre'> & { node?: unknown; compact?: boolean }) {
+  const { node: _node, children, className, compact = false, ...rest } = props;
   const pre = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
   const language = languageOf(children);
@@ -31,6 +33,30 @@ export function CodeBlock(props: ComponentPropsWithoutRef<'pre'> & { node?: unkn
       selection?.removeAllRanges();
       selection?.addRange(range);
     }
+  }
+
+  if (compact) {
+    return (
+      <div className="cb-code my-1.5 flex items-start gap-1 rounded-md bg-neutral-100 p-1 pl-2 ring-1 ring-neutral-200 dark:bg-neutral-900 dark:ring-neutral-800">
+        <pre
+          ref={pre}
+          className={`my-0! min-w-0 flex-1 overflow-x-auto py-1 font-mono text-[12px] leading-5 text-neutral-800 dark:text-neutral-200 ${className ?? ''}`}
+          {...rest}
+        >
+          {children}
+        </pre>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          aria-label={copied ? 'Copied' : 'Copy code'}
+          data-copied={copied}
+          className="cb-copy inline-flex shrink-0 items-center gap-1 rounded border border-neutral-300 bg-white/90 px-1.5 py-0.5 font-sans text-[11px] font-bold text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-950/90 dark:text-neutral-200 dark:hover:bg-neutral-800"
+        >
+          <Icon name="errandCopy" size={14} />
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    );
   }
 
   return (

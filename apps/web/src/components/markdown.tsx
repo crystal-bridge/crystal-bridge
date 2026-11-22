@@ -103,6 +103,11 @@ function Image({ node: _node, src, alt, ...props }: ComponentPropsWithoutRef<'im
 
 /** Stable, so memoised messages don't re-render. */
 const COMPONENTS = { pre: CodeBlock, a: Link, code: InlineCode, img: Image };
+/** As COMPONENTS, with compact code blocks: no language row, a Copy chip beside the code. */
+const COMPACT_COMPONENTS = {
+  ...COMPONENTS,
+  pre: (props: ComponentPropsWithoutRef<'pre'> & { node?: unknown }) => <CodeBlock {...props} compact />,
+};
 /** GitHub-flavoured markdown (tables, task lists, strikethrough, bare links), as Claude writes it. */
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -110,10 +115,14 @@ const REMARK_PLUGINS = [remarkGfm];
 const safeUrl: UrlTransform = (url, key, element) =>
   element.tagName === 'img' && key === 'src' && /^data:image\//i.test(url) ? url : defaultUrlTransform(url);
 
-/** Markdown as the app shows it, in replies and in the viewer. */
-export function QuestMarkdown({ children }: { children: string }) {
+/** Markdown as the app shows it, in replies and in the viewer; `compact` for an Errand's body, where code is short. */
+export function QuestMarkdown({ children, compact = false }: { children: string; compact?: boolean }) {
   return (
-    <Markdown components={COMPONENTS} remarkPlugins={REMARK_PLUGINS} urlTransform={safeUrl}>
+    <Markdown
+      components={compact ? COMPACT_COMPONENTS : COMPONENTS}
+      remarkPlugins={REMARK_PLUGINS}
+      urlTransform={safeUrl}
+    >
       {children}
     </Markdown>
   );

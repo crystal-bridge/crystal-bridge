@@ -355,6 +355,25 @@ describe('ErrandLine (#288)', () => {
     expect(container.querySelector('pre')?.textContent).toBe(`Rotate the deploy key\nPush it\n\n${reason}`);
   });
 
+  it('ErrandLine is a teal note: the count in bold, then where they wait, with an icon that reads at 1x', () => {
+    const { container } = render(
+      <ErrandLine tool={call} tally={{ left: 2, refused: [], titles: ['Rotate the deploy key'] }} session="q1" />,
+    );
+    const summary = container.querySelector('summary')!;
+    expect(summary.className).toContain('list-none');
+    expect(summary.className).toContain('bg-teal-50');
+    expect(summary.className).toContain('dark:bg-teal-950');
+    expect(summary.className).toContain('ring-teal-');
+    expect(summary.className).not.toContain('blue-');
+    expect(screen.getByText('Your Quest left you 2 Errands.').className).toContain('font-bold');
+    expect(screen.getByText('They wait in the side panel and on the Castle.')).toBeTruthy();
+    expect(summary.querySelector('.cb-icon-boardChecklist')!.getAttribute('width')).toBe('20');
+    // No side panel below lg, so nothing there to show.
+    const show = screen.getByRole('button', { name: 'Show the Errands' });
+    expect(show.className).toMatch(/(^| )hidden( |$)/);
+    expect(show.className).toContain('lg:inline-flex');
+  });
+
   it('Show opens the side panel and scrolls to the Quest’s Errands, without folding the line', async () => {
     setPanelOpen('details', false);
     const target = document.createElement('div');
@@ -392,5 +411,9 @@ describe('ErrandLine (#288)', () => {
     render(<ErrandLine tool={items[0]!} tally={errandTally(items).get('e1')} />);
     expect(screen.getByText('Your Quest couldn’t leave you an Errand.')).toBeTruthy();
     expect(screen.getByText('1 refused')).toBeTruthy();
+    const summary = screen.getByText('Your Quest couldn’t leave you an Errand.').closest('summary')!;
+    expect(summary.className).toContain('red-');
+    expect(summary.className).not.toContain('teal-');
+    expect(screen.queryByText(/They wait/)).toBeNull();
   });
 });

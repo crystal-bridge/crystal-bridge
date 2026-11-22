@@ -13,6 +13,7 @@ import {
   questLabel,
   titledLine,
   errandsLeftLine,
+  errandsWaitLine,
   postingsLine,
   scoutReturnLine,
   sourceLine,
@@ -296,5 +297,10 @@ describe('Quest titles (#287)', () => {
       themed: 'Your Quest couldn’t leave you an Errand.',
       plain: 'Leaving a follow-up failed',
     });
+  });
+
+  it('says where the Errands a turn left wait', () => {
+    expect(errandsWaitLine(CRYSTAL)).toBe('They wait in the side panel and on the Castle.');
+    expect(errandsWaitLine(CLASSIC)).toBe('They wait in the side panel and on the Overview page.');
   });
 });

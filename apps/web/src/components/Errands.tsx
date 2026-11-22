@@ -56,9 +56,9 @@ export interface ErrandsPanelProps {
   phone?: boolean;
 }
 
-/** Markdown as the chat shows it: code blocks scroll in their own box, each with its copy button. */
+/** An Errand's Markdown: compact code blocks (`QuestMarkdown compact`) that scroll in their own box, each with Copy. */
 const BODY =
-  'cb-prose mb-1 mt-1.5 min-w-0 text-[13px] text-neutral-700 [overflow-wrap:anywhere] dark:text-neutral-300 [&_code]:font-mono [&_pre]:overflow-x-auto [&_pre]:bg-neutral-100 [&_pre]:p-2 [&_pre]:text-[12px] [&_pre]:[overflow-wrap:normal] [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto dark:[&_pre]:bg-neutral-900';
+  'cb-prose mb-1 mt-1.5 min-w-0 text-[13px] text-neutral-700 [overflow-wrap:anywhere] dark:text-neutral-300 [&_code]:font-mono [&_pre]:[overflow-wrap:normal] [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto';
 
 const LAYOUTS: LayoutOption<ErrandLayout>[] = [
   { mode: 'checklist', label: 'Checklist', icon: 'boardChecklist', hint: 'A checklist by project' },
@@ -256,7 +256,7 @@ function QuestRow({
         <span className="block font-medium leading-snug [overflow-wrap:anywhere]">{errand.title}</span>
         {errand.body.trim() && (
           <div className={BODY}>
-            <QuestMarkdown>{errand.body}</QuestMarkdown>
+            <QuestMarkdown compact>{errand.body}</QuestMarkdown>
           </div>
         )}
       </div>
@@ -446,7 +446,7 @@ function TitleFold({ errand, wrap = false }: { errand: Errand; wrap?: boolean })
         )}
       </summary>
       <div className={BODY}>
-        <QuestMarkdown>{errand.body}</QuestMarkdown>
+        <QuestMarkdown compact>{errand.body}</QuestMarkdown>
       </div>
     </details>
   );
@@ -623,7 +623,7 @@ function ErrandCard({ errand, now, onState, canDismiss, onEdit, editForm, ...kno
         {errand.body.trim() && (
           <div className="max-h-44 overflow-hidden">
             <div className={BODY}>
-              <QuestMarkdown>{errand.body}</QuestMarkdown>
+              <QuestMarkdown compact>{errand.body}</QuestMarkdown>
             </div>
           </div>
         )}

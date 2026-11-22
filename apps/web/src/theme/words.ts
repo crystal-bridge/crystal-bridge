@@ -469,6 +469,13 @@ export function errandsLeftLine(count: number, theme: Words = words): Word {
   return { themed: `Your ${w('quest', theme)} left you ${what}.`, plain };
 }
 
+/** Where the Errands a turn left wait, after `errandsLeftLine` in the chat. */
+export function errandsWaitLine(theme: Words = words): string {
+  return theme === CLASSIC
+    ? 'They wait in the side panel and on the Overview page.'
+    : `They wait in the side panel and on the ${w('castle', theme)}.`;
+}
+
 /** What can happen to a helper, as the chat tells it. */
 export type HelperMoment = 'set-out' | 'returned' | 'failed' | 'stopped';
 
