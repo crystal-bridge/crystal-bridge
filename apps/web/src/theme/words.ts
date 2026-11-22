@@ -85,7 +85,9 @@ export type Concept =
   | 'patrols'
   | 'watchtower'
   | 'patrolLog'
-  | 'nextRun';
+  | 'nextRun'
+  | 'errand'
+  | 'errands';
 
 export type Words = Record<Concept, Word>;
 
@@ -167,6 +169,8 @@ export const CRYSTAL: Words = {
   watchtower: { themed: 'Watchtower', plain: 'this Kingdom’s scheduled Quests and scripts, and their runs' },
   patrolLog: { themed: 'Patrol log', plain: 'what the Patrols posting here reported' },
   nextRun: { themed: 'Next watch', plain: 'next run' },
+  errand: { themed: 'Errand', plain: 'a step a Quest left for you to take' },
+  errands: { themed: 'Errands', plain: 'steps your Quests left for you to take' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -249,6 +253,8 @@ export const CLASSIC: Words = {
   watchtower: { themed: 'Scheduled tasks', plain: 'Scheduled tasks' },
   patrolLog: { themed: 'Scheduled task runs', plain: 'Scheduled task runs' },
   nextRun: { themed: 'Next run', plain: 'Next run' },
+  errand: { themed: 'Follow-up', plain: 'a step a Quest left for you to take' },
+  errands: { themed: 'Follow-ups', plain: 'steps your Quests left for you to take' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };
@@ -441,6 +447,26 @@ export function titledLine(title: string, plain: string, theme: Words = words, n
     themed: theme === CLASSIC ? line : `The Bard names your ${w('quest', theme)}: ${title}${stop}`,
     plain: line,
   };
+}
+
+/**
+ * The chat's line when a turn left Errands, e.g. "Your Quest left you 2 Errands.". Zero is a call that failed.
+ */
+export function errandsLeftLine(count: number, theme: Words = words): Word {
+  if (count <= 0) {
+    const failed = 'Leaving a follow-up failed';
+    return {
+      themed: theme === CLASSIC ? failed : `Your ${w('quest', theme)} couldn’t leave you an ${w('errand', theme)}.`,
+      plain: failed,
+    };
+  }
+  const plain = count === 1 ? 'Left you a follow-up' : `Left you ${count} follow-ups`;
+  if (theme === CLASSIC) {
+    const noun = (count === 1 ? w('errand', theme) : w('errands', theme)).toLowerCase();
+    return { themed: `This session left you ${count === 1 ? 'a' : count} ${noun}.`, plain };
+  }
+  const what = count === 1 ? `an ${w('errand', theme)}` : `${count} ${w('errands', theme)}`;
+  return { themed: `Your ${w('quest', theme)} left you ${what}.`, plain };
 }
 
 /** What can happen to a helper, as the chat tells it. */

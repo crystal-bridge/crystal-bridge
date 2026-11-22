@@ -12,6 +12,7 @@ import {
   summonLine,
   questLabel,
   titledLine,
+  errandsLeftLine,
   postingsLine,
   scoutReturnLine,
   sourceLine,
@@ -275,5 +276,25 @@ describe('Quest titles (#287)', () => {
       plain: 'Naming this session failed',
     });
     expect(titledLine('', '', CLASSIC, false).themed).toBe('Naming this session failed');
+  });
+
+  it('names Errands, and Follow-ups in the Classic theme', () => {
+    expect(w('errand', CRYSTAL)).toBe('Errand');
+    expect(w('errands', CRYSTAL)).toBe('Errands');
+    expect(w('errands', CLASSIC)).toBe('Follow-ups');
+    expect(w('errand', CLASSIC)).toBe('Follow-up');
+    expect(hint('errands', CRYSTAL)).toBe('Errands (steps your Quests left for you to take)');
+  });
+
+  it('says how many Errands a turn left', () => {
+    expect(errandsLeftLine(2, CRYSTAL).themed).toBe('Your Quest left you 2 Errands.');
+    expect(errandsLeftLine(1, CRYSTAL).themed).toBe('Your Quest left you an Errand.');
+    expect(errandsLeftLine(2, CLASSIC).themed).toBe('This session left you 2 follow-ups.');
+    expect(errandsLeftLine(2, CRYSTAL).plain).toBe('Left you 2 follow-ups');
+    expect(errandsLeftLine(1, CRYSTAL).plain).toBe('Left you a follow-up');
+    expect(errandsLeftLine(0, CRYSTAL)).toEqual({
+      themed: 'Your Quest couldn’t leave you an Errand.',
+      plain: 'Leaving a follow-up failed',
+    });
   });
 });
