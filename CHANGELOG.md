@@ -18,6 +18,8 @@ one entry.
   plain name for the Classic theme, and keeps that first name. It does this through `title`, a tool the Crystal gives
   every Quest and allows up front. On a desktop, rename a Quest from its tab's right-click menu; a name you give it
   stays, on every device. See [How it fits together](docs/CONCEPTS.md#what-happens-in-a-session).
+- A Quest leaves you Errands, steps to take after a turn, through `errand`, a tool the Crystal gives every new Quest and
+  allows up front; the chat says how many a turn left. See [Errands](docs/ERRANDS.md).
 
 ### Fixed
 

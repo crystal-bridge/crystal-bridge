@@ -198,6 +198,7 @@ HP, Stamina and MP bars drain in five colour steps, green when full through yell
 | **Command Sigil** | shell mode: a follow-up starting with `!` on an interactive Quest (the prompt box turns rose) |
 | **Loot** | files changed |
 | **Expedition** | where and how a Quest runs (Kingdom, project, branch, model, mode): the side panel's section under Stats |
+| **Errand** | a step a Quest left for you | The chat says "Your Quest left you 2 Errands." where a turn left some. The Classic theme says Follow-up. |
 | **Resting at the Inn** | plan usage resetting (flavour text, not a label) |
 
 ### Battle results
