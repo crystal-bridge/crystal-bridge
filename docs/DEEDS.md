@@ -99,8 +99,9 @@ stay as they were, and the chat and the feed say which.
 
 **On the Castle**, the Deeds feed lists a Kingdom's work newest first, grouped by day in your own time zone (Today,
 Yesterday, then dates). A chip per project filters it, each project in its own colour, as on the Errands panel. It
-uses gold for Deeds and never window blue, since nothing in it waits on you. Where it sits on the Castle, and its
-layout, come with the audition pick.
+uses gold for Deeds and never window blue, since nothing in it waits on you. It sits in the Castle's left column,
+under Active Quests, as a timeline: a gold rail down the side with a marker for each day and one row per Quest's
+day, its icon on the rail. On a narrower screen it follows the Castle's other panels.
 
 Within a day, each Quest's records fold into one entry, so a run of short turns ("yes, go on") reads as one line:
 
