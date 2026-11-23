@@ -1888,3 +1888,61 @@ describe('App Close offers Record its Deeds', () => {
     expect(screen.getByText('node-b is offline: it can’t record Deeds at Close.')).toBeTruthy();
   });
 });
+
+describe('App Deeds chips', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('keeps every project chip after a Quest is opened and closed with one chosen', async () => {
+    localStorage.clear();
+    const quest = sessions[0]!;
+    const rows = [
+      { id: `turn:${quest.id}:1`, kind: 'turn', at: Date.now() - 1000, session: quest.id, project: '/r/lantern' },
+      { id: 'turn:other:1', kind: 'turn', at: Date.now() - 2000, session: 'other', project: '/r/forge' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const project = /project=([^&]+)/.exec(url)?.[1];
+        const body = url.startsWith('/api/nodes/node-b/deeds')
+          ? { deeds: project ? rows.filter((r) => r.project === decodeURIComponent(project)) : rows }
+          : url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    window.history.replaceState(null, '', '/#/k/node-b');
+    await renderApp();
+    const chips = async () => {
+      const [group] = await screen.findAllByRole('group', { name: 'Filter by project' });
+      return within(group!)
+        .getAllByRole('button')
+        .map((b) => b.title)
+        .filter(Boolean)
+        .sort();
+    };
+    expect(await chips()).toEqual(['/r/forge', '/r/lantern']);
+    const [group] = screen.getAllByRole('group', { name: 'Filter by project' });
+    fireEvent.click(within(group!).getByRole('button', { name: /lantern/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /lantern/, pressed: true }).length).toBeGreaterThan(0),
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open Quest' })[0]!);
+    await waitFor(() => expect(screen.queryAllByRole('group', { name: 'Filter by project' })).toHaveLength(0));
+    // Back to the Castle, by its tab beside the Quest's.
+    const kingdoms = screen.getByRole('tablist', { name: 'Kingdoms' });
+    const castle = screen.getAllByRole('tab', { name: /node-b/ }).find((tab) => !kingdoms.contains(tab))!;
+    fireEvent.click(castle);
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /lantern/, pressed: true }).length).toBeGreaterThan(0),
+    );
+    expect(await chips()).toEqual(['/r/forge', '/r/lantern']);
+  });
+});
