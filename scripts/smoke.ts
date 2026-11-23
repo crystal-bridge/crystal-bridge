@@ -5,6 +5,9 @@
  * request it raises, and checks the side effect actually happened on disk. The Quest also names itself with
  * Crystal's `title` tool, which must not ask, and the hub must list it under that name and then a name set by hand.
  * It also leaves an Errand, unasked, for the one step only the user can take; the hub must list it open, then done.
+ * Crystal must tally the turn after its diff (`turn.tally`, counting crystal.txt), and the hub must list the turn's
+ * record among the Kingdom's Deeds. Then it closes the Quest asking for Deeds at Close: the call must record at least
+ * one, and the hub must list them and the call's own row.
  *
  * Run with: `pnpm smoke` (= `tsx scripts/smoke.ts`). `SMOKE_ENGINE=interactive pnpm smoke` runs it on the
  * interactive engine instead, which the node must offer (`CRYSTAL_ENGINES=stream,interactive`).
@@ -29,6 +32,8 @@ const PROMPT =
   'Run the shell command `touch crystal.txt` with Bash. I will delete crystal.txt by hand myself later. Then reply with the single word DONE.';
 const RESULT_TIMEOUT_MS = 120_000;
 const CHANGES_TIMEOUT_MS = 5_000;
+const CLOSING_TIMEOUT_MS = 150_000;
+const DAY_MS = 86_400_000;
 const MAX_RECENT = 10;
 const MAX_EVENT_CHARS = 400;
 
@@ -71,6 +76,8 @@ interface WaitOutcome {
   titled?: { title: unknown; plain: unknown };
   /** The `errand.left` payloads the Quest sent. */
   left?: Array<Record<string, unknown>>;
+  /** The seq of the turn's `turn.finished`, which its tally and record carry. */
+  seq?: number;
 }
 
 interface WaitOptions {
@@ -94,6 +101,8 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
     let titled: { title: unknown; plain: unknown } | undefined;
     const left: Array<Record<string, unknown>> = [];
     let changesTimer: NodeJS.Timeout | undefined;
+    let finishedSeq: number | undefined;
+    let changed = false;
     const socket = new WebSocket(clientUrl);
 
     const timer = setTimeout(() => {
@@ -162,6 +171,15 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
         return;
       }
       if (envelope.type === 'errand.left' && isObj(payload)) left.push(payload);
+      if (envelope.type === 'turn.finished' && typeof envelope.seq === 'number') finishedSeq = envelope.seq;
+      // Crystal tallies the turn once its diff is in, naming the turn by its turn.finished's seq.
+      if (envelope.type === 'turn.tally' && changed && isObj(payload) && payload.seq === finishedSeq) {
+        clearTimeout(changesTimer);
+        const files = typeof payload.files === 'number' ? payload.files : 0;
+        if (files < 1) finish({ ok: false, message: `the tally missed crystal.txt: ${JSON.stringify(payload)}` });
+        else finish({ ok: true, titled, left, seq: finishedSeq });
+        return;
+      }
       if (envelope.type === 'permission.request' && isObj(payload) && typeof payload.requestId === 'string') {
         console.log(`smoke: approving permission request for ${String(payload.toolName)}`);
         send({
@@ -180,7 +198,15 @@ function waitForResult(options: WaitOptions): Promise<WaitOutcome> {
           if (!seen) finish({ ok: false, message: `turn_changes missed crystal.txt: ${String(raw.files)}` });
           else if (!titled) finish({ ok: false, message: 'the Quest never named itself (no quest.titled)' });
           else if (left.length === 0) finish({ ok: false, message: 'the Quest left no Errand (no errand.left)' });
-          else finish({ ok: true, titled, left });
+          else if (finishedSeq === undefined) finish({ ok: false, message: 'the turn ended with no turn.finished' });
+          else {
+            // The tally follows the diff; wait for it instead of finishing here.
+            changed = true;
+            changesTimer = setTimeout(
+              () => finish({ ok: false, message: 'no turn.tally followed the turn' }),
+              CHANGES_TIMEOUT_MS,
+            );
+          }
           return;
         }
         if (raw.type === 'result') {
@@ -275,6 +301,122 @@ async function checkErrands(
   return undefined;
 }
 
+/** The rows of a Kingdom's Deeds from the last day, as the hub lists them. */
+async function recentDeeds(base: string, node: string): Promise<unknown[]> {
+  const url = `${base}/api/nodes/${encodeURIComponent(node)}/deeds?after=${Date.now() - DAY_MS}`;
+  const body = (await (await fetch(url)).json()) as unknown;
+  return isObj(body) && Array.isArray(body.deeds) ? body.deeds : [];
+}
+
+/** The turn's record among the Kingdom's Deeds, with the tally's files. Why not, or nothing. */
+async function checkDeeds(base: string, node: string, session: string, seq: number): Promise<string | undefined> {
+  const id = `turn:${session}:${seq}`;
+  const row = (await recentDeeds(base, node)).find((deed) => isObj(deed) && deed.id === id);
+  if (!isObj(row)) return `the hub's Deeds do not list the turn's record ${id}`;
+  if (row.kind !== 'turn' || typeof row.files !== 'number' || row.files < 1) {
+    return `the hub lists the turn's record as ${JSON.stringify(row)}, not a turn with crystal.txt counted`;
+  }
+  console.log(`smoke: the turn was tallied (${row.files} file(s)) and the hub lists its record ${id}`);
+  return undefined;
+}
+
+interface Closing {
+  message?: string;
+  costUsd?: unknown;
+  recorded?: number;
+}
+
+/**
+ * Closes the Quest asking for Deeds at Close and waits for the call's outcome: it must record at least one Deed, and
+ * the hub must list them and the call's own row. Why not, or nothing.
+ */
+async function closeWithDeeds(
+  clientUrl: string,
+  base: string,
+  node: string,
+  session: string,
+  recent: unknown[],
+): Promise<string | undefined> {
+  const engines = (await (await fetch(`${base}/api/engines`)).json()) as unknown;
+  const offered =
+    Array.isArray(engines) && engines.some((row) => isObj(row) && row.node === node && row.deeds === true);
+  if (!offered) return "this Kingdom doesn't offer Deeds at Close";
+
+  const closing = await new Promise<Closing>((resolve) => {
+    let settled = false;
+    let recorded = 0;
+    const socket = new WebSocket(clientUrl);
+    const timer = setTimeout(
+      () => finish({ message: `no deeds.closing within ${CLOSING_TIMEOUT_MS / 1000}s of the Close` }),
+      CLOSING_TIMEOUT_MS,
+    );
+
+    function finish(outcome: Closing): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch {
+        /* already closing/closed */
+      }
+      resolve(outcome);
+    }
+
+    // The replay from seq 0 holds no deeds.closing: this is the Quest's first Close.
+    socket.addEventListener('open', () => {
+      socket.send(JSON.stringify({ kind: 'subscribe', session, fromSeq: 0 }));
+      socket.send(JSON.stringify({ kind: 'command', command: { type: 'session.close', session, deeds: true } }));
+    });
+
+    socket.addEventListener('message', (event: MessageEvent) => {
+      let frame: unknown;
+      try {
+        frame = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+      if (!isObj(frame)) return;
+      if (frame.kind === 'error') {
+        finish({ message: `hub reported an error: ${String(frame.message)}` });
+        return;
+      }
+      if (frame.kind !== 'event' || !isObj(frame.event)) return;
+
+      const envelope = frame.event;
+      recent.push(envelope);
+      if (recent.length > MAX_RECENT) recent.shift();
+
+      const payload = envelope.payload;
+      if (envelope.type === 'deed.recorded' && isObj(payload) && payload.closing === true) recorded += 1;
+      if (envelope.type !== 'deeds.closing' || !isObj(payload) || payload.outcome === 'writing') return;
+      if (payload.outcome !== 'recorded') {
+        finish({ message: `the call at Close ended ${String(payload.outcome)}: ${String(payload.reason)}` });
+      } else if (recorded === 0) {
+        finish({ message: 'the call at Close says recorded, but no deed.recorded marked closing came before it' });
+      } else {
+        finish({ costUsd: payload.costUsd, recorded });
+      }
+    });
+
+    socket.addEventListener('close', () => {
+      finish({ message: 'the hub closed the /client connection before the call at Close finished' });
+    });
+  });
+  if (closing.message) return closing.message;
+
+  const rows = (await recentDeeds(base, node)).filter((deed) => isObj(deed) && deed.session === session);
+  if (!rows.some((deed) => isObj(deed) && deed.kind === 'closing')) {
+    return `the hub's Deeds list no Deed from the call at Close: ${JSON.stringify(rows)}`;
+  }
+  if (!rows.some((deed) => isObj(deed) && deed.kind === 'close' && String(deed.id).startsWith(`close:${session}:`))) {
+    return `the hub's Deeds list no row for the call at Close: ${JSON.stringify(rows)}`;
+  }
+  const cost = typeof closing.costUsd === 'number' ? `$${closing.costUsd.toFixed(4)}` : 'an unreported cost';
+  console.log(`smoke: the Quest closed and the call at Close recorded ${closing.recorded} Deed(s) for ${cost}`);
+  return undefined;
+}
+
 async function main(): Promise<void> {
   const base = httpBase(CLIENT_URL);
 
@@ -331,8 +473,20 @@ async function main(): Promise<void> {
       return;
     }
 
+    const deedsFailure = await checkDeeds(base, node, session, outcome.seq!);
+    if (deedsFailure) {
+      reportFailure(deedsFailure, recent);
+      return;
+    }
+
+    const closeFailure = await closeWithDeeds(CLIENT_URL, base, node, session, recent);
+    if (closeFailure) {
+      reportFailure(closeFailure, recent);
+      return;
+    }
+
     console.log(
-      'smoke: PASS - result event arrived, crystal.txt exists, the turn reported it, the Quest was named and left an Errand',
+      'smoke: PASS - result event arrived, crystal.txt exists, the turn reported it and was tallied, the Quest was named and left an Errand, and its Deeds were recorded at Close',
     );
   } finally {
     await rm(repo, { recursive: true, force: true });

@@ -3,7 +3,14 @@ import type { Server as HttpServer } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { ErrandBody, MAX_ERRANDS_PER_TURN, QuestTitle, type QuestTitledPayload } from '@crystal-bridge/protocol';
+import {
+  DeedDetail,
+  ErrandBody,
+  MAX_DEEDS_PER_TURN,
+  MAX_ERRANDS_PER_TURN,
+  QuestTitle,
+  type QuestTitledPayload,
+} from '@crystal-bridge/protocol';
 import { z } from 'zod';
 
 /**
@@ -60,6 +67,14 @@ export interface CreatePermissionServerOptions {
   onErrand?: (
     session: string,
     errand: { title: string; body: string },
+  ) => { ok: true; id: string } | { ok: false; reason: string };
+  /**
+   * Offers Quests the `deed` tool (#289): records an outcome for the user's log. Returns the new Deed's id, or why it
+   * was refused, as the tool's error.
+   */
+  onDeed?: (
+    session: string,
+    deed: { deed: string; detail?: string },
   ) => { ok: true; id: string } | { ok: false; reason: string };
   /** Served on `GET /status` (localhost only), e.g. so a deploy can wait until no session is mid-turn. */
   status?: () => unknown;
@@ -127,8 +142,16 @@ const ErrandInputShape = {
 /** The `errand` tool as the CLI names it, for allowing it up front. */
 export const ERRAND_TOOL = 'mcp__crystal__errand';
 
+const DeedInputShape = {
+  deed: QuestTitle.describe('One line: what was achieved, e.g. "Moved the hub to Node 24"'),
+  detail: DeedDetail.optional().describe('Optional plain text, no Markdown: one or two sentences of detail'),
+};
+
+/** The `deed` tool as the CLI names it, for allowing it up front. */
+export const DEED_TOOL = 'mcp__crystal__deed';
+
 /** Crystal's tools a Quest may call without asking: allowed up front on both engines. */
-export const QUEST_TOOLS = [TITLE_TOOL, ERRAND_TOOL] as const;
+export const QUEST_TOOLS = [TITLE_TOOL, ERRAND_TOOL, DEED_TOOL] as const;
 
 /** The Errand line of every new Quest's system prompt (the CLI defers MCP tools, test/fixtures/README.md). */
 export const ERRAND_INSTRUCTION =
@@ -140,8 +163,17 @@ export const ERRAND_DESCRIPTION =
   `at most ${MAX_ERRANDS_PER_TURN} a turn. Only for what the user must do: if you can do the step, do it instead. ` +
   'Answers with its id.';
 
+/** The Deed line of every new Quest's system prompt. */
+export const DEED_INSTRUCTION =
+  'When a turn achieves something worth remembering (a release, a migration, a fix that closes an issue), load ' +
+  'mcp__crystal__deed with ToolSearch and record it in one line. Routine steps are not Deeds.';
+
+export const DEED_DESCRIPTION =
+  "Record an outcome of this session for the user's log of what their sessions achieved: one line, with an optional " +
+  `detail. At most ${MAX_DEEDS_PER_TURN} a turn, only for outcomes that matter. Answers with its id.`;
+
 /** The one `--append-system-prompt` value a new Quest or fork gets: the CLI keeps it for every later resume. */
-export const QUEST_PROMPT = `${TITLE_INSTRUCTION} ${ERRAND_INSTRUCTION}`;
+export const QUEST_PROMPT = `${TITLE_INSTRUCTION} ${ERRAND_INSTRUCTION} ${DEED_INSTRUCTION}`;
 
 function buildMcpServer(
   session: string,
@@ -149,6 +181,7 @@ function buildMcpServer(
   summon?: SummonTool,
   onTitle?: CreatePermissionServerOptions['onTitle'],
   onErrand?: CreatePermissionServerOptions['onErrand'],
+  onDeed?: CreatePermissionServerOptions['onDeed'],
 ): McpServer {
   const server = new McpServer({ name: 'crystal-permissions', version: '0.0.0' });
 
@@ -212,6 +245,18 @@ function buildMcpServer(
     });
   }
 
+  if (onDeed) {
+    server.registerTool('deed', { description: DEED_DESCRIPTION, inputSchema: DeedInputShape }, async (args) => {
+      const result = onDeed(
+        session,
+        args.detail === undefined ? { deed: args.deed } : { deed: args.deed, detail: args.detail },
+      );
+      return result.ok
+        ? { content: [{ type: 'text' as const, text: `Recorded Deed ${result.id}.` }] }
+        : { content: [{ type: 'text' as const, text: result.reason }], isError: true };
+    });
+  }
+
   return server;
 }
 
@@ -236,7 +281,14 @@ export async function createPermissionServer(options: CreatePermissionServerOpti
 
   app.post('/mcp/:session', async (req, res) => {
     const session = req.params.session as string;
-    const mcpServer = buildMcpServer(session, onRequest, options.summon, options.onTitle, options.onErrand);
+    const mcpServer = buildMcpServer(
+      session,
+      onRequest,
+      options.summon,
+      options.onTitle,
+      options.onErrand,
+      options.onDeed,
+    );
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {

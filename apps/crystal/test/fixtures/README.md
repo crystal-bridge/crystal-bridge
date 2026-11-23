@@ -4,7 +4,7 @@ Recorded by `scripts/capture.ts` against the real CLI, version **2.1.312**, on 2
 Re-record with:
 
 ```
-pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow|background-agent|synthesis|weekly-only ...]
+pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [allow|deny|followup|interrupt|slow-allow|background-agent|synthesis|closing|weekly-only|closing-interactive ...]
 ```
 
 Every run uses these flags, with `cwd` set to a fresh `mkdtemp` git repo:
@@ -31,6 +31,7 @@ JSON-RPC `params` the CLI sends, so the "wire" section of `permission-calls.json
 | `slow-allow.ndjson` | same prompt as allow; answer held for 60 s | allow after 60 s | exit 0, `result/success`, `duration_ms` 64688 |
 | `synthesis.ndjson`, `synthesis-no-settings.ndjson` | a Scout's synthesis call: rank three items against a schema (2.1.327); the second adds `--setting-sources ""` | none | exit 0, one `result/success` line; see The synthesis call |
 | `errand.ndjson` | add a README the user will push, as a new Quest runs, with `--setting-sources project,local` (2.1.330) | allow | exit 0, `result/success`; see The `errand` tool |
+| `closing.ndjson`, `closing-interactive.ndjson` | the call at Close over a two-turn stream Quest's transcript, and over an interactive smoke Quest's (2.1.330) | none | exit 0, one `result/success` line; see The call at Close |
 | `weekly-only.ndjson` | "Reply with the single word DONE.", on a plan with only a weekly limit (2.1.316) | none | exit 0, `result/success`; see Plan windows |
 | `permission-calls.json` | `onRequest`: what Task 4's `onRequest` received. `wire`: raw `initialize`, `tools/list` and `tools/call` params per scenario | | |
 
@@ -303,6 +304,40 @@ schema: a rank, a summary and an allowed `suggested` per item, with no extra ite
 **Cost.** The full setup cost $0.043 (4,823 cache-creation tokens); `--setting-sources ''` cost $0.039 (4,095). On
 this machine, settings add about 700 tokens, roughly a tenth. That's one run each, and a Kingdom with more plugins,
 skills or CLAUDE.md files would save more.
+
+## The call at Close (`closing.ndjson`, `closing-interactive.ndjson`, CLI 2.1.330)
+
+Recorded 2026-11-22. Each fixture is one call at Close as Crystal makes it (`closingArgs` in `src/closing.ts`), run
+from a fresh empty temp folder, with the digest on stdin inside `<untrusted-quest>`:
+
+```
+claude -p --output-format json --json-schema '<closing schema>' --strict-mcp-config --no-session-persistence
+  --max-budget-usd 1 --setting-sources '' --tools ''       # the prompt on stdin
+```
+
+Both digests came from the Quest's transcript the same way: `findTranscript` and `transcriptEvents`
+(`src/transcripts.ts`), then `buildDigest` and `digestText`. `closing` first runs a two-turn Quest as Crystal starts a
+new one (`--allowedTools` Crystal's tools, the Quest prompt, `--setting-sources project,local`): add a scratch README,
+then a `.gitignore` mentioned in the README. `closing-interactive` reads the transcript of a Quest the interactive
+engine ran (`SMOKE_ENGINE=interactive pnpm smoke` against a dev pair, then `CAPTURE_SESSION=<id>` and the scenario named
+on the command line), so the digest is built from the interactive CLI's own transcript lines.
+
+Each was recorded twice; the second run is kept. Time is the whole call, as the script measured it.
+
+| Run | Turns | Digest | Deeds | Cost | Time |
+|---|---|---|---|---|---|
+| `closing`, 1 | 2 | 828 chars | 2 | $0.035 | 2.3 s |
+| `closing`, 2 (kept) | 2 | 841 chars | 2 | $0.027 | 3.1 s |
+| `closing-interactive`, 1 | 1 | 340 chars | 1 | $0.024 | 2.6 s |
+| `closing-interactive`, 2 (kept) | 1 | 340 chars | 1 | $0.024 | 2.3 s |
+
+Every run came back `recorded`, and the Deeds describe the work (the stream Quest's README and `.gitignore`; the smoke
+Quest's `crystal.txt`). As with the synthesis call, `structured_output` carried the answer, already parsed and within
+the schema, with the same JSON as a string in `result`, `num_turns` 2 and `stop_reason` `tool_use`. Small digests
+cost well under the page's estimate of about $0.10 for a full one.
+
+No transcript or digest is kept: an interactive transcript carries the account's details (see The interactive engine),
+so only the call's own output is written, through `scrub()`.
 
 ## Scrubbing
 

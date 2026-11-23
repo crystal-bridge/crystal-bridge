@@ -20,6 +20,10 @@ one entry.
   stays, on every device. See [How it fits together](docs/CONCEPTS.md#what-happens-in-a-session).
 - A Quest leaves you Errands, steps to take after a turn, through `errand`, a tool the Crystal gives every new Quest and
   allows up front; the chat says how many a turn left. See [Errands](docs/ERRANDS.md).
+- Every finished turn leaves a turn record on the hub, with its files and pull requests counted once the Crystal's diff
+  is in. A Quest records Deeds through `deed`, a tool every new Quest gets and is allowed up front, at most 3 a turn.
+  Close can record a Quest's Deeds from a short digest of it, with `CRYSTAL_CLOSING_MODEL` and
+  `CRYSTAL_CLOSING_BUDGET_USD`. See [Deeds](docs/DEEDS.md).
 - The Castle's Errands panel lists a Kingdom's open Errands as a Checklist by project or as Cards by day, a choice kept
   per device. Tick one done, dismiss it, reopen it from the fold, add one by hand, or edit one. On a phone it shows the
   list to read, copy and tick.

@@ -9,7 +9,7 @@ import { spawn as nodePtySpawn } from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
 import { QUEST_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
-import { type ClaudeSessionEvent, neutralTokens } from './session.js';
+import { type ClaudeSessionEvent, neutralTokens, type TurnFinishedPayload } from './session.js';
 import {
   applyListing,
   emptyListing,
@@ -268,6 +268,8 @@ export class InteractiveSession extends EventEmitter {
   private tail: TranscriptTail | null = null;
   private poll: NodeJS.Timeout | null = null;
   private resumed = false;
+  /** The last turn's report of what it changed: the next one waits on it, so tallies go out in turn order. */
+  private tallies: Promise<void> = Promise.resolve();
   private turnOpen = false;
   /** When the open turn began. */
   private turnSince = 0;
@@ -445,8 +447,7 @@ export class InteractiveSession extends EventEmitter {
           raw: { type: 'result', subtype: 'error_during_execution', is_error: true, duration_ms: durationMs },
         },
       });
-      this.emitEvent({ type: 'turn.finished', payload: { outcome: 'interrupted', durationMs } });
-      reportChanges(this.opts.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
+      this.endTurn({ outcome: 'interrupted', durationMs });
     }
   }
 
@@ -500,7 +501,7 @@ export class InteractiveSession extends EventEmitter {
     this.emitEvent({ type: 'error', payload: { message: `failed to start claude: ${reason}` } });
     if (this.turnOpen) {
       this.turnOpen = false;
-      this.emitEvent({ type: 'turn.finished', payload: { outcome: 'error' } });
+      this.endTurn({ outcome: 'error' });
     }
     this.emitEvent({ type: 'session.ended', payload: { exitCode: null, signal: null, reason: 'error' } });
     for (const resolve of this.stopWaiters.splice(0)) resolve();
@@ -871,17 +872,13 @@ export class InteractiveSession extends EventEmitter {
     this.turnTokens = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
     this.costAtTurnStart = this.cost;
     const summary = reply.trim().slice(0, SUMMARY_CHARS);
-    this.emitEvent({
-      type: 'turn.finished',
-      payload: {
-        outcome: failed ? 'error' : 'success',
-        ...(summary ? { summary } : {}),
-        ...(turnCost !== undefined ? { costUsd: turnCost } : {}),
-        durationMs,
-        ...(neutral ? { tokens: neutral } : {}),
-      },
+    this.endTurn({
+      outcome: failed ? 'error' : 'success',
+      ...(summary ? { summary } : {}),
+      ...(turnCost !== undefined ? { costUsd: turnCost } : {}),
+      durationMs,
+      ...(neutral ? { tokens: neutral } : {}),
     });
-    reportChanges(this.opts.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
     this.releaseHeld();
   }
 
@@ -961,7 +958,7 @@ export class InteractiveSession extends EventEmitter {
         message: `This Quest's terminal didn't take your message: it may be showing a screen only the terminal shows. Stop and send it again, or answer it with \`claude --resume ${this.opts.session}\` in a terminal.${what}`,
       },
     });
-    this.emitEvent({ type: 'turn.finished', payload: { outcome: 'error' } });
+    this.endTurn({ outcome: 'error' });
     // It never reached the input box, so only a new process can take the next message.
     if (!started && this.pty) this.stopProcess(this.pty);
   }
@@ -1067,11 +1064,22 @@ export class InteractiveSession extends EventEmitter {
     if (failed) this.emitEvent({ type: 'error', payload: { message: `claude exited with code ${exitCode}` } });
     if (this.turnOpen) {
       this.turnOpen = false;
-      this.emitEvent({ type: 'turn.finished', payload: { outcome: failed ? 'error' : 'interrupted' } });
+      this.endTurn({ outcome: failed ? 'error' : 'interrupted' });
     }
     this.emitEvent({ type: 'session.ended', payload: { exitCode, signal: null, reason: failed ? 'error' : 'exit' } });
     if (this.closing) this.opts.hooks.unregister(this.opts.session);
     for (const resolve of this.stopWaiters.splice(0)) resolve();
+  }
+
+  /** Ends a turn however it ended, then reports what it changed, so every turn gets its `turn.tally`. */
+  private endTurn(payload: TurnFinishedPayload): void {
+    this.emitEvent({ type: 'turn.finished', payload });
+    this.tallies = reportChanges(
+      this.opts.changes,
+      (payload) => this.emitEvent({ type: 'claude.event', payload }),
+      (files) => this.emitEvent({ type: 'turn.tally', payload: files ? { files } : {} }),
+      this.tallies,
+    );
   }
 
   private emitEvent(event: ClaudeSessionEvent): void {

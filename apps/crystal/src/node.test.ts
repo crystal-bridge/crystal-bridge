@@ -8,6 +8,7 @@ import type { Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   MAX_CLI_UPDATE_REASON,
+  MAX_TALLY_LINK,
   NodeError,
   type Effort,
   type HubScoutAction,
@@ -1208,6 +1209,160 @@ describe('startNode', () => {
     });
   });
 
+  describe('Deeds (#289)', () => {
+    async function startQuest(crystal: CrystalNode) {
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'go' }));
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      expect(crystal.holds(session)).toBe(true);
+      return { conn, session };
+    }
+    const deeds = (conn: ConnRecorder) => conn.frames.filter((frame) => frame.type === 'deed.recorded');
+
+    it('passes on a Deed a Quest records, as an event in its stream, with a new id', async () => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      const result = crystal.recordDeed(session, { deed: 'Moved to Node 24' });
+      expect(result).toMatchObject({ ok: true, id: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+      const id = (result as { id: string }).id;
+      const frame = await waitForFrame(conn, (f) => f.type === 'deed.recorded');
+      expect(frame).toMatchObject({ type: 'deed.recorded', session, payload: { id, deed: 'Moved to Node 24' } });
+      expect(Object.keys(frame.payload as object).sort()).toEqual(['deed', 'id']);
+    });
+
+    it('refuses a Deed for a Quest it doesn’t run', async () => {
+      const crystal = createNode({});
+      await waitForFrame(await nextConnection(harness, 0), (frame) => frame.kind === 'hello');
+      expect(crystal.recordDeed(randomUUID(), { deed: 'x' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/not running on this node/),
+      });
+    });
+
+    it.each([
+      ['the turn finishes', { type: 'turn.finished', payload: { outcome: 'success' } }],
+      ['the process ends mid-turn', { type: 'session.ended', payload: { exitCode: 0, signal: null } }],
+    ])('refuses the fourth Deed of a turn, and counts again after %s', async (_name, event) => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      for (let i = 0; i < 3; i++) expect(crystal.recordDeed(session, { deed: `D${i}` }).ok).toBe(true);
+      expect(crystal.recordDeed(session, { deed: 'D3' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/at most 3 Deeds in one turn/),
+      });
+      await waitForFrame(conn, () => deeds(conn).length === 3);
+      expect(deeds(conn)).toHaveLength(3);
+      created.at(-1)!.fake.emit('event', event);
+      expect(crystal.recordDeed(session, { deed: 'Again' }).ok).toBe(true);
+    });
+  });
+
+  describe('the call at Close (#289)', () => {
+    const fakeClosing = (result: unknown) => ({
+      run: vi.fn(async (_session: string, _cwd: string) => {
+        if (result instanceof Error) throw result;
+        return result as never;
+      }),
+      stop: vi.fn(),
+    });
+    async function started(closing?: ReturnType<typeof fakeClosing>) {
+      createNode(closing ? { closing } : {});
+      const conn = await nextConnection(harness, 0);
+      const hello = await waitForFrame(conn, (f) => f.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'go' }));
+      await waitForFrame(conn, (f) => f.type === 'session.started');
+      return { conn, session, hello };
+    }
+    const types = ['session.closed', 'deeds.closing', 'deed.recorded'];
+    const seen = (conn: ConnRecorder) =>
+      conn.frames.filter((f) => types.includes(f.type as string)).map((f) => f as Record<string, any>);
+
+    it('offers the call in its hello', async () => {
+      expect((await started(fakeClosing({ outcome: 'empty', deeds: [] }))).hello).toMatchObject({ deeds: true });
+      node?.close();
+      node = undefined;
+      await closeHarness(harness);
+      harness = await startHarness();
+      expect((await started()).hello).not.toHaveProperty('deeds');
+    });
+
+    it('closes first, then sends the Deeds from Close and how the call went', async () => {
+      const closing = fakeClosing({
+        outcome: 'recorded',
+        deeds: [{ deed: 'Released v0.8.1' }, { deed: 'Wrote the guide', detail: 'Under docs/.' }],
+        costUsd: 0.09,
+      });
+      const { conn, session } = await started(closing);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'recorded');
+      const frames = seen(conn);
+      expect(frames.map((f) => `${f.type}${f.payload.outcome ? ':' + f.payload.outcome : ''}`)).toEqual([
+        'session.closed',
+        'deeds.closing:writing',
+        'deed.recorded',
+        'deed.recorded',
+        'deeds.closing:recorded',
+      ]);
+      expect(frames[2]!.payload).toMatchObject({ deed: 'Released v0.8.1', closing: true });
+      expect(frames[3]!.payload).toMatchObject({ deed: 'Wrote the guide', detail: 'Under docs/.', closing: true });
+      expect(frames[2]!.payload.id).not.toBe(frames[3]!.payload.id);
+      expect(frames[4]!.payload).toEqual({ outcome: 'recorded', costUsd: 0.09 });
+      expect(closing.run).toHaveBeenCalledWith(session, '/w');
+    });
+
+    it('says why there were none', async () => {
+      const closing = fakeClosing({ outcome: 'timeout', deeds: [], reason: 'stopped after 120 s' });
+      const { conn, session } = await started(closing);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'timeout');
+      expect(seen(conn).filter((f) => f.type === 'deed.recorded')).toHaveLength(0);
+      expect(seen(conn).at(-1)!.payload).toEqual({ outcome: 'timeout', reason: 'stopped after 120 s' });
+    });
+
+    it('reports a call that throws as failed', async () => {
+      const { conn, session } = await started(fakeClosing(new Error('spawn failed')));
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      const frame = await waitForFrame(
+        conn,
+        (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'failed',
+      );
+      expect(frame.payload).toEqual({ outcome: 'failed', reason: 'spawn failed' });
+    });
+
+    it('makes no call without the option, or for a Kingdom that restarted without one', async () => {
+      const closing = fakeClosing({ outcome: 'empty', deeds: [], reason: 'x' });
+      const { conn, session } = await started(closing);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session }));
+      await waitForFrame(conn, (f) => f.type === 'session.closed');
+      expect(closing.run).not.toHaveBeenCalled();
+      const other = randomUUID();
+      conn.socket.send(
+        JSON.stringify({ type: 'session.close', session: other, deeds: true, resume: { cwd: '/old', nextSeq: 5 } }),
+      );
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'empty');
+      expect(closing.run).toHaveBeenCalledWith(other, '/old');
+    });
+
+    it('stops a call still running when Crystal shuts down, and sends nothing for it', async () => {
+      let release!: (r: unknown) => void;
+      const closing = {
+        run: vi.fn(() => new Promise((resolve) => (release = resolve)) as never),
+        stop: vi.fn(),
+      };
+      const { conn, session } = await started(closing as never);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing');
+      await node!.close();
+      expect(closing.stop).toHaveBeenCalled();
+      release({ outcome: 'recorded', deeds: [{ deed: 'late' }] });
+      await delay(30);
+      expect(seen(conn).filter((f) => f.type === 'deed.recorded')).toHaveLength(0);
+    });
+  });
+
   describe('Errands (#288)', () => {
     async function startQuest(crystal: CrystalNode) {
       const conn = await nextConnection(harness, 0);
@@ -1272,6 +1427,110 @@ describe('startNode', () => {
       for (let i = 0; i < 10; i++) expect(crystal.leaveErrand(session, { title: `E${i}`, body: '' }).ok).toBe(true);
       expect(crystal.leaveErrand(session, { title: 'E10', body: '' }).ok).toBe(false);
       expect(crystal.leaveErrand(other, { title: 'Mine', body: '' }).ok).toBe(true);
+    });
+  });
+
+  describe('turn tallies (#289)', () => {
+    const PR = 'https://github.com/acme/lantern/pull/7';
+    async function startQuest() {
+      createNode({});
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'go' }));
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      return { conn, session, fake: created.at(-1)!.fake };
+    }
+    const raw = (line: unknown) => ({ type: 'claude.event', payload: { engine: 'claude', raw: line } });
+    const write = (path: string) =>
+      raw({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 't1', name: 'Write', input: { file_path: path, content: '' } }] },
+      });
+    const printed = (text: string) =>
+      raw({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: text }] } });
+    const finished = { type: 'turn.finished', payload: { outcome: 'success' } };
+    const tally = (files?: string[]) => ({ type: 'turn.tally', payload: files ? { files } : {} });
+    const tallies = (conn: ConnRecorder) => conn.frames.filter((frame) => frame.type === 'turn.tally');
+
+    it('tallies a turn’s files and pull requests after its diff, under its turn.finished’s seq', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', write('/w/a.ts'));
+      fake.emit('event', printed(`Opened it:\n${PR}\n`));
+      fake.emit('event', finished);
+      const turn = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', tally(['a.ts', 'b.ts']));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect(sent).toMatchObject({ type: 'turn.tally', payload: { seq: turn.seq, files: 2, prs: [PR] } });
+      expect(sent.seq as number).toBeGreaterThan(turn.seq as number);
+    });
+
+    it('counts no more than 10 links', async () => {
+      const { conn, fake } = await startQuest();
+      const links = Array.from({ length: 12 }, (_, i) => `https://github.com/acme/lantern/pull/${i + 1}`);
+      fake.emit('event', printed(links.join('\n')));
+      fake.emit('event', finished);
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect((sent.payload as { prs: string[] }).prs).toEqual(links.slice(0, 10));
+    });
+
+    it('leaves out a link too long for the tally, keeping the rest', async () => {
+      const { conn, fake } = await startQuest();
+      const link = (length: number) => `https://github.com/acme/${'x'.repeat(length - 31)}/pull/1`;
+      const longest = link(MAX_TALLY_LINK);
+      expect(longest).toHaveLength(MAX_TALLY_LINK);
+      fake.emit('event', printed(`${link(MAX_TALLY_LINK + 1)}\n${longest}\n${PR}`));
+      fake.emit('event', finished);
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect((sent.payload as { prs: string[] }).prs).toEqual([longest, PR]);
+    });
+
+    it('pairs each diff with the oldest turn still waiting for one, even when turns overlap', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', write('/w/a.ts'));
+      fake.emit('event', printed(PR));
+      fake.emit('event', finished);
+      const first = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', write('/w/c.ts'));
+      fake.emit('event', finished);
+      const second = await waitForFrame(
+        conn,
+        (frame) => frame.type === 'turn.finished' && conn.frames.filter((f) => f.type === 'turn.finished').length === 2,
+      );
+      fake.emit('event', tally());
+      fake.emit('event', tally(['x.ts']));
+      await waitForFrame(conn, () => tallies(conn).length === 2);
+      expect(tallies(conn).map((frame) => frame.payload)).toEqual([
+        { seq: first.seq, files: 1, prs: [PR] },
+        { seq: second.seq, files: 2, prs: [] },
+      ]);
+      fake.emit('event', tally(['y.ts']));
+      await delay(50);
+      expect(tallies(conn)).toHaveLength(2);
+    });
+
+    it('leaves a turn the process ended mid-way out of the next turn’s tally', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', write('/w/a.ts'));
+      fake.emit('event', printed(PR));
+      fake.emit('event', { type: 'session.ended', payload: { exitCode: 0, signal: null } });
+      fake.emit('event', write('/w/b.ts'));
+      fake.emit('event', finished);
+      const turn = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect(sent.payload).toEqual({ seq: turn.seq, files: 1, prs: [] });
+    });
+
+    it('sends files 0 when nothing changed', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', finished);
+      const turn = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect(sent.payload).toEqual({ seq: turn.seq, files: 0, prs: [] });
     });
   });
 

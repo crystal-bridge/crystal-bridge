@@ -524,6 +524,9 @@ A restore loses only what happened after that backup; Crystals resend events the
 - The first start after the migration fills turn records for the turns the hub already holds, once. It can take a few
   seconds on a large database.
 - Update the hub before the Kingdoms. An older hub stores the new events as events it doesn't know and shows no feed.
+- Older Kingdoms send no tally, so their turn records show no counts, and they close with no call at Close.
+- A Quest started before this release has no Deed line and records none during its turns, but still gets Deeds at Close.
+- The call at Close needs the Kingdom's own CLI login, as Quests do.
 - The release that added it applied migration 14, so rolling back past it refuses to start (see
   [Rolling back](#rolling-back)).
 

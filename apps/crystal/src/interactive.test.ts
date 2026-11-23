@@ -208,7 +208,7 @@ describe('InteractiveSession', () => {
     const { args } = spawned[0]!;
     const settings = JSON.parse(readFileSync(args[args.indexOf('--settings') + 1]!, 'utf8'));
     expect(settings.permissions).toEqual({
-      allow: ['mcp__crystal__title', 'mcp__crystal__errand'],
+      allow: ['mcp__crystal__title', 'mcp__crystal__errand', 'mcp__crystal__deed'],
       additionalDirectories: ['/tmp/files/s1'],
     });
   });
@@ -291,7 +291,7 @@ describe('InteractiveSession', () => {
     const kinds = events.map((e) =>
       e.type === 'claude.event' ? (e.payload as { raw: { type: string } }).raw.type : e.type,
     );
-    expect(kinds.slice(-3)).toEqual(['assistant', 'result', 'turn.finished']);
+    expect(kinds.slice(-4)).toEqual(['assistant', 'result', 'turn.finished', 'turn.tally']);
   });
 
   it('gives up waiting for the reply after a moment, so a turn always finishes', async () => {
@@ -301,7 +301,8 @@ describe('InteractiveSession', () => {
     await tick();
     hook('Stop', { last_assistant_message: 'never written', background_tasks: [] });
     await tick(120);
-    expect(events.at(-1)).toMatchObject({ type: 'turn.finished', payload: { outcome: 'success' } });
+    expect(events.at(-2)).toMatchObject({ type: 'turn.finished', payload: { outcome: 'success' } });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: {} });
   });
 
   it('streams new transcript lines as claude events and ends the turn on the Stop hook', async () => {
@@ -325,14 +326,15 @@ describe('InteractiveSession', () => {
 
     hook('Stop', { last_assistant_message: 'Hi!', background_tasks: [] });
     await tick();
-    expect(events.at(-2)).toMatchObject({
+    expect(events.at(-3)).toMatchObject({
       type: 'claude.event',
       payload: { raw: { type: 'result', subtype: 'success', result: 'Hi!', total_cost_usd: 0.25 } },
     });
-    expect(events.at(-1)).toMatchObject({
+    expect(events.at(-2)).toMatchObject({
       type: 'turn.finished',
       payload: { outcome: 'success', summary: 'Hi!', costUsd: 0.25 },
     });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: {} });
     expect(session.busy).toBe(false);
   });
 
@@ -510,7 +512,8 @@ describe('InteractiveSession', () => {
     expect(error?.payload).toEqual({
       message: expect.stringContaining('A dialog the bridge cannot see\n1. Yes  2. No'),
     });
-    expect(events.at(-1)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+    expect(events.at(-2)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: {} });
     expect(session.busy).toBe(false);
   });
 
@@ -526,8 +529,9 @@ describe('InteractiveSession', () => {
     session.send('are you there?');
     await tick(100);
     expect(spawned[0]!.pty.killed).toEqual([]);
-    expect(events.at(-2)).toMatchObject({ type: 'error', payload: { message: expect.stringContaining('terminal') } });
-    expect(events.at(-1)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+    expect(events.at(-3)).toMatchObject({ type: 'error', payload: { message: expect.stringContaining('terminal') } });
+    expect(events.at(-2)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: {} });
   });
 
   it('says why it counts as busy: a message not yet taken, a turn open, or background work', async () => {
@@ -690,8 +694,8 @@ describe('InteractiveSession', () => {
     it('stops a start nobody answered, so the next message can begin again', async () => {
       const { spawned, events, session } = harness({ startWaitMs: 5, terminalWaitMs: 10 });
       session.start('hello');
-      await until(() => events.at(-1)?.type === 'turn.finished');
-      expect(events.at(-1)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+      await until(() => events.at(-1)?.type === 'turn.tally');
+      expect(events.at(-2)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
       expect(spawned[0]!.pty.killed).toEqual(['SIGTERM']);
     });
 
@@ -722,10 +726,11 @@ describe('InteractiveSession', () => {
     await tick();
     session.interrupt();
     expect(spawned[0]!.pty.written.at(-1)).toBe('\x1b');
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-2)).toEqual({
       type: 'turn.finished',
       payload: { outcome: 'interrupted', durationMs: expect.any(Number) },
     });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: {} });
     expect(session.busy).toBe(false);
   });
 
@@ -885,11 +890,55 @@ describe('InteractiveSession stats and inventory', () => {
     hook('Stop', { last_assistant_message: 'Done', background_tasks: [] });
     await tick();
     expect(begun).toEqual(['begin']);
-    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 1);
-    expect(events.at(-1)).toMatchObject({
+    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 2);
+    expect(events.at(-2)).toMatchObject({
       type: 'claude.event',
       payload: { raw: { type: 'system', subtype: 'turn_changes', files: ['a.ts'] } },
     });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: { files: ['a.ts'] } });
+  });
+
+  it("sends each turn's tally in turn order when a later diff is in first", async () => {
+    let slow: (files: string[]) => void = () => {};
+    const diffs = [new Promise<string[]>((r) => (slow = r)), Promise.resolve(['b.ts'])];
+    const { session, events, hook, line } = harness({
+      changes: { begin: async () => {}, finish: () => diffs.shift()! },
+    });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    await tick();
+    line(withUsage('m1', 'Done', { output_tokens: 1 }));
+    hook('Stop', { last_assistant_message: 'Done', background_tasks: [] });
+    await tick();
+    hook('UserPromptSubmit', { prompt: 'more' });
+    await tick();
+    line(withUsage('m2', 'Again', { output_tokens: 1 }));
+    hook('Stop', { last_assistant_message: 'Again', background_tasks: [] });
+    await tick();
+    expect(events.filter((e) => e.type === 'turn.finished')).toHaveLength(2);
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([]);
+    slow(['a.ts']);
+    await tick();
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([
+      { type: 'turn.tally', payload: { files: ['a.ts'] } },
+      { type: 'turn.tally', payload: { files: ['b.ts'] } },
+    ]);
+  });
+
+  it('reports what a turn changed when the process exits mid-turn', async () => {
+    const { session, events, hook, spawned } = harness({
+      changes: { begin: async () => {}, finish: async () => ['a.ts'] },
+    });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    await tick();
+    spawned[0]!.pty.emitExit(1);
+    await until(() => events.some((e) => e.type === 'turn.tally'));
+    const finished = events.findIndex((e) => e.type === 'turn.finished');
+    expect(finished).toBeGreaterThanOrEqual(0);
+    const tally = events.findIndex((e) => e.type === 'turn.tally');
+    expect(tally).toBeGreaterThan(finished);
+    expect(events[tally]).toEqual({ type: 'turn.tally', payload: { files: ['a.ts'] } });
   });
 
   it('gives each turn result the cost, its own tokens once per message, its API time and the context window', async () => {
@@ -1117,8 +1166,9 @@ describe('InteractiveSession when a process cannot start', () => {
     await tick();
     fail.now = true;
     expect(() => session.send('next')).not.toThrow();
-    expect(events.at(-3)).toMatchObject({ type: 'error' });
-    expect(events.at(-2)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+    expect(events.at(-4)).toMatchObject({ type: 'error' });
+    expect(events.at(-3)).toEqual({ type: 'turn.finished', payload: { outcome: 'error' } });
+    expect(events.at(-2)).toEqual({ type: 'turn.tally', payload: {} });
     expect(events.at(-1)).toEqual(ended);
 
     fail.now = false;

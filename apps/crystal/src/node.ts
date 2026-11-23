@@ -56,11 +56,18 @@ import {
   type ScoutLink,
   type ScoutRun,
   type QuestTitledPayload,
+  MAX_DEEDS_PER_TURN,
   MAX_ERRANDS_PER_TURN,
+  MAX_TALLY_LINK,
+  MAX_TALLY_PRS,
+  lootPath,
+  lootPaths,
+  trophyLinks,
 } from '@crystal-bridge/protocol';
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
 import { readSessionFile } from './files.js';
+import type { Closing } from './closing.js';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
 import type { ReplayEvent } from './transcripts.js';
 import type { ClaudeSessionEvent } from './session.js';
@@ -119,6 +126,8 @@ export interface PermissionServerLike {
 }
 
 export interface StartNodeOptions {
+  /** Makes the call at Close (`closing.ts`); without it, hello doesn't offer `deeds` and `session.close` ignores it. */
+  closing?: Closing;
   hubUrl: string;
   node: string;
   /** This node's token from the Airship's `node:add`, sent as a bearer header. */
@@ -218,6 +227,11 @@ export interface CrystalNode {
   leaveErrand(
     session: string,
     errand: { title: string; body: string },
+  ): { ok: true; id: string } | { ok: false; reason: string };
+  /** Passes on a Deed a Quest records (the `deed` tool, #289), at most 3 a turn, or says why not. */
+  recordDeed(
+    session: string,
+    deed: { deed: string; detail?: string },
   ): { ok: true; id: string } | { ok: false; reason: string };
   /**
    * Closes every session, stops reconnecting and closes the socket. Resolves once the sessions' processes have
@@ -339,6 +353,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   const patrolQuests = new Map<string, PatrolQuest>();
   /** Errands each Quest has left this turn; in memory only, counted again once the turn or process ends. */
   const errandsThisTurn = new Map<string, number>();
+  const deedsThisTurn = new Map<string, number>();
+  /** Each Quest's Loot and Trophies so far this turn, by the shared rules, for its `turn.tally`. */
+  const turnLoot = new Map<string, { files: Set<string>; prs: Set<string> }>();
+  /**
+   * Finished turns' Loot and Trophies, oldest first, each under its `turn.finished`'s seq until its diff is in. A
+   * queue: the next turn can finish before this one's diff, and the engines send the diffs in order.
+   */
+  const finishedLoot = new Map<string, { seq: number; files: Set<string>; prs: Set<string> }[]>();
   /** Patrol Quests let go while they were still starting, so they aren't watched once they've started. */
   const forgottenQuests = new Set<string>();
 
@@ -365,12 +387,14 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     }
   }
 
-  function sendEnvelope(sessionId: string, type: EventType, payload: unknown): void {
+  /** Sends an event in a session's stream; returns the seq it went out under. */
+  function sendEnvelope(sessionId: string, type: EventType, payload: unknown): number {
     const state = sessions.get(sessionId);
     const seq = state ? state.seq++ : 0;
     const envelope: Envelope = { node: nodeId, session: sessionId, seq, ts: Date.now(), type, payload };
     if (state) state.unacked.set(seq, envelope);
     wsSend(envelope);
+    return seq;
   }
 
   /**
@@ -436,6 +460,32 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     return !engine || engine === 'stream' || Boolean(engines?.includes(engine));
   }
 
+  /** Adds the files a forwarded line's file tools wrote and the pull requests it printed to its Quest's turn. */
+  function tallyLoot(sessionId: string, cwd: string, raw: unknown): void {
+    const paths = lootPaths(raw);
+    const links = trophyLinks(raw);
+    if (!paths.length && !links.length) return;
+    let loot = turnLoot.get(sessionId);
+    if (!loot) turnLoot.set(sessionId, (loot = { files: new Set(), prs: new Set() }));
+    for (const path of paths) loot.files.add(lootPath(path, cwd));
+    for (const link of links) loot.prs.add(link);
+  }
+
+  /** The finished turn's diff is in: its `turn.tally`, counting files as the browser counts Loot. */
+  function sendTally(sessionId: string, diff: string[] | undefined): void {
+    const waiting = finishedLoot.get(sessionId);
+    const loot = waiting?.shift();
+    if (!loot) return;
+    if (!waiting!.length) finishedLoot.delete(sessionId);
+    for (const file of diff ?? []) loot.files.add(file);
+    sendEnvelope(sessionId, 'turn.tally', {
+      seq: loot.seq,
+      files: loot.files.size,
+      // The hub ignores a whole tally with one link over the schema's length: leave such a link out.
+      prs: [...loot.prs].filter((link) => link.length <= MAX_TALLY_LINK).slice(0, MAX_TALLY_PRS),
+    });
+  }
+
   /** Registers a session and wires its events through, numbering envelopes from `seq`. */
   function createSession(
     sessionId: string,
@@ -468,9 +518,29 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
     runtime.on('event', (event: ClaudeSessionEvent) => {
       // The process that asked can no longer use an answer; deny so nothing stays pending forever.
-      if (event.type === 'session.ended') denyPending(sessionId);
-      if (event.type === 'turn.finished' || event.type === 'session.ended') errandsThisTurn.delete(sessionId);
-      sendEnvelope(sessionId, event.type, event.payload);
+      if (event.type === 'session.ended') {
+        denyPending(sessionId);
+        // A turn the process ended mid-way sends no turn.finished: its Loot isn't the next turn's. Finished turns
+        // stay queued, since their diffs still come.
+        turnLoot.delete(sessionId);
+      }
+      if (event.type === 'turn.finished' || event.type === 'session.ended') {
+        errandsThisTurn.delete(sessionId);
+        deedsThisTurn.delete(sessionId);
+      }
+      if (event.type === 'turn.tally') {
+        sendTally(sessionId, event.payload.files);
+        return;
+      }
+      if (event.type === 'claude.event') tallyLoot(sessionId, cwd, event.payload.raw);
+      const seq = sendEnvelope(sessionId, event.type, event.payload);
+      if (event.type === 'turn.finished') {
+        const loot = turnLoot.get(sessionId) ?? { files: new Set<string>(), prs: new Set<string>() };
+        turnLoot.delete(sessionId);
+        const waiting = finishedLoot.get(sessionId) ?? [];
+        waiting.push({ seq, ...loot });
+        finishedLoot.set(sessionId, waiting);
+      }
       watchPatrolQuest(sessionId, event);
     });
     return runtime;
@@ -916,6 +986,29 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       }));
     }
     sendEnvelope(cmd.session, 'session.closed', worktree ? { worktree } : {});
+    if (cmd.deeds && options.closing) void recordClosing(cmd.session, state.cwd);
+  }
+
+  /** The call at Close: says it is writing, then sends its Deeds and how it went; sends nothing once Crystal has closed. */
+  async function recordClosing(session: string, cwd: string): Promise<void> {
+    const closing = options.closing;
+    if (!closing || closed) return;
+    sendEnvelope(session, 'deeds.closing', { outcome: 'writing' });
+    let result: Awaited<ReturnType<Closing['run']>>;
+    try {
+      result = await closing.run(session, cwd);
+    } catch (error) {
+      result = { outcome: 'failed', deeds: [], reason: error instanceof Error ? error.message : String(error) };
+    }
+    if (closed) return;
+    for (const { deed, detail } of result.deeds) {
+      sendEnvelope(session, 'deed.recorded', { id: randomUUID(), deed, ...(detail ? { detail } : {}), closing: true });
+    }
+    sendEnvelope(session, 'deeds.closing', {
+      outcome: result.outcome,
+      ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+      ...(result.reason ? { reason: result.reason.slice(0, 300) } : {}),
+    });
   }
 
   /**
@@ -1185,6 +1278,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.release ? { release: options.release } : {}),
           ...(options.updateCli ? { cliUpdate: true } : {}),
           ...(options.listInventory ? { inventory: true } : {}),
+          ...(options.closing ? { deeds: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
           ...(options.scouts ? { scouts: true, scoutQuests: true, patrolDrafts: true } : {}),
           ...(options.patrols ? { patrols: true, patrolsFromApp: options.patrols.fromApp(), patrolPreview: true } : {}),
@@ -1274,6 +1368,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
   function close(): Promise<void> {
     closed = true;
+    options.closing?.stop();
     if (scanTimer) clearInterval(scanTimer);
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -1283,6 +1378,9 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     // A Patrol's Quest ended by closing hasn't ended its run: the Patrols say so on the next start.
     patrolQuests.clear();
     errandsThisTurn.clear();
+    deedsThisTurn.clear();
+    turnLoot.clear();
+    finishedLoot.clear();
     const stopping: Promise<void>[] = [];
     for (const [id, state] of sessions) {
       // One that won't stop mustn't leave the rest running after Crystal has gone.
@@ -1375,6 +1473,24 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     return { ok: true, id };
   }
 
+  function recordDeed(
+    session: string,
+    deed: { deed: string; detail?: string },
+  ): { ok: true; id: string } | { ok: false; reason: string } {
+    if (!holds(session)) return { ok: false, reason: 'This session is not running on this node.' };
+    const done = deedsThisTurn.get(session) ?? 0;
+    if (done >= MAX_DEEDS_PER_TURN) {
+      return {
+        ok: false,
+        reason: `A Quest may record at most ${MAX_DEEDS_PER_TURN} Deeds in one turn; record only what matters most.`,
+      };
+    }
+    const id = randomUUID();
+    sendEnvelope(session, 'deed.recorded', { id, deed: deed.deed, ...(deed.detail ? { detail: deed.detail } : {}) });
+    deedsThisTurn.set(session, done + 1);
+    return { ok: true, id };
+  }
+
   return {
     handlePermissionRequest,
     status,
@@ -1393,6 +1509,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     holds,
     titleQuest,
     leaveErrand,
+    recordDeed,
     close,
   };
 }

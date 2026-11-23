@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
+import { claudeProjectsDir, findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
 
 // Shapes recorded from Claude Code 2.1.312 transcripts; the text is made up.
 const ID = '11111111-1111-4111-8111-111111111111';
@@ -165,5 +165,15 @@ describe('transcripts', () => {
       },
       { type: 'user.message', payload: { text: 'Thanks' } },
     ]);
+  });
+});
+
+describe('claudeProjectsDir', () => {
+  it("is the projects folder in the env's CLAUDE_CONFIG_DIR, else in ~/.claude", () => {
+    const home = join(tmpdir(), 'home');
+    const config = join(tmpdir(), 'config');
+    expect(claudeProjectsDir({ CLAUDE_CONFIG_DIR: config }, home)).toBe(join(config, 'projects'));
+    expect(claudeProjectsDir({}, home)).toBe(join(home, '.claude', 'projects'));
+    expect(claudeProjectsDir({ CLAUDE_CONFIG_DIR: '' }, home)).toBe(join(home, '.claude', 'projects'));
   });
 });

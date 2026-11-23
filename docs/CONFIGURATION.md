@@ -19,6 +19,8 @@ doesn't list. It checks names only, so check a default against the code when you
 | `CRYSTAL_IDLE_MS` | `600000` | Crystal: stop an idle session's process after this long; the next follow-up resumes it |
 | `CRYSTAL_DEFAULT_MODE` | `manual`; `join` and the deploy scripts write `auto` | Crystal: permission mode for a session that arrives without one. An unknown value also means `manual`. New Quest always sends the mode picked in the app (Auto unless this device chose another), so this reaches only Quests adopted with Recruit |
 | `CRYSTAL_PROJECT_ROOTS` | `~/code` | Crystal: where the New Quest picker looks for repos (separated like `PATH`: `:`, or `;` on Windows) |
+| `CRYSTAL_CLOSING_MODEL` | unset | Crystal: passed as `--model` to the call at Close that writes a Quest's Deeds, to use a cheaper model than the account's default ([Deeds](./DEEDS.md)) |
+| `CRYSTAL_CLOSING_BUDGET_USD` | `1` | Crystal: `--max-budget-usd` for that call, a backstop: the CLI checks it after the call, so a call over it is billed in full and writes nothing |
 | `CRYSTAL_CHROME` | unset | Crystal: `1` starts sessions with `--chrome` |
 | `CRYSTAL_ENGINES` | `stream` | Crystal: `stream,interactive` enables the interactive engine; `stream` is always on |
 | `CRYSTAL_SUMMONS` | unset | Crystal: machines its Quests may run jobs on, as SSH host names, comma-separated, each with an optional `name=` and `/limit` of Casts at once. Crystal rereads it from `crystal.env` with no restart; see [Summons](SUMMONS.md) |

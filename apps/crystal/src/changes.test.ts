@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { gitChanges } from './changes.js';
+import { FINISH_CEILING_MS, gitChanges, reportChanges } from './changes.js';
 
 function repo() {
   const dir = mkdtempSync(join(tmpdir(), 'cb-changes-'));
@@ -124,5 +124,173 @@ describe('gitChanges', () => {
     await changes.begin();
     for (const name of ['a', 'b', 'c']) writeFileSync(join(dir, name), '1');
     expect(await changes.finish()).toHaveLength(2);
+  });
+});
+
+describe('reportChanges', () => {
+  const tracker = (files: string[] | undefined) => ({ begin: async () => {}, finish: async () => files });
+
+  it('calls back with the diff once it’s in, even when it found nothing', async () => {
+    const emit = vi.fn();
+    const diffed = vi.fn();
+    reportChanges(tracker([]), emit, diffed);
+    await vi.waitFor(() => expect(diffed).toHaveBeenCalledWith([]));
+    expect(emit).not.toHaveBeenCalled();
+
+    const order: string[] = [];
+    reportChanges(
+      tracker(['a.ts']),
+      (payload) => order.push(`emit ${JSON.stringify(payload.raw)}`),
+      (files) => order.push(`diffed ${JSON.stringify(files)}`),
+    );
+    await vi.waitFor(() => expect(order).toHaveLength(2));
+    expect(order).toEqual([
+      `emit ${JSON.stringify({ type: 'system', subtype: 'turn_changes', files: ['a.ts'] })}`,
+      'diffed ["a.ts"]',
+    ]);
+  });
+
+  it('calls back with nothing known when the tracker can’t tell', async () => {
+    const emit = vi.fn();
+    const diffed = vi.fn();
+    reportChanges(tracker(undefined), emit, diffed);
+    await vi.waitFor(() => expect(diffed).toHaveBeenCalledWith(undefined));
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('calls back with nothing known, and leaves no unhandled rejection, when the tracker fails', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const emit = vi.fn();
+      const diffed = vi.fn();
+      const failing = { begin: async () => {}, finish: () => Promise.reject(new Error('git is gone')) };
+      reportChanges(failing, emit, diffed);
+      await vi.waitFor(() => expect(diffed).toHaveBeenCalledWith(undefined));
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0]![0])).toMatch(/^\[crystal\] .*git is gone/);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(unhandled).toEqual([]);
+      expect(emit).not.toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('calls back in turn order when a later turn’s diff is in first', async () => {
+    const order: string[] = [];
+    let slow: (files: string[]) => void = () => {};
+    const first = { begin: async () => {}, finish: () => new Promise<string[]>((r) => (slow = r)) };
+    const emit = (payload: { raw: unknown }) =>
+      order.push(`emit ${JSON.stringify((payload.raw as { files: string[] }).files)}`);
+    const tallied = reportChanges(first, emit, (files) => order.push(`diffed ${JSON.stringify(files)}`));
+    const next = tracker(['b.ts']);
+    const finished = vi.spyOn(next, 'finish');
+    const second = reportChanges(next, emit, (files) => order.push(`diffed ${JSON.stringify(files)}`), tallied);
+    // The second diff starts at once: only the sending waits for the slow first turn.
+    expect(finished).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(order).toEqual([]);
+    slow(['a.ts']);
+    await second;
+    expect(order).toEqual(['emit ["a.ts"]', 'diffed ["a.ts"]', 'emit ["b.ts"]', 'diffed ["b.ts"]']);
+  });
+
+  it('keeps reporting later turns when a callback throws', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const emit = vi.fn();
+      const second = vi.fn();
+      const first = reportChanges(tracker(['a.ts']), emit, () => {
+        throw new Error('tally lost');
+      });
+      const tallied = reportChanges(tracker(['b.ts']), emit, second, first);
+      await expect(first).resolves.toBeUndefined();
+      await expect(tallied).resolves.toBeUndefined();
+      expect(emit).toHaveBeenCalledTimes(2);
+      expect(second).toHaveBeenCalledWith(['b.ts']);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0]![0])).toMatch(/^\[crystal\] .*tally lost/);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('still calls back when sending the line throws', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const diffed = vi.fn();
+      const emit = () => {
+        throw new Error('socket gone');
+      };
+      await reportChanges(tracker(['a.ts']), emit, diffed);
+      expect(diffed).toHaveBeenCalledWith(['a.ts']);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('gives up on a diff that never comes, and the next turn follows', async () => {
+    vi.useFakeTimers();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const order: string[] = [];
+      let late: (files: string[]) => void = () => {};
+      const stuck = { begin: async () => {}, finish: () => new Promise<string[]>((r) => (late = r)) };
+      const emit = vi.fn();
+      const first = reportChanges(stuck, emit, (files) => order.push(`first ${JSON.stringify(files)}`));
+      reportChanges(tracker(['b.ts']), emit, (files) => order.push(`second ${JSON.stringify(files)}`), first);
+      await vi.advanceTimersByTimeAsync(FINISH_CEILING_MS - 1);
+      expect(order).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(order).toEqual(['first undefined', 'second ["b.ts"]']);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0]![0])).toMatch(/^\[crystal\] /);
+      // The diff that finally comes after the ceiling is dropped: the turn was already called back.
+      late(['late.ts']);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(order).toEqual(['first undefined', 'second ["b.ts"]']);
+      expect(JSON.stringify(emit.mock.calls)).not.toContain('late.ts');
+    } finally {
+      logged.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('still calls back, and the next turn follows, when the tracker throws at once', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const order: string[] = [];
+      const throwing = {
+        begin: async () => {},
+        finish: (): Promise<string[] | undefined> => {
+          throw new Error('x');
+        },
+      };
+      const first = reportChanges(throwing, vi.fn(), (files) => order.push(`first ${JSON.stringify(files)}`));
+      await reportChanges(tracker(['b.ts']), vi.fn(), (files) => order.push(`second ${JSON.stringify(files)}`), first);
+      expect(order).toEqual(['first undefined', 'second ["b.ts"]']);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('ignores a failed earlier report', async () => {
+    const diffed = vi.fn();
+    await reportChanges(tracker(['b.ts']), vi.fn(), diffed, Promise.reject(new Error('earlier')));
+    expect(diffed).toHaveBeenCalledWith(['b.ts']);
+  });
+
+  it('with no tracker, calls back at once with nothing known', () => {
+    const emit = vi.fn();
+    const diffed = vi.fn();
+    reportChanges(undefined, emit, diffed);
+    expect(diffed).toHaveBeenCalledWith(undefined);
+    expect(emit).not.toHaveBeenCalled();
   });
 });

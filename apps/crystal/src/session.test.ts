@@ -201,6 +201,7 @@ describe('ClaudeSession', () => {
       '--allowedTools',
       'mcp__crystal__title',
       'mcp__crystal__errand',
+      'mcp__crystal__deed',
       // The CLI defers MCP tools, so only the system prompt gets the Quest to use them (test/fixtures/README.md).
       '--append-system-prompt',
       QUEST_PROMPT,
@@ -293,7 +294,8 @@ describe('ClaudeSession', () => {
     for (const line of lines) child.stdout.write(`${line}\n`);
     await flush();
 
-    // The fixture's rate_limit_event and result lines are also followed by derived usage and turn.finished events.
+    // The fixture’s rate_limit_event and result lines are also followed by derived usage, turn.finished and
+    // turn.tally events.
     const claudeEvents = events.filter((event) => event.type === 'claude.event');
     expect(claudeEvents).toHaveLength(lines.length);
     for (const [i, event] of claudeEvents.entries()) {
@@ -302,6 +304,7 @@ describe('ClaudeSession', () => {
     expect(events.filter((event) => event.type !== 'claude.event').map((event) => event.type)).toEqual([
       'usage',
       'turn.finished',
+      'turn.tally',
     ]);
   });
 
@@ -1421,10 +1424,36 @@ describe('ClaudeSession turn.finished', () => {
     children[0]!.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success' })}\n`);
     await flush();
     expect(begun).toEqual(['begin']);
-    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 1);
-    expect(events.at(-1)).toMatchObject({
+    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 2);
+    expect(events.at(-2)).toMatchObject({
       type: 'claude.event',
       payload: { raw: { type: 'system', subtype: 'turn_changes', files: ['a.ts'] } },
     });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: { files: ['a.ts'] } });
+  });
+
+  it("sends each turn's tally in turn order when a later diff is in first", async () => {
+    const { spawnFn, children } = createSpawnMock();
+    let slow: (files: string[]) => void = () => {};
+    const diffs = [new Promise<string[]>((r) => (slow = r)), Promise.resolve(['b.ts'])];
+    const session = createSession(spawnFn, {
+      changes: { begin: async () => {}, finish: () => diffs.shift()! },
+    });
+    const events = collect(session);
+    session.start('hello');
+    children[0]!.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success' })}\n`);
+    await flush();
+    session.send('more');
+    await flush();
+    children.at(-1)!.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success' })}\n`);
+    await flush();
+    expect(events.filter((e) => e.type === 'turn.finished')).toHaveLength(2);
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([]);
+    slow(['a.ts']);
+    await flush();
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([
+      { type: 'turn.tally', payload: { files: ['a.ts'] } },
+      { type: 'turn.tally', payload: { files: ['b.ts'] } },
+    ]);
   });
 });
