@@ -143,8 +143,8 @@ event or run report is stored first, so a malformed one writes no row and is nev
 
 | Column                                    | Holds                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------ |
-| `id`                                      | primary key: `turn:<session>:<seq>`, `deed:<uuid>`, `run:<run id>` or `close:<session>:<seq>` |
-| `node`                                    | its Kingdom                                                              |
+| `id`                                      | `turn:<session>:<seq>`, `deed:<uuid>`, `run:<run id>` or `close:<session>:<seq>` |
+| `node`                                    | its Kingdom; the primary key is `(node, id)`                             |
 | `session`, `seq`                          | the Quest and the event that made it; empty for a script Patrol's run    |
 | `patrol`                                  | the Patrol, for a Patrol's Quest or run                                  |
 | `project`                                 | the project folder                                                       |
@@ -155,9 +155,10 @@ event or run report is stored first, so a malformed one writes no row and is nev
 | `at`                                      | when it happened                                                         |
 
 A prefixed id per kind keeps the four sources apart, and the hub's own `(session, seq)` key on events already drops a
-resent event before any row is made. Turn and Deed rows are written once; a tally fills its turn's counts later. A
+resent event before any row is made. A Kingdom picks its Deed and run ids, so the key includes the Kingdom: one
+Kingdom reporting another's id writes its own row and never touches the other's. Turn and Deed rows are written once; a tally fills its turn's counts later. A
 script Patrol's row is upserted from the run report, which comes twice under one id (out, then back), and written only
-once the run is back, finished or failed.
+once the run is back, finished or failed; like `patrol_runs`, it keeps the Patrol it was first reported under.
 
 The feed reads by Kingdom and time, and by Kingdom, project and time, and each has an index. Clients read it over HTTP,
 a page of days at a time, and get new rows as an additive `deeds` frame.

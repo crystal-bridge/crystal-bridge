@@ -128,7 +128,7 @@ describe('store migrations', () => {
     db.close();
   });
 
-  it('adds a deeds table keyed by its prefixed id, empty for a database that has Quests', () => {
+  it('adds a deeds table keyed by Kingdom and prefixed id, empty for a database that has Quests', () => {
     const db = new Database(path);
     db.exec(MIGRATIONS.slice(0, 13).join(';'));
     db.pragma('user_version = 13');
@@ -136,13 +136,22 @@ describe('store migrations', () => {
       `INSERT INTO sessions (id, node, cwd, label, status, created_at) VALUES ('s', 'n', '/r', 'fix it', 'idle', 1)`,
     );
     migrate(db);
-    const insert = `INSERT OR IGNORE INTO deeds (id, node, kind, at) VALUES ('turn:s:1', 'n', 'turn', 1)`;
-    db.exec(insert);
-    db.exec(insert);
-    const rows = db.prepare('SELECT * FROM deeds').all() as Record<string, unknown>[];
+    const insert = (node: string) =>
+      db.exec(
+        `INSERT INTO deeds (id, node, kind, at) VALUES ('turn:s:1', '${node}', 'turn', 1) ON CONFLICT DO NOTHING`,
+      );
+    insert('n');
+    insert('n');
+    insert('m');
+    const rows = db.prepare(`SELECT * FROM deeds WHERE node = 'n'`).all() as Record<string, unknown>[];
     expect(rows).toHaveLength(1);
+    expect(db.prepare(`SELECT node FROM deeds WHERE node = 'm'`).all()).toHaveLength(1);
+    // A conflict on the key is skipped, but a missing column is still refused, not hidden.
+    expect(() =>
+      db.exec(`INSERT INTO deeds (id, node, kind) VALUES ('turn:s:2', 'n', 'turn') ON CONFLICT (node, id) DO NOTHING`),
+    ).toThrow(/NOT NULL/);
     // An ordinary rowid table: WITHOUT ROWID would copy the long text key into every index.
-    expect(db.prepare('SELECT rowid FROM deeds').all()).toHaveLength(1);
+    expect(db.prepare('SELECT rowid FROM deeds').all()).toHaveLength(2);
     for (const column of [
       'session',
       'seq',

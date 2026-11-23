@@ -1802,7 +1802,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           for (const client of clients) sendToClient(client, { kind: 'patrol-runs', node: helloNode, patrol, runs });
           sendPatrols(helloNode);
           if (run.session === undefined && (run.outcome === 'finished' || run.outcome === 'failed')) {
-            const row = store.deed(`run:${run.id}`);
+            const row = store.deed(helloNode, `run:${run.id}`);
             if (row) sendDeeds(helloNode, [row]);
           }
           return;
@@ -1929,7 +1929,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           broadcast(envelope.data);
           if (envelope.data.type === 'errand.left') sendErrands(helloNode);
           const deedId = deedIdFor(envelope.data);
-          const deedRow = deedId ? store.deed(deedId) : undefined;
+          const deedRow = deedId ? store.deed(helloNode, deedId) : undefined;
           if (deedRow) sendDeeds(helloNode, [deedRow]);
           const attention = attentionFor(envelope.data);
           if (attention) {

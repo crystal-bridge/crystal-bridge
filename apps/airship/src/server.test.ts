@@ -1248,6 +1248,62 @@ describe('airship server', () => {
       expect(frame.deeds).toEqual([expect.objectContaining({ id: `run:${RUN}`, kind: 'patrol' })]);
     });
 
+    it('sends a Kingdom only its own row when another reports the same Deed id', async () => {
+      const OTHER = '33333333-3333-4333-8333-333333333333';
+      const DEED = '77777777-7777-4777-8777-777777777777';
+      const a = await started();
+      const b = await connectNode('node-b');
+      send(b.socket, sessionStartedEnvelope(OTHER, 'node-b'));
+      await b.frames.waitFor((frame) => frame.kind === 'ack');
+      const client = await connectClient();
+      send(a.socket, event(1, 'deed.recorded', { id: DEED, deed: 'From A' }));
+      await client.frames.waitFor(isDeeds);
+      const record = makeEnvelope({
+        session: OTHER,
+        node: 'node-b',
+        seq: 1,
+        type: 'deed.recorded',
+        payload: { id: DEED, deed: 'From B' },
+      });
+      send(b.socket, record);
+      const frame = await client.frames.waitFor((f) => f.kind === 'deeds' && f.node === 'node-b');
+      expect(frame.deeds).toEqual([expect.objectContaining({ id: `deed:${DEED}`, text: 'From B', session: OTHER })]);
+      const page = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&before=${FAR}`));
+      expect(page.body).toEqual({ deeds: [expect.objectContaining({ text: 'From A', session: SESSION })] });
+    });
+
+    it('sends a Kingdom only its own row when another reports the same run id', async () => {
+      const patrols = [
+        {
+          id: 'backup-check',
+          manifest: { name: 'Backup check', schedule: { every: '1h' }, script: 'check.sh' },
+          failures: 0,
+        },
+      ];
+      const client = await connectClient();
+      const nodes: Record<string, WebSocket> = {};
+      for (const name of ['node-a', 'node-b']) {
+        const socket = await openSocket(`${wsUrl}/node`);
+        sockets.push(socket);
+        send(socket, { kind: 'hello', node: name, patrols: true });
+        send(socket, { kind: 'patrols', patrols });
+        nodes[name] = socket;
+      }
+      const start = Date.now();
+      while (!(store.hasPatrol('node-a', 'backup-check') && store.hasPatrol('node-b', 'backup-check'))) {
+        if (Date.now() - start > 2000) throw new Error('timed out');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const run = { id: RUN, startedAt: 1, finishedAt: 5, trigger: 'schedule', outcome: 'finished' };
+      send(nodes['node-a']!, { kind: 'patrol-run', patrol: 'backup-check', run: { ...run, summary: 'On A' } });
+      await client.frames.waitFor(isDeeds);
+      send(nodes['node-b']!, { kind: 'patrol-run', patrol: 'backup-check', run: { ...run, summary: 'On B' } });
+      const frame = await client.frames.waitFor((f) => f.kind === 'deeds' && f.node === 'node-b');
+      expect(frame.deeds).toEqual([expect.objectContaining({ id: `run:${RUN}`, text: 'On B' })]);
+      const page = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&before=${FAR}`));
+      expect(page.body).toEqual({ deeds: [expect.objectContaining({ text: 'On A' })] });
+    });
+
     describe('Record its Deeds at Close', () => {
       const closeFor = async (node: Awaited<ReturnType<typeof started>>) => {
         const client = await connectClient();

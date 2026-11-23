@@ -65,7 +65,8 @@ export interface Deeds {
   recordScriptRun(node: string, patrol: string, run: PatrolRun): void;
   /** Rows with after <= at < before, newest first, and the time of the newest row before `after`. */
   deedsPage(node: string, page: { after: number; before: number; project?: string }): { deeds: Deed[]; older?: number };
-  deed(id: string): Deed | undefined;
+  /** A Kingdom's row by its id; another Kingdom's row with the same id is never it. */
+  deed(node: string, id: string): Deed | undefined;
   /** Part of the store's `forgetNode`. */
   forgetDeeds(node: string): void;
 }
@@ -110,14 +111,16 @@ function toDeed(row: Row): Deed {
 
 export function openDeeds(db: Database.Database): Deeds {
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO deeds (id, node, session, seq, patrol, project, kind, text, detail, outcome, cost_usd, duration_ms, files, prs, at)
-     VALUES (@id, @node, @session, @seq, @patrol, @project, @kind, @text, @detail, @outcome, @costUsd, @durationMs, NULL, NULL, @at)`,
+    `INSERT INTO deeds (id, node, session, seq, patrol, project, kind, text, detail, outcome, cost_usd, duration_ms, files, prs, at)
+     VALUES (@id, @node, @session, @seq, @patrol, @project, @kind, @text, @detail, @outcome, @costUsd, @durationMs, NULL, NULL, @at)
+     ON CONFLICT (node, id) DO NOTHING`,
   );
+  // A run keeps the Patrol it was first reported under, as in `patrol_runs`.
   const upsertRun = db.prepare(
     `INSERT INTO deeds (id, node, session, seq, patrol, project, kind, text, detail, outcome, cost_usd, duration_ms, files, prs, at)
      VALUES (@id, @node, NULL, NULL, @patrol, NULL, 'patrol', @text, NULL, @outcome, NULL, @durationMs, NULL, NULL, @at)
-     ON CONFLICT (id) DO UPDATE SET text = excluded.text, outcome = excluded.outcome,
-       duration_ms = excluded.duration_ms, at = excluded.at`,
+     ON CONFLICT (node, id) DO UPDATE SET text = excluded.text, outcome = excluded.outcome,
+       duration_ms = excluded.duration_ms, at = excluded.at WHERE deeds.patrol = excluded.patrol`,
   );
   const tally = db.prepare(
     `UPDATE deeds SET files = @files, prs = @prs WHERE id = @id AND node = @node AND kind = 'turn'`,
@@ -134,7 +137,7 @@ export function openDeeds(db: Database.Database): Deeds {
   const olderProject = db
     .prepare(`SELECT MAX(at) FROM deeds WHERE node = @node AND project = @project AND at < @after`)
     .pluck();
-  const one = db.prepare(`SELECT ${COLUMNS} FROM deeds WHERE id = ?`);
+  const one = db.prepare(`SELECT ${COLUMNS} FROM deeds WHERE node = ? AND id = ?`);
   const forget = db.prepare(`DELETE FROM deeds WHERE node = ?`);
 
   const blank = { patrol: null, text: null, detail: null, outcome: null, costUsd: null, durationMs: null };
@@ -205,8 +208,8 @@ export function openDeeds(db: Database.Database): Deeds {
       const older = (project === undefined ? olderAll : olderProject).get(args) as number | null;
       return { deeds: rows.map(toDeed), ...(older === null ? {} : { older }) };
     },
-    deed(id) {
-      const row = one.get(id) as Row | undefined;
+    deed(node, id) {
+      const row = one.get(node, id) as Row | undefined;
       return row && toDeed(row);
     },
     forgetDeeds(node) {
