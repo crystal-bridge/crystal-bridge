@@ -1431,4 +1431,29 @@ describe('ClaudeSession turn.finished', () => {
     });
     expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: { files: ['a.ts'] } });
   });
+
+  it("sends each turn's tally in turn order when a later diff is in first", async () => {
+    const { spawnFn, children } = createSpawnMock();
+    let slow: (files: string[]) => void = () => {};
+    const diffs = [new Promise<string[]>((r) => (slow = r)), Promise.resolve(['b.ts'])];
+    const session = createSession(spawnFn, {
+      changes: { begin: async () => {}, finish: () => diffs.shift()! },
+    });
+    const events = collect(session);
+    session.start('hello');
+    children[0]!.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success' })}\n`);
+    await flush();
+    session.send('more');
+    await flush();
+    children.at(-1)!.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success' })}\n`);
+    await flush();
+    expect(events.filter((e) => e.type === 'turn.finished')).toHaveLength(2);
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([]);
+    slow(['a.ts']);
+    await flush();
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([
+      { type: 'turn.tally', payload: { files: ['a.ts'] } },
+      { type: 'turn.tally', payload: { files: ['b.ts'] } },
+    ]);
+  });
 });

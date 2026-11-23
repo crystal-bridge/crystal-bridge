@@ -898,6 +898,33 @@ describe('InteractiveSession stats and inventory', () => {
     expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: { files: ['a.ts'] } });
   });
 
+  it("sends each turn's tally in turn order when a later diff is in first", async () => {
+    let slow: (files: string[]) => void = () => {};
+    const diffs = [new Promise<string[]>((r) => (slow = r)), Promise.resolve(['b.ts'])];
+    const { session, events, hook, line } = harness({
+      changes: { begin: async () => {}, finish: () => diffs.shift()! },
+    });
+    session.start('hello');
+    hook('SessionStart', { source: 'startup' });
+    await tick();
+    line(withUsage('m1', 'Done', { output_tokens: 1 }));
+    hook('Stop', { last_assistant_message: 'Done', background_tasks: [] });
+    await tick();
+    hook('UserPromptSubmit', { prompt: 'more' });
+    await tick();
+    line(withUsage('m2', 'Again', { output_tokens: 1 }));
+    hook('Stop', { last_assistant_message: 'Again', background_tasks: [] });
+    await tick();
+    expect(events.filter((e) => e.type === 'turn.finished')).toHaveLength(2);
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([]);
+    slow(['a.ts']);
+    await tick();
+    expect(events.filter((e) => e.type === 'turn.tally')).toEqual([
+      { type: 'turn.tally', payload: { files: ['a.ts'] } },
+      { type: 'turn.tally', payload: { files: ['b.ts'] } },
+    ]);
+  });
+
   it('reports what a turn changed when the process exits mid-turn', async () => {
     const { session, events, hook, spawned } = harness({
       changes: { begin: async () => {}, finish: async () => ['a.ts'] },
