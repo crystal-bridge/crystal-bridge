@@ -49,9 +49,23 @@ export interface DeedsFeedProps {
   /** Opens a script Patrol's run in its log. */
   onOpenRun: (patrol: string, run: string) => void;
   onLoadOlder: () => void;
+  /**
+   * The project chips seen unfiltered, kept by the caller per Kingdom so they outlive this copy (a phone's copy
+   * remounts) and never carry over to another Kingdom; absent, the feed keeps its own.
+   */
+  chipMemory?: { current: ChipMemory };
 }
 
 type ProjectCount = ReturnType<typeof deedProjects>[number];
+
+/** The chips' projects and counts as last seen unfiltered. */
+export interface ChipMemory {
+  all: number;
+  projects: ProjectCount[];
+}
+
+/** A fresh, empty chip memory for one Kingdom's feed. */
+export const newChipMemory = (): { current: ChipMemory } => ({ current: { all: 0, projects: [] } });
 
 interface Known {
   sessions: readonly SessionSummary[];
@@ -80,6 +94,7 @@ export function DeedsFeed({
   onOpenQuest,
   onOpenRun,
   onLoadOlder,
+  chipMemory,
 }: DeedsFeedProps) {
   const feed = w('deedsFeed');
   const rows = project === undefined ? state.deeds : state.deeds.filter((row) => row.project === project);
@@ -89,7 +104,7 @@ export function DeedsFeed({
     if (row.kind === 'close' && row.session && !closes.has(row.session)) closes.set(row.session, row);
   }
   const known: Known = { sessions, patrols, closes, phone, onOpenQuest, onOpenRun };
-  const chips = useChips(state.deeds, project);
+  const chips = useChips(state.deeds, project, chipMemory);
   return (
     <section aria-label={feed} className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 px-3">
@@ -182,8 +197,13 @@ export function DeedsFeed({
  * The chips' projects and counts. A filtered read holds only its project's rows, so the projects seen unfiltered stay
  * listed while a filter is on.
  */
-function useChips(rows: readonly Deed[], project: string | undefined): { all: number; projects: ProjectCount[] } {
-  const seen = useRef<{ all: number; projects: ProjectCount[] }>({ all: 0, projects: [] });
+function useChips(
+  rows: readonly Deed[],
+  project: string | undefined,
+  memory: { current: ChipMemory } | undefined,
+): ChipMemory {
+  const own = useRef<ChipMemory>({ all: 0, projects: [] });
+  const seen = memory ?? own;
   const listed = deedProjects(rows);
   const all = deedDays(rows, 0).reduce((sum, day) => sum + day.entries.length, 0);
   if (project === undefined) {

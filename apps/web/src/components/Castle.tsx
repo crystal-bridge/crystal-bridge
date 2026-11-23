@@ -1,5 +1,5 @@
 import type { PatrolSeed } from '../patrolForm.js';
-import { type CSSProperties, type ReactNode, useState } from 'react';
+import { type CSSProperties, type ReactNode, useRef, useState } from 'react';
 import type { KingdomLook } from '../appearance.js';
 import { KingdomIcon } from './KingdomIcon.js';
 import { hint, postingsLine, w } from '../theme/words.js';
@@ -28,7 +28,7 @@ import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
-import { DeedsFeed } from './Deeds.js';
+import { DeedsFeed, newChipMemory } from './Deeds.js';
 import { ErrandsPanel } from './Errands.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
 import { Watchtower } from './Watchtower.js';
@@ -511,9 +511,17 @@ export function Castle({
   const errandsHere = checklist && <div className="hidden xl:block">{errandsPanel(false)}</div>;
   // A script run asked for from the feed: both Watchtowers open that Patrol's runs and scroll to it.
   const [focus, setFocus] = useState<{ patrol: string; run: string } | undefined>();
+  // The feed's project chips per Kingdom, above its copies: a phone's copy remounts, and Kingdoms never share them.
+  const chipMemories = useRef(new Map<string, ReturnType<typeof newChipMemory>>());
+  let chipMemory = chipMemories.current.get(kingdom.id);
+  if (!chipMemory) {
+    chipMemory = newChipMemory();
+    chipMemories.current.set(kingdom.id, chipMemory);
+  }
   const deedsFeed = (phone: boolean) =>
     deeds && (
       <DeedsFeed
+        chipMemory={chipMemory}
         state={deeds}
         sessions={sessions}
         patrols={patrols?.patrols ?? []}
@@ -701,7 +709,10 @@ export function Castle({
 
         {deeds && rightColumn && <div className="hidden md:block xl:hidden">{deedsFeed(false)}</div>}
         {/* The phone reads the feed only: its entries don't unfold there. */}
-        {deeds?.loaded && deeds.deeds.length > 0 && <div className="md:hidden">{deedsFeed(true)}</div>}
+        {deeds && (deedsProject !== undefined || (deeds.loaded && deeds.deeds.length > 0)) && (
+          // Kept while a project is chosen, so its chips stay in reach to clear it.
+          <div className="md:hidden">{deedsFeed(true)}</div>
+        )}
 
         {onOpenBoard && scouts.length > 0 && (
           // A desktop panel for now, like the Summoning Circle below.

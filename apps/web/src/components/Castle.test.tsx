@@ -323,6 +323,50 @@ describe('Castle', () => {
       expect(within(phone).queryByRole('button', { name: /Fixed the build/ })).toBeNull();
     });
 
+    it('keeps each Kingdom’s project chips while a filter reads again, on a phone too', () => {
+      // One Quest per project, so each makes an entry of its own.
+      const row = (id: string, project: string, session: string) => ({
+        ...deeds.deeds[0]!,
+        id: `turn:${SESSION}:${id}`,
+        session,
+        project,
+      });
+      const both = { ...deeds, deeds: [row('1', '/r/acme/lantern', 'a'), row('2', '/r/acme/forge', 'b')] };
+      const props = renderCastle({ deeds: both });
+      const rerender = (overrides: Partial<Parameters<typeof Castle>[0]>) =>
+        // The same tree, so Castle and the feeds stay mounted as they do in the app.
+        render(<Castle {...props} {...overrides} />, { container: document.body.firstElementChild as HTMLElement });
+      const chips = (copy: 'phone' | 'wide') => {
+        const feed = feeds().find((r) => (copy === 'phone') === Boolean(r.closest('.md\\:hidden')));
+        if (!feed) return undefined;
+        const group = within(feed).queryByRole('group', { name: 'Filter by project' });
+        return group
+          ? within(group)
+              .getAllByRole('button')
+              .map((b) => b.title)
+              .filter(Boolean)
+              .sort()
+          : [];
+      };
+      expect(chips('phone')).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+
+      // Choosing a project reads again: nothing loaded for a moment, then only that project's rows.
+      rerender({ deeds: { ...deeds, deeds: [], loaded: false }, deedsProject: '/r/acme/forge' });
+      rerender({ deeds: { ...deeds, deeds: [row('2', '/r/acme/forge', 'b')] }, deedsProject: '/r/acme/forge' });
+      expect(chips('phone')).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+      expect(chips('wide')).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+
+      // Another Kingdom with its own filter on shows only its own projects.
+      const other = { id: 'k2', name: 'Forge', connected: true, sessions: 0 };
+      rerender({
+        kingdom: other,
+        deeds: { ...deeds, deeds: [row('3', '/r/other/mill', 'c')] },
+        deedsProject: '/r/other/mill',
+      });
+      expect(chips('phone')).toEqual(['/r/other/mill']);
+      expect(chips('wide')).toEqual(['/r/other/mill']);
+    });
+
     it('shows nothing for a Kingdom without deeds data', () => {
       renderCastle();
       expect(feeds()).toHaveLength(0);
