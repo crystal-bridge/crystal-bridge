@@ -2,11 +2,11 @@ import type Database from 'better-sqlite3';
 import {
   DeedRecordedPayload,
   DeedsClosingPayload,
+  PatrolRun,
   TurnTallyPayload,
   type Deed,
   type DeedKind,
   type Envelope,
-  type PatrolRun,
 } from '@crystal-bridge/protocol';
 import { z } from 'zod';
 
@@ -213,4 +213,82 @@ export function openDeeds(db: Database.Database): Deeds {
       forget.run(node);
     },
   };
+}
+
+/** Turn records read per step of the backfill, so a long history isn't held in memory at once. */
+const BACKFILL_STEP = 1000;
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Fills turn records for the turns a hub held before Deeds, and rows for the script Patrol runs `patrol_runs` still
+ * keeps (docs/DEEDS.md, History). It's code, not the migration's SQL, because a Quest's project comes from its
+ * `session.started` by the path rule Errands use. It runs whenever `deeds` is empty rather than behind a marker: that
+ * survives a hub stopped between the migration and this, and every later turn writes a row, so it never runs twice.
+ * One transaction; a row that can't be read is skipped, so an old bad payload never stops the hub starting.
+ */
+export function backfillDeeds(
+  db: Database.Database,
+  deeds: Deeds,
+  quest: { project(session: string): string | undefined; patrol(session: string): string | undefined },
+): void {
+  if (db.prepare('SELECT 1 FROM deeds LIMIT 1').get() !== undefined) return;
+  // Through the (type, ts) index, a step at a time; the index carries the key (session, seq) to page by.
+  const firstTurns = db.prepare(
+    `SELECT session, seq, node, ts, payload FROM events WHERE type = 'turn.finished'
+     ORDER BY ts, session, seq LIMIT ${BACKFILL_STEP}`,
+  );
+  const nextTurns = db.prepare(
+    `SELECT session, seq, node, ts, payload FROM events WHERE type = 'turn.finished' AND (ts, session, seq) > (?, ?, ?)
+     ORDER BY ts, session, seq LIMIT ${BACKFILL_STEP}`,
+  );
+  const runs = db.prepare('SELECT node, patrol, data FROM patrol_runs');
+  type TurnRow = { session: string; seq: number; node: string; ts: number; payload: string };
+  const quests = new Map<string, { project?: string; patrol?: string }>();
+  const questOf = (session: string) => {
+    let found = quests.get(session);
+    if (!found) {
+      found = {};
+      try {
+        found = { project: quest.project(session), patrol: quest.patrol(session) };
+      } catch {
+        // An unreadable session.started leaves its turns without a project, as a live turn would be.
+      }
+      quests.set(session, found);
+    }
+    return found;
+  };
+
+  db.transaction(() => {
+    let rows = firstTurns.all() as TurnRow[];
+    while (rows.length > 0) {
+      for (const row of rows) {
+        const turn = TurnFinishedRecord.safeParse(parseJson(row.payload)).data;
+        if (!turn) continue;
+        const { project, patrol } = questOf(row.session);
+        deeds.recordTurn({
+          node: row.node,
+          session: row.session,
+          seq: row.seq,
+          ts: row.ts,
+          project,
+          patrol,
+          payload: turn,
+        });
+      }
+      if (rows.length < BACKFILL_STEP) break;
+      const last = rows[rows.length - 1]!;
+      rows = nextTurns.all(last.ts, last.session, last.seq) as TurnRow[];
+    }
+    for (const row of runs.all() as { node: string; patrol: string; data: string }[]) {
+      const run = PatrolRun.safeParse(parseJson(row.data)).data;
+      if (run) deeds.recordScriptRun(row.node, row.patrol, run);
+    }
+  })();
 }

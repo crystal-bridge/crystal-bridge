@@ -14,7 +14,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
 import { deedIdFor } from './deeds.js';
+import { MIGRATIONS } from './migrations.js';
 import { ErrandsFrame, MAX_OPEN_ERRANDS, type Envelope } from '@crystal-bridge/protocol';
 import {
   ERRANDS_KEPT_MS,
@@ -1804,6 +1806,115 @@ describe('Deeds (#289)', () => {
     expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toEqual([]);
     expect(store.deedsPage('node-b', { after: 0, before: 1000 }).deeds).toHaveLength(1);
     void session;
+  });
+
+  describe('filled from the history a hub already holds', () => {
+    let dir: string;
+    let path: string;
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'airship-deeds-'));
+      path = join(dir, 'airship.db');
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    const session = randomUUID();
+    const runId = randomUUID();
+    /** A database as a hub before the Deeds migration left it. */
+    function oldHub(): void {
+      const db = new Database(path);
+      db.exec(MIGRATIONS.slice(0, 13).join(';'));
+      db.pragma('user_version = 13');
+      const event = db.prepare(`INSERT INTO events (session, seq, node, ts, type, payload) VALUES (?, ?, ?, ?, ?, ?)`);
+      db.prepare(`INSERT INTO sessions (id, node, cwd, label, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        session,
+        node,
+        '/r/lantern/.worktrees/abcd1234',
+        'Sweep',
+        'idle',
+        50,
+      );
+      event.run(
+        session,
+        0,
+        node,
+        50,
+        'session.started',
+        JSON.stringify({ cwd: '/r/lantern/.worktrees/abcd1234', prompt: 'Sweep', label: 'Sweep' }),
+      );
+      event.run(
+        session,
+        3,
+        node,
+        100,
+        'turn.finished',
+        JSON.stringify({ outcome: 'success', summary: 'Node 24 is in.', costUsd: 0.74, durationMs: 1000 }),
+      );
+      event.run(session, 4, node, 110, 'turn.finished', '{not json');
+      event.run(session, 5, node, 120, 'turn.finished', JSON.stringify({ summary: 'no outcome' }));
+      event.run(session, 6, node, 200, 'turn.finished', JSON.stringify({ outcome: 'error', summary: 'Stopped.' }));
+      const scriptRun: PatrolRun = {
+        id: runId,
+        startedAt: 300,
+        finishedAt: 340,
+        trigger: 'schedule',
+        outcome: 'finished',
+        summary: 'Swept 3 branches',
+      };
+      const patrolRun = db.prepare(
+        `INSERT INTO patrol_runs (node, id, patrol, started_at, outcome, data) VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      patrolRun.run(node, runId, 'sweep', 300, 'finished', JSON.stringify(scriptRun));
+      patrolRun.run(node, randomUUID(), 'sweep', 400, 'finished', '{not json');
+      db.close();
+    }
+
+    it('fills turn records and script runs on the first start after the migration', () => {
+      oldHub();
+      const hub = openStore(path);
+      expect(hub.deedsPage(node, { after: 0, before: 1000 }).deeds).toEqual([
+        {
+          id: `run:${runId}`,
+          patrol: 'sweep',
+          kind: 'patrol',
+          text: 'Swept 3 branches',
+          outcome: 'finished',
+          durationMs: 40,
+          at: 340,
+        },
+        { id: `turn:${session}:6`, session, seq: 6, project, kind: 'turn', outcome: 'error', at: 200 },
+        {
+          id: `turn:${session}:3`,
+          session,
+          seq: 3,
+          project,
+          kind: 'turn',
+          text: 'Node 24 is in.',
+          outcome: 'success',
+          costUsd: 0.74,
+          durationMs: 1000,
+          at: 100,
+        },
+      ]);
+      hub.close();
+    });
+
+    it('never fills again once it has rows', () => {
+      oldHub();
+      openStore(path).close();
+      const db = new Database(path);
+      db.prepare('DELETE FROM deeds WHERE id = ?').run(`turn:${session}:3`);
+      db.close();
+      const hub = openStore(path);
+      expect(hub.deed(`turn:${session}:3`)).toBeUndefined();
+      expect(hub.deed(`turn:${session}:6`)).toBeDefined();
+      hub.close();
+    });
+
+    it('does nothing on an empty database', () => {
+      const hub = openStore(path);
+      expect(hub.deedsPage(node, { after: 0, before: Number.MAX_SAFE_INTEGER }).deeds).toEqual([]);
+      hub.close();
+    });
   });
 
   describe('from events', () => {

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { type Boards, openBoards } from './boards.js';
 import { errandProject, openErrands, type Errands } from './errands.js';
-import { openDeeds, TurnFinishedRecord, type Deeds } from './deeds.js';
+import { backfillDeeds, openDeeds, TurnFinishedRecord, type Deeds } from './deeds.js';
 import { openPatrols, type Patrols } from './patrols.js';
 import { migrate } from './migrations.js';
 import { makePrivate } from './paths.js';
@@ -492,6 +492,7 @@ export function openStore(path: string): Store {
     const link = z.object({ patrol: z.object({ patrol: PatrolId }) }).safeParse(JSON.parse(row.payload)).data;
     return link?.patrol.patrol;
   }
+  backfillDeeds(db, deeds, { project: questProject, patrol: questPatrol });
   const finishedSinceClosingStmt = db
     .prepare(
       `SELECT EXISTS (SELECT 1 FROM events WHERE session = @s AND type = 'turn.finished' AND seq >
