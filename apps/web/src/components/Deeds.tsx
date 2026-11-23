@@ -199,7 +199,11 @@ export function DeedsFeed({
             </p>
           )}
           {state.older !== undefined && (
-            <LoadOlder loading={state.loadingOlder === true || state.reloading === true} onLoadOlder={onLoadOlder} />
+            <LoadOlder
+              loading={state.loadingOlder === true || state.reloading === true}
+              failed={state.error !== undefined || state.refreshError !== undefined}
+              onLoadOlder={onLoadOlder}
+            />
           )}
         </>
       )}
@@ -327,29 +331,52 @@ function Empty({
   );
 }
 
+/** How many pages the feed's end, staying in view, may load in a row before the button waits for the user. */
+const AUTO_PAGES = 3;
+
 /**
  * Load older days: a button, and the same when the feed's end scrolls into view where the browser can tell. Held while
- * a read is under way; when it ends the end is looked at again, since an observer only speaks when the view changes.
+ * a read is under way. After a page arrives the end is looked at again (an observer reports at once, then only on a
+ * change), so a short feed fills itself, but only `AUTO_PAGES` in a row until the user scrolls or clicks. After a
+ * failed read only the button tries again: the end being in view would otherwise ask over and over.
  */
-function LoadOlder({ loading, onLoadOlder }: { loading: boolean; onLoadOlder: () => void }) {
+function LoadOlder({ loading, failed, onLoadOlder }: { loading: boolean; failed: boolean; onLoadOlder: () => void }) {
   const end = useRef<HTMLDivElement>(null);
   const load = useRef(onLoadOlder);
   load.current = onLoadOlder;
+  // Pages loaded in a row with no scroll or click from the user.
+  const auto = useRef(0);
   useEffect(() => {
     const element = end.current;
-    if (loading || !element || typeof IntersectionObserver === 'undefined') return;
+    if (loading || failed || !element || typeof IntersectionObserver === 'undefined') return;
+    let first = true;
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) load.current();
+      const seen = entries.some((e) => e.isIntersecting);
+      const report = first;
+      first = false;
+      if (!seen) return;
+      if (!report) {
+        // The end came into view: the user scrolled.
+        auto.current = 0;
+        load.current();
+      } else if (auto.current < AUTO_PAGES) {
+        auto.current += 1;
+        load.current();
+      }
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [loading]);
+  }, [loading, failed]);
+  const click = () => {
+    auto.current = 0;
+    onLoadOlder();
+  };
   return (
     <div ref={end} className="px-3">
       <button
         type="button"
         disabled={loading}
-        onClick={onLoadOlder}
+        onClick={click}
         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50 disabled:opacity-60 dark:text-amber-300 dark:ring-amber-800 dark:hover:bg-amber-950"
       >
         <Icon name="hourglass" size={14} />

@@ -1,7 +1,8 @@
 import type { Deed, Envelope, ListedPatrol } from '@crystal-bridge/protocol';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { dayLabel, type DeedsState } from '../deeds.js';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { dayLabel, type DeedsState, useDeeds } from '../deeds.js';
+import type { HubClient } from '../hub.js';
 import { deedsEmptyLines, w } from '../theme/words.js';
 import { DeedsFeed, QuestDeeds } from './Deeds.js';
 import type { SessionSummary } from './SessionList.js';
@@ -466,5 +467,122 @@ describe("QuestDeeds, in a Quest's side panel", () => {
     expect(screen.getByText('None yet.')).toBeTruthy();
     rerender(<QuestDeeds envelopes={[env(5, 'deeds.closing', { outcome: 'timeout' })]} />);
     expect(screen.getByText('No Deeds recorded: the call took too long.')).toBeTruthy();
+  });
+});
+
+describe('Load older days with the feed’s end in view', () => {
+  const DAY = 24 * 60 * MINUTE;
+  let inView = true;
+  let older: string[] = [];
+  const listeners = { frames: new Set<(f: unknown) => void>(), reconnects: new Set<() => void>() };
+  const hub = {
+    onDeeds: (l: (f: unknown) => void) => (listeners.frames.add(l), () => listeners.frames.delete(l)),
+    onReconnect: (l: () => void) => (listeners.reconnects.add(l), () => listeners.reconnects.delete(l)),
+  } as unknown as HubClient;
+  const json = (body: unknown, status = 200) =>
+    ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as Response;
+  /** `olderAnswer` answers each older-days read; the newest days answer `newest()`. */
+  function stubs(newest: () => Response, olderAnswer: (n: number) => Response) {
+    older = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (!url.includes('before=')) return Promise.resolve(newest());
+        older.push(url);
+        const n = older.length;
+        return new Promise((resolve) => setTimeout(() => resolve(olderAnswer(n)), 25));
+      }),
+    );
+    // As a browser does, the observer reports at once whether the end is in view, then on each change.
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+        observe() {
+          this.callback([{ isIntersecting: inView }]);
+        }
+        disconnect() {}
+      },
+    );
+  }
+  function Harness() {
+    const state = useDeeds(hub, 'forge');
+    return (
+      <DeedsFeed
+        state={state}
+        sessions={[]}
+        patrols={[]}
+        now={NOW}
+        onProject={vi.fn()}
+        onOpenQuest={vi.fn()}
+        onOpenRun={vi.fn()}
+        onLoadOlder={state.loadOlder}
+      />
+    );
+  }
+  // A second of fake time, in steps: effects run as each act ends, and may start the next read.
+  const settle = async () => {
+    for (let step = 0; step < 20; step += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+    }
+  };
+  const newestPage = () => json({ deeds: [row('turn:x:1', NOW - MINUTE, { session: 'x' })], older: NOW - 30 * DAY });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: NOW });
+    inView = true;
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('tries a failed read once, then waits for the button', async () => {
+    stubs(newestPage, () => json({ error: 'down' }, 503));
+    render(<Harness />);
+    await settle();
+    expect(older).toHaveLength(1);
+    await settle();
+    expect(older).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Load older days' }));
+    await settle();
+    expect(older).toHaveLength(2);
+  });
+
+  it('reads no older days by itself after a reconnect’s read fails', async () => {
+    inView = false;
+    let up = true;
+    stubs(
+      () => (up ? newestPage() : json({ error: 'down' }, 503)),
+      () => json({ deeds: [] }),
+    );
+    render(<Harness />);
+    await settle();
+    inView = true;
+    up = false;
+    act(() => listeners.reconnects.forEach((l) => l()));
+    await settle();
+    expect(older).toHaveLength(0);
+  });
+
+  it('follows on by itself for at most 3 pages, then waits for the button', async () => {
+    // Sparse history: each page holds one row, and there is always an older one.
+    stubs(newestPage, (n) =>
+      json({
+        deeds: [row(`turn:x:old${n}`, NOW - (40 + 10 * n) * DAY, { session: 'x' })],
+        older: NOW - (45 + 10 * n) * DAY,
+      }),
+    );
+    render(<Harness />);
+    await settle();
+    await settle();
+    expect(older).toHaveLength(3);
+    const button = screen.getByRole('button', { name: 'Load older days' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(older).toHaveLength(4);
   });
 });
