@@ -1524,6 +1524,29 @@ describe('startNode', () => {
       expect(sent.payload).toEqual({ seq: turn.seq, files: 1, prs: [] });
     });
 
+    it('stamps a turn_changes line with the seq of the turn it belongs to', async () => {
+      const { conn, fake } = await startQuest();
+      const changes = (files: string[]) => raw({ type: 'system', subtype: 'turn_changes', files });
+      const finishedFrames = () => conn.frames.filter((frame) => frame.type === 'turn.finished');
+      fake.emit('event', finished);
+      fake.emit('event', finished);
+      await waitForFrame(conn, () => finishedFrames().length === 2);
+      const [first, second] = finishedFrames();
+      fake.emit('event', changes(['a.ts']));
+      fake.emit('event', tally(['a.ts']));
+      fake.emit('event', changes(['b.ts']));
+      fake.emit('event', tally(['b.ts']));
+      await waitForFrame(conn, () => tallies(conn).length === 2);
+      const stamped = conn.frames
+        .filter((frame) => frame.type === 'claude.event')
+        .map((frame) => (frame.payload as { raw: { subtype?: string; turnSeq?: number } }).raw)
+        .filter((line) => line.subtype === 'turn_changes');
+      expect(stamped).toEqual([
+        { type: 'system', subtype: 'turn_changes', files: ['a.ts'], turnSeq: first!.seq },
+        { type: 'system', subtype: 'turn_changes', files: ['b.ts'], turnSeq: second!.seq },
+      ]);
+    });
+
     it('sends files 0 when nothing changed', async () => {
       const { conn, fake } = await startQuest();
       fake.emit('event', finished);

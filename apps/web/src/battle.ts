@@ -65,6 +65,9 @@ export function battleResults(envelopes: readonly Envelope[]): {
   let cwd: string | undefined;
   let runningCost = 0;
   let last: BattleResult | undefined;
+  // Each turn by its `turn.finished`'s seq, which a `turn_changes` line names; a turn with no `result` has none.
+  const bySeq = new Map<number, BattleResult>();
+  let resulted = false;
   let loot = new Set<string>();
   let prs = new Set<string>();
   let heroes: Helper[] = [];
@@ -77,14 +80,22 @@ export function battleResults(envelopes: readonly Envelope[]): {
       if (typeof payload.cwd === 'string') cwd = payload.cwd;
       continue;
     }
+    if (envelope.type === 'turn.finished') {
+      if (resulted && last) bySeq.set(envelope.seq, last);
+      resulted = false;
+      continue;
+    }
     if (envelope.type !== 'claude.event' || !isObj(payload.raw)) continue;
     const raw = payload.raw;
 
-    // Follows its turn's `result`: what the node worked out once that turn had ended.
-    if (raw.type === 'system' && raw.subtype === 'turn_changes' && last && Array.isArray(raw.files)) {
-      const files = raw.files.filter((file): file is string => typeof file === 'string');
-      last.loot = [...new Set([...last.loot, ...files])].sort();
-      for (const file of files) questLoot.add(file);
+    // What the node worked out once a turn had ended. It names its turn; older lines follow their turn's `result`.
+    if (raw.type === 'system' && raw.subtype === 'turn_changes' && Array.isArray(raw.files)) {
+      const turn = (typeof raw.turnSeq === 'number' ? bySeq.get(raw.turnSeq) : undefined) ?? last;
+      if (turn) {
+        const files = raw.files.filter((file): file is string => typeof file === 'string');
+        turn.loot = [...new Set([...turn.loot, ...files])].sort();
+        for (const file of files) questLoot.add(file);
+      }
     }
 
     for (const path of lootPaths(raw)) loot.add(lootPath(path, cwd));
@@ -136,6 +147,7 @@ export function battleResults(envelopes: readonly Envelope[]): {
       };
       turns.set(`e${envelope.seq}`, turn);
       last = turn;
+      resulted = true;
 
       quest.outcome = turn.outcome;
       quest.turns += 1;

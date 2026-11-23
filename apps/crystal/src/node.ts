@@ -486,6 +486,19 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     });
   }
 
+  /**
+   * Names the turn a `turn_changes` line (Crystal's own, not CLI output) belongs to: the oldest turn still waiting for
+   * its diff, as its `turn.tally` follows. A slow diff can come after a later turn's `result`, so its place can't.
+   */
+  function stampTurnChanges<P extends { raw: unknown }>(sessionId: string, payload: P): P {
+    const raw = payload.raw;
+    if (!raw || typeof raw !== 'object') return payload;
+    const line = raw as { type?: unknown; subtype?: unknown };
+    if (line.type !== 'system' || line.subtype !== 'turn_changes') return payload;
+    const turn = finishedLoot.get(sessionId)?.[0];
+    return turn ? { ...payload, raw: { ...line, turnSeq: turn.seq } } : payload;
+  }
+
   /** Registers a session and wires its events through, numbering envelopes from `seq`. */
   function createSession(
     sessionId: string,
@@ -532,7 +545,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
         sendTally(sessionId, event.payload.files);
         return;
       }
-      if (event.type === 'claude.event') tallyLoot(sessionId, cwd, event.payload.raw);
+      if (event.type === 'claude.event') {
+        tallyLoot(sessionId, cwd, event.payload.raw);
+        event = { ...event, payload: stampTurnChanges(sessionId, event.payload) };
+      }
       const seq = sendEnvelope(sessionId, event.type, event.payload);
       if (event.type === 'turn.finished') {
         const loot = turnLoot.get(sessionId) ?? { files: new Set<string>(), prs: new Set<string>() };
