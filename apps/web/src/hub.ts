@@ -19,6 +19,7 @@ export type HubStatus = 'connecting' | 'open' | 'closed';
 export type BoardsFrame = Extract<HubToClient, { kind: 'scouts' | 'board' | 'board-items' }>;
 export type PatrolsFrame = Extract<HubToClient, { kind: 'patrols' | 'patrol-runs' }>;
 export type ErrandsFrame = Extract<HubToClient, { kind: 'errands' }>;
+export type DeedsFrame = Extract<HubToClient, { kind: 'deeds' }>;
 
 /** How far a session's history has loaded: events received of the replay's total, and whether it's complete. */
 export interface ReplayProgress {
@@ -78,6 +79,7 @@ export class HubClient {
   private readonly boardListeners = new Set<(frame: BoardsFrame) => void>();
   private readonly patrolListeners = new Set<(frame: PatrolsFrame) => void>();
   private readonly errandListeners = new Set<(frame: ErrandsFrame) => void>();
+  private readonly deedListeners = new Set<(frame: DeedsFrame) => void>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
   private readonly seenListeners = new Set<(session: string) => void>();
   private readonly reconnectListeners = new Set<() => void>();
@@ -135,6 +137,12 @@ export class HubClient {
   onErrands(listener: (frame: ErrandsFrame) => void): () => void {
     this.errandListeners.add(listener);
     return () => this.errandListeners.delete(listener);
+  }
+
+  /** A Kingdom's Deeds were added or changed, on any Kingdom; `cleared` says the hub forgot the Kingdom. */
+  onDeeds(listener: (frame: DeedsFrame) => void): () => void {
+    this.deedListeners.add(listener);
+    return () => this.deedListeners.delete(listener);
   }
 
   /** The socket came back after a drop. Sessions catch up by themselves; anything else may have missed frames. */
@@ -389,6 +397,10 @@ export class HubClient {
     }
     if (frame.data.kind === 'errands') {
       for (const listener of this.errandListeners) listener(frame.data);
+      return;
+    }
+    if (frame.data.kind === 'deeds') {
+      for (const listener of this.deedListeners) listener(frame.data);
       return;
     }
     if (frame.data.kind === 'seen') {

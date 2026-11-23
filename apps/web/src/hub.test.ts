@@ -88,6 +88,21 @@ describe('HubClient replay', () => {
     expect(heard).toHaveBeenCalledTimes(1);
   });
 
+  it('hands Deeds frames to their listeners', () => {
+    const { hub, socket } = connected();
+    const heard = vi.fn();
+    const stop = hub.onDeeds(heard);
+    const row = { id: 'turn:x:1', kind: 'turn', at: 1 };
+    socket.deliver({ kind: 'deeds', node: 'forge', deeds: [row] });
+    socket.deliver({ kind: 'deeds', node: 'forge', deeds: [], cleared: true });
+    socket.deliver({ kind: 'deeds', node: 'forge', deeds: [{ id: 'nope' }] });
+    expect(heard.mock.calls.map(([frame]) => frame.node)).toEqual(['forge', 'forge']);
+    expect(heard.mock.calls[1]?.[0].cleared).toBe(true);
+    stop();
+    socket.deliver({ kind: 'deeds', node: 'forge', deeds: [] });
+    expect(heard).toHaveBeenCalledTimes(2);
+  });
+
   it('hands seen frames to their listeners', () => {
     const { hub, socket } = connected();
     const heard = vi.fn();
