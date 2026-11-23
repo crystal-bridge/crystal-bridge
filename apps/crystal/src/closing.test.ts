@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CLOSING_TIMEOUT_MS,
@@ -242,5 +242,17 @@ describe('the call at Close (#289)', () => {
     expect(stop).toHaveBeenCalled();
     release({ kind: 'timed-out', stderr: '' });
     await running;
+  });
+});
+
+describe('readClosing over the recorded calls (#289)', () => {
+  it.each(['closing.ndjson', 'closing-interactive.ndjson'])('reads %s as recorded Deeds', (name) => {
+    const stdout = readFileSync(new URL(`../test/fixtures/${name}`, import.meta.url), 'utf8');
+    const result = readClosing(stdout);
+    expect(result.outcome).toBe('recorded');
+    expect(result.deeds.length).toBeGreaterThanOrEqual(1);
+    expect(result.deeds.length).toBeLessThanOrEqual(5);
+    for (const deed of result.deeds) expect(deed.deed.trim()).not.toBe('');
+    expect(result.costUsd).toEqual(expect.any(Number));
   });
 });

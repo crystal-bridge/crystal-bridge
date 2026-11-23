@@ -5,8 +5,9 @@
  *   pnpm --filter @crystal-bridge/kingdom exec tsx scripts/capture.ts [scenario...]
  *
  * Scenarios: allow, deny, followup, interrupt (+ resume), slow-allow, background-agent, background-command, synthesis,
- * title, errand, weekly-only.
- * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit.
+ * title, errand, closing, weekly-only, closing-interactive.
+ * With no arguments, all of them run, except weekly-only, which needs an account whose plan has only a weekly limit,
+ * and closing-interactive, which reads the transcript of an interactive Quest named by `CAPTURE_SESSION=<id>`.
  * Every fixture line is passed through `scrub()`, and a capture whose streamed pieces still name this machine's home
  * folder, user or an email address once joined (`streamedLeaks()`) stops without writing the fixture.
  *
@@ -31,6 +32,15 @@ import {
   type PermissionDecision,
   type PermissionRequest,
 } from '../src/permissions.js';
+import {
+  buildDigest,
+  closingArgs,
+  closingPrompt,
+  digestText,
+  readClosing,
+  DEFAULT_CLOSING_BUDGET_USD,
+} from '../src/closing.js';
+import { findTranscript, transcriptEvents } from '../src/transcripts.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'fixtures');
 const HOME = homedir();
@@ -67,6 +77,9 @@ const BACKGROUND_AGENT_PROMPT =
   'turn. When it finishes, reply with the single word finished.';
 // The CLI blocks a standalone `sleep 30` itself ("Blocked: standalone sleep 30 ..."
 // tool_use_error), so the long-running command is a python sleep instead.
+const CLOSING_FOLLOWUP = 'Now add a .gitignore that ignores node_modules, and mention it in the README.';
+// The CLI's own session transcripts, as main.ts reads them: CLAUDE_CONFIG_DIR, else ~/.claude.
+const PROJECTS_DIR = join(process.env.CLAUDE_CONFIG_DIR ?? join(HOME, '.claude'), 'projects');
 const SLEEP_PROMPT =
   "Run the shell command `python3 -c 'import time; time.sleep(30)'` with Bash, then reply with the single word DONE.";
 
@@ -606,6 +619,42 @@ async function main(): Promise<void> {
     );
   };
 
+  /**
+   * The call at Close over a Quest's transcript, as Crystal makes it, from a fresh empty folder. Only the call's own
+   * output is recorded: an interactive transcript carries the account's details, so neither it nor the digest is kept.
+   */
+  const closeFromTranscript = async (name: string, session: string, cwd: string) => {
+    const file = await findTranscript(PROJECTS_DIR, session);
+    if (!file) throw new Error(`[${name}] no transcript for session ${session}`);
+    const events = await transcriptEvents(file);
+    const digest = buildDigest(events, { cwd });
+    const text = digestText(digest);
+    const scratch = await mkdtemp(join(tmpdir(), 'crystal-closing-'));
+    try {
+      const started = Date.now();
+      const res = await runPrint(
+        scratch,
+        closingArgs({ budgetUsd: DEFAULT_CLOSING_BUDGET_USD }).slice(1),
+        closingPrompt(text),
+      );
+      const ms = Date.now() - started;
+      const read = readClosing(res.lines.join('\n'));
+      const closing = {
+        turns: digest.turns.length,
+        digestChars: text.length,
+        outcome: read.outcome,
+        deeds: read.deeds,
+        costUsd: read.costUsd,
+        ms,
+        ...(read.reason ? { reason: read.reason } : {}),
+      };
+      console.log(`[${name}] ${scrubText(JSON.stringify(closing), repo)}`);
+      await record(name, res, { closing });
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  };
+
   const closeAfterFirstResult = (msg: Record<string, unknown>, ctl: Controls) => {
     if (msg.type === 'result') ctl.end();
   };
@@ -687,6 +736,55 @@ async function main(): Promise<void> {
         'synthesis-no-settings',
         await runPrint(repo, synthesisArgs(['--setting-sources', '']), SYNTHESIS_PROMPT),
       );
+    }
+    if (want('closing')) {
+      // A two-turn Quest as Crystal runs a new one, then the call at Close over its transcript.
+      const session = randomUUID();
+      sessionScenario.set(session, 'closing');
+      let results = 0;
+      await runClaude({
+        repo,
+        mcpUrl: mcpUrl(session),
+        sessionArgs: [
+          '--session-id',
+          session,
+          '--allowedTools',
+          ...QUEST_TOOLS,
+          '--append-system-prompt',
+          QUEST_PROMPT,
+          '--setting-sources',
+          'project,local',
+        ],
+        firstPrompt: TITLE_PROMPT,
+        onLine: (msg, ctl) => {
+          if (msg.type !== 'result') return;
+          results += 1;
+          if (results === 1) {
+            ctl.send(CLOSING_FOLLOWUP);
+            ctl.end();
+          }
+        },
+      });
+      await closeFromTranscript('closing', session, repo);
+    }
+    if (asked('closing-interactive')) {
+      const session = process.env.CAPTURE_SESSION;
+      if (!session) throw new Error('[closing-interactive] set CAPTURE_SESSION to an interactive Quest id');
+      const file = await findTranscript(PROJECTS_DIR, session);
+      if (!file) throw new Error(`[closing-interactive] no transcript for session ${session}`);
+      let cwd = '';
+      for (const line of (await readFile(file, 'utf8')).split('\n')) {
+        try {
+          const parsed = JSON.parse(line) as { cwd?: unknown };
+          if (typeof parsed.cwd === 'string') {
+            cwd = parsed.cwd;
+            break;
+          }
+        } catch {
+          // Not a JSON line.
+        }
+      }
+      await closeFromTranscript('closing-interactive', session, cwd);
     }
     if (asked('weekly-only')) {
       await record('weekly-only', await simple('weekly-only', 'Reply with the single word DONE.', allow));
