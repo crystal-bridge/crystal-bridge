@@ -29,7 +29,7 @@ import { buildInventory } from '../inventory.js';
 import { usePanel } from '../panels.js';
 import { Icon } from '../theme/icons.js';
 import { Tip } from './Tip.js';
-import { hint, w } from '../theme/words.js';
+import { hint, recordDeedsChoice, w } from '../theme/words.js';
 import { Inventory } from './Inventory.js';
 import { ICON_BUTTON, PanelToggles } from './PanelToggles.js';
 import { SlashMenu, useSlashMenu } from './SlashMenu.js';
@@ -61,6 +61,7 @@ import { ThemedSelect } from './ThemedSelect.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext, QuestMarkdown } from './markdown.js';
 import { BattleCard } from './BattleCard.js';
+import { finishedTurnSinceClosing, useCloseDeeds } from '../deeds.js';
 import { loadDraft, saveDraft } from '../drafts.js';
 import { attachedPaths, toAttachments } from '../attachments.js';
 import { currentActivity } from '../activity.js';
@@ -106,7 +107,9 @@ export interface SessionViewProps {
   /** Sets the Quest's effort from the next message on; undefined is the CLI's default. */
   onEffort?: (effort: Effort | undefined) => void;
   /** Closes the session for good; true also removes its worktree if it has one. */
-  onClose?: (removeWorktree: boolean) => void;
+  onClose?: (close: { removeWorktree: boolean; deeds: boolean }) => void;
+  /** Whether the Quest's Kingdom can write its Deeds at Close; absent means it can (the hub drops what it can't). */
+  closeDeeds?: { offered: boolean };
   /** Starts a fork of this session: a copy of the conversation so far that continues separately from this prompt. */
   onFork?: (prompt: string) => void;
   /** Shows another session, e.g. the one this fork came from. */
@@ -389,6 +392,7 @@ export function SessionView({
   onMode,
   onEffort,
   onClose = () => {},
+  closeDeeds,
   onFork,
   onOpen,
   onOpenBoard,
@@ -455,6 +459,14 @@ export function SessionView({
     return seq === undefined ? undefined : tsBySeq.get(Number(seq));
   };
   const [confirmClose, setConfirmClose] = useState(false);
+  const [deedsChoice, setDeedsChoice] = useCloseDeeds();
+  const deedsReason =
+    closeDeeds?.offered === false
+      ? 'This Kingdom is too old to record Deeds at Close.'
+      : !finishedTurnSinceClosing(envelopes)
+        ? 'No finished turn to record.'
+        : undefined;
+  const deedsWords = recordDeedsChoice();
   // While the draft is just "/name", suggest the session's slash commands and skills.
   const commands = useMemo(() => slashCommands(envelopes), [envelopes]);
   const slash = useSlashMenu(draft, commands, setDraft);
@@ -812,10 +824,22 @@ export function SessionView({
                     Remove its worktree (kept if it has uncommitted changes; the branch always stays)
                   </label>
                 )}
+                <span className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={!deedsReason && deedsChoice}
+                      disabled={Boolean(deedsReason)}
+                      onChange={(e) => setDeedsChoice(e.target.checked)}
+                    />
+                    {deedsWords.label}
+                  </label>
+                  <span className="text-neutral-500">{deedsReason ?? deedsWords.hint}</span>
+                </span>
                 <button
                   type="button"
                   onClick={() => {
-                    onClose(Boolean(worktree) && removeTree);
+                    onClose({ removeWorktree: Boolean(worktree) && removeTree, deeds: !deedsReason && deedsChoice });
                     setConfirmClose(false);
                   }}
                   className="rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700"

@@ -188,6 +188,7 @@ interface EngineRow {
   release?: string;
   cli?: string;
   cliUpdate?: boolean;
+  deeds?: boolean;
   selfUpdate?: SelfUpdate;
 }
 
@@ -1089,9 +1090,15 @@ export function App({ hub }: { hub: HubClient }) {
         onMode={(mode) => hub.send({ type: 'session.mode', session: id, mode })}
         kingdom={visible.find((k) => k.id === node)?.name ?? node ?? ''}
         party={heroManifest ? { manifest: questHeroes(id)!, leaderState: heroStates[id] ?? 'resting' } : undefined}
-        onClose={(removeWorktree) =>
-          hub.send({ type: 'session.close', session: id, ...(removeWorktree ? { removeWorktree } : {}) })
+        onClose={({ removeWorktree, deeds }) =>
+          hub.send({
+            type: 'session.close',
+            session: id,
+            ...(removeWorktree ? { removeWorktree } : {}),
+            ...(deeds ? { deeds: true } : {}),
+          })
         }
+        closeDeeds={{ offered: Boolean(engineLists.find((row) => row.node === node)?.deeds) }}
         onFork={primary ? fork : undefined}
         onOpen={openQuest}
         onOpenBoard={node ? (scout) => showBoard(node, scout) : undefined}

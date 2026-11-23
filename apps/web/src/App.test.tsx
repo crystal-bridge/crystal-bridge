@@ -1803,3 +1803,58 @@ describe('App: done until viewed', () => {
     await waitFor(() => expect(seenPosts()).toHaveLength(2));
   });
 });
+
+describe('App Close offers Record its Deeds', () => {
+  const quest = sessions[0]!;
+  const envelopes = [
+    { node: 'node-b', session: quest.id, seq: 0, ts: 0, type: 'session.started', cwd: '/w', prompt: 'p', label: 'p' },
+    { node: 'node-b', session: quest.id, seq: 1, ts: 1, type: 'turn.finished' },
+  ] as unknown as Envelope[];
+  const open = async (deeds?: boolean) => {
+    localStorage.clear();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/engines'
+                ? [{ node: 'node-b', engines: [], ...(deeds === undefined ? {} : { deeds }) }]
+                : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    const hub = { ...fakeHub(), events: () => envelopes } as unknown as HubClient;
+    window.history.replaceState(null, '', `/#/k/node-b/q/${quest.id}`);
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    return hub;
+  };
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('sends Record its Deeds with Close', async () => {
+    const hub = await open(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(hub.send).toHaveBeenCalledWith({ type: 'session.close', session: quest.id, deeds: true });
+    cleanup();
+    const second = await open(true);
+    fireEvent.click(screen.getByLabelText('Record its Deeds'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(second.send).toHaveBeenCalledWith({ type: 'session.close', session: quest.id });
+  });
+
+  it('greys the choice for a Kingdom that does not offer it', async () => {
+    await open();
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText('This Kingdom is too old to record Deeds at Close.')).toBeTruthy();
+  });
+});

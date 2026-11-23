@@ -364,7 +364,79 @@ describe('SessionView closing', () => {
     // Removing is the default: a worktree with uncommitted changes is kept anyway, and the branch always stays.
     expect((screen.getByLabelText(/Remove its worktree/) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
-    expect(onClose).toHaveBeenCalledWith(true);
+    expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: false });
+  });
+
+  const finished = [...base, envelope(1, 'turn.finished', { ok: true })];
+
+  it('offers Record its Deeds at Close, on by default, with what it costs', () => {
+    localStorage.clear();
+    const onClose = view(finished);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText('Writes the Quest’s Deeds from a short digest of it, for a few cents.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: true });
+  });
+
+  it('keeps the choice on this device', () => {
+    localStorage.clear();
+    const onClose = view(finished);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByLabelText('Record its Deeds'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: false });
+    cleanup();
+    view(finished);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).checked).toBe(false);
+    localStorage.clear();
+  });
+
+  it('greys the choice with the reason', () => {
+    localStorage.clear();
+    const render1 = (envelopes: Envelope[], closeDeeds?: { offered: boolean }) => {
+      const onClose = vi.fn();
+      render(
+        <SessionView
+          envelopes={envelopes}
+          onAnswer={vi.fn()}
+          onSend={vi.fn()}
+          onInterrupt={vi.fn()}
+          onMode={vi.fn()}
+          onClose={onClose}
+          closeDeeds={closeDeeds}
+          subscribeErrors={() => () => {}}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      const box = screen.getByLabelText('Record its Deeds') as HTMLInputElement;
+      expect(box.disabled).toBe(true);
+      expect(box.checked).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+      expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: false });
+      cleanup();
+    };
+    render1(finished, { offered: false });
+    render1(base);
+    // The reasons show beside the box.
+    render(
+      <SessionView
+        envelopes={finished}
+        onAnswer={vi.fn()}
+        onSend={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMode={vi.fn()}
+        closeDeeds={{ offered: false }}
+        subscribeErrors={() => () => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByText('This Kingdom is too old to record Deeds at Close.')).toBeTruthy();
+    cleanup();
+    view(base);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByText('No finished turn to record.')).toBeTruthy();
   });
 
   it('takes no follow-ups once closed', () => {
