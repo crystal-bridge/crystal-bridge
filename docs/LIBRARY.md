@@ -89,13 +89,16 @@ Library, the Scroll offers **Open in the Library**, so the two never look like d
 
 ## Walk the aisles: in the app
 
-Each Kingdom with a Library gets a Library view, reached from the Castle. Where its entry sits on the Castle, and how
-the tree and the Tome share the screen, are picked from an audition, as the Errands panel and the Deeds feed were.
-These parts are fixed whichever layout wins:
+Each Kingdom with a Library gets a **Library tab**, a reading room, always right after its Castle tab:
 
-- A tree of the folder with a quick-open box, the open Tome, and its outline and backlinks.
-- The view's URL names the Kingdom and the Tome's path, so a reload, a bookmark or a link from another Tome comes back
-  to the same page.
+- **On the left,** a quick-open box, the Tomes you read last, and the folder as a tree.
+- **In the middle,** the open Tome, with its path above it and **Edit** beside it. Edit opens the editor and its
+  preview in the same place.
+- **On the right,** a narrow rail with the Tome's outline and the Tomes that link to it.
+
+The Castle also gets a **Library card** in its right column, under Errands: the three Tomes changed last, the
+quick-open box, and **Open the Library**. The tab's URL names the Kingdom and the Tome's path, so a reload, a bookmark
+or a link from another Tome comes back to the same page.
 
 **States.**
 
