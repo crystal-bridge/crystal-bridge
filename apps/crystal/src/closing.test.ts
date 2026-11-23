@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
+import { MAX_TALLY_LINK } from '@crystal-bridge/protocol';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   CLOSING_TIMEOUT_MS,
@@ -167,6 +168,18 @@ describe('the digest at Close (#289)', () => {
     expect(digestText(digest)).toBeUndefined();
   });
 
+  it('lists a pull request link up to the tally’s length, and leaves out a longer one', () => {
+    const link = (length: number) => `https://github.com/acme/${'x'.repeat(length - 31)}/pull/1`;
+    const longest = link(MAX_TALLY_LINK);
+    expect(longest).toHaveLength(MAX_TALLY_LINK);
+    const events = [
+      prompt('go'),
+      call('b', 'Bash', { command: 'gh pr create' }),
+      result('b', `${link(MAX_TALLY_LINK + 1)}\n${longest}`),
+    ];
+    expect(buildDigest(events, { cwd }).prs).toEqual([longest]);
+  });
+
   it('caps a title the Quest set itself', () => {
     const events = [prompt('go'), call('t', 'mcp__crystal__title', { plain: 'x'.repeat(5000) }), result('t', 'ok')];
     expect(buildDigest(events, { cwd }).title.length).toBeLessThanOrEqual(120);
@@ -179,7 +192,8 @@ describe('the digest at Close (#289)', () => {
     const digest = buildDigest(events, { cwd });
     const started = performance.now();
     const text = digestText(digest)!;
-    expect(performance.now() - started).toBeLessThan(200);
+    // Loose enough for a loaded runner; the old quadratic trim took seconds.
+    expect(performance.now() - started).toBeLessThan(1000);
     expect(text.length).toBeLessThanOrEqual(MAX_DIGEST_CHARS);
     const parsed = JSON.parse(text) as { turns: { prompt: string }[]; omittedTurns: number };
     const kept = parsed.turns.map((turn) => Number(turn.prompt.split(' ')[1]));

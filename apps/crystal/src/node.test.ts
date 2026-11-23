@@ -8,6 +8,7 @@ import type { Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   MAX_CLI_UPDATE_REASON,
+  MAX_TALLY_LINK,
   NodeError,
   type Effort,
   type HubScoutAction,
@@ -1476,12 +1477,14 @@ describe('startNode', () => {
 
     it('leaves out a link too long for the tally, keeping the rest', async () => {
       const { conn, fake } = await startQuest();
-      const long = `https://github.com/acme/${'x'.repeat(500)}/pull/1`;
-      fake.emit('event', printed(`${long}\n${PR}`));
+      const link = (length: number) => `https://github.com/acme/${'x'.repeat(length - 31)}/pull/1`;
+      const longest = link(MAX_TALLY_LINK);
+      expect(longest).toHaveLength(MAX_TALLY_LINK);
+      fake.emit('event', printed(`${link(MAX_TALLY_LINK + 1)}\n${longest}\n${PR}`));
       fake.emit('event', finished);
       fake.emit('event', tally([]));
       const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
-      expect((sent.payload as { prs: string[] }).prs).toEqual([PR]);
+      expect((sent.payload as { prs: string[] }).prs).toEqual([longest, PR]);
     });
 
     it('pairs each diff with the oldest turn still waiting for one, even when turns overlap', async () => {

@@ -10,6 +10,8 @@ export const MAX_DEEDS_PER_TURN = 3;
 export const MAX_CLOSING_DEEDS = 5;
 /** How many pull request links a turn's tally carries. */
 export const MAX_TALLY_PRS = 10;
+/** The longest pull request link a `turn.tally` takes. */
+export const MAX_TALLY_LINK = 500;
 
 /** A Deed's detail: one paragraph of plain text, without control or format characters. */
 export const DeedDetail = z
@@ -27,7 +29,7 @@ export const TurnTallyPayload = z.object({
     .array(
       z
         .string()
-        .max(500)
+        .max(MAX_TALLY_LINK)
         .regex(/^https?:\/\//),
     )
     .max(MAX_TALLY_PRS),

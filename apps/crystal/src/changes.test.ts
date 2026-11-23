@@ -162,16 +162,20 @@ describe('reportChanges', () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on('unhandledRejection', onUnhandled);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const emit = vi.fn();
       const diffed = vi.fn();
       const failing = { begin: async () => {}, finish: () => Promise.reject(new Error('git is gone')) };
       reportChanges(failing, emit, diffed);
       await vi.waitFor(() => expect(diffed).toHaveBeenCalledWith(undefined));
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0]![0])).toMatch(/^\[crystal\] .*git is gone/);
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(unhandled).toEqual([]);
       expect(emit).not.toHaveBeenCalled();
     } finally {
+      logged.mockRestore();
       process.off('unhandledRejection', onUnhandled);
     }
   });

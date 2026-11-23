@@ -111,7 +111,12 @@ export function reportChanges(
     return after;
   }
   // `finish` shouldn't reject, but a tracker that does still lets the tally go out, with nothing known.
-  const files = changes.finish().catch(() => undefined);
+  const files = changes.finish().catch((error: unknown) => {
+    console.error(
+      `[crystal] a turn's changes could not be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return undefined;
+  });
   return Promise.all([files, after]).then(([files]) => {
     if (files?.length) emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } });
     diffed(files);

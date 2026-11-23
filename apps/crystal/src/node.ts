@@ -58,6 +58,7 @@ import {
   type QuestTitledPayload,
   MAX_DEEDS_PER_TURN,
   MAX_ERRANDS_PER_TURN,
+  MAX_TALLY_LINK,
   MAX_TALLY_PRS,
   lootPath,
   lootPaths,
@@ -353,8 +354,6 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   /** Errands each Quest has left this turn; in memory only, counted again once the turn or process ends. */
   const errandsThisTurn = new Map<string, number>();
   const deedsThisTurn = new Map<string, number>();
-  /** The longest pull request link `TurnTallyPayload` takes. */
-  const MAX_TALLY_LINK = 500;
   /** Each Quest's Loot and Trophies so far this turn, by the shared rules, for its `turn.tally`. */
   const turnLoot = new Map<string, { files: Set<string>; prs: Set<string> }>();
   /**

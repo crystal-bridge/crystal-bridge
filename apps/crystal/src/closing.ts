@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   DeedRecordedPayload,
   MAX_CLOSING_DEEDS,
+  MAX_TALLY_LINK,
   MAX_TALLY_PRS,
   lootPath,
   lootPaths,
@@ -22,7 +23,6 @@ const MAX_DIGEST_PRS = MAX_TALLY_PRS;
 /** The newest Deeds and Errands the Quest left that the digest names. */
 const MAX_DIGEST_LEFT = 20;
 const MAX_DIGEST_PATH = 200;
-const MAX_DIGEST_LINK = 500;
 const MAX_DIGEST_LINE = 120;
 const MAX_TITLE_CHARS = 60;
 
@@ -97,7 +97,7 @@ export function buildDigest(events: readonly ReplayEvent[], quest: { cwd: string
       if (turn && text) turn.reply = text.slice(0, MAX_DIGEST_REPLY);
     } else if (raw.type === 'user') {
       for (const link of trophyLinks(raw)) {
-        if (prs.size < MAX_DIGEST_PRS && link.length <= MAX_DIGEST_LINK) prs.add(link);
+        if (prs.size < MAX_DIGEST_PRS && link.length <= MAX_TALLY_LINK) prs.add(link);
       }
       const message = raw.message;
       if (!isObj(message) || !Array.isArray(message.content)) continue;

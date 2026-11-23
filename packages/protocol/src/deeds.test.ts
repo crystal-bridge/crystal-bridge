@@ -8,6 +8,7 @@ import {
   EventType,
   HubToClient,
   MAX_DEED_DETAIL,
+  MAX_TALLY_LINK,
   NodeCommand,
   NodeHello,
   TurnTallyPayload,
@@ -32,6 +33,15 @@ describe('Deeds (#289)', () => {
     expect(TurnTallyPayload.safeParse({ ...tally, files: -1 }).success).toBe(false);
     expect(TurnTallyPayload.safeParse({ ...tally, seq: 1.5 }).success).toBe(false);
     expect(TurnTallyPayload.safeParse({ ...tally, prs: ['javascript:alert(1)'] }).success).toBe(false);
+  });
+
+  it(`takes a pull request link of up to ${MAX_TALLY_LINK} characters`, () => {
+    expect(MAX_TALLY_LINK).toBe(500);
+    const link = (length: number) => `https://example.com/${'x'.repeat(length - 27)}/pull/1`;
+    expect(link(MAX_TALLY_LINK)).toHaveLength(MAX_TALLY_LINK);
+    const tally = (pr: string) => TurnTallyPayload.safeParse({ seq: 1, files: 0, prs: [pr] }).success;
+    expect(tally(link(MAX_TALLY_LINK))).toBe(true);
+    expect(tally(link(MAX_TALLY_LINK + 1))).toBe(false);
   });
 
   it('takes a Deed, its line trimmed, its detail optional', () => {
