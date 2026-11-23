@@ -92,6 +92,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 | **Patrol log** | a Board's reports from the Patrols that post to it | Beside the Board's list, newest first. The Classic theme says Scheduled task runs. |
 | **Watchtower** | where a Kingdom's Patrols are listed | A panel on the Castle: a card per Patrol with its next run and its latest runs. The Classic theme says Scheduled tasks. |
 | **Errand** | a step a Quest left for you | The chat says "Your Quest left you 2 Errands." where a turn left some. The Castle's Errands panel comes as a Checklist or as Cards, and each Kingdom's tab shows a teal count of open ones. The Classic theme says Follow-up. |
+| **Deed** | a line a Quest wrote about what it achieved | The Castle's Deeds feed lists them with each Quest's turn records, day by day, in gold. The chat says "A new Deed is recorded in the annals of the Kingdom." and, at Close, "Your Quest's Deeds are recorded in the annals of the Kingdom." The Classic theme says Outcome, Work log and "Summary recorded." |
 | **Config** | settings | The app-bar gear menu. |
 
 ### Inventory

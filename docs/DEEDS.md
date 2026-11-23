@@ -1,13 +1,8 @@
 # Deeds
 
-A record of what a Kingdom's Quests achieved, day by day, across every project.
-
-::: warning Partly built
-The hub and Kingdom parts are built: turn records and tallies, the `deed` tool and the call at Close. The hub keeps turn
-records, Deeds and script Patrol runs, fills past turns and serves the feed. The app is planned. The work is tracked in the
+A record of what a Kingdom's Quests achieved, day by day, across every project. The work is tracked in the
 [v0.9 Errands and Deeds milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/11) and
 [#289](https://github.com/crystal-bridge/crystal-bridge/issues/289).
-:::
 
 A **Deed** is a record of work done on a Kingdom. The Castle's Deeds feed lists them newest first, grouped by day,
 each one linking back to its Quest. The Chronicle holds the Quests themselves; the Deeds say what they achieved.
@@ -104,7 +99,8 @@ it, for a few cents."* The choice is kept per device.
 
 **In the chat**, a closed Quest ends with one line in the theme's voice: *"Your Quest's Deeds are recorded in the
 annals of the Kingdom."*, then the Deeds. Or, when there are none, why: *"No Deeds recorded: the call took too long."*
-The Classic theme says *"Summary recorded."* The call raises no notification, since it isn't a turn.
+While the call runs, the line says it is writing; one that never got its outcome reads as stopped after 2 minutes.
+The Classic theme says *"Summary recorded."*, or *"No summary recorded: the reason."* The call raises no notification, since it isn't a turn.
 
 **When it's skipped.** The Quest closes with no call when you turn the choice off, when the Quest has no finished turn
 since its last Deeds at Close, or when its Kingdom is too old to offer it; the dialog shows the choice greyed, with the
@@ -118,7 +114,8 @@ stays closed, its turn records stay as they were, and the chat and the feed say 
 Yesterday, then dates). A chip per project filters it, each project in its own colour, as on the Errands panel. It
 uses gold for Deeds and never window blue, since nothing in it waits on you. It sits in the Castle's left column,
 under Active Quests, as a timeline: a gold rail down the side with a marker for each day and one row per Quest's
-day, its icon on the rail. On a narrower screen it follows the Castle's other panels.
+day, its icon on the rail. Below the xl breakpoint it comes after the Castle's columns. The feed reads 7 local days a
+page.
 
 Within a day, each Quest's records fold into one entry, so a run of short turns ("yes, go on") reads as one line:
 
@@ -132,18 +129,20 @@ Within a day, each Quest's records fold into one entry, so a run of short turns 
 Each entry marks its Quest with an icon: open, closed with Deeds, or closed without them, the last saying why
 (skipped, too long, over budget, nothing written). Each links to its Quest; a link to a closed Quest opens it as the
 Chronicle does. A Patrol's Quest shows its Patrol's icon. A script Patrol's finished or failed run is an entry of its
-own with the run's summary line, the same line the Patrol log shows; skipped and missed runs aren't Deeds.
+own with the run's summary line, the same line the Patrol log shows, and no project chip, since a script runs in its
+Patrol's own folder and filtering by a project hides it; skipped and missed runs aren't Deeds.
 
 A Quest that runs over several days has an entry on each day it worked; its Deeds from Close land on the day it
 closed, beside any it wrote in turns, which stay. The call's cost counts on that day's totals, not as a turn. A
 script Patrol's entry links to its run in the Patrol log, since it has no Quest.
 
 The feed loads older days as you scroll. With no records yet, it says so in one line; if it couldn't be read, it says
-why. In a Quest, the side panel shows that Quest's Deeds.
+why. In a Quest, the side panel shows that Quest's Deeds, read from the Quest's own events, so it works with no feed loaded.
 
 The Classic theme calls a Deed an Outcome and the feed a Work log, since Recent activity is the Adventure log's.
 
-**On a phone,** the feed is read-only: the same entries, chips and links, with the totals line and no unfolding.
+**On a phone,** the feed is read-only once it has rows: the same entries, chips and links, with the totals line and no
+unfolding.
 
 **Notifications and Discreet.** Deeds raise no notifications. On a Discreet Kingdom (#93), Deed text follows the
 Kingdom's Discreet setting wherever titles do.
