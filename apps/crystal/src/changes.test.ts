@@ -187,12 +187,11 @@ describe('reportChanges', () => {
     const emit = (payload: { raw: unknown }) =>
       order.push(`emit ${JSON.stringify((payload.raw as { files: string[] }).files)}`);
     const tallied = reportChanges(first, emit, (files) => order.push(`diffed ${JSON.stringify(files)}`));
-    const second = reportChanges(
-      tracker(['b.ts']),
-      emit,
-      (files) => order.push(`diffed ${JSON.stringify(files)}`),
-      tallied,
-    );
+    const next = tracker(['b.ts']);
+    const finished = vi.spyOn(next, 'finish');
+    const second = reportChanges(next, emit, (files) => order.push(`diffed ${JSON.stringify(files)}`), tallied);
+    // The second diff starts at once: only the sending waits for the slow first turn.
+    expect(finished).toHaveBeenCalledTimes(1);
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(order).toEqual([]);
     slow(['a.ts']);
