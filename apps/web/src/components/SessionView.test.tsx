@@ -1296,11 +1296,18 @@ describe('SessionView Deeds at Close (#289)', () => {
       at(3, 'deeds.closing', { outcome: 'recorded' }),
     );
     expect(screen.getByText('Your Quest’s Deeds are recorded in the annals of the Kingdom.')).toBeTruthy();
-    expect(screen.getAllByText('Moved to Node 24').length).toBeGreaterThan(0);
+    expectInPanelAndChat('Moved to Node 24');
     cleanup();
     view(at(2, 'deeds.closing', { outcome: 'timeout' }));
-    expect(screen.getAllByText('No Deeds recorded: the call took too long.').length).toBeGreaterThan(0);
+    expectInPanelAndChat('No Deeds recorded: the call took too long.');
   });
+
+  /** One copy in the side panel's Deeds, one in the chat. */
+  function expectInPanelAndChat(text: string) {
+    const panel = screen.getByRole('region', { name: 'Deeds' });
+    expect(within(panel).getAllByText(text)).toHaveLength(1);
+    expect(screen.getAllByText(text).filter((el) => !panel.contains(el))).toHaveLength(1);
+  }
 
   it('shows a call under way as writing, with a spinner', () => {
     vi.useFakeTimers({ now: NOW });
