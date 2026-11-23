@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DeedDetail,
   DeedRecordedPayload,
+  DeedsClosingOutcome,
   DeedsClosingPayload,
   DeedsPage,
   EventType,
@@ -61,6 +63,15 @@ describe('Deeds (#289)', () => {
       expect(DeedsClosingPayload.safeParse({ outcome, reason: 'x'.repeat(301) }).success).toBe(false);
     }
     expect(DeedsClosingPayload.safeParse({ outcome: 'skipped' }).success).toBe(false);
+    expect(DeedsClosingOutcome.parse('writing')).toBe('writing');
+    expect(DeedsClosingPayload.parse({ outcome: 'writing' })).toEqual({ outcome: 'writing' });
+  });
+
+  it('refuses a detail with a tab, a zero-width space or a bidi override', () => {
+    expect(DeedDetail.parse('Image 30 MB smaller.')).toBe('Image 30 MB smaller.');
+    for (const detail of ['Image\tsmaller', 'Image\u200Bsmaller', 'Image \u202Etxt.exe']) {
+      expect(DeedDetail.safeParse(detail).success).toBe(false);
+    }
   });
 
   it('reads a page of the feed, with a cursor for the rest of a full window', () => {

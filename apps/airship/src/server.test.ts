@@ -1213,6 +1213,22 @@ describe('airship server', () => {
       expect(other.body).toEqual({ deeds: [] });
     });
 
+    it('sends no frame for a repeated event, an unreadable turn or a call at Close under way, and one for a Deed', async () => {
+      const node = await started();
+      const client = await connectClient();
+      send(node.socket, finished(1));
+      await client.frames.waitFor(isDeeds);
+      send(node.socket, finished(1));
+      send(node.socket, event(2, 'turn.finished', 'nope'));
+      send(node.socket, event(3, 'deeds.closing', { outcome: 'writing' }));
+      send(node.socket, event(4, 'deed.recorded', { id: RUN, deed: 'Shipped it' }));
+      await client.frames.waitFor((f) => isDeeds(f) && (f.deeds as { kind: string }[])[0]?.kind === 'deed');
+      expect(client.frames.frames.filter(isDeeds).map((f) => f.deeds)).toEqual([
+        [expect.objectContaining({ id: `turn:${SESSION}:1` })],
+        [expect.objectContaining({ id: `deed:${RUN}`, kind: 'deed', text: 'Shipped it', seq: 4 })],
+      ]);
+    });
+
     it('gives the rest of a full page from its cursor', async () => {
       for (let i = 0; i < 5003; i++) {
         const at = i < 4995 ? 10_000 - i : 5_000;

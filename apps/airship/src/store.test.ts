@@ -2008,6 +2008,34 @@ describe('Deeds (#289)', () => {
       hub.close();
     });
 
+    it('fills every turn across its read steps, many sharing one time', () => {
+      oldHub();
+      const db = new Database(path);
+      const event = db.prepare(`INSERT INTO events (session, seq, node, ts, type, payload) VALUES (?, ?, ?, ?, ?, ?)`);
+      const sessions = Array.from({ length: 5 }, () => randomUUID());
+      const finished = JSON.stringify({ outcome: 'success' });
+      db.transaction(() => {
+        // 2,500 more turns: 1,800 at one time, straddling the 1,000-row steps, and the rest spread out after it.
+        for (let i = 0; i < 2500; i++) {
+          const ts = i < 1800 ? 500 : 500 + i;
+          event.run(
+            sessions[i % sessions.length],
+            10 + Math.floor(i / sessions.length),
+            node,
+            ts,
+            'turn.finished',
+            finished,
+          );
+        }
+      })();
+      db.close();
+      const hub = openStore(path);
+      const rows = hub.deedsPage(node, { after: 500, before: 10_000 }).deeds;
+      expect(rows).toHaveLength(2500);
+      expect(new Set(rows.map((row) => row.id)).size).toBe(2500);
+      hub.close();
+    });
+
     it('never fills again once it has rows', () => {
       oldHub();
       openStore(path).close();
