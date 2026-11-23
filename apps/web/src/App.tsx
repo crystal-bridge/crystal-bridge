@@ -1676,6 +1676,8 @@ export function App({ hub }: { hub: HubClient }) {
               />
             ) : (
               <Castle
+                // One Castle per Kingdom: a switch never shows the last one's rows, chips or open panels for a render.
+                key={kingdom.id}
                 kingdom={kingdom}
                 look={looks[kingdom.id]}
                 sessions={kingdomSessions}

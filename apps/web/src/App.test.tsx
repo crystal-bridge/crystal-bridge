@@ -109,6 +109,18 @@ describe('App Kingdom tabs', () => {
     expect(screen.getAllByText('Home fleet').length).toBeGreaterThan(0);
   });
 
+  it('draws each Kingdom’s Castle afresh, keeping nothing of the one before', async () => {
+    await renderApp();
+    const tabs = screen.getByRole('tablist', { name: 'Kingdoms' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: /node-b/ }));
+    const chronicle = () => screen.getByRole('button', { name: /Chronicle/ });
+    fireEvent.click(chronicle());
+    expect(chronicle().getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(within(tabs).getByRole('tab', { name: /node-a/ }));
+    expect(screen.getByRole('heading', { level: 1, name: 'node-a' })).toBeTruthy();
+    expect(chronicle().getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('forgets a removed Kingdom: asks the hub, and its tab goes', async () => {
     let held = sessions;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
