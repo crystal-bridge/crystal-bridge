@@ -239,15 +239,22 @@ describe('reportChanges', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const order: string[] = [];
-      const stuck = { begin: async () => {}, finish: () => new Promise<string[]>(() => {}) };
-      const first = reportChanges(stuck, vi.fn(), (files) => order.push(`first ${JSON.stringify(files)}`));
-      reportChanges(tracker(['b.ts']), vi.fn(), (files) => order.push(`second ${JSON.stringify(files)}`), first);
+      let late: (files: string[]) => void = () => {};
+      const stuck = { begin: async () => {}, finish: () => new Promise<string[]>((r) => (late = r)) };
+      const emit = vi.fn();
+      const first = reportChanges(stuck, emit, (files) => order.push(`first ${JSON.stringify(files)}`));
+      reportChanges(tracker(['b.ts']), emit, (files) => order.push(`second ${JSON.stringify(files)}`), first);
       await vi.advanceTimersByTimeAsync(FINISH_CEILING_MS - 1);
       expect(order).toEqual([]);
       await vi.advanceTimersByTimeAsync(1);
       expect(order).toEqual(['first undefined', 'second ["b.ts"]']);
       expect(logged).toHaveBeenCalledTimes(1);
       expect(String(logged.mock.calls[0]![0])).toMatch(/^\[crystal\] /);
+      // The diff that finally comes after the ceiling is dropped: the turn was already called back.
+      late(['late.ts']);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(order).toEqual(['first undefined', 'second ["b.ts"]']);
+      expect(JSON.stringify(emit.mock.calls)).not.toContain('late.ts');
     } finally {
       logged.mockRestore();
       vi.useRealTimers();
