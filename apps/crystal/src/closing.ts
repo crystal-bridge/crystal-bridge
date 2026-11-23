@@ -10,6 +10,7 @@ import {
   trophyLinks,
   type DeedsClosingOutcome,
 } from '@crystal-bridge/protocol';
+import { DEED_TOOL, ERRAND_TOOL, TITLE_TOOL } from './permissions.js';
 import { spawnCollector, type CollectRequest, type Collector } from './scouts.js';
 import type { ReplayEvent } from './transcripts.js';
 
@@ -105,11 +106,11 @@ export function buildDigest(events: readonly ReplayEvent[], quest: { cwd: string
         const used = typeof block.tool_use_id === 'string' ? pending.get(block.tool_use_id) : undefined;
         if (!used) continue;
         const { name, input } = used;
-        if (name === 'mcp__crystal__title' && planTitle === undefined && typeof input.plain === 'string') {
+        if (name === TITLE_TOOL && planTitle === undefined && typeof input.plain === 'string') {
           planTitle = input.plain.slice(0, MAX_DIGEST_LINE);
-        } else if (name === 'mcp__crystal__deed' && typeof input.deed === 'string') {
+        } else if (name === DEED_TOOL && typeof input.deed === 'string') {
           deeds.push(input.deed.slice(0, MAX_DIGEST_LINE));
-        } else if (name === 'mcp__crystal__errand' && typeof input.title === 'string') {
+        } else if (name === ERRAND_TOOL && typeof input.title === 'string') {
           errands.push(input.title.slice(0, MAX_DIGEST_LINE));
         }
       }
