@@ -1,4 +1,4 @@
-import type { Envelope } from '@crystal-bridge/protocol';
+import { lootPath, lootPaths, trophyLinks, type Envelope } from '@crystal-bridge/protocol';
 import type { Helper } from './heroes.js';
 import { contextRoom, costStep, sessionInfo } from './info.js';
 import { AGENT_TOOLS, launchedInBackground } from './model.js';
@@ -28,23 +28,6 @@ export interface BattleResult {
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown) => (typeof v === 'number' ? v : 0);
-const WRITE_TOOLS: Record<string, string> = {
-  Write: 'file_path',
-  Edit: 'file_path',
-  MultiEdit: 'file_path',
-  NotebookEdit: 'notebook_path',
-};
-/**
- * A pull or merge request's link alone on a line, the way the tools that open one print it. Output that merely
- * mentions a link (a listing, a log, `gh pr view`) doesn't match, which keeps out work this Quest didn't do.
- */
-const PR_LINE = /^https?:\/\/\S+\/(?:pull|pulls|merge_requests|pull-requests)\/\d+\/?$/;
-
-function toolOutput(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.map((part) => (isObj(part) && typeof part.text === 'string' ? part.text : '')).join('\n');
-}
 
 function empty(): BattleResult {
   return {
@@ -88,8 +71,6 @@ export function battleResults(envelopes: readonly Envelope[]): {
   let sideQuests = 0;
   const askedForBackground = new Set<string>();
 
-  const display = (path: string) => (cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path);
-
   for (const envelope of envelopes) {
     const payload = isObj(envelope.payload) ? envelope.payload : {};
     if (envelope.type === 'session.started') {
@@ -106,13 +87,11 @@ export function battleResults(envelopes: readonly Envelope[]): {
       for (const file of files) questLoot.add(file);
     }
 
+    for (const path of lootPaths(raw)) loot.add(lootPath(path, cwd));
     if (raw.type === 'assistant' && isObj(raw.message) && Array.isArray(raw.message.content)) {
       for (const block of raw.message.content) {
         if (!isObj(block) || block.type !== 'tool_use' || typeof block.name !== 'string') continue;
         const input = isObj(block.input) ? block.input : {};
-        const pathKey = WRITE_TOOLS[block.name];
-        const path = pathKey ? input[pathKey] : undefined;
-        if (typeof path === 'string') loot.add(display(path));
         if (AGENT_TOOLS.has(block.name) && typeof block.id === 'string') {
           heroes.push({
             id: block.id,
@@ -127,13 +106,11 @@ export function battleResults(envelopes: readonly Envelope[]): {
       }
     }
 
+    for (const link of trophyLinks(raw)) prs.add(link);
     if (raw.type === 'user' && isObj(raw.message) && Array.isArray(raw.message.content)) {
       for (const block of raw.message.content) {
         if (!isObj(block) || block.type !== 'tool_result') continue;
         if (launchedInBackground(raw) && !askedForBackground.has(String(block.tool_use_id))) sideQuests += 1;
-        for (const line of toolOutput(block.content).split('\n')) {
-          if (PR_LINE.test(line.trim())) prs.add(line.trim().replace(/\/$/, ''));
-        }
       }
     }
 
