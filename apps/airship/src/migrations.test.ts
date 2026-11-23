@@ -124,7 +124,43 @@ describe('store migrations', () => {
     expect(db.prepare('SELECT session, seq, project, closed FROM errands').all()).toEqual([
       { session: null, seq: null, project: null, closed: null },
     ]);
-    expect(db.pragma('user_version', { simple: true })).toBe(13);
+    expect(db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    db.close();
+  });
+
+  it('adds a deeds table keyed by its prefixed id, empty for a database that has Quests', () => {
+    const db = new Database(path);
+    db.exec(MIGRATIONS.slice(0, 13).join(';'));
+    db.pragma('user_version = 13');
+    db.exec(
+      `INSERT INTO sessions (id, node, cwd, label, status, created_at) VALUES ('s', 'n', '/r', 'fix it', 'idle', 1)`,
+    );
+    migrate(db);
+    const insert = `INSERT OR IGNORE INTO deeds (id, node, kind, at) VALUES ('turn:s:1', 'n', 'turn', 1)`;
+    db.exec(insert);
+    db.exec(insert);
+    const rows = db.prepare('SELECT * FROM deeds').all() as Record<string, unknown>[];
+    expect(rows).toHaveLength(1);
+    // An ordinary rowid table: WITHOUT ROWID would copy the long text key into every index.
+    expect(db.prepare('SELECT rowid FROM deeds').all()).toHaveLength(1);
+    for (const column of [
+      'session',
+      'seq',
+      'patrol',
+      'project',
+      'text',
+      'detail',
+      'outcome',
+      'cost_usd',
+      'duration_ms',
+      'files',
+      'prs',
+    ]) {
+      expect(rows[0]![column]).toBeNull();
+    }
+    expect(db.pragma('user_version', { simple: true })).toBe(14);
+    const indexes = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'deeds'`).all();
+    expect(indexes).toEqual(expect.arrayContaining([{ name: 'deeds_node_at' }, { name: 'deeds_node_project_at' }]));
     db.close();
   });
 
