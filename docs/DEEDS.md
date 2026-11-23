@@ -22,7 +22,7 @@ and folds its turn records beneath them.
 | **Turn record**  | one finished turn: when, cost, time, files changed, pull requests opened   | the hub, per Kingdom   |
 | **Deed**         | a line or two a Quest wrote about an outcome, during a turn or at Close    | the hub, per Kingdom   |
 | **`deed` tool**  | how a Quest writes one during a turn: `mcp__crystal__deed`                 | each Kingdom's Crystal |
-| **Closing call** | one short call at Close, in which the Quest sums itself up in Deeds        | each Kingdom's Crystal |
+| **Closing call** | one short call at Close that writes a Quest's Deeds from a digest of it | each Kingdom's Crystal |
 | **Deeds feed**   | the Castle's list of a Kingdom's Deeds and turn records                    | the web app            |
 
 ## Keep the tally: turn records
@@ -66,24 +66,29 @@ records none during its turns. It still gets Deeds at Close, which needs no line
 ## Close the chapter: Deeds at Close
 
 **Close** gains a choice, **Record its Deeds**, on by default. Close itself works as today: the Quest stops at once and
-is closed. With the choice on, Crystal then asks the Quest to sum itself up:
+is closed, and its worktree is removed if you asked. With the choice on, Crystal then asks for the Quest's Deeds:
 
-1. Crystal starts one more `claude` process on the Quest's session, with `--resume`. It's a one-shot call, the way a
-   Scout's synthesis is made: `-p` with a fixed prompt, `--json-schema` for the answer, `--tools ''` and
-   `--strict-mcp-config` with no MCP servers, so it has no tools at all, and `--no-session-persistence`, so the Quest's
-   transcript stays as it was.
-2. The prompt asks for 1 to 5 Deeds covering the whole Quest, one per outcome that matters, and names the Deeds the
-   Quest already recorded so it doesn't repeat them. The answer is JSON in the `deed` tool's shape.
-3. Crystal sends each Deed as a `deed.recorded` event marked `closing`, then a `deeds.closing` event with the outcome
-   and cost. Only then does it remove the worktree, if you asked, since the call reads the Quest's folder.
+1. Crystal builds a digest of the Quest from the CLI's transcript on the Kingdom: its title and project, the files and
+   pull requests its turns tallied, the Deeds and Errands it already left, and for each turn the prompt (up to 500
+   characters) and the final reply (up to 1,500). A digest over 24,000 characters keeps the first turn and the newest
+   ones, and says how many it left out.
+2. Crystal sends the digest to one fresh one-shot `claude` call, the way a Scout's synthesis is made: `-p`,
+   `--json-schema` for the answer, `--tools ''` and `--strict-mcp-config` with no MCP servers, so it has no tools at
+   all, and `--no-session-persistence`, so it leaves no session behind. It doesn't resume the Quest.
+3. The prompt marks the digest as data, not instructions, and asks for 1 to 5 Deeds covering the whole Quest, one per
+   outcome that matters, without repeating the Deeds already left. The answer is JSON in the `deed` tool's shape.
+4. Crystal sends each Deed as a `deed.recorded` event marked `closing`, then a `deeds.closing` event with the outcome
+   and cost.
 
-The call has no tools to use, so it can't edit a file, run a command or reach another machine, in any mode. It has 2
-minutes and a budget cap (`CRYSTAL_CLOSING_BUDGET_USD`, $1 by default); past either, it stops and records nothing.
+The call can't edit a file, run a command or reach another machine, in any mode. It has 2 minutes. A Kingdom can set
+`CRYSTAL_CLOSING_MODEL`, passed as `--model`, to use a cheaper model than the account's default.
 
-**What it costs.** The call is a new process with a different set of tools, so the prompt cache doesn't carry over:
-it pays for the Quest's whole context at the cache-write rate, even right after the last turn. On a long Quest that's
-more than a short turn, up to the cap. The Close dialog says so beside the choice: *"Reads the whole Quest once more
-to write its Deeds. On a long Quest this can cost up to $1."* The choice is kept per device.
+**What it costs.** The call reads the digest, not the Quest's whole context, so its cost depends on the digest's size,
+not the Quest's length. A full digest cost about $0.10 on one account's default model (measured 2026-11-22, with a
+probe of the same flags). `CRYSTAL_CLOSING_BUDGET_USD` ($1 by default) passes `--max-budget-usd` as a backstop. The
+CLI checks it only after the call, so a call over it is billed in full and its answer thrown away; the digest cap is
+what keeps the cost down. The Close dialog says beside the choice: *"Writes the Quest's Deeds from a short digest of
+it, for a few cents."* The choice is kept per device.
 
 **In the chat**, a closed Quest ends with one line in the theme's voice: *"Your Quest's Deeds are recorded in the
 annals of the Kingdom."*, then the Deeds. Or, when there are none, why: *"No Deeds recorded: the call took too long."*
@@ -92,8 +97,8 @@ The Classic theme says *"Summary recorded."* The call raises no notification, si
 **When it's skipped.** The Quest closes with no call when you turn the choice off, when the Quest has no finished turn
 since its last Deeds at Close, or when its Kingdom is too old to offer it; the dialog shows the choice greyed, with the
 reason. Close needs the Kingdom online, as it does today. A Patrol's Quest is closed only by you, so the same choice
-applies. If the call fails, runs out of time or budget, or writes nothing, the Quest stays closed, its turn records
-stay as they were, and the chat and the feed say which.
+applies. If the transcript can't be read, or the call fails, runs out of time or budget, or writes nothing, the Quest
+stays closed, its turn records stay as they were, and the chat and the feed say which.
 
 ## Read the annals: the Deeds feed
 
@@ -169,8 +174,9 @@ Deleting a Quest by hand (see [What Crystal Bridge stores](HUB-DATA.md)) deletes
 ## Weigh the words: trust
 
 A Deed's text is written by the Quest, and a Quest reads untrusted text. A Deed is plain text in the feed: no Markdown,
-links or HTML, so a prompt injection can at most write a misleading line. The call at Close has no tools and no MCP
-servers, so a Close can't be turned into work you didn't ask for.
+links or HTML, so a prompt injection can at most write a misleading line. The digest at Close carries text the Quest read,
+so the call marks it as data, and it has no tools and no MCP servers: a Close can't be turned into work you didn't ask
+for.
 
 ## Who holds what
 
@@ -186,10 +192,11 @@ HTTP routes. Older Kingdoms send no tally and close with no call. Update the hub
 
 ## Prove it first
 
-The build starts by recording the call at Close on both engines' sessions: `--resume` with `-p`, `--tools ''`,
-`--strict-mcp-config`, `--json-schema` and `--no-session-persistence`, checking that the answer comes back, the
-transcript is unchanged, and the cost matches the full-context estimate. If the CLI refuses that combination, the
-design comes back here before anything else is built.
+A probe on 2026-11-22 showed why the call takes a digest. With `--resume`, the same flags worked (the answer came back
+and the transcript was unchanged), but the call missed the prompt cache and paid for the whole context, and a call
+over `--max-budget-usd` was billed in full with its answer thrown away. A fresh call with a 25,000-character digest
+came back in shape for about $0.10. The build starts by recording the digest call from both engines' transcripts; if
+it doesn't hold, the design comes back here before anything else is built.
 
 ## Not planned
 
