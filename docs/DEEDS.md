@@ -136,13 +136,14 @@ A Quest that runs over several days has an entry on each day it worked; its Deed
 closed, beside any it wrote in turns, which stay. The call's cost counts on that day's totals, not as a turn. A
 script Patrol's entry links to its run in the Patrol log, since it has no Quest.
 
-The feed loads older days as you scroll. With no records yet, it says so in one line; if it couldn't be read, it says
-why. In a Quest, the side panel shows that Quest's Deeds, read from the Quest's own events, so it works with no feed loaded.
+The feed loads older days as you scroll. With no records yet, a card says the annals are still blank, and with a
+project chosen it offers to show all projects again; if it couldn't be read, it says why. In a Quest, the side panel
+shows that Quest's Deeds, read from the Quest's own events, so it works with no feed loaded.
 
 The Classic theme calls a Deed an Outcome and the feed a Work log, since Recent activity is the Adventure log's.
 
-**On a phone,** the feed is read-only once it has rows: the same entries, chips and links, with the totals line and no
-unfolding.
+**On a phone,** the feed is read-only once it has rows (or a project is chosen): the same entries, chips and links,
+with the totals line and no unfolding.
 
 **Notifications and Discreet.** Deeds raise no notifications. On a Discreet Kingdom (#93), Deed text follows the
 Kingdom's Discreet setting wherever titles do.

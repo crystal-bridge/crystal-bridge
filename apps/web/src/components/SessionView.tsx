@@ -415,7 +415,7 @@ function DeedsClosingLine({
             <li key={i}>
               <details>
                 <summary className="flex cursor-pointer items-center gap-2 py-0.5">
-                  <Icon name="quillInk" size={16} />
+                  <Icon name="deedClosing" size={16} />
                   <span className="font-bold">{deed.deed}</span>
                 </summary>
                 {deed.detail && <p className="pl-6 text-xs text-neutral-600 dark:text-neutral-400">{deed.detail}</p>}
@@ -896,6 +896,7 @@ export function SessionView({
                   <label className="flex items-center gap-1.5">
                     <input
                       type="checkbox"
+                      className="accent-amber-600 dark:accent-amber-400"
                       checked={!deedsReason && deedsChoice}
                       disabled={Boolean(deedsReason)}
                       onChange={(e) => setDeedsChoice(e.target.checked)}

@@ -2,7 +2,7 @@ import type { Deed, Envelope, ListedPatrol } from '@crystal-bridge/protocol';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { dayLabel, type DeedsState } from '../deeds.js';
-import { w } from '../theme/words.js';
+import { deedsEmptyLines, w } from '../theme/words.js';
 import { DeedsFeed, QuestDeeds } from './Deeds.js';
 import type { SessionSummary } from './SessionList.js';
 
@@ -316,11 +316,19 @@ describe('DeedsFeed', () => {
     for (const line of crown.querySelectorAll('[data-deed]')) expect(line.querySelector('a')).toBeNull();
   });
 
-  it('says so in one line when there are none, or why it couldn’t read them', () => {
-    feed({ state: { deeds: [], loaded: true } });
-    expect(
-      screen.getByText(`No ${w('deedsFeed')} yet: when a ${w('quest')} finishes a turn, it shows here.`),
-    ).toBeTruthy();
+  it('says so in a card when there are none, or why it couldn’t read them', () => {
+    feed({ state: { deeds: [], loaded: true }, kingdom: 'Lantern' });
+    const empty = deedsEmptyLines('Lantern', false);
+    const title = screen.getByText(empty.title);
+    const card = title.closest('[data-empty]') as HTMLElement;
+    expect(card.querySelector('svg')?.classList.contains('cb-icon-openBook')).toBe(true);
+    expect(within(card).getByText(empty.line)).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: empty.showAll })).toBeNull();
+    cleanup();
+    const filtered = feed({ state: { deeds: [], loaded: true }, kingdom: 'Lantern', project: '/r/acme/lantern' });
+    expect(screen.getByText(deedsEmptyLines('lantern', true).title)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: empty.showAll }));
+    expect(filtered.onProject).toHaveBeenCalledWith(undefined);
     cleanup();
     feed({ state: { deeds: [], loaded: false, error: 'the hub is unreachable' } });
     expect(screen.getByRole('alert').textContent).toBe(`Couldn’t read the ${w('deedsFeed')}: the hub is unreachable`);

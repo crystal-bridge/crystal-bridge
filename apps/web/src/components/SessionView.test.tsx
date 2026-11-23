@@ -374,6 +374,8 @@ describe('SessionView closing', () => {
     const onClose = view(finished);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).checked).toBe(true);
+    // Gold, as the Deeds are everywhere: the browser's own accent would be the window blue.
+    expect(screen.getByLabelText('Record its Deeds').className).toMatch(/\baccent-amber-\d+/);
     expect(screen.getByText('Writes the Quest’s Deeds from a short digest of it, for a few cents.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
     expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: true });
@@ -1297,6 +1299,10 @@ describe('SessionView Deeds at Close (#289)', () => {
     );
     expect(screen.getByText('Your Quest’s Deeds are recorded in the annals of the Kingdom.')).toBeTruthy();
     expectInPanelAndChat('Moved to Node 24');
+    // Laurels for a Deed from Close, in the chat as in the side panel and the feed.
+    const panel = screen.getByRole('region', { name: 'Deeds' });
+    const chat = screen.getAllByText('Moved to Node 24').find((el) => !panel.contains(el))!;
+    expect(chat.parentElement!.querySelector('svg')?.classList.contains('cb-icon-deedClosing')).toBe(true);
     cleanup();
     view(at(2, 'deeds.closing', { outcome: 'timeout' }));
     expectInPanelAndChat('No Deeds recorded: the call took too long.');

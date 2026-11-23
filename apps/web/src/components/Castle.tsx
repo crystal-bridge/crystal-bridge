@@ -526,6 +526,7 @@ export function Castle({
         sessions={sessions}
         patrols={patrols?.patrols ?? []}
         project={deedsProject}
+        kingdom={kingdom.name}
         now={now}
         phone={phone}
         onProject={(project) => onDeedsProject?.(project)}

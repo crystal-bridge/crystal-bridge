@@ -28,6 +28,7 @@ import {
   recordDeedsChoice,
   closingStoppedReason,
   deedsText,
+  deedsEmptyLines,
 } from './words.js';
 
 describe('theme words', () => {
@@ -391,6 +392,21 @@ describe('Quest titles (#287)', () => {
       hint: 'Writes the Quest’s Deeds from a short digest of it, for a few cents.',
     });
     expect(recordDeedsChoice(CLASSIC).label).toBe('Record its outcomes');
+  });
+
+  it('words the empty feed for a Kingdom or a project, and Classic never says Deed', () => {
+    expect(deedsEmptyLines('Lantern', false, CRYSTAL)).toEqual({
+      title: 'The annals of Lantern are still blank',
+      line: 'No Deeds yet. When a Quest finishes a turn, it shows here.',
+      showAll: 'Show all projects',
+    });
+    expect(deedsEmptyLines('lantern', true, CRYSTAL).line).toBe(
+      'No Deeds in this project yet. When a Quest there finishes a turn, it shows here.',
+    );
+    const classic = deedsEmptyLines('Lantern', true, CLASSIC);
+    expect(classic.title).toBe('Nothing recorded in Lantern yet');
+    expect(classic.line).toBe('No outcomes in this project yet. When a session there finishes a turn, it shows here.');
+    expect(JSON.stringify([classic, deedsEmptyLines('Lantern', false, CLASSIC)])).not.toMatch(/deed|quest|annal/i);
   });
 
   it('words the Deeds’ short lines in each theme, and Classic never says Deed', () => {

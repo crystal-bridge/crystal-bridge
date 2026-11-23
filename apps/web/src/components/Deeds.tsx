@@ -21,6 +21,7 @@ import { projectName } from '../quests.js';
 import { Icon, type IconName } from '../theme/icons.js';
 import {
   closingLine,
+  deedsEmptyLines,
   deedsText,
   hint,
   type QuestStanding,
@@ -40,6 +41,8 @@ export interface DeedsFeedProps {
   patrols: readonly ListedPatrol[];
   /** The project the feed is filtered by; absent for all. */
   project?: string | undefined;
+  /** This device's name for the Kingdom, for the empty feed's card. */
+  kingdom?: string;
   now?: number;
   /** The phone's form: the same entries, chips and links, with no unfolding. */
   phone?: boolean;
@@ -88,6 +91,7 @@ export function DeedsFeed({
   sessions,
   patrols,
   project,
+  kingdom,
   now = Date.now(),
   phone = false,
   onProject,
@@ -133,7 +137,7 @@ export function DeedsFeed({
             </div>
           )}
           {days.length === 0 ? (
-            <Empty project={project} />
+            <Empty project={project} kingdom={kingdom} onProject={onProject} />
           ) : phone ? (
             <div>
               {days.map((day) => (
@@ -278,17 +282,36 @@ function Chips({
   );
 }
 
-function Empty({ project }: { project: string | undefined }) {
-  const line =
-    project === undefined
-      ? `No ${w('deedsFeed')} yet: when a ${w('quest')} finishes a turn, it shows here.`
-      : `No ${w('deedsFeed')} in ${projectName(project)} yet: when a ${w('quest')} there finishes a turn, it shows here.`;
+/** The empty feed: a card with the open book, and with a project chosen, a way back to them all. */
+function Empty({
+  project,
+  kingdom,
+  onProject,
+}: {
+  project: string | undefined;
+  kingdom: string | undefined;
+  onProject: (project: string | undefined) => void;
+}) {
+  const place = project !== undefined ? projectName(project) : (kingdom ?? `the ${w('kingdom')}`);
+  const lines = deedsEmptyLines(place, project !== undefined);
   return (
-    <div className="mx-3 flex items-center gap-2 rounded-lg border border-dashed border-amber-300 px-3 py-3 text-sm text-neutral-500 dark:border-amber-800">
-      <span aria-hidden="true" className="inline-flex text-amber-500 dark:text-amber-400">
-        <Icon name="deedsFeed" size={20} />
+    <div
+      data-empty
+      className="mx-3 flex flex-col items-center gap-2 rounded-lg border border-dashed border-amber-300 px-4 py-8 text-center dark:border-amber-800"
+    >
+      <span
+        aria-hidden="true"
+        className="grid size-12 place-items-center rounded-full bg-amber-50 text-amber-500 dark:bg-amber-950 dark:text-amber-400"
+      >
+        <Icon name="openBook" size={28} />
       </span>
-      <p>{line}</p>
+      <p className="cb-display text-xl leading-none">{lines.title}</p>
+      <p className="max-w-sm text-sm text-neutral-500 dark:text-neutral-400">{lines.line}</p>
+      {project !== undefined && (
+        <button type="button" onClick={() => onProject(undefined)} className="text-xs font-bold underline">
+          {lines.showAll}
+        </button>
+      )}
     </div>
   );
 }

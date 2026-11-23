@@ -704,6 +704,24 @@ export function deedsText(theme: Words = words): {
   };
 }
 
+/** The empty feed's card: the annals of a Kingdom (or of the chosen project) are blank, and a way back to all. */
+export function deedsEmptyLines(
+  place: string,
+  filtered: boolean,
+  theme: Words = words,
+): { title: string; line: string; showAll: string } {
+  const classic = theme === CLASSIC;
+  const deeds = classic ? w('deeds', theme).toLowerCase() : w('deeds', theme);
+  const quest = classic ? w('quest', theme).toLowerCase() : w('quest', theme);
+  return {
+    title: classic ? `Nothing recorded in ${place} yet` : `The annals of ${place} are still blank`,
+    line: filtered
+      ? `No ${deeds} in this project yet. When a ${quest} there finishes a turn, it shows here.`
+      : `No ${deeds} yet. When a ${quest} finishes a turn, it shows here.`,
+    showAll: 'Show all projects',
+  };
+}
+
 export type QuestStanding =
   { kind: 'open' } | { kind: 'deeds' } | { kind: 'closed'; why: 'skipped' | Exclude<DeedsClosingOutcome, 'recorded'> };
 
