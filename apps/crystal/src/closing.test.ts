@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import { MAX_TALLY_LINK } from '@crystal-bridge/protocol';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
@@ -462,6 +462,35 @@ describe('the call at Close (#289)', () => {
     await closing.run('s1', '/r/lantern');
     expect(fake.requests[0]!.cwd.startsWith(`${tmpdir()}${sep}`)).toBe(true);
     expect(existsSync(fake.requests[0]!.cwd)).toBe(false);
+  });
+
+  it("removes the CLI's empty projects folder for the call's folder, and nothing else", async () => {
+    const folder = mkdtempSync(join(testRoot, 'cb-closing-'));
+    const encoded = basename(folder).replace(/[^a-zA-Z0-9]/g, '-');
+    const projectsDir = mkdtempSync(join(testRoot, 'projects-'));
+    const empty = join(projectsDir, `-tmp-x-${encoded}`);
+    mkdirSync(join(empty, 'memory'), { recursive: true });
+    const unrelated = join(projectsDir, '-r-lantern');
+    mkdirSync(join(unrelated, 'memory'), { recursive: true });
+    const kept = join(projectsDir, `-private-tmp-x-${encoded}`);
+    mkdirSync(join(kept, 'memory'), { recursive: true });
+    writeFileSync(join(kept, 'memory', 'notes.md'), 'mine');
+    const fake = fakeCollect({ kind: 'timed-out', stderr: '' });
+    const closing = createClosing({
+      claudeBin: 'claude',
+      env: {},
+      budgetUsd: 1,
+      transcript: async () => events,
+      collect: fake.collect,
+      tmp: async () => folder,
+      projectsDir,
+    });
+    await closing.run('s1', '/r/lantern');
+    expect(existsSync(folder)).toBe(false);
+    expect(existsSync(empty)).toBe(false);
+    expect(readdirSync(join(unrelated, 'memory'))).toEqual([]);
+    expect(readFileSync(join(kept, 'memory', 'notes.md'), 'utf8')).toBe('mine');
+    expect(readdirSync(projectsDir).sort()).toEqual([`-private-tmp-x-${encoded}`, '-r-lantern'].sort());
   });
 
   it('stop() while the transcript is still being read starts no call', async () => {

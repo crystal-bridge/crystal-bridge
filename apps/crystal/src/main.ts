@@ -198,6 +198,7 @@ async function main(): Promise<void> {
       env: sessionEnv,
       model: CLOSING_MODEL,
       budgetUsd: CLOSING_BUDGET_USD,
+      projectsDir: PROJECTS_DIR,
       transcript: async (id) => {
         const file = await findTranscript(PROJECTS_DIR, id);
         return file ? transcriptEvents(file) : undefined;

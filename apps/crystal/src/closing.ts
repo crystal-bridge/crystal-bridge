@@ -1,6 +1,6 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   DeedRecordedPayload,
   MAX_CLOSING_DEEDS,
@@ -294,6 +294,29 @@ export function readClosing(stdout: string): ClosingResult {
   return { outcome: 'recorded', deeds, ...costUsd };
 }
 
+/**
+ * Removes the empty folder the CLI makes under its projects folder for a call's cwd, even with
+ * `--no-session-persistence` (only an empty `memory/` inside). Matched on the folder's unique mkdtemp name, not a full
+ * recomputed path, since the temp folder may resolve elsewhere (`/private/var` on macOS). Only non-recursive `rmdir`:
+ * a folder holding anything stays, and no other entry is touched.
+ */
+async function removeEmptyProject(projectsDir: string | undefined, folder: string): Promise<void> {
+  if (!projectsDir) return;
+  const suffix = `-${basename(folder).replace(/[^a-zA-Z0-9]/g, '-')}`;
+  let entries: string[];
+  try {
+    entries = await readdir(projectsDir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith(suffix)) continue;
+    const project = join(projectsDir, entry);
+    await rmdir(join(project, 'memory')).catch(() => undefined);
+    await rmdir(project).catch(() => undefined);
+  }
+}
+
 export interface Closing {
   run(session: string, cwd: string): Promise<ClosingResult>;
   stop(): void;
@@ -310,6 +333,8 @@ export function createClosing(opts: {
   /** The folder each call's own private empty folder is made in: the system's temp folder unless a test moves it. */
   tmpRoot?: string;
   tmp?: () => Promise<string>;
+  /** The CLI's projects folder, where each call leaves an empty folder for its cwd that cleanup removes. */
+  projectsDir?: string;
 }): Closing {
   const collect = opts.collect ?? spawnCollector;
   const tmpRoot = opts.tmpRoot ?? tmpdir();
@@ -373,6 +398,7 @@ export function createClosing(opts: {
       }
     } finally {
       await rm(folder, { recursive: true, force: true }).catch(() => undefined);
+      await removeEmptyProject(opts.projectsDir, folder);
     }
   }
 

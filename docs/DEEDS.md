@@ -80,8 +80,10 @@ is closed, and its worktree is removed if you asked. With the choice on, Crystal
    `--json-schema` for the answer, `--tools ''` and `--strict-mcp-config` with no MCP servers, so it has no tools at
    all, `--no-session-persistence`, so it leaves no session behind, and `--setting-sources ''`, so no settings load:
    the Kingdom user's `CLAUDE.md`, hooks and plugins can't steer it. It doesn't resume the Quest, and it runs from a
-   fresh private folder in the system's temp folder, removed afterwards. Calls at Close run one at a time: closing
-   several Quests at once queues them, and stopping Crystal drops the ones still waiting.
+   fresh private folder in the system's temp folder, removed afterwards. The CLI still makes an empty folder for it
+   in its projects folder (`~/.claude/projects` unless `CLAUDE_CONFIG_DIR` moves it), and Crystal removes that too,
+   but only while it is empty. Calls at Close run one at a time: closing several Quests at once queues them, and
+   stopping Crystal drops the ones still waiting.
 3. The prompt marks the digest as data, not instructions, and asks for 1 to 5 Deeds covering the whole Quest, one per
    outcome that matters, without repeating the Deeds already left. The answer is JSON in the `deed` tool's shape.
 4. Crystal sends each Deed as a `deed.recorded` event marked `closing`, then a `deeds.closing` event with the outcome
