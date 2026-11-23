@@ -3,7 +3,7 @@
 Your own docs, kept in a folder on a Kingdom, and readable from any device.
 
 ::: warning Planned
-This page is the proposed design; none of it is built yet. The work is tracked in the
+This page is the agreed design; none of it is built yet. The work is tracked in the
 [v0.10 Library milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/12) and
 [#290](https://github.com/crystal-bridge/crystal-bridge/issues/290).
 :::
