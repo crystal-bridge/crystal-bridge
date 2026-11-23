@@ -19,7 +19,16 @@ import { ERRAND_TONES, errandTone } from '../errands.js';
 import { duration, money } from '../format.js';
 import { projectName } from '../quests.js';
 import { Icon, type IconName } from '../theme/icons.js';
-import { closingLine, hint, type QuestStanding, questLabel, questStandingWord, w, words } from '../theme/words.js';
+import {
+  closingLine,
+  deedsText,
+  hint,
+  type QuestStanding,
+  questLabel,
+  questStandingWord,
+  w,
+  words,
+} from '../theme/words.js';
 import type { SessionSummary } from './SessionList.js';
 
 export interface DeedsFeedProps {
@@ -612,7 +621,7 @@ function DeedLine({ deed }: { deed: Deed }) {
     <li data-deed className="leading-snug">
       <span className="flex items-start gap-2 font-bold">
         <span
-          title={closing ? 'From Close' : 'From a turn'}
+          title={closing ? deedsText().fromClose : deedsText().fromTurn}
           className="mt-0.5 inline-flex text-amber-600 dark:text-amber-400"
         >
           <Icon name={closing ? 'deedClosing' : 'quillInk'} size={16} />
@@ -704,7 +713,7 @@ export function QuestDeeds({ envelopes }: { envelopes: readonly Envelope[] }) {
       </div>
       <ul className="mt-1.5 space-y-1.5 px-2.5 pb-2 text-sm">
         {deeds.length === 0 ? (
-          <li className="text-xs text-neutral-500">None yet.</li>
+          <li className="text-xs text-neutral-500">{deedsText().none}</li>
         ) : (
           deeds.map((deed) => <DeedLine key={deed.id} deed={deed} />)
         )}

@@ -29,7 +29,7 @@ import { buildInventory } from '../inventory.js';
 import { usePanel } from '../panels.js';
 import { Icon } from '../theme/icons.js';
 import { Tip } from './Tip.js';
-import { closingLine, closingStoppedReason, hint, recordDeedsChoice, w } from '../theme/words.js';
+import { closingLine, closingStoppedReason, deedsText, hint, recordDeedsChoice, w } from '../theme/words.js';
 import { Inventory } from './Inventory.js';
 import { ICON_BUTTON, PanelToggles } from './PanelToggles.js';
 import { SlashMenu, useSlashMenu } from './SlashMenu.js';
@@ -530,9 +530,9 @@ export function SessionView({
   const [deedsChoice, setDeedsChoice] = useCloseDeeds();
   const deedsReason =
     closeDeeds?.offered === false
-      ? 'This Kingdom is too old to record Deeds at Close.'
+      ? deedsText().tooOld
       : !finishedTurnSinceClosing(envelopes)
-        ? 'No finished turn to record.'
+        ? deedsText().noTurn
         : undefined;
   const deedsWords = recordDeedsChoice();
   // While the draft is just "/name", suggest the session's slash commands and skills.

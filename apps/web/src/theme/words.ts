@@ -680,8 +680,28 @@ export function closingLine(outcome: DeedsClosingOutcome, theme: Words = words):
 }
 
 /** Why a `writing` line that never got its outcome reads as stopped: Crystal went away mid-call. */
-export function closingStoppedReason(): string {
-  return 'Crystal stopped before the Deeds came back.';
+export function closingStoppedReason(theme: Words = words): string {
+  return `Crystal stopped before the ${theme === CLASSIC ? 'summary' : w('deeds', theme)} came back.`;
+}
+
+/** The Deeds' short lines: the Close dialog's greyed reasons, a Quest's empty side panel, where a Deed came from. */
+export function deedsText(theme: Words = words): {
+  tooOld: string;
+  noTurn: string;
+  none: string;
+  fromClose: string;
+  fromTurn: string;
+} {
+  const classic = theme === CLASSIC;
+  const deeds = classic ? w('deeds', theme).toLowerCase() : w('deeds', theme);
+  const close = classic ? 'close' : 'Close';
+  return {
+    tooOld: `This ${classic ? w('kingdom', theme).toLowerCase() : w('kingdom', theme)} is too old to record ${deeds} at ${close}.`,
+    noTurn: 'No finished turn to record.',
+    none: 'None yet.',
+    fromClose: `From ${close}`,
+    fromTurn: 'From a turn',
+  };
 }
 
 export type QuestStanding =

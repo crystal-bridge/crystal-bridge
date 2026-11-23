@@ -26,6 +26,8 @@ import {
   closingLine,
   questStandingWord,
   recordDeedsChoice,
+  closingStoppedReason,
+  deedsText,
 } from './words.js';
 
 describe('theme words', () => {
@@ -389,5 +391,21 @@ describe('Quest titles (#287)', () => {
       hint: 'Writes the Quest’s Deeds from a short digest of it, for a few cents.',
     });
     expect(recordDeedsChoice(CLASSIC).label).toBe('Record its outcomes');
+  });
+
+  it('words the Deeds’ short lines in each theme, and Classic never says Deed', () => {
+    expect(deedsText(CRYSTAL)).toEqual({
+      tooOld: 'This Kingdom is too old to record Deeds at Close.',
+      noTurn: 'No finished turn to record.',
+      none: 'None yet.',
+      fromClose: 'From Close',
+      fromTurn: 'From a turn',
+    });
+    expect(closingStoppedReason(CRYSTAL)).toBe('Crystal stopped before the Deeds came back.');
+    const classic = deedsText(CLASSIC);
+    expect(classic.tooOld).toBe('This node is too old to record outcomes at close.');
+    expect(classic.fromClose).toBe('From close');
+    expect(closingStoppedReason(CLASSIC)).toBe('Crystal stopped before the summary came back.');
+    expect(JSON.stringify([classic, closingStoppedReason(CLASSIC)])).not.toMatch(/deed/i);
   });
 });
