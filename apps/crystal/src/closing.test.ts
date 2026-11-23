@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest';
-import { MAX_DIGEST_CHARS, buildDigest, digestText } from './closing.js';
+import { existsSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  CLOSING_TIMEOUT_MS,
+  MAX_DIGEST_CHARS,
+  buildDigest,
+  closingArgs,
+  closingPrompt,
+  closingSchema,
+  createClosing,
+  digestText,
+  readClosing,
+} from './closing.js';
+import type { CollectRequest, CollectResult } from './scouts.js';
 import type { ReplayEvent } from './transcripts.js';
 
 const prompt = (text: string): ReplayEvent => ({ type: 'user.message', payload: { text } });
@@ -98,5 +110,137 @@ describe('the digest at Close (#289)', () => {
 
   it('has no turn when the transcript holds no prompt', () => {
     expect(buildDigest([say('hello')], { cwd }).turns).toEqual([]);
+  });
+});
+
+describe('the call at Close (#289)', () => {
+  const line = (r: Record<string, unknown>) => JSON.stringify({ type: 'result', ...r });
+
+  it('asks with no tools, no MCP servers and no session left behind, the prompt on stdin', () => {
+    const base = [
+      '-p',
+      '--output-format',
+      'json',
+      '--json-schema',
+      JSON.stringify(closingSchema()),
+      '--strict-mcp-config',
+      '--no-session-persistence',
+      '--max-budget-usd',
+      '1',
+      '--setting-sources',
+      '',
+    ];
+    expect(closingArgs({ budgetUsd: 1 })).toEqual([...base, '--tools', '']);
+    expect(closingArgs({ budgetUsd: 1, model: 'cheap' })).toEqual([...base, '--model', 'cheap', '--tools', '']);
+    const extra = closingArgs({ budgetUsd: 1, extra: ['--verbose'] });
+    expect(extra).toEqual([...base, '--verbose', '--tools', '']);
+    expect(closingArgs({ budgetUsd: 1 })).not.toContain('--resume');
+  });
+
+  it("asks for 1 to 5 Deeds in the tool's shape", () => {
+    const deeds = (closingSchema() as { properties: { deeds: Record<string, any> } }).properties.deeds;
+    expect(deeds.minItems).toBe(1);
+    expect(deeds.maxItems).toBe(5);
+    expect(deeds.items.required).toContain('deed');
+    expect(deeds.items.properties.deed.maxLength).toBe(120);
+    expect(deeds.items.properties.detail.maxLength).toBe(280);
+  });
+
+  it('marks the digest as data and asks for Deeds not already left', () => {
+    const prompt = closingPrompt('{"title":"x"}');
+    expect(prompt).toContain('<untrusted-quest>\n{"title":"x"}\n</untrusted-quest>');
+    for (const word of ['data', 'not instructions', '1 to 5', 'already']) expect(prompt).toContain(word);
+  });
+
+  it('reads the Deeds, keeping each that checks out', () => {
+    const out = line({
+      is_error: false,
+      subtype: 'success',
+      total_cost_usd: 0.09,
+      structured_output: {
+        deeds: [
+          { deed: ' Released v0.8.1 ' },
+          { deed: '' },
+          { deed: 'Fixed the badge', detail: '' },
+          ...['a', 'b', 'c', 'd', 'e', 'f'].map((deed) => ({ deed })),
+        ],
+      },
+    });
+    const read = readClosing(`noise\n${out}\n`);
+    expect(read.outcome).toBe('recorded');
+    expect(read.costUsd).toBe(0.09);
+    expect(read.deeds).toHaveLength(5);
+    expect(read.deeds.slice(0, 2)).toEqual([{ deed: 'Released v0.8.1' }, { deed: 'Fixed the badge' }]);
+  });
+
+  it('says why it wrote none', () => {
+    const budget = readClosing(
+      line({
+        is_error: true,
+        subtype: 'error_max_budget_usd',
+        total_cost_usd: 0.03,
+        errors: ['Reached maximum budget'],
+      }),
+    );
+    expect(budget).toMatchObject({ outcome: 'budget', costUsd: 0.03, deeds: [] });
+    const empty = readClosing(
+      line({ is_error: false, subtype: 'success', total_cost_usd: 0.01, structured_output: { deeds: [{ deed: '' }] } }),
+    );
+    expect(empty).toMatchObject({ outcome: 'empty', costUsd: 0.01, deeds: [] });
+    const none = readClosing('not json');
+    expect(none.outcome).toBe('failed');
+    expect(none.reason).toBeTruthy();
+  });
+
+  const events: ReplayEvent[] = [prompt('ship it'), say('done')];
+  const fakeCollect = (result: CollectResult) => {
+    const requests: CollectRequest[] = [];
+    const stop = vi.fn();
+    const collect = (request: CollectRequest) => {
+      requests.push(request);
+      return { result: Promise.resolve(result), stop };
+    };
+    return { collect, requests, stop };
+  };
+  const make = (collect: (r: CollectRequest) => any, transcript: () => Promise<ReplayEvent[] | undefined>) =>
+    createClosing({ claudeBin: 'claude', env: {}, budgetUsd: 1, transcript, collect });
+
+  it('runCall stops at 2 minutes and says so', async () => {
+    const fake = fakeCollect({ kind: 'timed-out', stderr: '' });
+    const result = await make(fake.collect, async () => events).run('s1', '/r/lantern');
+    expect(result.outcome).toBe('timeout');
+    const request = fake.requests[0]!;
+    expect(request.timeoutMs).toBe(CLOSING_TIMEOUT_MS);
+    expect(CLOSING_TIMEOUT_MS).toBe(120_000);
+    expect(request.stdin).toContain('<untrusted-quest>');
+    expect(request.cwd).not.toBe('/r/lantern');
+    expect(existsSync(request.cwd)).toBe(false);
+  });
+
+  it('records the Deeds of a good answer', async () => {
+    const stdout = line({ is_error: false, subtype: 'success', structured_output: { deeds: [{ deed: 'Shipped' }] } });
+    const fake = fakeCollect({ kind: 'exited', code: 0, stdout, stderr: '' });
+    const result = await make(fake.collect, async () => events).run('s1', '/r/lantern');
+    expect(result).toMatchObject({ outcome: 'recorded', deeds: [{ deed: 'Shipped' }] });
+  });
+
+  it("says when the transcript can't be read", async () => {
+    const fake = fakeCollect({ kind: 'timed-out', stderr: '' });
+    expect((await make(fake.collect, async () => undefined).run('s1', '/r')).outcome).toBe('unreadable');
+    expect((await make(fake.collect, async () => [say('x')]).run('s1', '/r')).outcome).toBe('unreadable');
+    expect(fake.requests).toHaveLength(0);
+  });
+
+  it('stop() stops a call still running', async () => {
+    const stop = vi.fn();
+    let release: (r: CollectResult) => void = () => {};
+    const collect = () => ({ result: new Promise<CollectResult>((r) => (release = r)), stop });
+    const closing = make(collect, async () => events);
+    const running = closing.run('s1', '/r/lantern');
+    await new Promise((r) => setTimeout(r, 20));
+    closing.stop();
+    expect(stop).toHaveBeenCalled();
+    release({ kind: 'timed-out', stderr: '' });
+    await running;
   });
 });
