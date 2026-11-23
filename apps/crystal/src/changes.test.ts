@@ -254,6 +254,25 @@ describe('reportChanges', () => {
     }
   });
 
+  it('still calls back, and the next turn follows, when the tracker throws at once', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const order: string[] = [];
+      const throwing = {
+        begin: async () => {},
+        finish: (): Promise<string[] | undefined> => {
+          throw new Error('x');
+        },
+      };
+      const first = reportChanges(throwing, vi.fn(), (files) => order.push(`first ${JSON.stringify(files)}`));
+      await reportChanges(tracker(['b.ts']), vi.fn(), (files) => order.push(`second ${JSON.stringify(files)}`), first);
+      expect(order).toEqual(['first undefined', 'second ["b.ts"]']);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it('ignores a failed earlier report', async () => {
     const diffed = vi.fn();
     await reportChanges(tracker(['b.ts']), vi.fn(), diffed, Promise.reject(new Error('earlier')));

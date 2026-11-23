@@ -121,7 +121,8 @@ export function reportChanges(
   // `finish` shouldn't reject, but a tracker that does still lets the tally go out, with nothing known.
   let ceiling: NodeJS.Timeout | undefined;
   const files = Promise.race([
-    changes.finish(),
+    // Called at once, but inside a promise, so a tracker that throws rather than rejects still lets the tally go out.
+    new Promise<string[] | undefined>((resolve) => resolve(changes.finish())),
     new Promise<undefined>((resolve) => {
       ceiling = setTimeout(() => {
         console.error(
