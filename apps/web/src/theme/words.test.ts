@@ -29,6 +29,7 @@ import {
   closingStoppedReason,
   deedsText,
   deedsEmptyLines,
+  closeOfflineReason,
 } from './words.js';
 
 describe('theme words', () => {
@@ -392,6 +393,11 @@ describe('Quest titles (#287)', () => {
       hint: 'Writes the Quest’s Deeds from a short digest of it, for a few cents.',
     });
     expect(recordDeedsChoice(CLASSIC).label).toBe('Record its outcomes');
+  });
+
+  it('says why Close can’t record Deeds while the Kingdom is offline', () => {
+    expect(closeOfflineReason('Lantern', CRYSTAL)).toBe('Lantern is offline: it can’t record Deeds at Close.');
+    expect(closeOfflineReason('Lantern', CLASSIC)).toBe('Lantern is offline: it can’t record outcomes at close.');
   });
 
   it('words the empty feed for a Kingdom or a project, and Classic never says Deed', () => {

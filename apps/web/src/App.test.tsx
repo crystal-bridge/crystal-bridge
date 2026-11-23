@@ -1811,7 +1811,7 @@ describe('App Close offers Record its Deeds', () => {
     { node: 'node-b', session: quest.id, seq: 1, ts: 1, type: 'turn.finished' },
   ] as unknown as Envelope[];
   /** `engines: 'unread'` fails `/api/engines`, so the Kingdom's row hasn't come yet. */
-  const open = async (deeds?: boolean, engines: 'listed' | 'unread' = 'listed') => {
+  const open = async (deeds?: boolean, engines: 'listed' | 'unread' = 'listed', offline = false) => {
     localStorage.clear();
     vi.stubGlobal(
       'fetch',
@@ -1821,9 +1821,13 @@ describe('App Close offers Record its Deeds', () => {
           url === '/api/sessions'
             ? sessions
             : url === '/api/nodes'
-              ? ['node-b', 'node-a']
+              ? offline
+                ? ['node-a']
+                : ['node-b', 'node-a']
               : url === '/api/engines'
-                ? [{ node: 'node-b', engines: [], ...(deeds === undefined ? {} : { deeds }) }]
+                ? offline
+                  ? []
+                  : [{ node: 'node-b', engines: [], ...(deeds === undefined ? {} : { deeds }) }]
                 : [];
         return new Response(JSON.stringify(body), { status: 200 });
       }),
@@ -1864,5 +1868,11 @@ describe('App Close offers Record its Deeds', () => {
     await open(undefined, 'unread');
     expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(false);
     expect(screen.queryByText('This Kingdom is too old to record Deeds at Close.')).toBeNull();
+  });
+
+  it('greys the choice while the Quest’s Kingdom is offline, saying so', async () => {
+    await open(undefined, 'listed', true);
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText('node-b is offline: it can’t record Deeds at Close.')).toBeTruthy();
   });
 });

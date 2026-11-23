@@ -1110,7 +1110,9 @@ export function App({ hub }: { hub: HubClient }) {
           })
         }
         closeDeeds={(() => {
-          // Until the Kingdom's engines row arrives, whether it can is unknown, which offers the choice.
+          // An offline Kingdom can't (the hub drops the ask); until its engines row arrives, whether a connected one
+          // can is unknown, which offers the choice.
+          if (visible.find((k) => k.id === node)?.connected === false) return { offered: false, offline: true };
           const row = engineLists.find((engines) => engines.node === node);
           return row ? { offered: Boolean(row.deeds) } : undefined;
         })()}

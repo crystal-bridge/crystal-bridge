@@ -704,6 +704,13 @@ export function deedsText(theme: Words = words): {
   };
 }
 
+/** Why Close can't record Deeds now: the Quest's Kingdom is offline, and the hub drops the ask for one it can't reach. */
+export function closeOfflineReason(kingdom: string, theme: Words = words): string {
+  const classic = theme === CLASSIC;
+  const deeds = classic ? w('deeds', theme).toLowerCase() : w('deeds', theme);
+  return `${kingdom} is offline: it can’t record ${deeds} at ${classic ? 'close' : 'Close'}.`;
+}
+
 /** The empty feed's card: the annals of a Kingdom (or of the chosen project) are blank, and a way back to all. */
 export function deedsEmptyLines(
   place: string,

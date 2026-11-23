@@ -29,7 +29,15 @@ import { buildInventory } from '../inventory.js';
 import { usePanel } from '../panels.js';
 import { Icon } from '../theme/icons.js';
 import { Tip } from './Tip.js';
-import { closingLine, closingStoppedReason, deedsText, hint, recordDeedsChoice, w } from '../theme/words.js';
+import {
+  closeOfflineReason,
+  closingLine,
+  closingStoppedReason,
+  deedsText,
+  hint,
+  recordDeedsChoice,
+  w,
+} from '../theme/words.js';
 import { Inventory } from './Inventory.js';
 import { ICON_BUTTON, PanelToggles } from './PanelToggles.js';
 import { SlashMenu, useSlashMenu } from './SlashMenu.js';
@@ -111,8 +119,11 @@ export interface SessionViewProps {
   onEffort?: (effort: Effort | undefined) => void;
   /** Closes the session for good; true also removes its worktree if it has one. */
   onClose?: (close: { removeWorktree: boolean; deeds: boolean }) => void;
-  /** Whether the Quest's Kingdom can write its Deeds at Close; absent means it can (the hub drops what it can't). */
-  closeDeeds?: { offered: boolean };
+  /**
+   * Whether the Quest's Kingdom can write its Deeds at Close, and if not, whether because it is offline; absent means
+   * it can (the hub drops what it can't).
+   */
+  closeDeeds?: { offered: boolean; offline?: boolean };
   /** Starts a fork of this session: a copy of the conversation so far that continues separately from this prompt. */
   onFork?: (prompt: string) => void;
   /** Shows another session, e.g. the one this fork came from. */
@@ -530,7 +541,9 @@ export function SessionView({
   const [deedsChoice, setDeedsChoice] = useCloseDeeds();
   const deedsReason =
     closeDeeds?.offered === false
-      ? deedsText().tooOld
+      ? closeDeeds.offline
+        ? closeOfflineReason(kingdom || w('kingdom'))
+        : deedsText().tooOld
       : !finishedTurnSinceClosing(envelopes)
         ? deedsText().noTurn
         : undefined;
