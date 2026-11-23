@@ -517,6 +517,16 @@ A restore loses only what happened after that backup; Crystals resend events the
 - The release that added it applied migration 13, so rolling back past it refuses to start (see
   [Rolling back](#rolling-back)).
 
+## Deeds
+
+- A Kingdom's Deeds are kept on the hub in `deeds` (migration 14), written from a Quest's `turn.finished`,
+  `deed.recorded` and `deeds.closing` events and from script Patrol runs.
+- The first start after the migration fills turn records for the turns the hub already holds, once. It can take a few
+  seconds on a large database.
+- Update the hub before the Kingdoms. An older hub stores the new events as events it doesn't know and shows no feed.
+- The release that added it applied migration 14, so rolling back past it refuses to start (see
+  [Rolling back](#rolling-back)).
+
 ## Done until viewed
 
 - A Quest that finishes a turn or fails while you aren't looking at it stays marked until you open it, on every device.

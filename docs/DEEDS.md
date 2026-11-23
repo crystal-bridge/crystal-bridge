@@ -138,23 +138,23 @@ Kingdom's Discreet setting wherever titles do.
 
 ## Keep the scrolls: on the hub
 
-The hub writes a `deeds` row for each turn record, each Deed and each script Patrol run, in a new migration. The
+The hub writes a `deeds` row for each turn record, each Deed, each call at Close and each script Patrol run, in a new migration. The
 event or run report is stored first, so a malformed one writes no row and is never refused for it.
 
 | Column                                    | Holds                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------ |
-| `id`                                      | primary key: `turn:<session>:<seq>`, `deed:<uuid>` or `run:<run id>`     |
+| `id`                                      | primary key: `turn:<session>:<seq>`, `deed:<uuid>`, `run:<run id>` or `close:<session>:<seq>` |
 | `node`                                    | its Kingdom                                                              |
 | `session`, `seq`                          | the Quest and the event that made it; empty for a script Patrol's run    |
 | `patrol`                                  | the Patrol, for a Patrol's Quest or run                                  |
 | `project`                                 | the project folder                                                       |
-| `kind`                                    | `turn`, `deed`, `closing` (a Deed from Close) or `patrol` (a script run) |
-| `text`, `detail`                          | a Deed's line and detail, a turn's reply start, or a run's summary       |
+| `kind`                                    | `turn`, `deed`, `closing` (a Deed from Close), `close` (how the call at Close went: its outcome, cost and reason) or `patrol` (a script run) |
+| `text`, `detail`                          | a Deed's line and detail, a turn's reply start, a call's reason, or a run's summary     |
 | `outcome`                                 | a turn's or run's outcome                                                |
 | `cost_usd`, `duration_ms`, `files`, `prs` | a turn's numbers; empty when not reported                                |
 | `at`                                      | when it happened                                                         |
 
-A prefixed id per kind keeps the three sources apart, and the hub's own `(session, seq)` key on events already drops a
+A prefixed id per kind keeps the four sources apart, and the hub's own `(session, seq)` key on events already drops a
 resent event before any row is made. Turn and Deed rows are written once; a tally fills its turn's counts later. A
 script Patrol's row is upserted from the run report, which comes twice under one id (out, then back), and written only
 once the run is back, finished or failed.
