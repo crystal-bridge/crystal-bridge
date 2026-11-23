@@ -69,6 +69,7 @@ export default defineConfig({
           { text: 'Patrols', link: '/patrols' },
           { text: 'Errands', link: '/errands' },
           { text: 'Deeds', link: '/deeds' },
+          { text: 'The Library', link: '/library' },
         ],
       },
       {
