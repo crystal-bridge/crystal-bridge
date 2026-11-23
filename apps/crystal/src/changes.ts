@@ -10,6 +10,11 @@ export interface TurnChanges {
 }
 
 const GIT_TIMEOUT_MS = 3000;
+/**
+ * The longest a turn's diff may hold up the tallies after it. git's own timeout should end it sooner, but a git stuck
+ * in uninterruptible I/O never exits, and so never settles.
+ */
+export const FINISH_CEILING_MS = 4 * GIT_TIMEOUT_MS;
 const GIT_MAX_BUFFER = 8 * 1024 * 1024;
 const MAX_FILES = 500;
 
@@ -98,7 +103,8 @@ export function gitChanges(
  * calls `diffed` with the diff (even an empty one), or with undefined at once when there is no tracker or it can't
  * tell, so the turn's tally can go out. `after` is the previous turn's report: the diff is taken at once, but this
  * turn's line and callback wait for that one's, so tallies go out in turn order however long each diff takes. Pass
- * the returned promise as the next turn's `after`; it never rejects.
+ * the returned promise as the next turn's `after`; it never rejects. A diff still out after `FINISH_CEILING_MS` counts
+ * as unknown.
  */
 export function reportChanges(
   changes: TurnChanges | undefined,
@@ -113,10 +119,24 @@ export function reportChanges(
     return previous;
   }
   // `finish` shouldn't reject, but a tracker that does still lets the tally go out, with nothing known.
-  const files = changes.finish().catch((error: unknown) => {
-    console.error(`[crystal] a turn's changes could not be read: ${message(error)}`);
-    return undefined;
-  });
+  let ceiling: NodeJS.Timeout | undefined;
+  const files = Promise.race([
+    changes.finish(),
+    new Promise<undefined>((resolve) => {
+      ceiling = setTimeout(() => {
+        console.error(
+          `[crystal] a turn's changes took over ${FINISH_CEILING_MS / 1000} s: sending its tally without them`,
+        );
+        resolve(undefined);
+      }, FINISH_CEILING_MS);
+      ceiling.unref?.();
+    }),
+  ])
+    .catch((error: unknown) => {
+      console.error(`[crystal] a turn's changes could not be read: ${message(error)}`);
+      return undefined;
+    })
+    .finally(() => clearTimeout(ceiling));
   return Promise.all([files, previous]).then(([files]) => report(emit, diffed, files));
 }
 

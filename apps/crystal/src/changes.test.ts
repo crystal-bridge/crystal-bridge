@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { gitChanges, reportChanges } from './changes.js';
+import { FINISH_CEILING_MS, gitChanges, reportChanges } from './changes.js';
 
 function repo() {
   const dir = mkdtempSync(join(tmpdir(), 'cb-changes-'));
@@ -232,6 +232,26 @@ describe('reportChanges', () => {
       expect(logged).toHaveBeenCalledTimes(1);
     } finally {
       logged.mockRestore();
+    }
+  });
+
+  it('gives up on a diff that never comes, and the next turn follows', async () => {
+    vi.useFakeTimers();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const order: string[] = [];
+      const stuck = { begin: async () => {}, finish: () => new Promise<string[]>(() => {}) };
+      const first = reportChanges(stuck, vi.fn(), (files) => order.push(`first ${JSON.stringify(files)}`));
+      reportChanges(tracker(['b.ts']), vi.fn(), (files) => order.push(`second ${JSON.stringify(files)}`), first);
+      await vi.advanceTimersByTimeAsync(FINISH_CEILING_MS - 1);
+      expect(order).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(order).toEqual(['first undefined', 'second ["b.ts"]']);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0]![0])).toMatch(/^\[crystal\] /);
+    } finally {
+      logged.mockRestore();
+      vi.useRealTimers();
     }
   });
 
