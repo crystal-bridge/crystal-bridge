@@ -15,7 +15,7 @@ import {
   questStanding,
   railLook,
 } from '../deeds.js';
-import { ERRAND_TONES, errandTone } from '../errands.js';
+import { ERRAND_TONES, type ErrandTone, errandTone } from '../errands.js';
 import { duration, money } from '../format.js';
 import { projectName } from '../quests.js';
 import { Icon, type IconName } from '../theme/icons.js';
@@ -463,11 +463,28 @@ function Caret() {
   );
 }
 
+/**
+ * An entry's faint wash in its project's colour: pale in light mode, deep and dim in dark, so the rows read as a list
+ * with a coloured edge rather than as banners. Written out whole so the stylesheet build keeps them.
+ */
+const ENTRY_WASH: Record<ErrandTone, string> = {
+  rose: 'from-rose-50 dark:from-rose-950/60',
+  orange: 'from-orange-50 dark:from-orange-950/60',
+  amber: 'from-amber-50 dark:from-amber-950/60',
+  lime: 'from-lime-50 dark:from-lime-950/60',
+  emerald: 'from-emerald-50 dark:from-emerald-950/60',
+  teal: 'from-teal-50 dark:from-teal-950/60',
+  violet: 'from-violet-50 dark:from-violet-950/60',
+  fuchsia: 'from-fuchsia-50 dark:from-fuchsia-950/60',
+  slate: 'from-neutral-50 dark:from-neutral-900/60',
+};
+
 /** One entry: its tile on the rail (or at the row's start on a phone), then its lines in its project's colour. */
 function Entry({ entry, known }: { entry: DeedEntry; known: Known }) {
   const look = railLook(entry);
   const project = entry.kind === 'run' ? undefined : entry.project;
-  const tone = ERRAND_TONES[errandTone(project)];
+  const toneName = errandTone(project);
+  const tone = ERRAND_TONES[toneName];
   const name = entry.kind === 'run' ? (entry.row.text ?? look.label.themed) : questName(entry.session, known);
   const tile = (size: string, icon: number) => (
     <span
@@ -485,7 +502,7 @@ function Entry({ entry, known }: { entry: DeedEntry; known: Known }) {
       <li data-entry aria-label={name} className={`flex gap-2.5 border-l-4 ${tone.stripe} px-2.5 py-2`}>
         <span className="mt-0.5">{tile('size-7 ring-1', 16)}</span>
         <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex items-center gap-2 text-[11px] text-neutral-400">
+          <div className="mb-0.5 flex items-center gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
             <span className="font-mono">{clock(entry.at)}</span>
           </div>
           {body}
@@ -497,9 +514,9 @@ function Entry({ entry, known }: { entry: DeedEntry; known: Known }) {
     <li data-entry aria-label={name} className="relative pb-3 pl-12">
       <span className="absolute left-1 top-0">{tile('size-8 ring-2', 18)}</span>
       <div
-        className={`rounded-md border-l-4 ${tone.stripe} bg-linear-to-r ${tone.wash} to-transparent to-50% py-1 pl-3 pr-2`}
+        className={`rounded-md border-l-4 ${tone.stripe} bg-linear-to-r ${ENTRY_WASH[toneName]} to-transparent to-50% py-1 pl-3 pr-2`}
       >
-        <div className="mb-0.5 flex items-center gap-2 text-[11px] text-neutral-400">
+        <div className="mb-0.5 flex items-center gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
           <span className="font-mono">{clock(entry.at)}</span>
           <span title={look.label.plain}>{look.label.themed}</span>
         </div>
@@ -606,7 +623,7 @@ function QuestLines({ entry, known }: { entry: Extract<DeedEntry, { kind: 'quest
       </span>
       {entry.latestReply && (
         <span
-          className={`mt-0.5 block truncate text-[13px] text-neutral-500 dark:text-neutral-500 ${fold ? 'pl-4 group-open/fold:hidden' : ''}`}
+          className={`mt-0.5 block truncate text-[13px] text-neutral-600 dark:text-neutral-400 ${fold ? 'pl-4 group-open/fold:hidden' : ''}`}
         >
           {`“${entry.latestReply}”`}
         </span>

@@ -230,7 +230,7 @@ describe('DeedsFeed', () => {
     expect(summary.textContent).toContain('The Siege of the Flaky Smoke Test');
     expect(summary.textContent).toContain('3 turns · 12 files · $1.84 · 42m');
     const reply = within(summary).getByText(/Found it: the hub answered/);
-    expect(reply.className).toContain('text-neutral-500');
+    expect(reply.className).toContain('text-neutral-600');
     expect(siege.querySelector('[data-deed]')).toBeNull();
     fireEvent.click(summary);
     expect(within(siege.querySelector('details')!).getAllByRole('listitem')).toHaveLength(3);
