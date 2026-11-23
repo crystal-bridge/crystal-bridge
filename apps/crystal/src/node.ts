@@ -56,6 +56,7 @@ import {
   type ScoutLink,
   type ScoutRun,
   type QuestTitledPayload,
+  MAX_DEEDS_PER_TURN,
   MAX_ERRANDS_PER_TURN,
   MAX_TALLY_PRS,
   lootPath,
@@ -223,6 +224,11 @@ export interface CrystalNode {
     session: string,
     errand: { title: string; body: string },
   ): { ok: true; id: string } | { ok: false; reason: string };
+  /** Passes on a Deed a Quest records (the `deed` tool, #289), at most 3 a turn, or says why not. */
+  recordDeed(
+    session: string,
+    deed: { deed: string; detail?: string },
+  ): { ok: true; id: string } | { ok: false; reason: string };
   /**
    * Closes every session, stops reconnecting and closes the socket. Resolves once the sessions' processes have
    * stopped (each engine escalates to SIGTERM after its grace period), or after `CLOSE_WAIT_MS` regardless, so a
@@ -343,6 +349,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   const patrolQuests = new Map<string, PatrolQuest>();
   /** Errands each Quest has left this turn; in memory only, counted again once the turn or process ends. */
   const errandsThisTurn = new Map<string, number>();
+  const deedsThisTurn = new Map<string, number>();
   /** Each Quest's Loot and Trophies so far this turn, by the shared rules, for its `turn.tally`. */
   const turnLoot = new Map<string, { files: Set<string>; prs: Set<string> }>();
   /** A finished turn's Loot and Trophies, under its `turn.finished`'s seq, until its diff is in. */
@@ -503,7 +510,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     runtime.on('event', (event: ClaudeSessionEvent) => {
       // The process that asked can no longer use an answer; deny so nothing stays pending forever.
       if (event.type === 'session.ended') denyPending(sessionId);
-      if (event.type === 'turn.finished' || event.type === 'session.ended') errandsThisTurn.delete(sessionId);
+      if (event.type === 'turn.finished' || event.type === 'session.ended') {
+        errandsThisTurn.delete(sessionId);
+        deedsThisTurn.delete(sessionId);
+      }
       if (event.type === 'turn.tally') {
         sendTally(sessionId, event.payload.files);
         return;
@@ -1327,6 +1337,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     // A Patrol's Quest ended by closing hasn't ended its run: the Patrols say so on the next start.
     patrolQuests.clear();
     errandsThisTurn.clear();
+    deedsThisTurn.clear();
     turnLoot.clear();
     finishedLoot.clear();
     const stopping: Promise<void>[] = [];
@@ -1421,6 +1432,24 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     return { ok: true, id };
   }
 
+  function recordDeed(
+    session: string,
+    deed: { deed: string; detail?: string },
+  ): { ok: true; id: string } | { ok: false; reason: string } {
+    if (!holds(session)) return { ok: false, reason: 'This session is not running on this node.' };
+    const done = deedsThisTurn.get(session) ?? 0;
+    if (done >= MAX_DEEDS_PER_TURN) {
+      return {
+        ok: false,
+        reason: `A Quest may record at most ${MAX_DEEDS_PER_TURN} Deeds in one turn; record only what matters most.`,
+      };
+    }
+    const id = randomUUID();
+    sendEnvelope(session, 'deed.recorded', { id, deed: deed.deed, ...(deed.detail ? { detail: deed.detail } : {}) });
+    deedsThisTurn.set(session, done + 1);
+    return { ok: true, id };
+  }
+
   return {
     handlePermissionRequest,
     status,
@@ -1439,6 +1468,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     holds,
     titleQuest,
     leaveErrand,
+    recordDeed,
     close,
   };
 }

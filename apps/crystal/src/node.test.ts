@@ -1208,6 +1208,56 @@ describe('startNode', () => {
     });
   });
 
+  describe('Deeds (#289)', () => {
+    async function startQuest(crystal: CrystalNode) {
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'go' }));
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      expect(crystal.holds(session)).toBe(true);
+      return { conn, session };
+    }
+    const deeds = (conn: ConnRecorder) => conn.frames.filter((frame) => frame.type === 'deed.recorded');
+
+    it('passes on a Deed a Quest records, as an event in its stream, with a new id', async () => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      const result = crystal.recordDeed(session, { deed: 'Moved to Node 24' });
+      expect(result).toMatchObject({ ok: true, id: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+      const id = (result as { id: string }).id;
+      const frame = await waitForFrame(conn, (f) => f.type === 'deed.recorded');
+      expect(frame).toMatchObject({ type: 'deed.recorded', session, payload: { id, deed: 'Moved to Node 24' } });
+      expect(Object.keys(frame.payload as object).sort()).toEqual(['deed', 'id']);
+    });
+
+    it('refuses a Deed for a Quest it doesn’t run', async () => {
+      const crystal = createNode({});
+      await waitForFrame(await nextConnection(harness, 0), (frame) => frame.kind === 'hello');
+      expect(crystal.recordDeed(randomUUID(), { deed: 'x' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/not running on this node/),
+      });
+    });
+
+    it.each([
+      ['the turn finishes', { type: 'turn.finished', payload: { outcome: 'success' } }],
+      ['the process ends mid-turn', { type: 'session.ended', payload: { exitCode: 0, signal: null } }],
+    ])('refuses the fourth Deed of a turn, and counts again after %s', async (_name, event) => {
+      const crystal = createNode({});
+      const { conn, session } = await startQuest(crystal);
+      for (let i = 0; i < 3; i++) expect(crystal.recordDeed(session, { deed: `D${i}` }).ok).toBe(true);
+      expect(crystal.recordDeed(session, { deed: 'D3' })).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/at most 3 Deeds in one turn/),
+      });
+      await waitForFrame(conn, () => deeds(conn).length === 3);
+      expect(deeds(conn)).toHaveLength(3);
+      created.at(-1)!.fake.emit('event', event);
+      expect(crystal.recordDeed(session, { deed: 'Again' }).ok).toBe(true);
+    });
+  });
+
   describe('Errands (#288)', () => {
     async function startQuest(crystal: CrystalNode) {
       const conn = await nextConnection(harness, 0);
