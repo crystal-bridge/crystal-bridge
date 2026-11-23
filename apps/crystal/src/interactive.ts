@@ -268,6 +268,8 @@ export class InteractiveSession extends EventEmitter {
   private tail: TranscriptTail | null = null;
   private poll: NodeJS.Timeout | null = null;
   private resumed = false;
+  /** The last turn's report of what it changed: the next one waits on it, so tallies go out in turn order. */
+  private tallies: Promise<void> = Promise.resolve();
   private turnOpen = false;
   /** When the open turn began. */
   private turnSince = 0;
@@ -1072,10 +1074,11 @@ export class InteractiveSession extends EventEmitter {
   /** Ends a turn however it ended, then reports what it changed, so every turn gets its `turn.tally`. */
   private endTurn(payload: TurnFinishedPayload): void {
     this.emitEvent({ type: 'turn.finished', payload });
-    reportChanges(
+    this.tallies = reportChanges(
       this.opts.changes,
       (payload) => this.emitEvent({ type: 'claude.event', payload }),
       (files) => this.emitEvent({ type: 'turn.tally', payload: files ? { files } : {} }),
+      this.tallies,
     );
   }
 

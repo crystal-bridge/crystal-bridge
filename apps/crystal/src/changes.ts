@@ -96,20 +96,24 @@ export function gitChanges(
  * Sends a finished turn's changed files as a line of their own, after `turn.finished`: that event never waits on git,
  * so closing a Quest as a turn ends can't lose it. The client reads the line as belonging to the turn before it. Then
  * calls `diffed` with the diff (even an empty one), or with undefined at once when there is no tracker or it can't
- * tell, so the turn's tally can go out.
+ * tell, so the turn's tally can go out. `after` is the previous turn's report: the diff is taken at once, but this
+ * turn's line and callback wait for that one's, so tallies go out in turn order however long each diff takes. Pass
+ * the returned promise as the next turn's `after`; it never rejects.
  */
 export function reportChanges(
   changes: TurnChanges | undefined,
   emit: (payload: ClaudeEventPayload) => void,
   diffed: (files: string[] | undefined) => void,
-): void {
-  if (!changes) return diffed(undefined);
+  after: Promise<void> = Promise.resolve(),
+): Promise<void> {
+  if (!changes) {
+    diffed(undefined);
+    return after;
+  }
   // `finish` shouldn't reject, but a tracker that does still lets the tally go out, with nothing known.
-  void changes
-    .finish()
-    .catch(() => undefined)
-    .then((files) => {
-      if (files?.length) emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } });
-      diffed(files);
-    });
+  const files = changes.finish().catch(() => undefined);
+  return Promise.all([files, after]).then(([files]) => {
+    if (files?.length) emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } });
+    diffed(files);
+  });
 }

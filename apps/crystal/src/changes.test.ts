@@ -176,6 +176,26 @@ describe('reportChanges', () => {
     }
   });
 
+  it('calls back in turn order when a later turn’s diff is in first', async () => {
+    const order: string[] = [];
+    let slow: (files: string[]) => void = () => {};
+    const first = { begin: async () => {}, finish: () => new Promise<string[]>((r) => (slow = r)) };
+    const emit = (payload: { raw: unknown }) =>
+      order.push(`emit ${JSON.stringify((payload.raw as { files: string[] }).files)}`);
+    const tallied = reportChanges(first, emit, (files) => order.push(`diffed ${JSON.stringify(files)}`));
+    const second = reportChanges(
+      tracker(['b.ts']),
+      emit,
+      (files) => order.push(`diffed ${JSON.stringify(files)}`),
+      tallied,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(order).toEqual([]);
+    slow(['a.ts']);
+    await second;
+    expect(order).toEqual(['emit ["a.ts"]', 'diffed ["a.ts"]', 'emit ["b.ts"]', 'diffed ["b.ts"]']);
+  });
+
   it('with no tracker, calls back at once with nothing known', () => {
     const emit = vi.fn();
     const diffed = vi.fn();

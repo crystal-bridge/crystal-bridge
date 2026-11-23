@@ -323,6 +323,8 @@ export class ClaudeSession extends EventEmitter {
   /** Messages sent while the current child was exiting but not yet closed. */
   private queued: string[] = [];
   private closed = false;
+  /** The last turn's report of what it changed: the next one waits on it, so tallies go out in turn order. */
+  private tallies: Promise<void> = Promise.resolve();
   /** A prompt or follow-up went in and its `result` hasn't come back (waiting on an approval counts). */
   private turnOpen = false;
 
@@ -630,10 +632,11 @@ export class ClaudeSession extends EventEmitter {
         this.lastTotalCost = total;
       }
       this.emitEvent({ type: 'turn.finished', payload: turnFinished(raw as Record<string, unknown>, cost) });
-      reportChanges(
+      this.tallies = reportChanges(
         this.changes,
         (payload) => this.emitEvent({ type: 'claude.event', payload }),
         (files) => this.emitEvent({ type: 'turn.tally', payload: files ? { files } : {} }),
+        this.tallies,
       );
       this.startIdleTimer(rec);
     }
