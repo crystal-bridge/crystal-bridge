@@ -363,25 +363,27 @@ function LoadOlder({
   load.current = onLoadOlder;
   // Pages loaded in a row with no scroll or click from the user.
   const auto = useRef(0);
-  // The successful reads the observer has looked after; none yet when it mounts.
+  // The successful reads an observer has reported after; none yet when it mounts. Marked on the report, not when the
+  // effect runs: one torn down before its report (StrictMode runs effects twice) mustn't use the read up.
   const looked = useRef<number | undefined>(undefined);
   useEffect(() => {
     const element = end.current;
     if (loading || failed || !element || typeof IntersectionObserver === 'undefined') return;
-    const fresh = looked.current !== read;
-    looked.current = read;
-    if (fresh && newest) auto.current = 0;
     let first = true;
     const observer = new IntersectionObserver((entries) => {
       const seen = entries.some((e) => e.isIntersecting);
-      const report = first;
-      first = false;
-      if (!seen) return;
-      if (!report) {
+      if (!first) {
         // The end came into view: the user scrolled.
+        if (!seen) return;
         auto.current = 0;
         load.current();
-      } else if (fresh && auto.current < AUTO_PAGES) {
+        return;
+      }
+      first = false;
+      const fresh = looked.current !== read;
+      looked.current = read;
+      if (fresh && newest) auto.current = 0;
+      if (seen && fresh && auto.current < AUTO_PAGES) {
         auto.current += 1;
         load.current();
       }

@@ -1,4 +1,5 @@
 import type { Deed, Envelope, ListedPatrol } from '@crystal-bridge/protocol';
+import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dayLabel, type DeedsState, useDeeds } from '../deeds.js';
@@ -493,18 +494,33 @@ describe('Load older days with the feed’s end in view', () => {
         return new Promise((resolve) => setTimeout(() => resolve(olderAnswer(n)), 25));
       }),
     );
-    // As a browser does, the observer reports at once whether the end is in view, then on each change.
+    // As a browser does: the first report comes on a later task (none if disconnected first), then one per change.
+    live.clear();
     vi.stubGlobal(
       'IntersectionObserver',
       class {
+        private timer: ReturnType<typeof setTimeout> | undefined;
         constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
         observe() {
+          live.add(this);
+          this.timer = setTimeout(() => this.report(), 0);
+        }
+        report() {
           this.callback([{ isIntersecting: inView }]);
         }
-        disconnect() {}
+        disconnect() {
+          clearTimeout(this.timer);
+          live.delete(this);
+        }
       },
     );
   }
+  const live = new Set<{ report(): void }>();
+  /** The user scrolls the end into view: each observer attached reports the change. */
+  const scrollToEnd = () => {
+    inView = true;
+    act(() => live.forEach((observer) => observer.report()));
+  };
   function Harness() {
     const state = useDeeds(hub, 'forge');
     return (
@@ -592,6 +608,41 @@ describe('Load older days with the feed’s end in view', () => {
     await settle();
     // The clicked page, then the 3 that follow on by themselves.
     expect(older).toHaveLength(4);
+  });
+
+  it('fills a short feed on first mount under StrictMode too', async () => {
+    stubs(newestPage, (n) =>
+      json({
+        deeds: [row(`turn:x:old${n}`, NOW - (40 + 10 * n) * DAY, { session: 'x' })],
+        older: NOW - (45 + 10 * n) * DAY,
+      }),
+    );
+    render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+    await settle();
+    await settle();
+    expect(older).toHaveLength(3);
+  });
+
+  it('loads when the user scrolls to the end after a reconnect’s read failed', async () => {
+    inView = false;
+    let up = true;
+    stubs(
+      () => (up ? newestPage() : json({ error: 'down' }, 503)),
+      () => json({ deeds: [] }),
+    );
+    render(<Harness />);
+    await settle();
+    up = false;
+    act(() => listeners.reconnects.forEach((l) => l()));
+    await settle();
+    expect(older).toHaveLength(0);
+    scrollToEnd();
+    await settle();
+    expect(older).toHaveLength(1);
   });
 
   it('follows on by itself for at most 3 pages, then waits for the button', async () => {
