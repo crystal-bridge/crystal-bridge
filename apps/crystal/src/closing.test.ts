@@ -374,8 +374,7 @@ describe('the call at Close (#289)', () => {
     expect((await first).outcome).toBe('failed');
   });
 
-  it('runs from a fresh folder under its own root, not the shared temp folder', async () => {
-    const tmpRoot = join(mkdtempSync(join(testRoot, 'root-')), 'closing');
+  it("runs from a fresh private folder in the system's temp folder by default", async () => {
     const fake = fakeCollect({ kind: 'timed-out', stderr: '' });
     const closing = createClosing({
       claudeBin: 'claude',
@@ -383,10 +382,9 @@ describe('the call at Close (#289)', () => {
       budgetUsd: 1,
       transcript: async () => events,
       collect: fake.collect,
-      tmpRoot,
     });
     await closing.run('s1', '/r/lantern');
-    expect(fake.requests[0]!.cwd.startsWith(`${tmpRoot}${sep}`)).toBe(true);
+    expect(fake.requests[0]!.cwd.startsWith(`${tmpdir()}${sep}`)).toBe(true);
     expect(existsSync(fake.requests[0]!.cwd)).toBe(false);
   });
 

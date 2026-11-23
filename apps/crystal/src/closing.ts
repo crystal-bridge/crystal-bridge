@@ -1,5 +1,5 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DeedRecordedPayload,
@@ -176,8 +176,6 @@ export function digestText(digest: QuestDigest): string | undefined {
 }
 
 export const CLOSING_TIMEOUT_MS = 120_000;
-/** Where the calls' empty folders are made: under Crystal's own state folder. */
-export const DEFAULT_CLOSING_ROOT = join(homedir(), '.crystal-bridge', 'closing');
 export const DEFAULT_CLOSING_BUDGET_USD = 1;
 const MAX_CLOSING_STDOUT = 4 * 1024 * 1024;
 
@@ -309,18 +307,14 @@ export function createClosing(opts: {
   /** The Quest's transcript as replay events, or undefined when there is none (`findTranscript` + `transcriptEvents`). */
   transcript(session: string): Promise<ReplayEvent[] | undefined>;
   collect?: (request: CollectRequest) => Collector;
-  /** The folder each call's own empty folder is made in; Crystal's, not the shared temp folder. */
+  /** The folder each call's own private empty folder is made in: the system's temp folder unless a test moves it. */
   tmpRoot?: string;
   tmp?: () => Promise<string>;
 }): Closing {
   const collect = opts.collect ?? spawnCollector;
-  const tmpRoot = opts.tmpRoot ?? DEFAULT_CLOSING_ROOT;
-  const tmp =
-    opts.tmp ??
-    (async () => {
-      await mkdir(tmpRoot, { recursive: true, mode: 0o700 });
-      return mkdtemp(join(tmpRoot, 'call-'));
-    });
+  const tmpRoot = opts.tmpRoot ?? tmpdir();
+  // `mkdtemp` makes the folder private (0700); `--setting-sources ''` keeps any CLAUDE.md above it out of the call.
+  const tmp = opts.tmp ?? (() => mkdtemp(join(tmpRoot, 'cb-closing-')));
   const running = new Set<Collector>();
   // Set by `stop()`: a run still reading its transcript or making its folder then starts no call.
   let stopped = false;
