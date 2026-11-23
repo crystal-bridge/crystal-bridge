@@ -5,7 +5,7 @@ import {
   type Envelope,
   type ListedPatrol,
 } from '@crystal-bridge/protocol';
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef } from 'react';
 import {
   type DeedEntry,
   deedDays,
@@ -732,12 +732,8 @@ function TurnList({ turns }: { turns: Deed[] }): ReactNode {
   );
 }
 
-/**
- * One Quest's Deeds, in its side panel, read from the Quest's own events (so it works for a Quest on any Kingdom): the
- * ones it recorded in turns and the ones the call at Close wrote, in the order they came, Close's marked with laurels.
- * Amber, as the Deeds are everywhere, never the window blue. Without any it says so, and why the call at Close wrote none.
- */
-export function QuestDeeds({ envelopes }: { envelopes: readonly Envelope[] }) {
+/** A Quest's Deeds and its latest call at Close, read from its events. */
+function questDeeds(envelopes: readonly Envelope[]): { deeds: Deed[]; closing?: DeedsClosingPayload } {
   const deeds: Deed[] = [];
   let closing: DeedsClosingPayload | undefined;
   for (const e of envelopes) {
@@ -757,6 +753,16 @@ export function QuestDeeds({ envelopes }: { envelopes: readonly Envelope[] }) {
       if (parsed.success) closing = parsed.data;
     }
   }
+  return { deeds, ...(closing ? { closing } : {}) };
+}
+
+/**
+ * One Quest's Deeds, in its side panel, read from the Quest's own events (so it works for a Quest on any Kingdom): the
+ * ones it recorded in turns and the ones the call at Close wrote, in the order they came, Close's marked with laurels.
+ * Amber, as the Deeds are everywhere, never the window blue. Without any it says so, and why the call at Close wrote none.
+ */
+export function QuestDeeds({ envelopes }: { envelopes: readonly Envelope[] }) {
+  const { deeds, closing } = useMemo(() => questDeeds(envelopes), [envelopes]);
   const why = closing && closing.outcome !== 'recorded' && closing.outcome !== 'writing' ? closing : undefined;
   return (
     <section
