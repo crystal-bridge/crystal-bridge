@@ -161,7 +161,9 @@ script Patrol's row is upserted from the run report, which comes twice under one
 once the run is back, finished or failed; like `patrol_runs`, it keeps the Patrol it was first reported under.
 
 The feed reads by Kingdom and time, and by Kingdom, project and time, and each has an index. Clients read it over HTTP,
-a page of days at a time, and get new rows as an additive `deeds` frame.
+a page of days at a time, and get new rows as an additive `deeds` frame. A page holds at most 5,000 rows; a full one
+says where it stopped (`more`), and the client asks for the rest of the same days from there before moving on to
+older days.
 
 **History.** After the migration, the hub fills turn records for the turns it already holds, once, from the stored
 `turn.finished` events. It runs in code on the first start, not in the migration's SQL, because a Quest's project

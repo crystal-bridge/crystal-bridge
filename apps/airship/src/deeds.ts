@@ -6,6 +6,7 @@ import {
   TurnTallyPayload,
   type Deed,
   type DeedKind,
+  type DeedsPage,
   type Envelope,
 } from '@crystal-bridge/protocol';
 import { z } from 'zod';
@@ -63,8 +64,14 @@ export interface Deeds {
   recordClose(close: QuestEvent & DeedsClosingPayload): void;
   /** A script Patrol's run, once it's back finished or failed; upserted, since a run is reported out, then back. */
   recordScriptRun(node: string, patrol: string, run: PatrolRun): void;
-  /** Rows with after <= at < before, newest first, and the time of the newest row before `after`. */
-  deedsPage(node: string, page: { after: number; before: number; project?: string }): { deeds: Deed[]; older?: number };
+  /**
+   * Rows with after <= at < before, newest first (then by id), at most `DEEDS_PAGE_ROWS`, and the time of the newest
+   * row before `after`. A full page gives `more`, its last row, and `beforeAt`/`beforeId` from it resume after that row.
+   */
+  deedsPage(
+    node: string,
+    page: { after: number; before: number; project?: string; beforeAt?: number; beforeId?: string },
+  ): DeedsPage;
   /** A Kingdom's row by its id; another Kingdom's row with the same id is never it. */
   deed(node: string, id: string): Deed | undefined;
   /** Part of the store's `forgetNode`. */
@@ -125,12 +132,14 @@ export function openDeeds(db: Database.Database): Deeds {
   const tally = db.prepare(
     `UPDATE deeds SET files = @files, prs = @prs WHERE id = @id AND node = @node AND kind = 'turn'`,
   );
+  // The cursor (@beforeAt, @beforeId) is the last row a full page gave; with none, it's (@before, '') and passes all.
+  // `at <= @beforeAt` keeps the range on the index; the OR only drops the ties already given.
+  const after = `at >= @after AND at < @before AND at <= @beforeAt AND (at < @beforeAt OR id > @beforeId)`;
   const pageAll = db.prepare(
-    `SELECT ${COLUMNS} FROM deeds WHERE node = @node AND at >= @after AND at < @before
-     ORDER BY at DESC, id LIMIT ${DEEDS_PAGE_ROWS}`,
+    `SELECT ${COLUMNS} FROM deeds WHERE node = @node AND ${after} ORDER BY at DESC, id LIMIT ${DEEDS_PAGE_ROWS}`,
   );
   const pageProject = db.prepare(
-    `SELECT ${COLUMNS} FROM deeds WHERE node = @node AND project = @project AND at >= @after AND at < @before
+    `SELECT ${COLUMNS} FROM deeds WHERE node = @node AND project = @project AND ${after}
      ORDER BY at DESC, id LIMIT ${DEEDS_PAGE_ROWS}`,
   );
   const olderAll = db.prepare(`SELECT MAX(at) FROM deeds WHERE node = @node AND at < @after`).pluck();
@@ -202,11 +211,18 @@ export function openDeeds(db: Database.Database): Deeds {
         at: run.finishedAt ?? run.startedAt,
       });
     },
-    deedsPage(node, { after, before, project }) {
+    deedsPage(node, { after, before, project, beforeAt, beforeId }) {
       const args = { node, after, before, ...(project === undefined ? {} : { project }) };
-      const rows = (project === undefined ? pageAll : pageProject).all(args) as Row[];
+      const cursor =
+        beforeAt === undefined ? { beforeAt: before, beforeId: '' } : { beforeAt, beforeId: beforeId ?? '' };
+      const rows = (project === undefined ? pageAll : pageProject).all({ ...args, ...cursor }) as Row[];
       const older = (project === undefined ? olderAll : olderProject).get(args) as number | null;
-      return { deeds: rows.map(toDeed), ...(older === null ? {} : { older }) };
+      const last = rows.length === DEEDS_PAGE_ROWS ? rows[rows.length - 1] : undefined;
+      return {
+        deeds: rows.map(toDeed),
+        ...(older === null ? {} : { older }),
+        ...(last ? { more: { at: last.at, id: last.id } } : {}),
+      };
     },
     deed(node, id) {
       const row = one.get(node, id) as Row | undefined;

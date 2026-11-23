@@ -1222,13 +1222,20 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         after: z.coerce.number().int(),
         before: z.coerce.number().int().optional(),
         project: ErrandProject.optional(),
+        // A full page's `more`, sent back for the rest of the same window.
+        beforeAt: z.coerce.number().int().optional(),
+        beforeId: z.string().min(1).max(200).optional(),
       })
+      .refine((page) => (page.beforeAt === undefined) === (page.beforeId === undefined))
       .safeParse(request.query);
     if (!query.success) {
-      return reply.code(400).send({ error: 'after and before are epoch milliseconds; a project is one folder path' });
+      return reply.code(400).send({
+        error:
+          'after and before are epoch milliseconds; a project is one folder path; beforeAt and beforeId come together',
+      });
     }
-    const { after, before, project } = query.data;
-    return store.deedsPage(node, { after, before: before ?? Number.MAX_SAFE_INTEGER, project });
+    const { after, before, project, beforeAt, beforeId } = query.data;
+    return store.deedsPage(node, { after, before: before ?? Number.MAX_SAFE_INTEGER, project, beforeAt, beforeId });
   });
   app.get('/api/errands/counts', async () => store.openErrandCounts());
   app.post('/api/nodes/:node/errands', async (request, reply) => {

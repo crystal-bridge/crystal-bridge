@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DeedRecordedPayload,
   DeedsClosingPayload,
+  DeedsPage,
   EventType,
   HubToClient,
   MAX_DEED_DETAIL,
@@ -60,6 +61,14 @@ describe('Deeds (#289)', () => {
       expect(DeedsClosingPayload.safeParse({ outcome, reason: 'x'.repeat(301) }).success).toBe(false);
     }
     expect(DeedsClosingPayload.safeParse({ outcome: 'skipped' }).success).toBe(false);
+  });
+
+  it('reads a page of the feed, with a cursor for the rest of a full window', () => {
+    const row = { id: `turn:${id}:4`, kind: 'turn', at: 5 };
+    expect(DeedsPage.parse({ deeds: [row], older: 1 })).toEqual({ deeds: [row], older: 1 });
+    const full = { deeds: [row], more: { at: 5, id: row.id } };
+    expect(DeedsPage.parse(full)).toEqual(full);
+    expect(DeedsPage.safeParse({ deeds: [], more: { at: 5 } }).success).toBe(false);
   });
 
   it('sends rows in a deeds frame', () => {

@@ -1790,6 +1790,43 @@ describe('Deeds (#289)', () => {
     expect(page(100, 300).deeds.map((d) => d.at)).toEqual([200, 100]);
   });
 
+  it('resumes a full page where it stopped, each row once, ties on the cut-off time included', () => {
+    // 5,003 rows in one window: 4,990 at distinct times, then 13 sharing the time the first page is cut at.
+    const ids: string[] = [];
+    const add = (ts: number) => {
+      const id = randomUUID();
+      ids.push(`deed:${id}`);
+      store.recordDeed({ node, session: randomUUID(), seq: 1, ts, project, id, deed: `At ${ts}` });
+    };
+    for (let i = 0; i < 4990; i++) add(10_000 - i);
+    for (let i = 0; i < 13; i++) add(5_000);
+    add(10); // before the window: only `older` points at it
+    ids.pop();
+    const first = store.deedsPage(node, { after: 1000, before: 20_000 });
+    expect(first.deeds).toHaveLength(5000);
+    expect(first.more).toEqual({ at: 5_000, id: first.deeds[4999]!.id });
+    const rest = store.deedsPage(node, {
+      after: 1000,
+      before: 20_000,
+      beforeAt: first.more!.at,
+      beforeId: first.more!.id,
+    });
+    expect(rest.deeds).toHaveLength(3);
+    expect(rest).not.toHaveProperty('more');
+    expect(rest.older).toBe(10);
+    const seen = [...first.deeds, ...rest.deeds].map((d) => d.id);
+    expect(new Set(seen).size).toBe(5003);
+    expect(seen.sort()).toEqual([...ids].sort());
+    const projectRest = store.deedsPage(node, {
+      after: 1000,
+      before: 20_000,
+      project,
+      beforeAt: first.more!.at,
+      beforeId: first.more!.id,
+    });
+    expect(projectRest.deeds.map((d) => d.id)).toEqual(rest.deeds.map((d) => d.id));
+  });
+
   it('finds one row by id', () => {
     const session = randomUUID();
     store.recordTurn({ node, session, seq: 4, ts: 100, project, payload: { outcome: 'success' } });

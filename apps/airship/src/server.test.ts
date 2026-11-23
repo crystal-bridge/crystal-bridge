@@ -1213,8 +1213,30 @@ describe('airship server', () => {
       expect(other.body).toEqual({ deeds: [] });
     });
 
+    it('gives the rest of a full page from its cursor', async () => {
+      for (let i = 0; i < 5003; i++) {
+        const at = i < 4995 ? 10_000 - i : 5_000;
+        const id = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+        store.recordDeed({ node: 'node-a', session: SESSION, seq: i, ts: at, id, deed: `At ${at}` });
+      }
+      const first = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&before=${FAR}`));
+      const page = first.body as { deeds: { id: string }[]; more: { at: number; id: string } };
+      expect(page.deeds).toHaveLength(5000);
+      expect(page.more.at).toBe(5_000);
+      const query = `after=0&before=${FAR}&beforeAt=${page.more.at}&beforeId=${encodeURIComponent(page.more.id)}`;
+      const rest = (await json(await call('GET', `/api/nodes/node-a/deeds?${query}`))).body as typeof page;
+      expect(rest.deeds).toHaveLength(3);
+      expect(new Set([...page.deeds, ...rest.deeds].map((d) => d.id)).size).toBe(5003);
+    });
+
     it('refuses a page it can’t read', async () => {
-      for (const query of ['', '?after=soon', `?after=0&project=${'p'.repeat(4097)}`]) {
+      for (const query of [
+        '',
+        '?after=soon',
+        `?after=0&project=${'p'.repeat(4097)}`,
+        '?after=0&beforeAt=5',
+        '?after=0&beforeId=x',
+      ]) {
         const refused = await json(await call('GET', `/api/nodes/node-a/deeds${query}`));
         expect(refused.status).toBe(400);
         expect(refused.body).toHaveProperty('error');

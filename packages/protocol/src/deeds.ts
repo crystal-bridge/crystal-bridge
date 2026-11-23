@@ -85,6 +85,18 @@ export const Deed = z.object({
 });
 export type Deed = z.infer<typeof Deed>;
 
+/**
+ * Hub -> client, `GET /api/nodes/:node/deeds`: rows with after <= at < before, newest first. A full page carries `more`,
+ * its last row's time and id, to send back as `beforeAt` and `beforeId` for the rest of the same window; `older`, the
+ * time of the newest row before `after`, is where the next window starts once this one has no `more`.
+ */
+export const DeedsPage = z.object({
+  deeds: z.array(Deed),
+  older: z.number().int().optional(),
+  more: z.object({ at: z.number().int(), id: z.string().min(1).max(200) }).optional(),
+});
+export type DeedsPage = z.infer<typeof DeedsPage>;
+
 /** Hub -> every client: rows of a Kingdom's feed that were added or changed. Older clients ignore it. */
 export const DeedsFrame = z.object({ kind: z.literal('deeds'), node: z.string(), deeds: z.array(Deed) });
 export type DeedsFrame = z.infer<typeof DeedsFrame>;
