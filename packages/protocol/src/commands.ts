@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Appearance } from './appearance.js';
 import { Envelope } from './envelope.js';
+import { DeedsFrame } from './deeds.js';
 import { ErrandsFrame } from './errands.js';
 import { Effort, Engine, PermissionMode } from './mode.js';
 import { PatrolRunsFrame, PatrolsFrame } from './patrols.js';
@@ -75,6 +76,12 @@ export const NodeCommand = z.discriminatedUnion('type', [
     removeWorktree: z.boolean().optional(),
     /** Filled in by the hub, as for session.send, so a node that no longer holds the session can still close it. */
     resume: Resume.optional(),
+    /**
+     * Record its Deeds: after closing, the Kingdom asks for the Quest's Deeds from a digest of it (docs/DEEDS.md). The
+     * hub passes it on only to a Kingdom whose hello offers `deeds`, and only when the Quest has a finished turn since
+     * its last Deeds at Close.
+     */
+    deeds: z.boolean().optional(),
   }),
   z.object({
     /** Switches a session's permission mode; a running process changes at once, otherwise on its next start. */
@@ -239,6 +246,8 @@ export const NodeHello = z.object({
   patrolPreview: z.boolean().optional(),
   /** This node answers `patrol-draft` with a Patrol drafted from a Board item ("Patrol this"); older nodes leave it out. */
   patrolDrafts: z.boolean().optional(),
+  /** This node makes the call at Close when `session.close` asks (docs/DEEDS.md); older nodes leave it out. */
+  deeds: z.boolean().optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
@@ -479,6 +488,8 @@ export const HubToClient = z.discriminatedUnion('kind', [
   PatrolRunsFrame,
   /** A Kingdom's Errands changed; clients that don't know this frame ignore it. */
   ErrandsFrame,
+  /** Rows of a Kingdom's Deeds feed were added or changed; clients that don't know this frame ignore it. */
+  DeedsFrame,
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
 

@@ -20,6 +20,9 @@ export const EventType = z.enum([
   'session.mode', // payload: { mode }  the Quest's permission mode from now on
   'quest.titled', // payload: QuestTitledPayload  the Quest named itself (Crystal's `title` tool); only the first counts; a name set by hand wins
   'errand.left', // payload: ErrandLeftPayload  a step a Quest left the user (Crystal's `errand` tool); the hub also keeps it in `errands`
+  'turn.tally', // payload: TurnTallyPayload  what a turn changed (files, pull requests), after Crystal's diff; the hub adds it to the turn's record
+  'deed.recorded', // payload: DeedRecordedPayload  a Deed from the `deed` tool or the call at Close; the hub also keeps it in `deeds`
+  'deeds.closing', // payload: DeedsClosingPayload  how the call at Close went
   'terminal.screen', // payload: { open, text?, raised?, held? }  an interactive Quest's screen, while it needs a person
   'error', // payload: { message }
 ]);

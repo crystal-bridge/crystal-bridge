@@ -122,6 +122,23 @@ export const MIGRATIONS: readonly string[] = [
   ) WITHOUT ROWID;
   CREATE INDEX errands_session ON errands (session, seq);
   `,
+  // 14: Deeds (docs/DEEDS.md, #289). The feed's rows, per Kingdom: a turn record per turn.finished, a Deed per
+  // deed.recorded, the call at Close's outcome per deeds.closing, and a script Patrol's finished or failed run. The id
+  // is prefixed by its source (turn:, deed:, close:, run:), so the sources never meet, and keyed with its Kingdom: a
+  // Kingdom picks its Deed and run ids, so one can never reach another's row. Rows from events are written only if
+  // the Kingdom has no row with the id, so a repeat never refuses the event; `files` and `prs` (JSON) come later, with
+  // the tally. An ordinary rowid table, not WITHOUT ROWID: rows are often 300-600 bytes (text, detail, prs JSON) with
+  // a long text primary key that each secondary index would copy, and SQLite advises WITHOUT ROWID only for small rows.
+  `
+  CREATE TABLE deeds (
+    node TEXT NOT NULL, id TEXT NOT NULL, session TEXT, seq INTEGER, patrol TEXT, project TEXT,
+    kind TEXT NOT NULL, text TEXT, detail TEXT, outcome TEXT,
+    cost_usd REAL, duration_ms INTEGER, files INTEGER, prs TEXT, at INTEGER NOT NULL,
+    PRIMARY KEY (node, id)
+  );
+  CREATE INDEX deeds_node_at ON deeds (node, at);
+  CREATE INDEX deeds_node_project_at ON deeds (node, project, at);
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

@@ -14,6 +14,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { deedIdFor } from './deeds.js';
+import { MIGRATIONS } from './migrations.js';
 import { ErrandsFrame, MAX_OPEN_ERRANDS, type Envelope } from '@crystal-bridge/protocol';
 import {
   ERRANDS_KEPT_MS,
@@ -1630,5 +1633,559 @@ describe('Errands (#288)', () => {
     );
     store.recordErrandLeft(left(randomUUID(), { session }));
     expect(store.errands(node)[0]?.patrol).toBe('sweep');
+  });
+});
+
+describe('Deeds (#289)', () => {
+  const node = 'node-a';
+  const project = '/r/lantern';
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+  });
+  const page = (after = 0, before = 1000, extra: { project?: string } = {}) =>
+    store.deedsPage(node, { after, before, ...extra });
+
+  it('writes a turn record once, with the start of its reply only for a finished turn', () => {
+    const session = randomUUID();
+    const turn = (outcome: string, seq: number) => ({
+      node,
+      session,
+      seq,
+      ts: 100,
+      project,
+      payload: { outcome, summary: 'Node 24 is in.', costUsd: 0.74, durationMs: 1000 },
+    });
+    store.recordTurn(turn('success', 4));
+    store.recordTurn(turn('success', 4));
+    expect(page().deeds).toEqual([
+      {
+        id: `turn:${session}:4`,
+        session,
+        seq: 4,
+        project,
+        kind: 'turn',
+        text: 'Node 24 is in.',
+        outcome: 'success',
+        costUsd: 0.74,
+        durationMs: 1000,
+        at: 100,
+      },
+    ]);
+    store.recordTurn(turn('error', 6));
+    expect(store.deed(node, `turn:${session}:6`)).not.toHaveProperty('text');
+  });
+
+  it("keeps a turn's reply start to one plain line of at most 140 characters", () => {
+    const session = randomUUID();
+    const finished = (seq: number, summary: string) =>
+      store.appendEvent(
+        makeEnvelope({ node, session, seq, ts: 100, type: 'turn.finished', payload: { outcome: 'success', summary } }),
+      );
+    finished(1, 'x'.repeat(500));
+    expect(store.deed(node, `turn:${session}:1`)?.text).toBe('x'.repeat(140));
+    finished(2, 'Fixed \u202Eexe.txt\u202C and\nthe\tnext\u200B one');
+    expect(store.deed(node, `turn:${session}:2`)?.text).toBe('Fixed exe.txt and the next one');
+    finished(3, '\u202E\n');
+    expect(store.deed(node, `turn:${session}:3`)).toMatchObject({ kind: 'turn', outcome: 'success' });
+    expect(store.deed(node, `turn:${session}:3`)).not.toHaveProperty('text');
+  });
+
+  it("fills a turn's counts when its tally comes", () => {
+    const session = randomUUID();
+    const prs = ['https://example.com/acme/lantern/pull/319'];
+    store.recordTurn({ node, session, seq: 4, ts: 100, project, payload: { outcome: 'success' } });
+    store.recordTally({ node: 'node-b', session, seq: 4, files: 9, prs: [] });
+    store.recordTally({ node, session, seq: 9, files: 9, prs: [] });
+    expect(store.deed(node, `turn:${session}:4`)).not.toHaveProperty('files');
+    store.recordTally({ node, session, seq: 4, files: 12, prs });
+    expect(store.deed(node, `turn:${session}:4`)).toMatchObject({ files: 12, prs });
+    store.recordTally({ node, session, seq: 4, files: 0, prs: [] });
+    expect(store.deed(node, `turn:${session}:4`)).toMatchObject({ files: 0, prs: [] });
+  });
+
+  it('writes a Deed and a Deed from Close', () => {
+    const session = randomUUID();
+    const id = randomUUID();
+    const deed = { node, session, seq: 5, ts: 200, project, id, deed: 'Moved the hub to Node 24' };
+    store.recordDeed({ ...deed, detail: 'Image 30 MB smaller.' });
+    store.recordDeed({ ...deed, deed: 'Again' });
+    expect(store.deed(node, `deed:${id}`)).toMatchObject({
+      id: `deed:${id}`,
+      kind: 'deed',
+      text: 'Moved the hub to Node 24',
+      detail: 'Image 30 MB smaller.',
+    });
+    const other = randomUUID();
+    store.recordDeed({ ...deed, id: other, closing: true });
+    expect(store.deed(node, `deed:${other}`)?.kind).toBe('closing');
+  });
+
+  it('writes how the call at Close went', () => {
+    const session = randomUUID();
+    store.recordClose({
+      node,
+      session,
+      seq: 7,
+      ts: 300,
+      project,
+      outcome: 'timeout',
+      costUsd: 0.12,
+      reason: 'stopped after 120 s',
+    });
+    expect(store.deed(node, `close:${session}:7`)).toMatchObject({
+      kind: 'close',
+      outcome: 'timeout',
+      costUsd: 0.12,
+      text: 'stopped after 120 s',
+    });
+  });
+
+  it("writes a script Patrol's run once it's back, finished or failed, and updates it", () => {
+    const run = (extra: Record<string, unknown>): PatrolRun => ({
+      id: randomUUID(),
+      startedAt: 1000,
+      trigger: 'schedule',
+      outcome: 'running',
+      ...extra,
+    });
+    const first = run({ outcome: 'running' });
+    store.recordScriptRun(node, 'backup', first);
+    expect(store.deed(node, `run:${first.id}`)).toBeUndefined();
+    const done = { ...first, outcome: 'finished', finishedAt: 73000, summary: 'Backed up 4 repos.' };
+    store.recordScriptRun(node, 'backup', done);
+    expect(store.deed(node, `run:${first.id}`)).toEqual({
+      id: `run:${first.id}`,
+      patrol: 'backup',
+      kind: 'patrol',
+      text: 'Backed up 4 repos.',
+      outcome: 'finished',
+      durationMs: 72000,
+      at: 73000,
+    });
+    store.recordScriptRun(node, 'backup', { ...done, outcome: 'failed', summary: 'Disk full.' });
+    expect(store.deed(node, `run:${first.id}`)).toMatchObject({ outcome: 'failed', text: 'Disk full.' });
+    expect(page(0, 100000).deeds).toHaveLength(1);
+    for (const extra of [
+      { session: randomUUID(), outcome: 'finished' },
+      { outcome: 'skipped' },
+      { outcome: 'missed' },
+    ]) {
+      const other = run(extra);
+      store.recordScriptRun(node, 'backup', other);
+      expect(store.deed(node, `run:${other.id}`)).toBeUndefined();
+    }
+  });
+
+  it('reads a page of days, newest first, by project too, and says where older rows are', () => {
+    const at = (when: number, where = project) =>
+      store.recordDeed({
+        node,
+        session: randomUUID(),
+        seq: 1,
+        ts: when,
+        project: where,
+        id: randomUUID(),
+        deed: `At ${when}`,
+      });
+    at(100);
+    at(200, '/r/quarry');
+    at(300);
+    at(50);
+    store.recordDeed({ node: 'node-b', session: randomUUID(), seq: 1, ts: 150, id: randomUUID(), deed: 'Elsewhere' });
+    const all = page(100, 1000);
+    expect(all.deeds.map((d) => d.at)).toEqual([300, 200, 100]);
+    expect(all.older).toBe(50);
+    const quarry = page(100, 1000, { project: '/r/quarry' });
+    expect(quarry.deeds.map((d) => d.at)).toEqual([200]);
+    expect(quarry.older).toBeUndefined();
+    expect(page(100, 300).deeds.map((d) => d.at)).toEqual([200, 100]);
+  });
+
+  it('resumes a full page where it stopped, each row once, ties on the cut-off time included', () => {
+    // 5,003 rows in one window: 4,990 at distinct times, then 13 sharing the time the first page is cut at.
+    const ids: string[] = [];
+    const add = (ts: number) => {
+      const id = randomUUID();
+      ids.push(`deed:${id}`);
+      store.recordDeed({ node, session: randomUUID(), seq: 1, ts, project, id, deed: `At ${ts}` });
+    };
+    for (let i = 0; i < 4990; i++) add(10_000 - i);
+    for (let i = 0; i < 13; i++) add(5_000);
+    add(10); // before the window: only `older` points at it
+    ids.pop();
+    const first = store.deedsPage(node, { after: 1000, before: 20_000 });
+    expect(first.deeds).toHaveLength(5000);
+    expect(first.more).toEqual({ at: 5_000, id: first.deeds[4999]!.id });
+    const rest = store.deedsPage(node, {
+      after: 1000,
+      before: 20_000,
+      beforeAt: first.more!.at,
+      beforeId: first.more!.id,
+    });
+    expect(rest.deeds).toHaveLength(3);
+    expect(rest).not.toHaveProperty('more');
+    expect(rest.older).toBe(10);
+    const seen = [...first.deeds, ...rest.deeds].map((d) => d.id);
+    expect(new Set(seen).size).toBe(5003);
+    expect(seen.sort()).toEqual([...ids].sort());
+    const projectRest = store.deedsPage(node, {
+      after: 1000,
+      before: 20_000,
+      project,
+      beforeAt: first.more!.at,
+      beforeId: first.more!.id,
+    });
+    expect(projectRest.deeds.map((d) => d.id)).toEqual(rest.deeds.map((d) => d.id));
+  });
+
+  it('finds one row by id', () => {
+    const session = randomUUID();
+    store.recordTurn({ node, session, seq: 4, ts: 100, project, payload: { outcome: 'success' } });
+    expect(store.deed(node, `turn:${session}:4`)?.seq).toBe(4);
+    expect(store.deed(node, 'turn:nope:1')).toBeUndefined();
+  });
+
+  it("keeps each Kingdom's own row when two report the same Deed or run id", () => {
+    const id = randomUUID();
+    const runId = randomUUID();
+    for (const n of ['node-a', 'node-b']) {
+      store.recordDeed({ node: n, session: randomUUID(), seq: 1, ts: 100, project, id, deed: `From ${n}` });
+      const run: PatrolRun = {
+        id: runId,
+        startedAt: 1000,
+        finishedAt: 2000,
+        trigger: 'schedule',
+        outcome: 'finished',
+        summary: `Run on ${n}`,
+      };
+      store.recordScriptRun(n, 'backup', run);
+    }
+    expect(store.deed('node-a', `deed:${id}`)?.text).toBe('From node-a');
+    expect(store.deed('node-b', `deed:${id}`)?.text).toBe('From node-b');
+    expect(store.deed('node-a', `run:${runId}`)?.text).toBe('Run on node-a');
+    expect(store.deed('node-b', `run:${runId}`)?.text).toBe('Run on node-b');
+    expect(store.deed('node-c', `deed:${id}`)).toBeUndefined();
+  });
+
+  it('keeps a run under the Patrol it was first reported under', () => {
+    const run: PatrolRun = {
+      id: randomUUID(),
+      startedAt: 1000,
+      finishedAt: 2000,
+      trigger: 'schedule',
+      outcome: 'finished',
+      summary: 'First',
+    };
+    store.recordScriptRun(node, 'backup', run);
+    store.recordScriptRun(node, 'sweep', { ...run, outcome: 'failed', summary: 'Moved' });
+    expect(store.deed(node, `run:${run.id}`)).toMatchObject({ patrol: 'backup', outcome: 'finished', text: 'First' });
+  });
+
+  it("forgets a Kingdom's Deeds", () => {
+    const session = randomUUID();
+    for (const n of ['node-a', 'node-b']) {
+      store.recordTurn({ node: n, session: randomUUID(), seq: 1, ts: 100, project, payload: { outcome: 'success' } });
+    }
+    store.forgetDeeds('node-a');
+    expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toEqual([]);
+    expect(store.deedsPage('node-b', { after: 0, before: 1000 }).deeds).toHaveLength(1);
+    void session;
+  });
+
+  it("leaves another Kingdom's Deeds when one is forgotten", () => {
+    const session = randomUUID();
+    for (const n of ['node-a', 'node-b']) {
+      store.appendEvent(
+        makeEnvelope({
+          node: n,
+          session: n === 'node-a' ? session : randomUUID(),
+          seq: 1,
+          ts: 100,
+          type: 'turn.finished',
+          payload: { outcome: 'success' },
+        }),
+      );
+    }
+    expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toHaveLength(1);
+    store.forgetNode('node-a');
+    expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toEqual([]);
+    expect(store.deedsPage('node-b', { after: 0, before: 1000 }).deeds).toEqual([
+      expect.objectContaining({ kind: 'turn', at: 100 }),
+    ]);
+  });
+
+  describe('filled from the history a hub already holds', () => {
+    let dir: string;
+    let path: string;
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'airship-deeds-'));
+      path = join(dir, 'airship.db');
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    const session = randomUUID();
+    const runId = randomUUID();
+    /** A database as a hub before the Deeds migration left it. */
+    function oldHub(): void {
+      const db = new Database(path);
+      db.exec(MIGRATIONS.slice(0, 13).join(';'));
+      db.pragma('user_version = 13');
+      const event = db.prepare(`INSERT INTO events (session, seq, node, ts, type, payload) VALUES (?, ?, ?, ?, ?, ?)`);
+      db.prepare(`INSERT INTO sessions (id, node, cwd, label, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        session,
+        node,
+        '/r/lantern/.worktrees/abcd1234',
+        'Sweep',
+        'idle',
+        50,
+      );
+      event.run(
+        session,
+        0,
+        node,
+        50,
+        'session.started',
+        JSON.stringify({ cwd: '/r/lantern/.worktrees/abcd1234', prompt: 'Sweep', label: 'Sweep' }),
+      );
+      event.run(
+        session,
+        3,
+        node,
+        100,
+        'turn.finished',
+        JSON.stringify({ outcome: 'success', summary: 'Node 24 is in.', costUsd: 0.74, durationMs: 1000 }),
+      );
+      event.run(session, 4, node, 110, 'turn.finished', '{not json');
+      event.run(session, 5, node, 120, 'turn.finished', JSON.stringify({ summary: 'no outcome' }));
+      event.run(session, 6, node, 200, 'turn.finished', JSON.stringify({ outcome: 'error', summary: 'Stopped.' }));
+      const scriptRun: PatrolRun = {
+        id: runId,
+        startedAt: 300,
+        finishedAt: 340,
+        trigger: 'schedule',
+        outcome: 'finished',
+        summary: 'Swept 3 branches',
+      };
+      const patrolRun = db.prepare(
+        `INSERT INTO patrol_runs (node, id, patrol, started_at, outcome, data) VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      patrolRun.run(node, runId, 'sweep', 300, 'finished', JSON.stringify(scriptRun));
+      patrolRun.run(node, randomUUID(), 'sweep', 400, 'finished', '{not json');
+      db.close();
+    }
+
+    it('fills turn records and script runs on the first start after the migration', () => {
+      oldHub();
+      const hub = openStore(path);
+      expect(hub.deedsPage(node, { after: 0, before: 1000 }).deeds).toEqual([
+        {
+          id: `run:${runId}`,
+          patrol: 'sweep',
+          kind: 'patrol',
+          text: 'Swept 3 branches',
+          outcome: 'finished',
+          durationMs: 40,
+          at: 340,
+        },
+        { id: `turn:${session}:6`, session, seq: 6, project, kind: 'turn', outcome: 'error', at: 200 },
+        {
+          id: `turn:${session}:3`,
+          session,
+          seq: 3,
+          project,
+          kind: 'turn',
+          text: 'Node 24 is in.',
+          outcome: 'success',
+          costUsd: 0.74,
+          durationMs: 1000,
+          at: 100,
+        },
+      ]);
+      hub.close();
+    });
+
+    it('fills every turn across its read steps, many sharing one time', () => {
+      oldHub();
+      const db = new Database(path);
+      const event = db.prepare(`INSERT INTO events (session, seq, node, ts, type, payload) VALUES (?, ?, ?, ?, ?, ?)`);
+      const sessions = Array.from({ length: 5 }, () => randomUUID());
+      const finished = JSON.stringify({ outcome: 'success' });
+      db.transaction(() => {
+        // 2,500 more turns: 1,800 at one time, straddling the 1,000-row steps, and the rest spread out after it.
+        for (let i = 0; i < 2500; i++) {
+          const ts = i < 1800 ? 500 : 500 + i;
+          event.run(
+            sessions[i % sessions.length],
+            10 + Math.floor(i / sessions.length),
+            node,
+            ts,
+            'turn.finished',
+            finished,
+          );
+        }
+      })();
+      db.close();
+      const hub = openStore(path);
+      const rows = hub.deedsPage(node, { after: 500, before: 10_000 }).deeds;
+      expect(rows).toHaveLength(2500);
+      expect(new Set(rows.map((row) => row.id)).size).toBe(2500);
+      hub.close();
+    });
+
+    it('never fills again once it has rows', () => {
+      oldHub();
+      openStore(path).close();
+      const db = new Database(path);
+      db.prepare('DELETE FROM deeds WHERE id = ?').run(`turn:${session}:3`);
+      db.close();
+      const hub = openStore(path);
+      expect(hub.deed(node, `turn:${session}:3`)).toBeUndefined();
+      expect(hub.deed(node, `turn:${session}:6`)).toBeDefined();
+      hub.close();
+    });
+
+    it('does nothing on an empty database', () => {
+      const hub = openStore(path);
+      expect(hub.deedsPage(node, { after: 0, before: Number.MAX_SAFE_INTEGER }).deeds).toEqual([]);
+      hub.close();
+    });
+  });
+
+  describe('from events', () => {
+    const run = randomUUID();
+    const started = (session: string) =>
+      makeEnvelope({
+        node,
+        session,
+        seq: 0,
+        ts: 50,
+        type: 'session.started',
+        payload: {
+          cwd: '/r/lantern/.worktrees/abcd1234',
+          worktree: { root: '/r/lantern', branch: 'cb/abcd1234' },
+          prompt: 'Sweep',
+          label: 'Sweep',
+          patrol: { patrol: 'sweep', run },
+        },
+      });
+    const finished = (session: string, seq: number, ts = 100): Envelope =>
+      makeEnvelope({
+        node,
+        session,
+        seq,
+        ts,
+        type: 'turn.finished',
+        payload: { outcome: 'success', summary: 'Done.', costUsd: 0.2 },
+      });
+    const send = (event: Envelope) => store.appendEvent(event);
+
+    it("writes a turn record from turn.finished, under the Quest's project and Patrol", () => {
+      const session = randomUUID();
+      send(started(session));
+      expect(send(finished(session, 3))).toBe(true);
+      expect(store.deed(node, `turn:${session}:3`)).toMatchObject({
+        project: '/r/lantern',
+        patrol: 'sweep',
+        at: 100,
+        text: 'Done.',
+        costUsd: 0.2,
+      });
+    });
+
+    it('fills its counts from turn.tally, and writes Deeds and the call at Close from their events', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      send(started(session));
+      send(finished(session, 3));
+      send(makeEnvelope({ node, session, seq: 4, type: 'turn.tally', payload: { seq: 3, files: 2, prs: [] } }));
+      send(makeEnvelope({ node, session, seq: 5, type: 'deed.recorded', payload: { id, deed: 'Moved it' } }));
+      send(makeEnvelope({ node, session, seq: 6, type: 'deeds.closing', payload: { outcome: 'writing' } }));
+      expect(store.deed(node, `close:${session}:6`)).toBeUndefined();
+      send(
+        makeEnvelope({ node, session, seq: 7, type: 'deeds.closing', payload: { outcome: 'recorded', costUsd: 0.1 } }),
+      );
+      expect(store.deed(node, `turn:${session}:3`)).toMatchObject({ files: 2, prs: [] });
+      expect(store.deed(node, `deed:${id}`)).toMatchObject({ text: 'Moved it', project: '/r/lantern', seq: 5 });
+      expect(store.deed(node, `close:${session}:7`)).toMatchObject({ outcome: 'recorded', costUsd: 0.1 });
+      expect(page(0, Date.now() + 1000).deeds).toHaveLength(3);
+    });
+
+    it("stores an event it can't read, and writes no row", () => {
+      const session = randomUUID();
+      const bad: [string, unknown][] = [
+        ['turn.finished', 'nope'],
+        ['deed.recorded', { id: 'x', deed: '' }],
+        ['turn.tally', { seq: -1 }],
+        ['deeds.closing', { outcome: 'skipped' }],
+      ];
+      bad.forEach(([type, payload], seq) => {
+        expect(send(makeEnvelope({ node, session, seq, type: type as Envelope['type'], payload }))).toBe(true);
+      });
+      expect(store.eventsSince(session, 0)).toHaveLength(4);
+      expect(page().deeds).toEqual([]);
+    });
+
+    it('never lets a repeated Deed id refuse the event', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      send(makeEnvelope({ node, session, seq: 5, type: 'deed.recorded', payload: { id, deed: 'First' } }));
+      expect(
+        send(makeEnvelope({ node, session, seq: 8, type: 'deed.recorded', payload: { id, deed: 'Second' } })),
+      ).toBe(true);
+      expect(store.deed(node, `deed:${id}`)).toMatchObject({ seq: 5, text: 'First' });
+    });
+
+    it('names the row each event made', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      const e = (seq: number, type: Envelope['type'], payload: unknown) =>
+        makeEnvelope({ node, session, seq, type, payload });
+      expect(deedIdFor(finished(session, 3))).toBe(`turn:${session}:3`);
+      expect(deedIdFor(e(4, 'turn.tally', { seq: 3, files: 1, prs: [] }))).toBe(`turn:${session}:3`);
+      expect(deedIdFor(e(5, 'deed.recorded', { id, deed: 'x' }))).toBe(`deed:${id}`);
+      expect(deedIdFor(e(6, 'deeds.closing', { outcome: 'recorded' }))).toBe(`close:${session}:6`);
+      expect(deedIdFor(e(7, 'user.message', { text: 'hi' }))).toBeUndefined();
+      expect(deedIdFor(e(8, 'turn.finished', 'nope'))).toBeUndefined();
+    });
+
+    it("writes a script Patrol's run as the store records it", () => {
+      const runId = randomUUID();
+      const finishedRun: PatrolRun = {
+        id: runId,
+        startedAt: 1000,
+        finishedAt: 2000,
+        trigger: 'schedule',
+        outcome: 'finished',
+        summary: 'Backed up.',
+      };
+      const runs = store.recordPatrolRun(node, 'backup', finishedRun);
+      expect(runs).toHaveLength(1);
+      expect(store.deed(node, `run:${runId}`)).toMatchObject({ kind: 'patrol', patrol: 'backup', text: 'Backed up.' });
+    });
+
+    it('knows whether a Quest has a finished turn since its last Deeds at Close', () => {
+      const session = randomUUID();
+      expect(store.finishedTurnSinceClosing(session)).toBe(false);
+      send(finished(session, 1));
+      expect(store.finishedTurnSinceClosing(session)).toBe(true);
+      send(makeEnvelope({ node, session, seq: 2, type: 'deeds.closing', payload: { outcome: 'recorded' } }));
+      expect(store.finishedTurnSinceClosing(session)).toBe(false);
+      send(finished(session, 3));
+      expect(store.finishedTurnSinceClosing(session)).toBe(true);
+    });
+
+    it('forgetting a Kingdom deletes its Deeds, and closing a Quest keeps them', () => {
+      const session = randomUUID();
+      send(started(session));
+      send(finished(session, 3));
+      send(makeEnvelope({ node, session, seq: 4, type: 'session.closed', payload: {} }));
+      expect(page().deeds).toHaveLength(1);
+      store.forgetNode(node);
+      expect(page().deeds).toEqual([]);
+    });
   });
 });
