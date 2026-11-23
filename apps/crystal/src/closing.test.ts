@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   CLOSING_TIMEOUT_MS,
   MAX_DIGEST_CHARS,
@@ -31,7 +31,9 @@ const result = (id: string, content: string, isError = false): ReplayEvent =>
   });
 
 const cwd = '/r/lantern';
-const testRoot = join(tmpdir(), 'cb-closing-tests');
+// A fresh root per run, removed afterwards: the tests leave nothing behind.
+const testRoot = mkdtempSync(join(tmpdir(), 'cb-closing-tests-'));
+afterAll(() => rmSync(testRoot, { recursive: true, force: true }));
 
 describe('the digest at Close (#289)', () => {
   it("takes each turn's prompt and final reply, cut to 500 and 1500 characters", () => {
@@ -356,18 +358,24 @@ describe('the call at Close (#289)', () => {
   });
 
   it('stop() drops the calls still waiting their turn', async () => {
-    const collect = vi.fn(() => ({ result: new Promise<CollectResult>(() => {}), stop: () => {} }));
+    // Runs until stopped, as a real call would; stopping it releases its folder.
+    const collect = vi.fn(() => {
+      let end: (r: CollectResult) => void = () => {};
+      const result = new Promise<CollectResult>((r) => (end = r));
+      return { result, stop: () => end({ kind: 'exited', code: null, signal: 'SIGTERM', stdout: '', stderr: '' }) };
+    });
     const closing = make(collect, async () => events);
-    void closing.run('s1', '/r/lantern');
+    const first = closing.run('s1', '/r/lantern');
     const queued = closing.run('s2', '/r/lantern');
     await new Promise((r) => setTimeout(r, 20));
     closing.stop();
     expect(await queued).toMatchObject({ outcome: 'failed', reason: 'Crystal stopped' });
     expect(collect).toHaveBeenCalledTimes(1);
+    expect((await first).outcome).toBe('failed');
   });
 
   it('runs from a fresh folder under its own root, not the shared temp folder', async () => {
-    const tmpRoot = join(mkdtempSync(join(tmpdir(), 'cb-closing-root-')), 'closing');
+    const tmpRoot = join(mkdtempSync(join(testRoot, 'root-')), 'closing');
     const fake = fakeCollect({ kind: 'timed-out', stderr: '' });
     const closing = createClosing({
       claudeBin: 'claude',
@@ -396,7 +404,7 @@ describe('the call at Close (#289)', () => {
 
   it('stop() while the folder is being made starts no call and removes the folder', async () => {
     const collect = vi.fn();
-    const folder = mkdtempSync(join(tmpdir(), 'cb-closing-test-'));
+    const folder = mkdtempSync(join(testRoot, 'made-'));
     let made: () => void = () => {};
     const closing = createClosing({
       claudeBin: 'claude',
