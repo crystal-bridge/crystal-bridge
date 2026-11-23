@@ -1,5 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   DeedRecordedPayload,
@@ -175,6 +175,8 @@ export function digestText(digest: QuestDigest): string | undefined {
 }
 
 export const CLOSING_TIMEOUT_MS = 120_000;
+/** Where the calls' empty folders are made: under Crystal's own state folder. */
+export const DEFAULT_CLOSING_ROOT = join(homedir(), '.crystal-bridge', 'closing');
 export const DEFAULT_CLOSING_BUDGET_USD = 1;
 const MAX_CLOSING_STDOUT = 4 * 1024 * 1024;
 
@@ -306,13 +308,25 @@ export function createClosing(opts: {
   /** The Quest's transcript as replay events, or undefined when there is none (`findTranscript` + `transcriptEvents`). */
   transcript(session: string): Promise<ReplayEvent[] | undefined>;
   collect?: (request: CollectRequest) => Collector;
+  /** The folder each call's own empty folder is made in; Crystal's, not the shared temp folder. */
+  tmpRoot?: string;
   tmp?: () => Promise<string>;
 }): Closing {
   const collect = opts.collect ?? spawnCollector;
-  const tmp = opts.tmp ?? (() => mkdtemp(join(tmpdir(), 'crystal-closing-')));
+  const tmpRoot = opts.tmpRoot ?? DEFAULT_CLOSING_ROOT;
+  const tmp =
+    opts.tmp ??
+    (async () => {
+      await mkdir(tmpRoot, { recursive: true, mode: 0o700 });
+      return mkdtemp(join(tmpRoot, 'call-'));
+    });
   const running = new Set<Collector>();
   // Set by `stop()`: a run still reading its transcript or making its folder then starts no call.
   let stopped = false;
+  let stopping: () => void = () => {};
+  const whenStopped = new Promise<void>((resolve) => (stopping = resolve));
+  // One call at a time: each run waits for the one before it, or for `stop()`.
+  let last: Promise<unknown> = Promise.resolve();
   const STOPPED = 'Crystal stopped';
   const failed = (reason: string): ClosingResult => ({ outcome: 'failed', deeds: [], reason });
 
@@ -368,15 +382,22 @@ export function createClosing(opts: {
   }
 
   return {
-    async run(session, cwd) {
-      try {
-        return await run(session, cwd);
-      } catch (error) {
-        return failed(error instanceof Error ? error.message : String(error));
-      }
+    run(session, cwd) {
+      const before = last;
+      const mine = (async () => {
+        await Promise.race([before, whenStopped]);
+        try {
+          return await run(session, cwd);
+        } catch (error) {
+          return failed(error instanceof Error ? error.message : String(error));
+        }
+      })();
+      last = mine;
+      return mine;
     },
     stop() {
       stopped = true;
+      stopping();
       for (const collector of running) collector.stop();
     },
   };
