@@ -1296,10 +1296,10 @@ describe('SessionView Deeds at Close (#289)', () => {
       at(3, 'deeds.closing', { outcome: 'recorded' }),
     );
     expect(screen.getByText('Your Quest’s Deeds are recorded in the annals of the Kingdom.')).toBeTruthy();
-    expect(screen.getByText('Moved to Node 24')).toBeTruthy();
+    expect(screen.getAllByText('Moved to Node 24').length).toBeGreaterThan(0);
     cleanup();
     view(at(2, 'deeds.closing', { outcome: 'timeout' }));
-    expect(screen.getByText('No Deeds recorded: the call took too long.')).toBeTruthy();
+    expect(screen.getAllByText('No Deeds recorded: the call took too long.').length).toBeGreaterThan(0);
   });
 
   it('shows a call under way as writing, with a spinner', () => {

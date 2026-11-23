@@ -1,4 +1,10 @@
-import type { Deed, ListedPatrol } from '@crystal-bridge/protocol';
+import {
+  type Deed,
+  DeedRecordedPayload,
+  DeedsClosingPayload,
+  type Envelope,
+  type ListedPatrol,
+} from '@crystal-bridge/protocol';
 import { type ReactNode, useEffect, useRef } from 'react';
 import {
   type DeedEntry,
@@ -13,7 +19,7 @@ import { ERRAND_TONES, errandTone } from '../errands.js';
 import { duration, money } from '../format.js';
 import { projectName } from '../quests.js';
 import { Icon, type IconName } from '../theme/icons.js';
-import { hint, type QuestStanding, questLabel, questStandingWord, w, words } from '../theme/words.js';
+import { closingLine, hint, type QuestStanding, questLabel, questStandingWord, w, words } from '../theme/words.js';
 import type { SessionSummary } from './SessionList.js';
 
 export interface DeedsFeedProps {
@@ -654,5 +660,56 @@ function TurnList({ turns }: { turns: Deed[] }): ReactNode {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * One Quest's Deeds, in its side panel, read from the Quest's own events (so it works for a Quest on any Kingdom): the
+ * ones it recorded in turns and the ones the call at Close wrote, in the order they came, Close's marked with laurels.
+ * Amber, as the Deeds are everywhere, never the window blue. Without any it says so, and why the call at Close wrote none.
+ */
+export function QuestDeeds({ envelopes }: { envelopes: readonly Envelope[] }) {
+  const deeds: Deed[] = [];
+  let closing: DeedsClosingPayload | undefined;
+  for (const e of envelopes) {
+    if (e.type === 'deed.recorded') {
+      const parsed = DeedRecordedPayload.safeParse(e.payload);
+      if (!parsed.success) continue;
+      const { id, deed, detail, closing: fromClose } = parsed.data;
+      deeds.push({
+        id: `deed:${id}`,
+        kind: fromClose ? 'closing' : 'deed',
+        at: e.ts,
+        text: deed,
+        ...(detail !== undefined ? { detail } : {}),
+      });
+    } else if (e.type === 'deeds.closing') {
+      const parsed = DeedsClosingPayload.safeParse(e.payload);
+      if (parsed.success) closing = parsed.data;
+    }
+  }
+  const why = closing && closing.outcome !== 'recorded' && closing.outcome !== 'writing' ? closing : undefined;
+  return (
+    <section
+      aria-label={w('deeds')}
+      className="rounded-lg border border-amber-300 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/40"
+    >
+      <div className="flex items-center gap-2 px-2.5 pt-2">
+        <span aria-hidden="true" className="text-amber-700 dark:text-amber-300">
+          <Icon name="deedClosing" size={18} />
+        </span>
+        <h3 className="cb-display text-xl leading-none" title={hint('deeds')}>
+          {w('deeds')}
+        </h3>
+      </div>
+      <ul className="mt-1.5 space-y-1.5 px-2.5 pb-2 text-sm">
+        {deeds.length === 0 ? (
+          <li className="text-xs text-neutral-500">None yet.</li>
+        ) : (
+          deeds.map((deed) => <DeedLine key={deed.id} deed={deed} />)
+        )}
+      </ul>
+      {why && <p className="px-2.5 pb-2 text-xs text-neutral-500">{closingLine(why.outcome).themed}</p>}
+    </section>
   );
 }

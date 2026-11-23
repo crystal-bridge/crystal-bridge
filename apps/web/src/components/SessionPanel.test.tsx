@@ -29,6 +29,20 @@ const info: SessionInfo = {
 };
 
 describe('SessionPanel', () => {
+  it('draws the block it is given after the Errands', () => {
+    render(
+      <SessionPanel
+        info={info}
+        kingdom="node-a"
+        errands={<section aria-label="Errands-block" />}
+        deeds={<section aria-label="Deeds-block" />}
+      />,
+    );
+    const errands = screen.getByLabelText('Errands-block');
+    const deeds = screen.getByLabelText('Deeds-block');
+    expect(errands.compareDocumentPosition(deeds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   afterEach(() => cleanup());
 
   describe('before the Quest starts', () => {

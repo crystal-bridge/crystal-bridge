@@ -34,6 +34,7 @@ import { Inventory } from './Inventory.js';
 import { ICON_BUTTON, PanelToggles } from './PanelToggles.js';
 import { SlashMenu, useSlashMenu } from './SlashMenu.js';
 import { MODES } from '../modes.js';
+import { QuestDeeds } from './Deeds.js';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel.js';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
 import { EFFORTS } from '../effort.js';
@@ -1075,6 +1076,7 @@ export function SessionView({
                   plan={plan}
                   planAt={planAt}
                   errands={questErrands}
+                  deeds={<QuestDeeds envelopes={envelopes} />}
                 />
               </aside>
             )

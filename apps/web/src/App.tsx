@@ -39,6 +39,7 @@ import {
 import { type CheckOutcome, type HubStatus, logAttention } from './components/ShipsLog.js';
 import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
+import { QuestDeeds } from './components/Deeds.js';
 import { QuestErrands } from './components/Errands.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
 import type { PushState } from './components/DevicePush.js';
@@ -1579,6 +1580,7 @@ export function App({ hub }: { hub: HubClient }) {
                             relayedBytes={sessions.find((s) => s.id === focused)?.relayedBytes}
                             activity={focusedActivity}
                             errands={questErrands(focused)}
+                            deeds={<QuestDeeds envelopes={focusedEvents} />}
                           />
                         </FileOpenContext.Provider>
                       </aside>

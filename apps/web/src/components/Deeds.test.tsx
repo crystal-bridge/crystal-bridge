@@ -1,9 +1,9 @@
-import type { Deed, ListedPatrol } from '@crystal-bridge/protocol';
+import type { Deed, Envelope, ListedPatrol } from '@crystal-bridge/protocol';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { dayLabel, type DeedsState } from '../deeds.js';
 import { w } from '../theme/words.js';
-import { DeedsFeed } from './Deeds.js';
+import { DeedsFeed, QuestDeeds } from './Deeds.js';
 import type { SessionSummary } from './SessionList.js';
 
 // A Friday, local evening.
@@ -377,5 +377,46 @@ describe('DeedsFeed', () => {
     for (const element of [region, ...region.querySelectorAll('*')]) {
       expect(element.getAttribute('class') ?? '').not.toMatch(/blue-|sky-/);
     }
+  });
+});
+
+describe("QuestDeeds, in a Quest's side panel", () => {
+  afterEach(() => cleanup());
+  const env = (seq: number, type: Envelope['type'], payload: unknown): Envelope =>
+    ({ v: 1, seq, session: CROWN, ts: seq, type, payload }) as unknown as Envelope;
+  const ID = (n: number) => `aaaaaaaa-aaaa-4aaa-8aaa-00000000000${n}`;
+
+  it("shows this Quest's Deeds from its events, Close's marked apart", () => {
+    const { container } = render(
+      <QuestDeeds
+        envelopes={[
+          env(3, 'deed.recorded', { id: ID(1), deed: 'Fixed the tab badge', detail: 'It counted dismissed Errands.' }),
+          env(9, 'deed.recorded', { id: ID(2), deed: 'Moved the hub to Node 24' }),
+          env(12, 'deed.recorded', { id: ID(3), deed: 'Shipped the badge fix', closing: true }),
+          env(13, 'deeds.closing', { outcome: 'recorded' }),
+        ]}
+      />,
+    );
+    const block = screen.getByRole('region', { name: w('deeds') });
+    expect(block.className).toContain('amber');
+    expect(block.className).not.toContain('blue');
+    expect(within(block).getByRole('heading', { name: w('deeds') })).toBeTruthy();
+    const lines = [...container.querySelectorAll('[data-deed]')];
+    expect(lines.map((li) => li.querySelector('[data-deed-text]')?.textContent)).toEqual([
+      'Fixed the tab badge',
+      'Moved the hub to Node 24',
+      'Shipped the badge fix',
+    ]);
+    expect(lines[0]!.textContent).toContain('It counted dismissed Errands.');
+    expect(lines[2]!.querySelector('[title="From Close"]')).not.toBeNull();
+    expect(lines[0]!.querySelector('[title="From Close"]')).toBeNull();
+    expect(screen.queryByText('None yet.')).toBeNull();
+  });
+
+  it('says None yet with no Deeds, and why the call at Close wrote none', () => {
+    const { rerender } = render(<QuestDeeds envelopes={[]} />);
+    expect(screen.getByText('None yet.')).toBeTruthy();
+    rerender(<QuestDeeds envelopes={[env(5, 'deeds.closing', { outcome: 'timeout' })]} />);
+    expect(screen.getByText('No Deeds recorded: the call took too long.')).toBeTruthy();
   });
 });

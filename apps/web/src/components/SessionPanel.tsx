@@ -276,6 +276,8 @@ export interface SessionPanelProps {
   partyNote?: string;
   /** The Quest's Errands block (`QuestErrands`), drawn after the Party. */
   errands?: ReactNode;
+  /** The Quest's Deeds block (`QuestDeeds`), drawn after the Errands. */
+  deeds?: ReactNode;
 }
 
 /** The session's side panel: where it runs, how full its context is, what it cost, what it changed and started. */
@@ -291,6 +293,7 @@ export function SessionPanel({
   preStart = false,
   partyNote,
   errands,
+  deeds,
 }: SessionPanelProps) {
   const open = useContext(FileOpenContext);
   const room = contextRoom(info.context);
@@ -324,6 +327,8 @@ export function SessionPanel({
       )}
 
       {errands}
+
+      {deeds}
 
       <Section title={w('stats')} tooltip={hint('stats')} plate="stats">
         {hp && <PlanMeter concept="hp" bar={hp} label="Plan left" now={clock} asOf={planAt} />}
