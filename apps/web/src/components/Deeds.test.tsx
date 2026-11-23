@@ -611,4 +611,21 @@ describe('Load older days with the feed’s end in view', () => {
     fireEvent.click(button);
     expect(older).toHaveLength(4);
   });
+
+  it('fills a short feed again after a reconnect cuts it back to the newest days', async () => {
+    stubs(newestPage, (n) =>
+      json({
+        deeds: [row(`turn:x:old${n}`, NOW - (40 + 10 * n) * DAY, { session: 'x' })],
+        older: NOW - (45 + 10 * n) * DAY,
+      }),
+    );
+    render(<Harness />);
+    await settle();
+    await settle();
+    expect(older).toHaveLength(3);
+    act(() => listeners.reconnects.forEach((l) => l()));
+    await settle();
+    await settle();
+    expect(older).toHaveLength(6);
+  });
 });

@@ -203,6 +203,7 @@ export function DeedsFeed({
               loading={state.loadingOlder === true || state.reloading === true}
               failed={state.error !== undefined}
               read={state.read?.n ?? 0}
+              newest={state.read?.newest === true}
               onLoadOlder={onLoadOlder}
             />
           )}
@@ -346,12 +347,15 @@ function LoadOlder({
   loading,
   failed,
   read,
+  newest,
   onLoadOlder,
 }: {
   loading: boolean;
   failed: boolean;
   /** How many reads have succeeded: a new one since the observer last looked is what lets it ask by itself. */
   read: number;
+  /** The latest successful read was of the newest days (a reconnect cut the feed back): the count of pages starts over. */
+  newest: boolean;
   onLoadOlder: () => void;
 }) {
   const end = useRef<HTMLDivElement>(null);
@@ -366,6 +370,7 @@ function LoadOlder({
     if (loading || failed || !element || typeof IntersectionObserver === 'undefined') return;
     const fresh = looked.current !== read;
     looked.current = read;
+    if (fresh && newest) auto.current = 0;
     let first = true;
     const observer = new IntersectionObserver((entries) => {
       const seen = entries.some((e) => e.isIntersecting);
@@ -383,7 +388,7 @@ function LoadOlder({
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [loading, failed, read]);
+  }, [loading, failed, read, newest]);
   const click = () => {
     auto.current = 0;
     onLoadOlder();
