@@ -2,8 +2,9 @@
 
 A record of what a Kingdom's Quests achieved, day by day, across every project.
 
-::: warning Planned
-The hub part is built: it keeps turn records, Deeds and script Patrol runs, fills past turns, and serves the feed. The tally, the `deed` tool, the call at Close and the app are planned. The work is tracked in the
+::: warning Partly built
+The hub and Kingdom parts are built: turn records and tallies, the `deed` tool and the call at Close. The hub keeps turn
+records, Deeds and script Patrol runs, fills past turns and serves the feed. The app is planned. The work is tracked in the
 [v0.9 Errands and Deeds milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/11) and
 [#289](https://github.com/crystal-bridge/crystal-bridge/issues/289).
 :::
@@ -75,7 +76,9 @@ is closed, and its worktree is removed if you asked. With the choice on, Crystal
    ones, and says how many it left out.
 2. Crystal sends the digest to one fresh one-shot `claude` call, the way a Scout's synthesis is made: `-p`,
    `--json-schema` for the answer, `--tools ''` and `--strict-mcp-config` with no MCP servers, so it has no tools at
-   all, and `--no-session-persistence`, so it leaves no session behind. It doesn't resume the Quest.
+   all, `--no-session-persistence`, so it leaves no session behind, and `--setting-sources ''`, so no settings load:
+   the Kingdom user's `CLAUDE.md`, hooks and plugins can't steer it. It doesn't resume the Quest, and it runs from a
+   fresh empty folder, removed afterwards.
 3. The prompt marks the digest as data, not instructions, and asks for 1 to 5 Deeds covering the whole Quest, one per
    outcome that matters, without repeating the Deeds already left. The answer is JSON in the `deed` tool's shape.
 4. Crystal sends each Deed as a `deed.recorded` event marked `closing`, then a `deeds.closing` event with the outcome
@@ -85,8 +88,11 @@ The call can't edit a file, run a command or reach another machine, in any mode.
 `CRYSTAL_CLOSING_MODEL`, passed as `--model`, to use a cheaper model than the account's default.
 
 **What it costs.** The call reads the digest, not the Quest's whole context, so its cost depends on the digest's size,
-not the Quest's length. A full digest cost about $0.10 on one account's default model (measured 2026-11-22, with a
-probe of the same flags). `CRYSTAL_CLOSING_BUDGET_USD` ($1 by default) passes `--max-budget-usd` as a backstop. The
+not the Quest's length. On 2026-11-22, with CLI 2.1.330, the recorded calls for small digests (340 to 841 characters,
+1 to 2 turns) cost $0.024 to $0.035 each and took 2 to 3 seconds
+([recorded](https://github.com/crystal-bridge/crystal-bridge/blob/main/apps/crystal/test/fixtures/README.md#the-call-at-close-closingndjson-closing-interactivendjson-cli-21330)).
+An earlier probe, before `--setting-sources ''` was added, cost about $0.09 for a 25,000-character digest, the cap's
+size; a full digest costs more than a small one. `CRYSTAL_CLOSING_BUDGET_USD` ($1 by default) passes `--max-budget-usd` as a backstop. The
 CLI checks it only after the call, so a call over it is billed in full and its answer thrown away; the digest cap is
 what keeps the cost down. The Close dialog says beside the choice: *"Writes the Quest's Deeds from a short digest of
 it, for a few cents."* The choice is kept per device.
@@ -200,7 +206,7 @@ HTTP routes. Older Kingdoms send no tally and close with no call. Update the hub
 A probe on 2026-11-22 showed why the call takes a digest. With `--resume`, the same flags worked (the answer came back
 and the transcript was unchanged), but the call missed the prompt cache and paid for the whole context, and a call
 over `--max-budget-usd` was billed in full with its answer thrown away. A fresh call with a 25,000-character digest
-came back in shape for about $0.10. The build starts by recording the digest call from both engines' transcripts; if
+came back in shape for about $0.09. The build starts by recording the digest call from both engines' transcripts; if
 it doesn't hold, the design comes back here before anything else is built.
 
 ## Not planned
