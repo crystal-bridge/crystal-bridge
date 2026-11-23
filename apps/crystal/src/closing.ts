@@ -311,10 +311,15 @@ export function createClosing(opts: {
   const collect = opts.collect ?? spawnCollector;
   const tmp = opts.tmp ?? (() => mkdtemp(join(tmpdir(), 'crystal-closing-')));
   const running = new Set<Collector>();
+  // Set by `stop()`: a run still reading its transcript or making its folder then starts no call.
+  let stopped = false;
+  const STOPPED = 'Crystal stopped';
   const failed = (reason: string): ClosingResult => ({ outcome: 'failed', deeds: [], reason });
 
   async function run(session: string, cwd: string): Promise<ClosingResult> {
+    if (stopped) return failed(STOPPED);
     const events = await opts.transcript(session);
+    if (stopped) return failed(STOPPED);
     if (!events || !events.some((event) => event.type === 'user.message')) {
       return { outcome: 'unreadable', deeds: [], reason: "the Quest's transcript could not be read" };
     }
@@ -324,6 +329,7 @@ export function createClosing(opts: {
     // A fresh empty folder: the Quest's own may be gone, and its settings stay out of a call that only reads a digest.
     const folder = await tmp();
     try {
+      if (stopped) return failed(STOPPED);
       const collector = collect({
         cwd: folder,
         command: [
@@ -370,6 +376,7 @@ export function createClosing(opts: {
       }
     },
     stop() {
+      stopped = true;
       for (const collector of running) collector.stop();
     },
   };

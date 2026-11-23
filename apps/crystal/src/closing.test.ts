@@ -1,4 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CLOSING_TIMEOUT_MS,
@@ -296,6 +298,39 @@ describe('the call at Close (#289)', () => {
     expect(stop).toHaveBeenCalled();
     release({ kind: 'timed-out', stderr: '' });
     await running;
+  });
+
+  it('stop() while the transcript is still being read starts no call', async () => {
+    const collect = vi.fn();
+    let read: (events: ReplayEvent[]) => void = () => {};
+    const closing = make(collect, () => new Promise((r) => (read = r)));
+    const running = closing.run('s1', '/r/lantern');
+    await new Promise((r) => setTimeout(r, 10));
+    closing.stop();
+    read(events);
+    expect(await running).toMatchObject({ outcome: 'failed', reason: 'Crystal stopped' });
+    expect(collect).not.toHaveBeenCalled();
+  });
+
+  it('stop() while the folder is being made starts no call and removes the folder', async () => {
+    const collect = vi.fn();
+    const folder = mkdtempSync(join(tmpdir(), 'cb-closing-test-'));
+    let made: () => void = () => {};
+    const closing = createClosing({
+      claudeBin: 'claude',
+      env: {},
+      budgetUsd: 1,
+      transcript: async () => events,
+      collect,
+      tmp: () => new Promise((r) => (made = () => r(folder))),
+    });
+    const running = closing.run('s1', '/r/lantern');
+    await new Promise((r) => setTimeout(r, 10));
+    closing.stop();
+    made();
+    expect(await running).toMatchObject({ outcome: 'failed', reason: 'Crystal stopped' });
+    expect(collect).not.toHaveBeenCalled();
+    expect(existsSync(folder)).toBe(false);
   });
 });
 
