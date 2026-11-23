@@ -1881,6 +1881,28 @@ describe('Deeds (#289)', () => {
     void session;
   });
 
+  it("leaves another Kingdom's Deeds when one is forgotten", () => {
+    const session = randomUUID();
+    for (const n of ['node-a', 'node-b']) {
+      store.appendEvent(
+        makeEnvelope({
+          node: n,
+          session: n === 'node-a' ? session : randomUUID(),
+          seq: 1,
+          ts: 100,
+          type: 'turn.finished',
+          payload: { outcome: 'success' },
+        }),
+      );
+    }
+    expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toHaveLength(1);
+    store.forgetNode('node-a');
+    expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toEqual([]);
+    expect(store.deedsPage('node-b', { after: 0, before: 1000 }).deeds).toEqual([
+      expect.objectContaining({ kind: 'turn', at: 100 }),
+    ]);
+  });
+
   describe('filled from the history a hub already holds', () => {
     let dir: string;
     let path: string;

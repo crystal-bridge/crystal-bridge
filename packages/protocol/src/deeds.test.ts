@@ -71,6 +71,12 @@ describe('Deeds (#289)', () => {
     expect(DeedsPage.safeParse({ deeds: [], more: { at: 5 } }).success).toBe(false);
   });
 
+  it('tells clients a forgotten Kingdom’s feed is gone', () => {
+    const cleared = { kind: 'deeds', node: 'node-a', deeds: [], cleared: true };
+    expect(HubToClient.parse(cleared)).toEqual(cleared);
+    expect(HubToClient.safeParse({ ...cleared, cleared: false }).success).toBe(false);
+  });
+
   it('sends rows in a deeds frame', () => {
     const project = '/r/lantern';
     const turn = {

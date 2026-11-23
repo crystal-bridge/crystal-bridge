@@ -97,6 +97,14 @@ export const DeedsPage = z.object({
 });
 export type DeedsPage = z.infer<typeof DeedsPage>;
 
-/** Hub -> every client: rows of a Kingdom's feed that were added or changed. Older clients ignore it. */
-export const DeedsFrame = z.object({ kind: z.literal('deeds'), node: z.string(), deeds: z.array(Deed) });
+/**
+ * Hub -> every client: rows of a Kingdom's feed that were added or changed. Older clients ignore it. `cleared` (with no
+ * rows) says the hub forgot the Kingdom, so a client drops every row it holds for it.
+ */
+export const DeedsFrame = z.object({
+  kind: z.literal('deeds'),
+  node: z.string(),
+  deeds: z.array(Deed),
+  cleared: z.literal(true).optional(),
+});
 export type DeedsFrame = z.infer<typeof DeedsFrame>;

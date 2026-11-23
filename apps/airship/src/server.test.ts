@@ -6,7 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import { ClientMessage, ErrandsFrame, MAX_OPEN_ERRANDS, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
+import { ClientMessage, DeedsFrame, ErrandsFrame, MAX_OPEN_ERRANDS, PROTOCOL_VERSION } from '@crystal-bridge/protocol';
 import type { Attention, Cast, Envelope, HubAck, HubToClient, NodeCommand } from '@crystal-bridge/protocol';
 import { accessTokens, tailscaleServe } from './auth.js';
 import { createFirstRun, type FirstRun } from './first-run.js';
@@ -1389,7 +1389,8 @@ describe('airship server', () => {
       expect(client.frames.frames.filter((frame) => frame.kind === 'attention')).toHaveLength(0);
     });
 
-    it('deletes a forgotten Kingdom’s Deeds', async () => {
+    /** A Kingdom with one turn record, gone offline so it can be forgotten. */
+    async function forgettable() {
       const node = await started();
       send(node.socket, finished(1));
       await ackOf(node, 1);
@@ -1401,9 +1402,25 @@ describe('airship server', () => {
         if (Date.now() - start > 2000) throw new Error('timed out');
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
+    }
+
+    it('deletes a forgotten Kingdom’s Deeds', async () => {
+      await forgettable();
+      const before = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&before=${FAR}`));
+      expect(before.body).toEqual({ deeds: [expect.objectContaining({ id: `turn:${SESSION}:1` })] });
       expect((await call('DELETE', '/api/nodes/node-a/quests')).status).toBe(204);
       const page = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&before=${FAR}`));
       expect(page.body).toEqual({ deeds: [] });
+    });
+
+    it('tells clients when a forgotten Kingdom’s Deeds go', async () => {
+      await forgettable();
+      const client = await connectClient();
+      send(client.socket, { kind: 'ping' });
+      await client.frames.waitFor((frame) => frame.kind === 'pong');
+      expect((await call('DELETE', '/api/nodes/node-a/quests')).status).toBe(204);
+      const frame = await client.frames.waitFor(isDeeds);
+      expect(DeedsFrame.parse(frame)).toEqual({ kind: 'deeds', node: 'node-a', deeds: [], cleared: true });
     });
   });
 

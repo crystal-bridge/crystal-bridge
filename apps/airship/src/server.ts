@@ -737,9 +737,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     for (const client of clients) sendToClient(client, frame);
   }
 
-  /** Sends every client the rows of a Kingdom's feed that were added or changed. */
-  function sendDeeds(node: string, deeds: Deed[]): void {
-    const frame = { kind: 'deeds', node, deeds } as const;
+  /** Sends every client the rows of a Kingdom's feed that were added or changed, or (`cleared`) that it's gone. */
+  function sendDeeds(node: string, deeds: Deed[], cleared = false): void {
+    const frame = { kind: 'deeds', node, deeds, ...(cleared ? { cleared } : {}) } as const;
     for (const client of clients) sendToClient(client, frame);
   }
 
@@ -1030,6 +1030,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     engines.delete(node);
     sendErrands(node);
+    sendDeeds(node, [], true);
     return reply.code(204).send();
   });
   app.get('/api/usage', async () => store.latestUsage());

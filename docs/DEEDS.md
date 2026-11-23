@@ -170,7 +170,8 @@ older days.
 comes from its `session.started` event and older worktree Quests need the same path rule Errands use. Those older
 records have no counts, since older Kingdoms sent no tally, and no Patrol link beyond what `patrol_runs` still keeps.
 
-**Keep.** Deeds are a record, so the hub keeps them until you forget the Kingdom, which deletes them. A turn record is
+**Keep.** Deeds are a record, so the hub keeps them until you forget the Kingdom, which deletes them and sends
+clients a `deeds` frame marked `cleared`, so they drop that Kingdom's rows too. A turn record is
 a small row: a Kingdom running a few hundred turns a day adds roughly 30 MB a year, an estimate, not a measurement.
 Deleting a Quest by hand (see [What Crystal Bridge stores](HUB-DATA.md)) deletes its rows by `session`.
 

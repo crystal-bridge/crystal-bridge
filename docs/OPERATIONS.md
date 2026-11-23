@@ -297,7 +297,7 @@ machine. A removed Kingdom's Quests stay as history, so its tab stays until you 
 
 Forget, on a removed Kingdom's Castle, is optional and can't be undone: once you type the Kingdom's name it deletes
 that Kingdom's data from the hub: its Quests (sessions, events, relay counts and read marks), Casts, Scouts (with their
-runs and items), Patrols (with their runs) and Errands. The tab goes with them. The hub refuses
+runs and items), Patrols (with their runs), Errands and Deeds. The tab goes with them. The hub refuses
 while the Kingdom holds a token or a connection. It deletes only the hub's copy: transcripts stay on the machine, and
 existing backups keep that data until they age out.
 
