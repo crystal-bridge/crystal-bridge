@@ -89,13 +89,12 @@ export function battleResults(envelopes: readonly Envelope[]): {
     const raw = payload.raw;
 
     // What the node worked out once a turn had ended. It names its turn; older lines follow their turn's `result`.
+    // A named turn that had no `result` has no card, so its files count toward the Quest only.
     if (raw.type === 'system' && raw.subtype === 'turn_changes' && Array.isArray(raw.files)) {
-      const turn = (typeof raw.turnSeq === 'number' ? bySeq.get(raw.turnSeq) : undefined) ?? last;
-      if (turn) {
-        const files = raw.files.filter((file): file is string => typeof file === 'string');
-        turn.loot = [...new Set([...turn.loot, ...files])].sort();
-        for (const file of files) questLoot.add(file);
-      }
+      const files = raw.files.filter((file): file is string => typeof file === 'string');
+      const turn = typeof raw.turnSeq === 'number' ? bySeq.get(raw.turnSeq) : last;
+      if (turn) turn.loot = [...new Set([...turn.loot, ...files])].sort();
+      if (turn || typeof raw.turnSeq === 'number') for (const file of files) questLoot.add(file);
     }
 
     for (const path of lootPaths(raw)) loot.add(lootPath(path, cwd));
