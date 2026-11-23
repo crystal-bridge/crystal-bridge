@@ -10,7 +10,7 @@ import { mergeEnv, readLoginEnv, takeToken } from './login-env.js';
 import { listProjects } from './projects.js';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { ClaudeSession } from './session.js';
-import { findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
+import { claudeProjectsDir, findTranscript, listTranscripts, transcriptEvents } from './transcripts.js';
 import { resolveClaudeBin } from './claude-bin.js';
 import { cachedCliVersion, execCliUpdate, execCliVersion } from './cli-version.js';
 import { portTaken, runAdopt, runJoin, runLeave, runRollback, type JoinDeps } from './join.js';
@@ -198,7 +198,8 @@ async function main(): Promise<void> {
       env: sessionEnv,
       model: CLOSING_MODEL,
       budgetUsd: CLOSING_BUDGET_USD,
-      projectsDir: PROJECTS_DIR,
+      // Where the call's own CLI writes: it runs with the sessions' env, whose CLAUDE_CONFIG_DIR may differ.
+      projectsDir: claudeProjectsDir(sessionEnv, homedir()),
       transcript: async (id) => {
         const file = await findTranscript(PROJECTS_DIR, id);
         return file ? transcriptEvents(file) : undefined;

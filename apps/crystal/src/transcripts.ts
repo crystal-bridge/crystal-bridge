@@ -10,6 +10,14 @@ import type { ClaudeEventPayload } from './session.js';
  * here is defensive: unknown line types are skipped and a file that doesn't parse is ignored.
  */
 
+/**
+ * The CLI's projects folder for a given environment: `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`. Pass
+ * the env the CLI runs with, which may set a different config folder from Crystal's own.
+ */
+export function claudeProjectsDir(env: Record<string, string | undefined>, home: string): string {
+  return join(env.CLAUDE_CONFIG_DIR || join(home, '.claude'), 'projects');
+}
+
 /** A session the CLI ran on this node, as listed for the hub. */
 export interface TranscriptSummary {
   id: string;
