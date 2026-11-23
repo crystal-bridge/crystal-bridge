@@ -177,11 +177,13 @@ export function useDeeds(
         return;
       }
       setState((current) => {
-        const after = current.after ?? reading;
+        // While a read is on its way, the window it reads; a row already held still takes its update.
+        const after = reading ?? current.after;
         const rows = frame.deeds.filter(
           (row) => keeps(row) && (after === undefined || row.at >= after || current.deeds.some((d) => d.id === row.id)),
         );
-        for (const row of rows) heard.set(row.id, row);
+        // What the read's rows give way to: only rows in its window, or the read would carry older ones into it.
+        for (const row of rows) if (reading === undefined || row.at >= reading) heard.set(row.id, row);
         if (rows.length === 0) return current;
         return { ...current, deeds: merge(rows, current.deeds) };
       });

@@ -203,6 +203,20 @@ describe('Deeds data', () => {
     expect(pending).toHaveLength(2);
   });
 
+  it('keeps a reconnect’s read to its own window, not the older days loaded before it', async () => {
+    const { hub, frame, reconnect } = fakeHub();
+    const { result } = renderHook(() => useDeeds(hub, 'forge'));
+    await act(async () => pending[0]?.answer({ deeds: [deed('turn:a:1', NOW)], older: midnight(20) }));
+    act(() => result.current.loadOlder());
+    await act(async () => pending[1]?.answer({ deeds: [deed('turn:a:0', midnight(20))], older: midnight(40) }));
+    expect(result.current.after).toBe(midnight(26));
+    act(() => reconnect());
+    // Inside the older days loaded, outside the newest 7 the reconnect reads.
+    act(() => frame('forge', [deed('turn:b:1', midnight(10))]));
+    await act(async () => pending[2]?.answer({ deeds: [deed('turn:a:1', NOW)], older: midnight(20) }));
+    expect(result.current.deeds.map((d) => d.id)).toEqual(['turn:a:1']);
+  });
+
   it('says it is reading the newest days again after a reconnect, until that read is over', async () => {
     const { hub, reconnect } = fakeHub();
     const { result } = renderHook(() => useDeeds(hub, 'forge'));
