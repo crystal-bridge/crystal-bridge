@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, sep } from 'node:path';
 import { MAX_TALLY_LINK } from '@crystal-bridge/protocol';
@@ -491,6 +501,39 @@ describe('the call at Close (#289)', () => {
     expect(readdirSync(join(unrelated, 'memory'))).toEqual([]);
     expect(readFileSync(join(kept, 'memory', 'notes.md'), 'utf8')).toBe('mine');
     expect(readdirSync(projectsDir).sort()).toEqual([`-private-tmp-x-${encoded}`, '-r-lantern'].sort());
+  });
+
+  it.skipIf(process.platform === 'win32')('follows no symlink when it removes a projects folder', async () => {
+    const folder = mkdtempSync(join(testRoot, 'cb-closing-'));
+    const encoded = basename(folder).replace(/[^a-zA-Z0-9]/g, '-');
+    const projectsDir = mkdtempSync(join(testRoot, 'projects-'));
+    const outside = mkdtempSync(join(testRoot, 'outside-'));
+    // A matching entry that is a link to a folder holding an empty `memory`.
+    const target = join(outside, 'linked');
+    mkdirSync(join(target, 'memory'), { recursive: true });
+    const linkedEntry = join(projectsDir, `-a-${encoded}`);
+    symlinkSync(target, linkedEntry);
+    // A matching entry whose `memory` is a link to an empty folder.
+    const emptyTarget = join(outside, 'empty');
+    mkdirSync(emptyTarget);
+    const realEntry = join(projectsDir, `-b-${encoded}`);
+    mkdirSync(realEntry);
+    symlinkSync(emptyTarget, join(realEntry, 'memory'));
+    const fake = fakeCollect({ kind: 'timed-out', stderr: '' });
+    const closing = createClosing({
+      claudeBin: 'claude',
+      env: {},
+      budgetUsd: 1,
+      transcript: async () => events,
+      collect: fake.collect,
+      tmp: async () => folder,
+      projectsDir,
+    });
+    await closing.run('s1', '/r/lantern');
+    expect(existsSync(join(target, 'memory'))).toBe(true);
+    expect(lstatSync(linkedEntry).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(realEntry, 'memory')).isSymbolicLink()).toBe(true);
+    expect(existsSync(emptyTarget)).toBe(true);
   });
 
   it('stop() while the transcript is still being read starts no call', async () => {

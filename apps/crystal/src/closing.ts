@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, rmdir } from 'node:fs/promises';
+import { lstat, mkdtemp, readdir, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import {
@@ -312,10 +312,19 @@ async function removeEmptyProject(projectsDir: string | undefined, folder: strin
   for (const entry of entries) {
     if (!entry.endsWith(suffix)) continue;
     const project = join(projectsDir, entry);
-    await rmdir(join(project, 'memory')).catch(() => undefined);
+    // Only real folders: never through a link, and never a link itself (Windows' rmdir removes a junction).
+    if (!(await realFolder(project))) continue;
+    const memory = join(project, 'memory');
+    if (await realFolder(memory)) await rmdir(memory).catch(() => undefined);
     await rmdir(project).catch(() => undefined);
   }
 }
+
+const realFolder = (path: string) =>
+  lstat(path).then(
+    (stats) => stats.isDirectory() && !stats.isSymbolicLink(),
+    () => false,
+  );
 
 export interface Closing {
   run(session: string, cwd: string): Promise<ClosingResult>;
