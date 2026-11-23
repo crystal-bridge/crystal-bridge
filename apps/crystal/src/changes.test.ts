@@ -200,6 +200,47 @@ describe('reportChanges', () => {
     expect(order).toEqual(['emit ["a.ts"]', 'diffed ["a.ts"]', 'emit ["b.ts"]', 'diffed ["b.ts"]']);
   });
 
+  it('keeps reporting later turns when a callback throws', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const emit = vi.fn();
+      const second = vi.fn();
+      const first = reportChanges(tracker(['a.ts']), emit, () => {
+        throw new Error('tally lost');
+      });
+      const tallied = reportChanges(tracker(['b.ts']), emit, second, first);
+      await expect(first).resolves.toBeUndefined();
+      await expect(tallied).resolves.toBeUndefined();
+      expect(emit).toHaveBeenCalledTimes(2);
+      expect(second).toHaveBeenCalledWith(['b.ts']);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0]![0])).toMatch(/^\[crystal\] .*tally lost/);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('still calls back when sending the line throws', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const diffed = vi.fn();
+      const emit = () => {
+        throw new Error('socket gone');
+      };
+      await reportChanges(tracker(['a.ts']), emit, diffed);
+      expect(diffed).toHaveBeenCalledWith(['a.ts']);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('ignores a failed earlier report', async () => {
+    const diffed = vi.fn();
+    await reportChanges(tracker(['b.ts']), vi.fn(), diffed, Promise.reject(new Error('earlier')));
+    expect(diffed).toHaveBeenCalledWith(['b.ts']);
+  });
+
   it('with no tracker, calls back at once with nothing known', () => {
     const emit = vi.fn();
     const diffed = vi.fn();

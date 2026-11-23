@@ -106,19 +106,35 @@ export function reportChanges(
   diffed: (files: string[] | undefined) => void,
   after: Promise<void> = Promise.resolve(),
 ): Promise<void> {
+  // An earlier turn's failure is its own: this turn still reports, so one bad turn can't end a session's tallies.
+  const previous = after.catch(() => undefined);
   if (!changes) {
-    diffed(undefined);
-    return after;
+    report(emit, diffed, undefined);
+    return previous;
   }
   // `finish` shouldn't reject, but a tracker that does still lets the tally go out, with nothing known.
   const files = changes.finish().catch((error: unknown) => {
-    console.error(
-      `[crystal] a turn's changes could not be read: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`[crystal] a turn's changes could not be read: ${message(error)}`);
     return undefined;
   });
-  return Promise.all([files, after]).then(([files]) => {
-    if (files?.length) emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } });
-    diffed(files);
-  });
+  return Promise.all([files, previous]).then(([files]) => report(emit, diffed, files));
+}
+
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** Sends one turn's line and calls back; a callback that throws is logged, never passed on to the next turn. */
+function report(
+  emit: (payload: ClaudeEventPayload) => void,
+  diffed: (files: string[] | undefined) => void,
+  files: string[] | undefined,
+): void {
+  const guarded = (send: () => void) => {
+    try {
+      send();
+    } catch (error) {
+      console.error(`[crystal] a turn's changes could not be sent: ${message(error)}`);
+    }
+  };
+  if (files?.length) guarded(() => emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } }));
+  guarded(() => diffed(files));
 }
