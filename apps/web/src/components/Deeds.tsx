@@ -201,7 +201,8 @@ export function DeedsFeed({
           {state.older !== undefined && (
             <LoadOlder
               loading={state.loadingOlder === true || state.reloading === true}
-              failed={state.error !== undefined || state.refreshError !== undefined}
+              failed={state.error !== undefined}
+              read={state.read?.n ?? 0}
               onLoadOlder={onLoadOlder}
             />
           )}
@@ -337,18 +338,34 @@ const AUTO_PAGES = 3;
 /**
  * Load older days: a button, and the same when the feed's end scrolls into view where the browser can tell. Held while
  * a read is under way. After a page arrives the end is looked at again (an observer reports at once, then only on a
- * change), so a short feed fills itself, but only `AUTO_PAGES` in a row until the user scrolls or clicks. After a
- * failed read only the button tries again: the end being in view would otherwise ask over and over.
+ * change), so a short feed fills itself, but only `AUTO_PAGES` in a row until the user scrolls or clicks. Only a read
+ * that succeeded lets the end, already in view, ask again: after a failed one (of older days, or of the newest after a
+ * reconnect) only the button or a scroll does, since the end being in view would otherwise ask over and over.
  */
-function LoadOlder({ loading, failed, onLoadOlder }: { loading: boolean; failed: boolean; onLoadOlder: () => void }) {
+function LoadOlder({
+  loading,
+  failed,
+  read,
+  onLoadOlder,
+}: {
+  loading: boolean;
+  failed: boolean;
+  /** How many reads have succeeded: a new one since the observer last looked is what lets it ask by itself. */
+  read: number;
+  onLoadOlder: () => void;
+}) {
   const end = useRef<HTMLDivElement>(null);
   const load = useRef(onLoadOlder);
   load.current = onLoadOlder;
   // Pages loaded in a row with no scroll or click from the user.
   const auto = useRef(0);
+  // The successful reads the observer has looked after; none yet when it mounts.
+  const looked = useRef<number | undefined>(undefined);
   useEffect(() => {
     const element = end.current;
     if (loading || failed || !element || typeof IntersectionObserver === 'undefined') return;
+    const fresh = looked.current !== read;
+    looked.current = read;
     let first = true;
     const observer = new IntersectionObserver((entries) => {
       const seen = entries.some((e) => e.isIntersecting);
@@ -359,14 +376,14 @@ function LoadOlder({ loading, failed, onLoadOlder }: { loading: boolean; failed:
         // The end came into view: the user scrolled.
         auto.current = 0;
         load.current();
-      } else if (auto.current < AUTO_PAGES) {
+      } else if (fresh && auto.current < AUTO_PAGES) {
         auto.current += 1;
         load.current();
       }
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [loading, failed]);
+  }, [loading, failed, read]);
   const click = () => {
     auto.current = 0;
     onLoadOlder();

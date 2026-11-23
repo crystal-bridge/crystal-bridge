@@ -24,6 +24,8 @@ export interface DeedsState {
   loadingOlder?: boolean;
   /** A reconnect is reading the newest days again over the loaded ones; older days wait for it. */
   reloading?: boolean;
+  /** Counts the reads that succeeded, and whether the latest was of the newest days (else of older ones). */
+  read?: { n: number; newest: boolean };
   /** Why that read failed; the loaded rows stay until a read succeeds. */
   refreshError?: string;
 }
@@ -122,10 +124,11 @@ export function useDeeds(
         .then((page) => {
           if (!fresh()) return;
           reading = undefined;
-          setState(() => ({
+          setState((s) => ({
             deeds: merge([...heard.values()], page.deeds),
             loaded: true,
             after,
+            read: { n: (s.read?.n ?? 0) + 1, newest: true },
             ...(page.older !== undefined ? { older: page.older } : {}),
           }));
         })
@@ -159,6 +162,7 @@ export function useDeeds(
               deeds: merge(s.deeds, page.deeds),
               after,
               loadingOlder: false,
+              read: { n: (s.read?.n ?? 0) + 1, newest: false },
               ...(page.older !== undefined ? { older: page.older } : {}),
             };
           });

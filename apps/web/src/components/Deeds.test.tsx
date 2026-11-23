@@ -568,6 +568,32 @@ describe('Load older days with the feed’s end in view', () => {
     expect(older).toHaveLength(0);
   });
 
+  it('follows on again after a failed reconnect read once a clicked read of older days succeeds', async () => {
+    inView = false;
+    let up = true;
+    stubs(
+      () => (up ? newestPage() : json({ error: 'down' }, 503)),
+      (n) =>
+        json({
+          deeds: [row(`turn:x:old${n}`, NOW - (40 + 10 * n) * DAY, { session: 'x' })],
+          older: NOW - (45 + 10 * n) * DAY,
+        }),
+    );
+    render(<Harness />);
+    await settle();
+    inView = true;
+    up = false;
+    act(() => listeners.reconnects.forEach((l) => l()));
+    await settle();
+    expect(screen.getByRole('alert').textContent).toContain('down');
+    expect(older).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Load older days' }));
+    await settle();
+    await settle();
+    // The clicked page, then the 3 that follow on by themselves.
+    expect(older).toHaveLength(4);
+  });
+
   it('follows on by itself for at most 3 pages, then waits for the button', async () => {
     // Sparse history: each page holds one row, and there is always an older one.
     stubs(newestPage, (n) =>
