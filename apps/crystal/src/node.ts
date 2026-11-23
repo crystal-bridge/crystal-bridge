@@ -355,8 +355,11 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   const deedsThisTurn = new Map<string, number>();
   /** Each Quest's Loot and Trophies so far this turn, by the shared rules, for its `turn.tally`. */
   const turnLoot = new Map<string, { files: Set<string>; prs: Set<string> }>();
-  /** A finished turn's Loot and Trophies, under its `turn.finished`'s seq, until its diff is in. */
-  const finishedLoot = new Map<string, { seq: number; files: Set<string>; prs: Set<string> }>();
+  /**
+   * Finished turns' Loot and Trophies, oldest first, each under its `turn.finished`'s seq until its diff is in. A
+   * queue: the next turn can finish before this one's diff, and the engines send the diffs in order.
+   */
+  const finishedLoot = new Map<string, { seq: number; files: Set<string>; prs: Set<string> }[]>();
   /** Patrol Quests let go while they were still starting, so they aren't watched once they've started. */
   const forgottenQuests = new Set<string>();
 
@@ -469,9 +472,10 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
   /** The finished turn's diff is in: its `turn.tally`, counting files as the browser counts Loot. */
   function sendTally(sessionId: string, diff: string[] | undefined): void {
-    const loot = finishedLoot.get(sessionId);
+    const waiting = finishedLoot.get(sessionId);
+    const loot = waiting?.shift();
     if (!loot) return;
-    finishedLoot.delete(sessionId);
+    if (!waiting!.length) finishedLoot.delete(sessionId);
     for (const file of diff ?? []) loot.files.add(file);
     sendEnvelope(sessionId, 'turn.tally', {
       seq: loot.seq,
@@ -512,7 +516,12 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
     runtime.on('event', (event: ClaudeSessionEvent) => {
       // The process that asked can no longer use an answer; deny so nothing stays pending forever.
-      if (event.type === 'session.ended') denyPending(sessionId);
+      if (event.type === 'session.ended') {
+        denyPending(sessionId);
+        // A turn the process ended mid-way sends no turn.finished: its Loot isn't the next turn's. Finished turns
+        // stay queued, since their diffs still come.
+        turnLoot.delete(sessionId);
+      }
       if (event.type === 'turn.finished' || event.type === 'session.ended') {
         errandsThisTurn.delete(sessionId);
         deedsThisTurn.delete(sessionId);
@@ -526,7 +535,9 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       if (event.type === 'turn.finished') {
         const loot = turnLoot.get(sessionId) ?? { files: new Set<string>(), prs: new Set<string>() };
         turnLoot.delete(sessionId);
-        finishedLoot.set(sessionId, { seq, ...loot });
+        const waiting = finishedLoot.get(sessionId) ?? [];
+        waiting.push({ seq, ...loot });
+        finishedLoot.set(sessionId, waiting);
       }
       watchPatrolQuest(sessionId, event);
     });

@@ -1474,12 +1474,12 @@ describe('startNode', () => {
       expect((sent.payload as { prs: string[] }).prs).toEqual(links.slice(0, 10));
     });
 
-    it('sends no tally for a turn whose diff never comes, and starts the next turn’s count afresh', async () => {
+    it('pairs each diff with the oldest turn still waiting for one, even when turns overlap', async () => {
       const { conn, fake } = await startQuest();
       fake.emit('event', write('/w/a.ts'));
       fake.emit('event', printed(PR));
       fake.emit('event', finished);
-      await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      const first = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
       fake.emit('event', write('/w/c.ts'));
       fake.emit('event', finished);
       const second = await waitForFrame(
@@ -1487,11 +1487,28 @@ describe('startNode', () => {
         (frame) => frame.type === 'turn.finished' && conn.frames.filter((f) => f.type === 'turn.finished').length === 2,
       );
       fake.emit('event', tally());
-      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
-      expect(sent.payload).toEqual({ seq: second.seq, files: 1, prs: [] });
       fake.emit('event', tally(['x.ts']));
+      await waitForFrame(conn, () => tallies(conn).length === 2);
+      expect(tallies(conn).map((frame) => frame.payload)).toEqual([
+        { seq: first.seq, files: 1, prs: [PR] },
+        { seq: second.seq, files: 2, prs: [] },
+      ]);
+      fake.emit('event', tally(['y.ts']));
       await delay(50);
-      expect(tallies(conn)).toHaveLength(1);
+      expect(tallies(conn)).toHaveLength(2);
+    });
+
+    it('leaves a turn the process ended mid-way out of the next turn’s tally', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', write('/w/a.ts'));
+      fake.emit('event', printed(PR));
+      fake.emit('event', { type: 'session.ended', payload: { exitCode: 0, signal: null } });
+      fake.emit('event', write('/w/b.ts'));
+      fake.emit('event', finished);
+      const turn = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect(sent.payload).toEqual({ seq: turn.seq, files: 1, prs: [] });
     });
 
     it('sends files 0 when nothing changed', async () => {
