@@ -365,6 +365,14 @@ describe('DeedsFeed', () => {
     expect(observed).toHaveLength(0);
   });
 
+  it('says when the feed couldn’t be read again, keeping what it shows', () => {
+    const { region } = feed({ state: { ...LOADED, refreshError: 'the hub is unreachable' } });
+    expect(within(region).getByRole('alert').textContent).toBe(
+      `Couldn’t read the ${w('deedsFeed')} again: the hub is unreachable`,
+    );
+    expect(within(region).getAllByRole('listitem').length).toBeGreaterThan(0);
+  });
+
   it('holds Load older days while the newest are read again, then loads them if the end is still in view', () => {
     // As a browser does, the observer reports at once whether the end is in view.
     vi.stubGlobal(

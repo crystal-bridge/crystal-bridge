@@ -24,6 +24,8 @@ export interface DeedsState {
   loadingOlder?: boolean;
   /** A reconnect is reading the newest days again over the loaded ones; older days wait for it. */
   reloading?: boolean;
+  /** Why that read failed; the loaded rows stay until a read succeeds. */
+  refreshError?: string;
 }
 
 /** How many local days one page of the feed spans. */
@@ -132,7 +134,9 @@ export function useDeeds(
           if (!fresh()) return;
           reading = undefined;
           setState((current) =>
-            current.loaded ? { ...current, reloading: false } : { deeds: [], loaded: false, error: reason },
+            current.loaded
+              ? { ...current, reloading: false, refreshError: reason }
+              : { deeds: [], loaded: false, error: reason },
           );
         });
     };

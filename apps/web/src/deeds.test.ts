@@ -217,6 +217,19 @@ describe('Deeds data', () => {
     expect(result.current.deeds.map((d) => d.id)).toEqual(['turn:a:1']);
   });
 
+  it('keeps the rows but says so when a reconnect’s read fails, until a read succeeds', async () => {
+    const { hub, reconnect } = fakeHub();
+    const { result } = renderHook(() => useDeeds(hub, 'forge'));
+    await act(async () => pending[0]?.answer({ deeds: [deed('turn:a:1', NOW)] }));
+    act(() => reconnect());
+    await act(async () => pending[1]?.answer({ error: 'the Kingdom is busy' }, 503));
+    expect(result.current.deeds.map((d) => d.id)).toEqual(['turn:a:1']);
+    expect(result.current.refreshError).toBe('the Kingdom is busy');
+    act(() => reconnect());
+    await act(async () => pending[2]?.answer({ deeds: [deed('turn:a:1', NOW)] }));
+    expect(result.current.refreshError).toBeUndefined();
+  });
+
   it('says it is reading the newest days again after a reconnect, until that read is over', async () => {
     const { hub, reconnect } = fakeHub();
     const { result } = renderHook(() => useDeeds(hub, 'forge'));

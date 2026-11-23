@@ -131,6 +131,12 @@ export function DeedsFeed({
         <p className="px-3 text-sm text-neutral-500">{`Reading the ${feed}…`}</p>
       ) : (
         <>
+          {/* At the top: what shows below may be out of date. */}
+          {state.refreshError !== undefined && (
+            <p role="alert" className="px-3 text-sm text-red-700 dark:text-red-400">
+              {`Couldn’t read the ${feed} again: ${state.refreshError}`}
+            </p>
+          )}
           {chips.projects.length > 0 && (
             <div className="px-3">
               <Chips chips={chips} project={project} phone={phone} onProject={onProject} />
