@@ -193,6 +193,16 @@ describe('Deeds data', () => {
     expect(pending).toHaveLength(count + 1);
   });
 
+  it('reads no older days while a reconnect reads the newest again', async () => {
+    const { hub, reconnect } = fakeHub();
+    const { result } = renderHook(() => useDeeds(hub, 'forge'));
+    await act(async () => pending[0]?.answer({ deeds: [deed('turn:a:1', NOW)], older: midnight(20) }));
+    act(() => reconnect());
+    expect(pending).toHaveLength(2);
+    act(() => result.current.loadOlder());
+    expect(pending).toHaveLength(2);
+  });
+
   it('leaves out a frame’s rows from before the window while the first read is on its way', async () => {
     const { hub, frame } = fakeHub();
     const { result } = renderHook(() => useDeeds(hub, 'forge'));
