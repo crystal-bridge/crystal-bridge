@@ -1632,3 +1632,176 @@ describe('Errands (#288)', () => {
     expect(store.errands(node)[0]?.patrol).toBe('sweep');
   });
 });
+
+describe('Deeds (#289)', () => {
+  const node = 'node-a';
+  const project = '/r/lantern';
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+  });
+  const page = (after = 0, before = 1000, extra: { project?: string } = {}) =>
+    store.deedsPage(node, { after, before, ...extra });
+
+  it('writes a turn record once, with the start of its reply only for a finished turn', () => {
+    const session = randomUUID();
+    const turn = (outcome: string, seq: number) => ({
+      node,
+      session,
+      seq,
+      ts: 100,
+      project,
+      payload: { outcome, summary: 'Node 24 is in.', costUsd: 0.74, durationMs: 1000 },
+    });
+    store.recordTurn(turn('success', 4));
+    store.recordTurn(turn('success', 4));
+    expect(page().deeds).toEqual([
+      {
+        id: `turn:${session}:4`,
+        session,
+        seq: 4,
+        project,
+        kind: 'turn',
+        text: 'Node 24 is in.',
+        outcome: 'success',
+        costUsd: 0.74,
+        durationMs: 1000,
+        at: 100,
+      },
+    ]);
+    store.recordTurn(turn('error', 6));
+    expect(store.deed(`turn:${session}:6`)).not.toHaveProperty('text');
+  });
+
+  it("fills a turn's counts when its tally comes", () => {
+    const session = randomUUID();
+    const prs = ['https://example.com/acme/lantern/pull/319'];
+    store.recordTurn({ node, session, seq: 4, ts: 100, project, payload: { outcome: 'success' } });
+    store.recordTally({ node: 'node-b', session, seq: 4, files: 9, prs: [] });
+    store.recordTally({ node, session, seq: 9, files: 9, prs: [] });
+    expect(store.deed(`turn:${session}:4`)).not.toHaveProperty('files');
+    store.recordTally({ node, session, seq: 4, files: 12, prs });
+    expect(store.deed(`turn:${session}:4`)).toMatchObject({ files: 12, prs });
+    store.recordTally({ node, session, seq: 4, files: 0, prs: [] });
+    expect(store.deed(`turn:${session}:4`)).toMatchObject({ files: 0, prs: [] });
+  });
+
+  it('writes a Deed and a Deed from Close', () => {
+    const session = randomUUID();
+    const id = randomUUID();
+    const deed = { node, session, seq: 5, ts: 200, project, id, deed: 'Moved the hub to Node 24' };
+    store.recordDeed({ ...deed, detail: 'Image 30 MB smaller.' });
+    store.recordDeed({ ...deed, deed: 'Again' });
+    expect(store.deed(`deed:${id}`)).toMatchObject({
+      id: `deed:${id}`,
+      kind: 'deed',
+      text: 'Moved the hub to Node 24',
+      detail: 'Image 30 MB smaller.',
+    });
+    const other = randomUUID();
+    store.recordDeed({ ...deed, id: other, closing: true });
+    expect(store.deed(`deed:${other}`)?.kind).toBe('closing');
+  });
+
+  it('writes how the call at Close went', () => {
+    const session = randomUUID();
+    store.recordClose({
+      node,
+      session,
+      seq: 7,
+      ts: 300,
+      project,
+      outcome: 'timeout',
+      costUsd: 0.12,
+      reason: 'stopped after 120 s',
+    });
+    expect(store.deed(`close:${session}:7`)).toMatchObject({
+      kind: 'close',
+      outcome: 'timeout',
+      costUsd: 0.12,
+      text: 'stopped after 120 s',
+    });
+  });
+
+  it("writes a script Patrol's run once it's back, finished or failed, and updates it", () => {
+    const run = (extra: Record<string, unknown>): PatrolRun => ({
+      id: randomUUID(),
+      startedAt: 1000,
+      trigger: 'schedule',
+      outcome: 'running',
+      ...extra,
+    });
+    const first = run({ outcome: 'running' });
+    store.recordScriptRun(node, 'backup', first);
+    expect(store.deed(`run:${first.id}`)).toBeUndefined();
+    const done = { ...first, outcome: 'finished', finishedAt: 73000, summary: 'Backed up 4 repos.' };
+    store.recordScriptRun(node, 'backup', done);
+    expect(store.deed(`run:${first.id}`)).toEqual({
+      id: `run:${first.id}`,
+      patrol: 'backup',
+      kind: 'patrol',
+      text: 'Backed up 4 repos.',
+      outcome: 'finished',
+      durationMs: 72000,
+      at: 73000,
+    });
+    store.recordScriptRun(node, 'backup', { ...done, outcome: 'failed', summary: 'Disk full.' });
+    expect(store.deed(`run:${first.id}`)).toMatchObject({ outcome: 'failed', text: 'Disk full.' });
+    expect(page(0, 100000).deeds).toHaveLength(1);
+    for (const extra of [
+      { session: randomUUID(), outcome: 'finished' },
+      { outcome: 'skipped' },
+      { outcome: 'missed' },
+    ]) {
+      const other = run(extra);
+      store.recordScriptRun(node, 'backup', other);
+      expect(store.deed(`run:${other.id}`)).toBeUndefined();
+    }
+  });
+
+  it('reads a page of days, newest first, by project too, and says where older rows are', () => {
+    const at = (when: number, where = project) =>
+      store.recordDeed({
+        node,
+        session: randomUUID(),
+        seq: 1,
+        ts: when,
+        project: where,
+        id: randomUUID(),
+        deed: `At ${when}`,
+      });
+    at(100);
+    at(200, '/r/quarry');
+    at(300);
+    at(50);
+    store.recordDeed({ node: 'node-b', session: randomUUID(), seq: 1, ts: 150, id: randomUUID(), deed: 'Elsewhere' });
+    const all = page(100, 1000);
+    expect(all.deeds.map((d) => d.at)).toEqual([300, 200, 100]);
+    expect(all.older).toBe(50);
+    const quarry = page(100, 1000, { project: '/r/quarry' });
+    expect(quarry.deeds.map((d) => d.at)).toEqual([200]);
+    expect(quarry.older).toBeUndefined();
+    expect(page(100, 300).deeds.map((d) => d.at)).toEqual([200, 100]);
+  });
+
+  it('finds one row by id', () => {
+    const session = randomUUID();
+    store.recordTurn({ node, session, seq: 4, ts: 100, project, payload: { outcome: 'success' } });
+    expect(store.deed(`turn:${session}:4`)?.seq).toBe(4);
+    expect(store.deed('turn:nope:1')).toBeUndefined();
+  });
+
+  it("forgets a Kingdom's Deeds", () => {
+    const session = randomUUID();
+    for (const n of ['node-a', 'node-b']) {
+      store.recordTurn({ node: n, session: randomUUID(), seq: 1, ts: 100, project, payload: { outcome: 'success' } });
+    }
+    store.forgetDeeds('node-a');
+    expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toEqual([]);
+    expect(store.deedsPage('node-b', { after: 0, before: 1000 }).deeds).toHaveLength(1);
+    void session;
+  });
+});

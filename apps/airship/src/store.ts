@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { type Boards, openBoards } from './boards.js';
 import { errandProject, openErrands, type Errands } from './errands.js';
+import { openDeeds, type Deeds } from './deeds.js';
 import { openPatrols, type Patrols } from './patrols.js';
 import { migrate } from './migrations.js';
 import { makePrivate } from './paths.js';
@@ -116,7 +117,7 @@ export interface UnseenQuest {
 }
 
 /** Everything the hub keeps, Scouts' Boards (`boards.ts`) and Patrols (`patrols.ts`) included. */
-export interface Store extends Boards, Patrols, Errands {
+export interface Store extends Boards, Patrols, Errands, Deeds {
   /** Stores an event; false for a duplicate. Throws `BadEvent` for one that can never be stored. */
   appendEvent(event: Envelope): boolean;
   eventsSince(session: string, seq: number): Envelope[];
@@ -407,11 +408,13 @@ export function openStore(path: string): Store {
   const boards = openBoards(db);
   const patrols = openPatrols(db);
   const errands = openErrands(db);
+  const deeds = openDeeds(db);
   const forgetNodeTxn = db.transaction((node: string): string[] => {
     const ids = (nodeSessionsStmt.all(node) as { id: string }[]).map((row) => row.id);
     boards.forgetBoards(node);
     patrols.forgetPatrols(node);
     errands.forgetErrands(node);
+    deeds.forgetDeeds(node);
     forgetCastsStmt.run(node);
     forgetRelayStmt.run(node);
     forgetSeenStmt.run(node);
@@ -559,6 +562,7 @@ export function openStore(path: string): Store {
     ...boards,
     ...patrols,
     ...errands,
+    ...deeds,
     appendEvent(event) {
       try {
         return appendEventTxn(event);
