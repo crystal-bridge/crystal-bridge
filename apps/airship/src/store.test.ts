@@ -1679,6 +1679,21 @@ describe('Deeds (#289)', () => {
     expect(store.deed(node, `turn:${session}:6`)).not.toHaveProperty('text');
   });
 
+  it("keeps a turn's reply start to one plain line of at most 140 characters", () => {
+    const session = randomUUID();
+    const finished = (seq: number, summary: string) =>
+      store.appendEvent(
+        makeEnvelope({ node, session, seq, ts: 100, type: 'turn.finished', payload: { outcome: 'success', summary } }),
+      );
+    finished(1, 'x'.repeat(500));
+    expect(store.deed(node, `turn:${session}:1`)?.text).toBe('x'.repeat(140));
+    finished(2, 'Fixed \u202Eexe.txt\u202C and\nthe\tnext\u200B one');
+    expect(store.deed(node, `turn:${session}:2`)?.text).toBe('Fixed exe.txt and the next one');
+    finished(3, '\u202E\n');
+    expect(store.deed(node, `turn:${session}:3`)).toMatchObject({ kind: 'turn', outcome: 'success' });
+    expect(store.deed(node, `turn:${session}:3`)).not.toHaveProperty('text');
+  });
+
   it("fills a turn's counts when its tally comes", () => {
     const session = randomUUID();
     const prs = ['https://example.com/acme/lantern/pull/319'];

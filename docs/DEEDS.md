@@ -29,7 +29,8 @@ and folds its turn records beneath them.
 
 When a turn finishes, the hub writes a turn record from the `turn.finished` event it already stores. No Quest has to
 do anything, so a Quest that never closes, or one started before Deeds shipped, still shows its work. A finished turn's
-record carries the start of its reply; a failed or stopped turn has none, and shows its outcome instead.
+record carries the start of its reply, as one plain line of at most 140 characters (the hub drops control and format
+characters such as bidi overrides); a failed or stopped turn has none, and shows its outcome instead.
 
 A turn record also counts what the turn changed: files (Loot) and the pull requests it opened (Trophies). The browser
 works these out today, from two sources: the file tools' paths in the raw engine output, and the git diff Crystal

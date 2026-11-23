@@ -24,10 +24,28 @@ export interface QuestEvent {
   patrol?: string;
 }
 
+/** The most of a turn's reply a turn record keeps, as Crystal's `SUMMARY_CHARS`. */
+const SUMMARY_CHARS = 140;
+
+/**
+ * A turn's reply start as one plain line: format characters (bidi overrides, zero-width ones) go, control characters
+ * (line breaks, tabs) become a space, and it's cut to `SUMMARY_CHARS` code points. Cleaned rather than refused, so the
+ * turn still gets its row; nothing left means no text.
+ */
+function plainSummary(summary: string | undefined): string | undefined {
+  if (summary === undefined) return undefined;
+  const line = summary
+    .replace(/\p{Cf}+/gu, '')
+    .replace(/\p{Cc}+/gu, ' ')
+    .trim();
+  const cut = Array.from(line).slice(0, SUMMARY_CHARS).join('').trimEnd();
+  return cut === '' ? undefined : cut;
+}
+
 /** What a `turn.finished` carries that a turn record keeps; a bad optional field is dropped, a bad outcome refuses it. */
 export const TurnFinishedRecord = z.object({
   outcome: z.string().max(32),
-  summary: z.string().optional().catch(undefined),
+  summary: z.string().optional().catch(undefined).transform(plainSummary),
   costUsd: z.number().nonnegative().optional().catch(undefined),
   durationMs: z.number().int().nonnegative().optional().catch(undefined),
 });
