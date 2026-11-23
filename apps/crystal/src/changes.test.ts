@@ -150,6 +150,32 @@ describe('reportChanges', () => {
     ]);
   });
 
+  it('calls back with nothing known when the tracker can’t tell', async () => {
+    const emit = vi.fn();
+    const diffed = vi.fn();
+    reportChanges(tracker(undefined), emit, diffed);
+    await vi.waitFor(() => expect(diffed).toHaveBeenCalledWith(undefined));
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('calls back with nothing known, and leaves no unhandled rejection, when the tracker fails', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const emit = vi.fn();
+      const diffed = vi.fn();
+      const failing = { begin: async () => {}, finish: () => Promise.reject(new Error('git is gone')) };
+      reportChanges(failing, emit, diffed);
+      await vi.waitFor(() => expect(diffed).toHaveBeenCalledWith(undefined));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(unhandled).toEqual([]);
+      expect(emit).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('with no tracker, calls back at once with nothing known', () => {
     const emit = vi.fn();
     const diffed = vi.fn();

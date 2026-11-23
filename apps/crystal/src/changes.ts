@@ -104,8 +104,12 @@ export function reportChanges(
   diffed: (files: string[] | undefined) => void,
 ): void {
   if (!changes) return diffed(undefined);
-  void changes.finish().then((files) => {
-    if (files?.length) emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } });
-    diffed(files);
-  });
+  // `finish` shouldn't reject, but a tracker that does still lets the tally go out, with nothing known.
+  void changes
+    .finish()
+    .catch(() => undefined)
+    .then((files) => {
+      if (files?.length) emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } });
+      diffed(files);
+    });
 }
