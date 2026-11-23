@@ -3,7 +3,7 @@
 A record of what a Kingdom's Quests achieved, day by day, across every project.
 
 ::: warning Planned
-This page is the agreed design; none of it is built yet. The work is tracked in the
+The hub part is built: it keeps turn records, Deeds and script Patrol runs, fills past turns, and serves the feed. The tally, the `deed` tool, the call at Close and the app are planned. The work is tracked in the
 [v0.9 Errands and Deeds milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/11) and
 [#289](https://github.com/crystal-bridge/crystal-bridge/issues/289).
 :::
