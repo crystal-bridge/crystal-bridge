@@ -172,6 +172,19 @@ describe('Watchtower', () => {
     expect(scrolled.mock.contexts[0]).toBe(screen.getByRole('region', { name: 'Backup check runs' }));
   });
 
+  it('opens a run asked for from the feed', () => {
+    const asked = run({ outcome: 'failed' });
+    render(
+      <Watchtower
+        state={state([script()], { backup: [run(), asked] })}
+        now={NOW}
+        focus={{ patrol: 'backup', run: asked.id }}
+      />,
+    );
+    const list = screen.getByRole('region', { name: 'Backup check runs' });
+    expect(list.querySelector(`#patrol-run-${asked.id}`)).not.toBeNull();
+  });
+
   describe('the form', () => {
     const forms = {
       onSave: vi.fn(async () => {}),

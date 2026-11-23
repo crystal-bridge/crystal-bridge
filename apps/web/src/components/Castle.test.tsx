@@ -6,6 +6,7 @@ import { levelFor } from '../levels.js';
 import type { PatrolsState } from '../patrols.js';
 import { RECENT_MS } from '../quests.js';
 import { Castle } from './Castle.js';
+import { w } from '../theme/words.js';
 import type { SessionSummary } from './SessionList.js';
 
 const NOW = 100 * RECENT_MS;
@@ -272,6 +273,59 @@ describe('Castle', () => {
     it('shows nothing for a Kingdom without errands data', () => {
       renderCastle();
       expect(regions()).toHaveLength(0);
+    });
+  });
+
+  describe('Deeds', () => {
+    const SESSION = '55555555-5555-4555-8555-555555555555';
+    const deeds = {
+      deeds: [
+        {
+          id: `turn:${SESSION}:1`,
+          kind: 'turn' as const,
+          at: NOW - 1000,
+          session: 'a',
+          seq: 1,
+          project: '/r/acme/lantern',
+          text: 'Fixed the build.',
+        },
+      ],
+      loaded: true,
+      loadOlder: vi.fn(),
+    };
+    const feeds = () => screen.queryAllByRole('region', { name: w('deedsFeed') });
+    const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    it('puts the feed in the left column under Active Quests on a wide screen', () => {
+      renderCastle({ deeds });
+      const wide = feeds().find((r) => r.closest('.hidden.xl\\:block'))!;
+      expect(wide).toBeTruthy();
+      expect(before(screen.getByRole('region', { name: 'Active Quests' }), wide)).toBe(true);
+      expect(before(wide, screen.getByRole('button', { name: /Chronicle/ }))).toBe(true);
+    });
+
+    it('follows the other panels below that', () => {
+      renderCastle({ deeds });
+      const middle = feeds().find((r) => r.closest('.hidden.md\\:block.xl\\:hidden'))!;
+      expect(before(screen.getByRole('region', { name: 'Haunts' }), middle)).toBe(true);
+      cleanup();
+      renderCastle({ deeds, sessions: [], waiting: new Set() });
+      expect(screen.queryByRole('region', { name: 'Haunts' })).toBeNull();
+      expect(feeds()).toHaveLength(2);
+      expect(feeds().filter((r) => r.closest('.hidden.md\\:block:not(.xl\\:hidden):not(.xl\\:block)'))).toHaveLength(1);
+    });
+
+    it('on a phone, shows the read-only feed after the other panels', () => {
+      renderCastle({ deeds });
+      const phone = feeds().find((r) => r.closest('.md\\:hidden'))!;
+      expect(phone).toBeTruthy();
+      expect(before(screen.getByRole('region', { name: 'Haunts' }), phone)).toBe(true);
+      expect(within(phone).queryByRole('button', { name: /Fixed the build/ })).toBeNull();
+    });
+
+    it('shows nothing for a Kingdom without deeds data', () => {
+      renderCastle();
+      expect(feeds()).toHaveLength(0);
     });
   });
 

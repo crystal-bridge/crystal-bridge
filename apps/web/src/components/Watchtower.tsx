@@ -37,6 +37,8 @@ export interface WatchtowerProps {
   /** The Kingdom's projects and engines, for the form. */
   projects?: Project[];
   engines?: Engine[] | undefined;
+  /** A script run asked for from the Deeds feed: that Patrol's runs open, scrolled to the run. */
+  focus?: { patrol: string; run: string } | undefined;
 }
 
 /** The card's left stripe and its standing word's colour. Blue stays for "someone is waiting on you". */
@@ -120,17 +122,20 @@ function Runs({
   runs,
   zone,
   onOpenQuest,
+  focusRun,
 }: {
   name: string;
   runs: readonly PatrolRun[];
   zone: string;
+  focusRun?: string | undefined;
   onOpenQuest?: ((session: string) => void) | undefined;
 }) {
   const panel = useRef<HTMLElement>(null);
   // It opens below every card, so on a phone's single column it may start off-screen: bring it into view.
   useEffect(() => {
-    panel.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-  }, [name]);
+    const row = focusRun ? panel.current?.querySelector(`[id="patrol-run-${focusRun}"]`) : null;
+    (row ?? panel.current)?.scrollIntoView?.({ block: row ? 'center' : 'nearest', behavior: 'smooth' });
+  }, [name, focusRun]);
   return (
     <section
       ref={panel}
@@ -143,7 +148,11 @@ function Runs({
       ) : (
         <ul className="divide-y divide-neutral-200 text-sm dark:divide-neutral-800">
           {runs.map((run) => (
-            <li key={run.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-1.5">
+            <li
+              key={run.id}
+              id={`patrol-run-${run.id}`}
+              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-1.5"
+            >
               <span className="w-40 shrink-0 text-neutral-500 tabular-nums">{when(run.startedAt, zone)}</span>
               <span className="w-36 shrink-0">
                 <Outcome run={run} />
@@ -368,6 +377,7 @@ export function Watchtower({
   engines,
   seed,
   onSeedUsed,
+  focus,
 }: WatchtowerProps) {
   const [open, setOpen] = useState<string | null>(null);
   /** The Patrol being edited, or `new` for New Patrol. Ids can't hold a space, so the two never meet. */
@@ -383,6 +393,11 @@ export function Watchtower({
     setEditing(NEW);
     onSeedUsed?.();
   }, [seed, onSeedUsed]);
+  useEffect(() => {
+    if (!focus) return;
+    setEditing(null);
+    setOpen(focus.patrol);
+  }, [focus]);
   const close = () => {
     setEditing(null);
     setSeeded(null);
@@ -455,6 +470,7 @@ export function Watchtower({
             runs={state.runs[shown.id] ?? []}
             zone={zone}
             onOpenQuest={onOpenQuest}
+            focusRun={focus?.patrol === shown.id ? focus.run : undefined}
           />
         )}
       </div>

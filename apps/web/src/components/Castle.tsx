@@ -15,6 +15,7 @@ import type {
   Schedule,
   SelfUpdate,
 } from '@crystal-bridge/protocol';
+import type { DeedsState } from '../deeds.js';
 import { type ErrandsState, useErrandLayout } from '../errands.js';
 import type { Kingdom } from '../kingdoms.js';
 import type { PatrolsState } from '../patrols.js';
@@ -27,6 +28,7 @@ import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
+import { DeedsFeed } from './Deeds.js';
 import { ErrandsPanel } from './Errands.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
 import { Watchtower } from './Watchtower.js';
@@ -98,6 +100,14 @@ export interface CastleProps {
   onErrandState?: (id: string, state: ErrandState) => void;
   onAddErrand?: (draft: ErrandCreate) => Promise<void>;
   onEditErrand?: (id: string, edit: ErrandEdit) => Promise<void>;
+  /**
+   * This Kingdom's Deeds feed; without it (an older hub), no feed. On a wide screen it sits in the left column under
+   * Active Quests; below xl it follows the other panels, and a phone reads it without unfolding.
+   */
+  deeds?: DeedsState & { loadOlder(): void };
+  /** The project chip the feed is filtered by. */
+  deedsProject?: string | undefined;
+  onDeedsProject?: (project: string | undefined) => void;
   /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
   pinnedBoards?: ReadonlySet<string>;
   onPinBoard?: (scout: string) => void;
@@ -414,6 +424,9 @@ export function Castle({
   onErrandState,
   onAddErrand,
   onEditErrand,
+  deeds,
+  deedsProject,
+  onDeedsProject,
   pinnedBoards,
   onPinBoard,
   sessions,
@@ -496,8 +509,30 @@ export function Castle({
   const checklist = errandLayout === 'checklist' && errandList !== undefined;
   const errandsBelowXl = checklist && <div className="hidden md:block xl:hidden">{errandsPanel(false)}</div>;
   const errandsHere = checklist && <div className="hidden xl:block">{errandsPanel(false)}</div>;
+  // A script run asked for from the feed: both Watchtowers open that Patrol's runs and scroll to it.
+  const [focus, setFocus] = useState<{ patrol: string; run: string } | undefined>();
+  const deedsFeed = (phone: boolean) =>
+    deeds && (
+      <DeedsFeed
+        state={deeds}
+        sessions={sessions}
+        patrols={patrols?.patrols ?? []}
+        project={deedsProject}
+        now={now}
+        phone={phone}
+        onProject={(project) => onDeedsProject?.(project)}
+        onOpenQuest={onSelect}
+        onOpenRun={(patrol, run) => setFocus({ patrol, run })}
+        onLoadOlder={deeds.loadOlder}
+      />
+    );
   const rightOthers = haunts.length > 0 || Boolean(garrison);
   const rightColumn = rightOthers || checklist;
+  // With a right column the xl copy sits under Active Quests and the md copy below the columns; without one the left
+  // column's single copy serves every width from md.
+  const deedsWide = deeds && (
+    <div className={rightColumn ? 'hidden xl:block' : 'hidden md:block'}>{deedsFeed(false)}</div>
+  );
 
   return (
     <div className="h-full overflow-y-auto">
@@ -587,6 +622,8 @@ export function Castle({
               )}
             </Section>
 
+            {deedsWide}
+
             <Folded title={w('chronicle')} plain={hint('chronicle')} count={history.length}>
               <input
                 type="search"
@@ -662,6 +699,10 @@ export function Castle({
           )}
         </div>
 
+        {deeds && rightColumn && <div className="hidden md:block xl:hidden">{deedsFeed(false)}</div>}
+        {/* The phone reads the feed only: its entries don't unfold there. */}
+        {deeds?.loaded && deeds.deeds.length > 0 && <div className="md:hidden">{deedsFeed(true)}</div>}
+
         {onOpenBoard && scouts.length > 0 && (
           // A desktop panel for now, like the Summoning Circle below.
           <div className="hidden md:block">
@@ -684,12 +725,13 @@ export function Castle({
                 onSeedUsed={onPatrolSeedUsed}
                 projects={projects}
                 engines={engines}
+                focus={focus}
               />
             </div>
             {/* The phone shows Patrols read-only: its actions need their own design there. */}
             {patrols.patrols.length > 0 && (
               <div className="md:hidden">
-                <Watchtower state={patrols} now={now ?? Date.now()} onOpenQuest={onSelect} />
+                <Watchtower state={patrols} now={now ?? Date.now()} onOpenQuest={onSelect} focus={focus} />
               </div>
             )}
           </>

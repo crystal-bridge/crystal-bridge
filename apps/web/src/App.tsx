@@ -90,6 +90,7 @@ import {
   savePatrol,
   usePatrols,
 } from './patrols.js';
+import { useDeeds } from './deeds.js';
 import { addErrand, editErrand, errandsBySession, setErrandState, useErrandCounts, useErrands } from './errands.js';
 import { BoardPage } from './components/Board.js';
 import type { PatrolSeed } from './patrolForm.js';
@@ -321,6 +322,10 @@ export function App({ hub }: { hub: HubClient }) {
   const scouts = useScouts(hub, active ?? undefined);
   const patrols = usePatrols(hub, active ?? undefined);
   const errands = useErrands(hub, active ?? undefined);
+  // The Deeds feed's project chip, per Kingdom and not stored, so it resets when you switch Kingdom.
+  const [deedsProjects, setDeedsProjects] = useState<Record<string, string | undefined>>({});
+  const deedsProject = active ? deedsProjects[active] : undefined;
+  const deeds = useDeeds(hub, active ?? undefined, deedsProject);
   const errandsPerQuest = useMemo(() => errandsBySession(errands.errands), [errands.errands]);
   const errandCounts = useErrandCounts(hub);
   // "Patrol this" on a Board: the draft the Castle's Watchtower opens New Patrol from.
@@ -1667,6 +1672,9 @@ export function App({ hub }: { hub: HubClient }) {
                 onPatrolSeedUsed={() => setPatrolSeed(null)}
                 projects={kingdomProjects}
                 errands={errands}
+                deeds={deeds}
+                deedsProject={deedsProject}
+                onDeedsProject={(project) => setDeedsProjects((all) => ({ ...all, [kingdom.id]: project }))}
                 onErrandState={(id, state) => changeErrandState(kingdom.id, id, state)}
                 onAddErrand={async (draft) => {
                   await addErrand(kingdom.id, draft);
