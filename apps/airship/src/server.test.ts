@@ -166,11 +166,14 @@ describe('airship server', () => {
     store.close();
   });
 
-  async function connectNode(nodeId: string): Promise<{ socket: WebSocket; frames: FrameRecorder }> {
+  async function connectNode(
+    nodeId: string,
+    hello: Record<string, unknown> = {},
+  ): Promise<{ socket: WebSocket; frames: FrameRecorder }> {
     const socket = await openSocket(`${wsUrl}/node`);
     sockets.push(socket);
     const frames = new FrameRecorder(socket);
-    send(socket, { kind: 'hello', node: nodeId });
+    send(socket, { kind: 'hello', node: nodeId, ...hello });
     return { socket, frames };
   }
 
@@ -1155,6 +1158,174 @@ describe('airship server', () => {
       await goOffline();
       expect((await call('DELETE', '/api/nodes/node-a/quests')).status).toBe(204);
       expect((await json(await call('GET', '/api/nodes/node-a/errands'))).body).toEqual({ errands: [] });
+    });
+  });
+
+  describe('Deeds (#289)', () => {
+    const SESSION = '22222222-2222-4222-8222-222222222222';
+    const RUN = '55555555-5555-4555-8555-555555555555';
+    const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
+    const call = (method: string, path: string, body?: unknown) =>
+      fetch(`${baseUrl}${path}`, {
+        method,
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      });
+    const isDeeds = (frame: Record<string, unknown>) => frame.kind === 'deeds' && frame.node === 'node-a';
+    const FAR = 4_000_000_000_000;
+    const event = (seq: number, type: string, payload: unknown) =>
+      makeEnvelope({ session: SESSION, node: 'node-a', seq, type: type as Envelope['type'], payload });
+    const finished = (seq: number) => event(seq, 'turn.finished', { outcome: 'success', summary: 'Done' });
+
+    async function started(hello: Record<string, unknown> = {}) {
+      const node = await connectNode('node-a', hello);
+      send(node.socket, sessionStartedEnvelope(SESSION, 'node-a'));
+      await node.frames.waitFor((frame) => frame.kind === 'ack');
+      return node;
+    }
+
+    async function ackOf(node: { socket: WebSocket; frames: FrameRecorder }, seq: number) {
+      await node.frames.waitFor((frame) => frame.kind === 'ack' && frame.seq === seq);
+    }
+
+    it('sends each new row in a deeds frame and lists a page of days', async () => {
+      const node = await started();
+      const client = await connectClient();
+      send(node.socket, finished(1));
+      const frame = await client.frames.waitFor(isDeeds);
+      expect(frame).toEqual({
+        kind: 'deeds',
+        node: 'node-a',
+        deeds: [expect.objectContaining({ id: `turn:${SESSION}:1`, kind: 'turn', session: SESSION })],
+      });
+      const row = (frame.deeds as { at: number }[])[0]!;
+      send(node.socket, event(2, 'turn.tally', { seq: 1, files: 3, prs: [] }));
+      const again = await client.frames.waitFor((f) => isDeeds(f) && (f.deeds as { files?: number }[])[0]?.files === 3);
+      expect((again.deeds as unknown[]).length).toBe(1);
+
+      const page = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&before=${FAR}`));
+      expect(page).toEqual({
+        status: 200,
+        body: { deeds: [expect.objectContaining({ id: `turn:${SESSION}:1`, files: 3 })] },
+      });
+      const later = await json(await call('GET', `/api/nodes/node-a/deeds?after=${row.at + 1}`));
+      expect(later.body).toEqual({ deeds: [], older: row.at });
+      const other = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&project=%2Fr%2Fquarry`));
+      expect(other.body).toEqual({ deeds: [] });
+    });
+
+    it('refuses a page it can’t read', async () => {
+      for (const query of ['', '?after=soon', `?after=0&project=${'p'.repeat(4097)}`]) {
+        const refused = await json(await call('GET', `/api/nodes/node-a/deeds${query}`));
+        expect(refused.status).toBe(400);
+        expect(refused.body).toHaveProperty('error');
+      }
+    });
+
+    it('sends a script Patrol’s run when it’s back', async () => {
+      const socket = await openSocket(`${wsUrl}/node`);
+      sockets.push(socket);
+      send(socket, { kind: 'hello', node: 'node-a', patrols: true });
+      send(socket, {
+        kind: 'patrols',
+        patrols: [
+          {
+            id: 'backup-check',
+            manifest: { name: 'Backup check', schedule: { every: '1h' }, script: 'check.sh' },
+            failures: 0,
+          },
+        ],
+      });
+      const client = await connectClient();
+      const start = Date.now();
+      while (!store.hasPatrol('node-a', 'backup-check') && Date.now() - start < 2000)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      const run = { id: RUN, startedAt: 1, trigger: 'schedule', outcome: 'running' };
+      send(socket, { kind: 'patrol-run', patrol: 'backup-check', run });
+      await client.frames.waitFor((frame) => frame.kind === 'patrol-runs');
+      expect(client.frames.frames.filter(isDeeds)).toHaveLength(0);
+      send(socket, { kind: 'patrol-run', patrol: 'backup-check', run: { ...run, finishedAt: 5, outcome: 'finished' } });
+      const frame = await client.frames.waitFor(isDeeds);
+      expect(frame.deeds).toEqual([expect.objectContaining({ id: `run:${RUN}`, kind: 'patrol' })]);
+    });
+
+    describe('Record its Deeds at Close', () => {
+      const closeFor = async (node: Awaited<ReturnType<typeof started>>) => {
+        const client = await connectClient();
+        send(client.socket, { kind: 'command', command: { type: 'session.close', session: SESSION, deeds: true } });
+        return node.frames.waitFor((f) => f.type === 'session.close');
+      };
+
+      it('passes it on only to a Kingdom that offers it, for a Quest with a finished turn', async () => {
+        const node = await started({ deeds: true });
+        send(node.socket, finished(1));
+        await ackOf(node, 1);
+        expect(await closeFor(node)).toEqual({
+          type: 'session.close',
+          session: SESSION,
+          deeds: true,
+          resume: { cwd: '/tmp/work', nextSeq: 2 },
+        });
+      });
+
+      it('leaves it out for a Quest with no finished turn', async () => {
+        const node = await started({ deeds: true });
+        expect(await closeFor(node)).not.toHaveProperty('deeds');
+      });
+
+      it('leaves it out for a Kingdom that doesn’t offer it', async () => {
+        const node = await started();
+        send(node.socket, finished(1));
+        await ackOf(node, 1);
+        expect(await closeFor(node)).not.toHaveProperty('deeds');
+      });
+
+      it('leaves it out after a call at Close and no later turn', async () => {
+        const node = await started({ deeds: true });
+        send(node.socket, finished(1));
+        send(node.socket, event(2, 'deeds.closing', { outcome: 'recorded' }));
+        await ackOf(node, 2);
+        expect(await closeFor(node)).not.toHaveProperty('deeds');
+      });
+    });
+
+    it('tells clients which Kingdoms make the call', async () => {
+      await connectNode('node-a', { deeds: true });
+      await connectNode('node-b');
+      const start = Date.now();
+      let body: { node: string; deeds?: boolean }[] = [];
+      while (body.length < 2 && Date.now() - start < 2000)
+        body = (await (await fetch(`${baseUrl}/api/engines`)).json()) as typeof body;
+      expect(body.find((row) => row.node === 'node-a')?.deeds).toBe(true);
+      expect(body.find((row) => row.node === 'node-b')).not.toHaveProperty('deeds');
+    });
+
+    it('raises no attention for the call at Close', async () => {
+      const node = await started({ deeds: true });
+      const client = await connectClient();
+      send(node.socket, event(1, 'deed.recorded', { id: RUN, deed: 'Shipped it', closing: true }));
+      send(node.socket, event(2, 'deeds.closing', { outcome: 'recorded' }));
+      await client.frames.waitFor(
+        (frame) => isDeeds(frame) && (frame.deeds as { kind: string }[])[0]?.kind === 'close',
+      );
+      await ackOf(node, 2);
+      expect(client.frames.frames.filter((frame) => frame.kind === 'attention')).toHaveLength(0);
+    });
+
+    it('deletes a forgotten Kingdom’s Deeds', async () => {
+      const node = await started();
+      send(node.socket, finished(1));
+      await ackOf(node, 1);
+      const closed = new Promise((resolve) => node.socket.once('close', resolve));
+      node.socket.close();
+      await closed;
+      const start = Date.now();
+      while (((await (await fetch(`${baseUrl}/api/nodes`)).json()) as string[]).includes('node-a')) {
+        if (Date.now() - start > 2000) throw new Error('timed out');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect((await call('DELETE', '/api/nodes/node-a/quests')).status).toBe(204);
+      const page = await json(await call('GET', `/api/nodes/node-a/deeds?after=0&before=${FAR}`));
+      expect(page.body).toEqual({ deeds: [] });
     });
   });
 

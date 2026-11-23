@@ -75,6 +75,8 @@ import {
   ErrandStateChange,
   MAX_ERRAND_BODY,
   MAX_OPEN_ERRANDS,
+  ErrandProject,
+  type Deed,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
@@ -82,6 +84,7 @@ import type { CheckOutcome } from './cli-release.js';
 import type { LatestRelease } from './hub-release.js';
 import type { UpdateStatus } from './updater.js';
 import { cleanHubName, type HubSettings } from './hub-settings.js';
+import { deedIdFor } from './deeds.js';
 import { createJoinCodes } from './join.js';
 import { isNodeId, type NodeRegistry } from './nodes.js';
 import type { Pusher } from './push.js';
@@ -492,6 +495,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const scoutQuestNodes = new Set<string>();
   /** Kingdoms that answer `patrol-draft` ("Patrol this" on a Board). */
   const patrolDraftNodes = new Set<string>();
+  const deedsNodes = new Set<string>();
   /** Kingdoms that run Patrols, and those of them that take Patrols from the app (docs/PATROLS.md). */
   const patrolNodes = new Set<string>();
   const patrolEditNodes = new Set<string>();
@@ -733,6 +737,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     for (const client of clients) sendToClient(client, frame);
   }
 
+  /** Sends every client the rows of a Kingdom's feed that were added or changed. */
+  function sendDeeds(node: string, deeds: Deed[]): void {
+    const frame = { kind: 'deeds', node, deeds } as const;
+    for (const client of clients) sendToClient(client, frame);
+  }
+
   /** Sends every client a Kingdom's Scouts, with their counts as they now stand. */
   function sendScouts(node: string): void {
     const scouts = store.scouts(node, Date.now());
@@ -851,6 +861,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     if (rebuilds || command.type === 'session.close') {
       // Always the store's values, so a client can't point a node at another directory.
+      if (command.type === 'session.close') {
+        // Record Deeds only where the Kingdom offers it and a turn finished since the last call at Close.
+        const deeds =
+          command.deeds === true && deedsNodes.has(session.node) && store.finishedTurnSinceClosing(command.session);
+        const { deeds: _asked, ...close } = command;
+        routeToNode(clientSocket, session.node, {
+          ...close,
+          ...(deeds ? { deeds: true } : {}),
+          resume: resumeOf(session),
+        });
+        return;
+      }
       routeToNode(clientSocket, session.node, { ...command, resume: resumeOf(session) });
       return;
     }
@@ -1192,6 +1214,22 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const { node } = request.params as { node: string };
     return { errands: store.errands(node) };
   });
+  // Deeds (docs/DEEDS.md): the hub's own feed per Kingdom, read by local days the client works out.
+  app.get('/api/nodes/:node/deeds', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const query = z
+      .object({
+        after: z.coerce.number().int(),
+        before: z.coerce.number().int().optional(),
+        project: ErrandProject.optional(),
+      })
+      .safeParse(request.query);
+    if (!query.success) {
+      return reply.code(400).send({ error: 'after and before are epoch milliseconds; a project is one folder path' });
+    }
+    const { after, before, project } = query.data;
+    return store.deedsPage(node, { after, before: before ?? Number.MAX_SAFE_INTEGER, project });
+  });
   app.get('/api/errands/counts', async () => store.openErrandCounts());
   app.post('/api/nodes/:node/errands', async (request, reply) => {
     const { node } = request.params as { node: string };
@@ -1485,6 +1523,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           ...(nodeRelease ? { release: nodeRelease } : {}),
           ...(cli ? { cli } : {}),
           ...(cliUpdaters.has(node) ? { cliUpdate: true } : {}),
+          ...(deedsNodes.has(node) ? { deeds: true } : {}),
           ...(selfUpdate ? { selfUpdate } : {}),
         };
       }),
@@ -1613,6 +1652,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else scoutQuestNodes.delete(helloNode);
           if (hello.data.patrolDrafts) patrolDraftNodes.add(helloNode);
           else patrolDraftNodes.delete(helloNode);
+          if (hello.data.deeds) deedsNodes.add(helloNode);
+          else deedsNodes.delete(helloNode);
           if (hello.data.patrols) patrolNodes.add(helloNode);
           else patrolNodes.delete(helloNode);
           if (hello.data.patrols && hello.data.patrolsFromApp) patrolEditNodes.add(helloNode);
@@ -1760,6 +1801,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           const runs = store.recordPatrolRun(helloNode, patrol, run);
           for (const client of clients) sendToClient(client, { kind: 'patrol-runs', node: helloNode, patrol, runs });
           sendPatrols(helloNode);
+          if (run.session === undefined && (run.outcome === 'finished' || run.outcome === 'failed')) {
+            const row = store.deed(`run:${run.id}`);
+            if (row) sendDeeds(helloNode, [row]);
+          }
           return;
         }
 
@@ -1883,6 +1928,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         if (inserted) {
           broadcast(envelope.data);
           if (envelope.data.type === 'errand.left') sendErrands(helloNode);
+          const deedId = deedIdFor(envelope.data);
+          const deedRow = deedId ? store.deed(deedId) : undefined;
+          if (deedRow) sendDeeds(helloNode, [deedRow]);
           const attention = attentionFor(envelope.data);
           if (attention) {
             for (const client of clients) sendToClient(client, attention);
@@ -1909,6 +1957,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           scoutNodes.delete(helloNode);
           scoutQuestNodes.delete(helloNode);
           patrolDraftNodes.delete(helloNode);
+          deedsNodes.delete(helloNode);
           patrolNodes.delete(helloNode);
           patrolEditNodes.delete(helloNode);
           patrolPreviewNodes.delete(helloNode);
