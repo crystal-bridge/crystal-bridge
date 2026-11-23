@@ -58,6 +58,7 @@ The default theme has its own words for things. Classic uses plain ones.
 | **Board** | A Scout's page: what it found, with a button for each thing you can do about an item |
 | **Patrol** | A scheduled Quest or script on a Kingdom, which can report each run to a Board |
 | **Errand** | A step a Quest left for you to take after a turn, kept on the Castle until you tick it off |
+| **Deed** | A line a Quest wrote about what it achieved; the Castle's Deeds feed lists them with every turn's record, day by day |
 | **Recruit** | Adopt a session found outside the bridge |
 | **Chronicle** | History: closed Quests and search |
 | **HP, Stamina, MP, Gold** | Plan usage left (short and long limits), context left, and cost |

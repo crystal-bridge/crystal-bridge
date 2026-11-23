@@ -324,7 +324,7 @@ describe('errandTone', () => {
     expect(tones.size).toBeGreaterThan(4);
     expect(errandTone(undefined)).toBe('slate');
     for (const tone of [...tones, 'slate'] as const) {
-      expect(Object.keys(ERRAND_TONES[tone]).sort()).toEqual(['bar', 'chip', 'dot', 'stripe', 'text', 'wash']);
+      expect(Object.keys(ERRAND_TONES[tone]).sort()).toEqual(['bar', 'chip', 'dot', 'on', 'stripe', 'text', 'wash']);
     }
   });
 

@@ -5,6 +5,8 @@ import { AGENT_TOOLS, type ViewItem } from '../model.js';
 import { Icon } from '../theme/icons.js';
 import { setPanelOpen } from '../panels.js';
 import {
+  deedRecordedLine,
+  deedRefusedLine,
   errandsLeftLine,
   errandsWaitLine,
   errandWords,
@@ -233,8 +235,11 @@ function GameLine({
   ko = false,
   body,
   action,
+  suffix,
 }: {
   line: Word;
+  /** Bold text after the line, e.g. the Deed recorded. */
+  suffix?: string | undefined;
   mark?: ReactNode;
   chip?: Word | undefined;
   ko?: boolean;
@@ -250,6 +255,7 @@ function GameLine({
       >
         {mark}
         <span className="cb-display text-base leading-none">{line.themed}</span>
+        {suffix && <span className="font-bold">{suffix}</span>}
         {chip && (
           <span title={chip.plain} className="text-xs text-red-600 dark:text-red-400">
             {chip.themed}
@@ -295,8 +301,13 @@ export function isErrandCall(tool: ToolItem): boolean {
   return tool.name === 'mcp__crystal__errand';
 }
 
+/** Whether a tool call is a Quest recording a Deed with Crystal's `deed` tool (#289). */
+export function isDeedCall(tool: ToolItem): boolean {
+  return tool.name === 'mcp__crystal__deed';
+}
+
 /**
- * Whether a call only loads Crystal's own tools (`title`, `errand`). The CLI defers MCP tools, so a Quest makes this
+ * Whether a call only loads Crystal's own tools (`title`, `errand`, `deed`). The CLI defers MCP tools, so a Quest makes this
  * search before it names itself or leaves an Errand; the chat leaves it out, as it adds nothing to the lines that follow.
  */
 export function isCrystalSearch(tool: ToolItem): boolean {
@@ -308,7 +319,7 @@ export function isCrystalSearch(tool: ToolItem): boolean {
 }
 
 /** Crystal's tools whose calls the chat draws as their own lines, so the search that loads them can go. */
-const LINED_TOOLS = new Set(['mcp__crystal__title', 'mcp__crystal__errand']);
+const LINED_TOOLS = new Set(['mcp__crystal__title', 'mcp__crystal__errand', 'mcp__crystal__deed']);
 
 /** What a turn's errand calls came to: how many left an Errand, their titles in order, and why the others were refused. */
 export interface ErrandTally {
@@ -392,6 +403,25 @@ export function TitleLine({ tool, manifest }: { tool: ToolItem; manifest?: HeroM
       chip={chip}
       ko={!named}
       body={named ? plain : (tool.output ?? '')}
+    />
+  );
+}
+
+/** A Quest recorded a Deed, as one gold line with the Deed's text after it; the detail, or why it failed, folded inside. */
+export function DeedLine({ tool }: { tool: ToolItem; manifest?: HeroManifest | undefined }) {
+  const input = isObj(tool.input) ? tool.input : {};
+  const deed = str(input.deed) ?? '';
+  const chip = failureChip(tool);
+  const refused = !!chip;
+  const line = refused ? deedRefusedLine() : deedRecordedLine();
+  return (
+    <GameLine
+      line={line}
+      mark={<Icon name="quillInk" size={20} />}
+      chip={chip}
+      ko={refused}
+      suffix={!refused && deed !== '' ? deed : undefined}
+      body={refused ? (tool.output ?? '') : (str(input.detail) ?? '')}
     />
   );
 }

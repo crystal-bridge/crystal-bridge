@@ -35,6 +35,9 @@ yourself on a desktop, right-click its tab and pick Rename. A name you give it s
 When a turn ends with steps only you can take, the Quest can leave them as **Errands**: a checklist on the Castle that
 stays until you tick it off, from any device. See [Errands](ERRANDS.md).
 
+Every finished turn also leaves a turn record on the hub, and a Quest can write **Deeds**, lines about what it achieved,
+during a turn and when you close it. The Castle's Deeds feed lists them day by day. See [Deeds](DEEDS.md).
+
 Each Claude agent in a Quest is a **Hero**. The leader runs the Quest, and subagents join the party for a task. Heroes
 gain pointless levels as you use them.
 

@@ -39,6 +39,7 @@ import {
 import { type CheckOutcome, type HubStatus, logAttention } from './components/ShipsLog.js';
 import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
+import { newChipMemory, QuestDeeds } from './components/Deeds.js';
 import { QuestErrands } from './components/Errands.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
 import type { PushState } from './components/DevicePush.js';
@@ -90,6 +91,7 @@ import {
   savePatrol,
   usePatrols,
 } from './patrols.js';
+import { closeDeedsOffer, useDeeds } from './deeds.js';
 import { addErrand, editErrand, errandsBySession, setErrandState, useErrandCounts, useErrands } from './errands.js';
 import { BoardPage } from './components/Board.js';
 import type { PatrolSeed } from './patrolForm.js';
@@ -187,6 +189,7 @@ interface EngineRow {
   release?: string;
   cli?: string;
   cliUpdate?: boolean;
+  deeds?: boolean;
   selfUpdate?: SelfUpdate;
 }
 
@@ -321,6 +324,20 @@ export function App({ hub }: { hub: HubClient }) {
   const scouts = useScouts(hub, active ?? undefined);
   const patrols = usePatrols(hub, active ?? undefined);
   const errands = useErrands(hub, active ?? undefined);
+  // The Deeds feed's project chip, per Kingdom and not stored, so it resets when you switch Kingdom.
+  const [deedsProjects, setDeedsProjects] = useState<Record<string, string | undefined>>({});
+  const deedsProject = active ? deedsProjects[active] : undefined;
+  // Each Kingdom's feed chips as last seen unfiltered, kept beside its chosen project: the Castle comes and goes.
+  const deedsChips = useRef(new Map<string, ReturnType<typeof newChipMemory>>());
+  const deedsChipsOf = (node: string) => {
+    let memory = deedsChips.current.get(node);
+    if (!memory) {
+      memory = newChipMemory();
+      deedsChips.current.set(node, memory);
+    }
+    return memory;
+  };
+  const deeds = useDeeds(hub, active ?? undefined, deedsProject);
   const errandsPerQuest = useMemo(() => errandsBySession(errands.errands), [errands.errands]);
   const errandCounts = useErrandCounts(hub);
   // "Patrol this" on a Board: the draft the Castle's Watchtower opens New Patrol from.
@@ -1084,9 +1101,15 @@ export function App({ hub }: { hub: HubClient }) {
         onMode={(mode) => hub.send({ type: 'session.mode', session: id, mode })}
         kingdom={visible.find((k) => k.id === node)?.name ?? node ?? ''}
         party={heroManifest ? { manifest: questHeroes(id)!, leaderState: heroStates[id] ?? 'resting' } : undefined}
-        onClose={(removeWorktree) =>
-          hub.send({ type: 'session.close', session: id, ...(removeWorktree ? { removeWorktree } : {}) })
+        onClose={({ removeWorktree, deeds }) =>
+          hub.send({
+            type: 'session.close',
+            session: id,
+            ...(removeWorktree ? { removeWorktree } : {}),
+            ...(deeds ? { deeds: true } : {}),
+          })
         }
+        closeDeeds={closeDeedsOffer(node, [...visible, ...hidden], engineLists)}
         onFork={primary ? fork : undefined}
         onOpen={openQuest}
         onOpenBoard={node ? (scout) => showBoard(node, scout) : undefined}
@@ -1567,6 +1590,7 @@ export function App({ hub }: { hub: HubClient }) {
                             relayedBytes={sessions.find((s) => s.id === focused)?.relayedBytes}
                             activity={focusedActivity}
                             errands={questErrands(focused)}
+                            deeds={<QuestDeeds envelopes={focusedEvents} />}
                           />
                         </FileOpenContext.Provider>
                       </aside>
@@ -1646,6 +1670,8 @@ export function App({ hub }: { hub: HubClient }) {
               />
             ) : (
               <Castle
+                // One Castle per Kingdom: a switch never shows the last one's rows, chips or open panels for a render.
+                key={kingdom.id}
                 kingdom={kingdom}
                 look={looks[kingdom.id]}
                 sessions={kingdomSessions}
@@ -1667,6 +1693,10 @@ export function App({ hub }: { hub: HubClient }) {
                 onPatrolSeedUsed={() => setPatrolSeed(null)}
                 projects={kingdomProjects}
                 errands={errands}
+                deeds={deeds}
+                deedsProject={deedsProject}
+                deedsChips={deedsChipsOf(kingdom.id)}
+                onDeedsProject={(project) => setDeedsProjects((all) => ({ ...all, [kingdom.id]: project }))}
                 onErrandState={(id, state) => changeErrandState(kingdom.id, id, state)}
                 onAddErrand={async (draft) => {
                   await addErrand(kingdom.id, draft);

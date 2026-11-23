@@ -40,6 +40,30 @@ describe('icon build', () => {
     expect(Object.keys(ICON_DATA).sort()).toEqual(Object.keys(ICON_SOURCES).sort());
   });
 
+  it('has the Deeds icons', () => {
+    // deedTurn, deedPatrol, deedSealed, deedClosed, deedGold, deedTime and deedsEmpty reuse quillInk, errandPatrol,
+    // markSealCheck, close, gold, hourglass and openBook.
+    for (const name of [
+      'deedsFeed',
+      'deedClosing',
+      'quillInk',
+      'deedTurns',
+      'errandPatrol',
+      'deedOpen',
+      'markSealCheck',
+      'close',
+      'deedLoot',
+      'deedTrophy',
+      'gold',
+      'hourglass',
+      'deedFilter',
+      'deedLink',
+      'openBook',
+    ]) {
+      expect(Object.keys(ICON_DATA), name).toContain(name);
+    }
+  });
+
   it('has the Errands icons', () => {
     // errandQuest, errandHand, errandAdd and layoutChecklist reuse scrollUnfurled, quillInk, attach and boardChecklist.
     for (const name of [

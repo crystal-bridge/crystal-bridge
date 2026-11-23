@@ -1,5 +1,5 @@
 import type { PatrolSeed } from '../patrolForm.js';
-import { type CSSProperties, type ReactNode, useState } from 'react';
+import { type CSSProperties, type ReactNode, useRef, useState } from 'react';
 import type { KingdomLook } from '../appearance.js';
 import { KingdomIcon } from './KingdomIcon.js';
 import { hint, postingsLine, w } from '../theme/words.js';
@@ -15,6 +15,7 @@ import type {
   Schedule,
   SelfUpdate,
 } from '@crystal-bridge/protocol';
+import type { DeedsState } from '../deeds.js';
 import { type ErrandsState, useErrandLayout } from '../errands.js';
 import type { Kingdom } from '../kingdoms.js';
 import type { PatrolsState } from '../patrols.js';
@@ -27,6 +28,7 @@ import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
+import { type ChipMemory, DeedsFeed, newChipMemory } from './Deeds.js';
 import { ErrandsPanel } from './Errands.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
 import { Watchtower } from './Watchtower.js';
@@ -98,6 +100,19 @@ export interface CastleProps {
   onErrandState?: (id: string, state: ErrandState) => void;
   onAddErrand?: (draft: ErrandCreate) => Promise<void>;
   onEditErrand?: (id: string, edit: ErrandEdit) => Promise<void>;
+  /**
+   * This Kingdom's Deeds feed; without it (an older hub), no feed. At every width it follows Active Quests (in the
+   * left column from xl), and a phone reads it without unfolding.
+   */
+  deeds?: DeedsState & { loadOlder(): void };
+  /** The project chip the feed is filtered by. */
+  deedsProject?: string | undefined;
+  onDeedsProject?: (project: string | undefined) => void;
+  /**
+   * This Kingdom's project chips as last seen unfiltered, held by the caller beside the chosen project so they outlive
+   * the Castle (opening a Quest unmounts it); absent, the Castle keeps its own while it stays.
+   */
+  deedsChips?: { current: ChipMemory };
   /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
   pinnedBoards?: ReadonlySet<string>;
   onPinBoard?: (scout: string) => void;
@@ -414,6 +429,10 @@ export function Castle({
   onErrandState,
   onAddErrand,
   onEditErrand,
+  deeds,
+  deedsProject,
+  onDeedsProject,
+  deedsChips,
   pinnedBoards,
   onPinBoard,
   sessions,
@@ -496,8 +515,37 @@ export function Castle({
   const checklist = errandLayout === 'checklist' && errandList !== undefined;
   const errandsBelowXl = checklist && <div className="hidden md:block xl:hidden">{errandsPanel(false)}</div>;
   const errandsHere = checklist && <div className="hidden xl:block">{errandsPanel(false)}</div>;
+  // A script run asked for from the feed: both Watchtowers open that Patrol's runs and scroll to it.
+  const [focus, setFocus] = useState<{ patrol: string; run: string } | undefined>();
+  // The feed's project chips, above its copies: a phone's copy remounts. Without the caller's, the Castle's own.
+  const ownChips = useRef(newChipMemory());
+  const chipMemory = deedsChips ?? ownChips.current;
+  const deedsFeed = (phone: boolean) =>
+    deeds && (
+      <DeedsFeed
+        chipMemory={chipMemory}
+        state={deeds}
+        sessions={sessions}
+        patrols={patrols?.patrols ?? []}
+        project={deedsProject}
+        kingdom={kingdom.name}
+        now={now}
+        phone={phone}
+        onProject={(project) => onDeedsProject?.(project)}
+        onOpenQuest={onSelect}
+        onOpenRun={(patrol, run) => setFocus({ patrol, run })}
+        onLoadOlder={deeds.loadOlder}
+      />
+    );
   const rightOthers = haunts.length > 0 || Boolean(garrison);
   const rightColumn = rightOthers || checklist;
+  // Right after Active Quests at every width: beside the right column from xl, above everything it stacks below that.
+  const deedsWide = deeds && <div className="hidden md:block">{deedsFeed(false)}</div>;
+  const deedsPhone = deeds && (deedsProject !== undefined || (deeds.loaded && deeds.deeds.length > 0)) && (
+    // The phone reads the feed only (its entries don't unfold there); kept while a project is chosen, so its chips
+    // stay in reach to clear it.
+    <div className="md:hidden">{deedsFeed(true)}</div>
+  );
 
   return (
     <div className="h-full overflow-y-auto">
@@ -586,6 +634,9 @@ export function Castle({
                 <ul className={`${QUEST_GRID} px-3`}>{active.map(card)}</ul>
               )}
             </Section>
+
+            {deedsWide}
+            {deedsPhone}
 
             <Folded title={w('chronicle')} plain={hint('chronicle')} count={history.length}>
               <input
@@ -684,12 +735,13 @@ export function Castle({
                 onSeedUsed={onPatrolSeedUsed}
                 projects={projects}
                 engines={engines}
+                focus={focus}
               />
             </div>
             {/* The phone shows Patrols read-only: its actions need their own design there. */}
             {patrols.patrols.length > 0 && (
               <div className="md:hidden">
-                <Watchtower state={patrols} now={now ?? Date.now()} onOpenQuest={onSelect} />
+                <Watchtower state={patrols} now={now ?? Date.now()} onOpenQuest={onSelect} focus={focus} />
               </div>
             )}
           </>

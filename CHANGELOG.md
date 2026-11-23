@@ -31,6 +31,10 @@ one entry.
   teal count of its open Errands.
 - A done notification adds "and left you 2 Errands." (Follow-ups in the Classic theme), and a Patrol's report in the
   Patrol log says how many Errands its run left.
+- The Castle's Deeds feed lists a Kingdom's turn records and Deeds as a timeline by day, filtered by project, and reads
+  only on a phone. Close offers Record its Deeds, a choice kept per device and greyed with a reason when it can't run.
+  The chat has lines for a Deed and for the Deeds at Close, and a Quest's side panel shows its own Deeds. See
+  [Deeds](docs/DEEDS.md).
 
 ### Fixed
 

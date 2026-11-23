@@ -6,6 +6,8 @@ import { levelFor } from '../levels.js';
 import type { PatrolsState } from '../patrols.js';
 import { RECENT_MS } from '../quests.js';
 import { Castle } from './Castle.js';
+import { newChipMemory } from './Deeds.js';
+import { w } from '../theme/words.js';
 import type { SessionSummary } from './SessionList.js';
 
 const NOW = 100 * RECENT_MS;
@@ -272,6 +274,133 @@ describe('Castle', () => {
     it('shows nothing for a Kingdom without errands data', () => {
       renderCastle();
       expect(regions()).toHaveLength(0);
+    });
+  });
+
+  describe('Deeds', () => {
+    const SESSION = '55555555-5555-4555-8555-555555555555';
+    const deeds = {
+      deeds: [
+        {
+          id: `turn:${SESSION}:1`,
+          kind: 'turn' as const,
+          at: NOW - 1000,
+          session: 'a',
+          seq: 1,
+          project: '/r/acme/lantern',
+          text: 'Fixed the build.',
+        },
+      ],
+      loaded: true,
+      loadOlder: vi.fn(),
+    };
+    const feeds = () => screen.queryAllByRole('region', { name: w('deedsFeed') });
+    const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    it('puts one wide copy right after Active Quests, before Chronicle and the right column’s panels', () => {
+      renderCastle({ deeds });
+      const wide = feeds().filter((r) => r.closest('.hidden.md\\:block'));
+      expect(wide).toHaveLength(1);
+      expect(wide[0]!.closest('.xl\\:hidden, .xl\\:block')).toBeNull();
+      expect(before(screen.getByRole('region', { name: 'Active Quests' }), wide[0]!)).toBe(true);
+      expect(before(wide[0]!, screen.getByRole('button', { name: /Chronicle/ }))).toBe(true);
+      expect(before(wide[0]!, screen.getByRole('region', { name: 'Haunts' }))).toBe(true);
+      cleanup();
+      renderCastle({ deeds, sessions: [], waiting: new Set() });
+      expect(screen.queryByRole('region', { name: 'Haunts' })).toBeNull();
+      expect(feeds()).toHaveLength(2);
+    });
+
+    it('on a phone, shows the read-only feed right after Active Quests', () => {
+      renderCastle({ deeds });
+      const phone = feeds().find((r) => r.closest('.md\\:hidden'))!;
+      expect(phone).toBeTruthy();
+      expect(before(screen.getByRole('region', { name: 'Active Quests' }), phone)).toBe(true);
+      expect(before(phone, screen.getByRole('button', { name: /Chronicle/ }))).toBe(true);
+      expect(before(phone, screen.getByRole('region', { name: 'Haunts' }))).toBe(true);
+      expect(within(phone).queryByRole('button', { name: /Fixed the build/ })).toBeNull();
+    });
+
+    it('keeps each Kingdom’s project chips while a filter reads again, on a phone too', () => {
+      // One Quest per project, so each makes an entry of its own.
+      const row = (id: string, project: string, session: string) => ({
+        ...deeds.deeds[0]!,
+        id: `turn:${SESSION}:${id}`,
+        session,
+        project,
+      });
+      const both = { ...deeds, deeds: [row('1', '/r/acme/lantern', 'a'), row('2', '/r/acme/forge', 'b')] };
+      // Each Kingdom's chip memory, as the app keeps them.
+      const chipsOf = { k: newChipMemory(), k2: newChipMemory() };
+      const props = renderCastle({ deeds: both, deedsChips: chipsOf.k });
+      const rerender = (overrides: Partial<Parameters<typeof Castle>[0]>) =>
+        // The same tree, so Castle and the feeds stay mounted as they do in the app.
+        render(<Castle {...props} {...overrides} />, { container: document.body.firstElementChild as HTMLElement });
+      const chips = (copy: 'phone' | 'wide') => {
+        const feed = feeds().find((r) => (copy === 'phone') === Boolean(r.closest('.md\\:hidden')));
+        if (!feed) return undefined;
+        const group = within(feed).queryByRole('group', { name: 'Filter by project' });
+        return group
+          ? within(group)
+              .getAllByRole('button')
+              .map((b) => b.title)
+              .filter(Boolean)
+              .sort()
+          : [];
+      };
+      expect(chips('phone')).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+
+      // Choosing a project reads again: nothing loaded for a moment, then only that project's rows.
+      rerender({ deeds: { ...deeds, deeds: [], loaded: false }, deedsProject: '/r/acme/forge' });
+      rerender({ deeds: { ...deeds, deeds: [row('2', '/r/acme/forge', 'b')] }, deedsProject: '/r/acme/forge' });
+      expect(chips('phone')).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+      expect(chips('wide')).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+
+      // Another Kingdom with its own filter on shows only its own projects.
+      const other = { id: 'k2', name: 'Forge', connected: true, sessions: 0 };
+      rerender({
+        kingdom: other,
+        deedsChips: chipsOf.k2,
+        deeds: { ...deeds, deeds: [row('3', '/r/other/mill', 'c')] },
+        deedsProject: '/r/other/mill',
+      });
+      expect(chips('phone')).toEqual(['/r/other/mill']);
+      expect(chips('wide')).toEqual(['/r/other/mill']);
+    });
+
+    it('keeps the chips its caller holds when the Castle mounts again with a project chosen', () => {
+      const row = (id: string, project: string, session: string) => ({
+        ...deeds.deeds[0]!,
+        id: `turn:${SESSION}:${id}`,
+        session,
+        project,
+      });
+      const deedsChips = newChipMemory();
+      renderCastle({
+        deeds: { ...deeds, deeds: [row('1', '/r/acme/lantern', 'a'), row('2', '/r/acme/forge', 'b')] },
+        deedsChips,
+      });
+      // A Quest opened and closed: the Castle goes and comes back, the chosen project kept by the app.
+      cleanup();
+      renderCastle({
+        deeds: { ...deeds, deeds: [row('2', '/r/acme/forge', 'b')] },
+        deedsProject: '/r/acme/forge',
+        deedsChips,
+      });
+      for (const feed of feeds()) {
+        const group = within(feed).getByRole('group', { name: 'Filter by project' });
+        const titles = within(group)
+          .getAllByRole('button')
+          .map((b) => b.title)
+          .filter(Boolean)
+          .sort();
+        expect(titles).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+      }
+    });
+
+    it('shows nothing for a Kingdom without deeds data', () => {
+      renderCastle();
+      expect(feeds()).toHaveLength(0);
     });
   });
 

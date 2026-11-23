@@ -9,7 +9,9 @@ import {
   errandTally,
   HelperBackLine,
   isAgentCall,
+  DeedLine,
   isCrystalSearch,
+  isDeedCall,
   isErrandCall,
   isSummonStart,
   isTitleCall,
@@ -470,5 +472,44 @@ describe('ErrandLine (#288)', () => {
     expect(summary.className).toContain('red-');
     expect(summary.className).not.toContain('teal-');
     expect(screen.queryByText(/They wait/)).toBeNull();
+  });
+});
+
+describe('DeedLine (#289)', () => {
+  afterEach(() => cleanup());
+  const call = {
+    kind: 'tool',
+    id: 't',
+    name: 'mcp__crystal__deed',
+    input: { deed: 'Moved to Node 24', detail: 'Image smaller.' },
+    done: true,
+    isError: false,
+    denied: false,
+    output: 'Recorded.',
+  } as unknown as ComponentProps<typeof DeedLine>['tool'];
+
+  it('takes only Crystal’s deed tool, and leaves out the search that loads it', () => {
+    expect(isDeedCall(call)).toBe(true);
+    expect(isDeedCall({ ...call, name: 'mcp__other__deed' })).toBe(false);
+    const search = { ...call, name: 'ToolSearch', input: { query: '' } };
+    const find = (query: string) => isCrystalSearch({ ...search, input: { query } });
+    expect(find('select:mcp__crystal__title,mcp__crystal__errand,mcp__crystal__deed')).toBe(true);
+    expect(find('select:mcp__crystal__deed,Bash')).toBe(false);
+  });
+
+  it('says a Deed was recorded, with the line shown and the detail folded', () => {
+    render(<DeedLine tool={call} />);
+    const line = screen.getByText('A new Deed is recorded in the annals of the Kingdom.');
+    expect(line.closest('summary')?.className).not.toMatch(/red|blue/);
+    expect(screen.getByText('Moved to Node 24')).toBeTruthy();
+    expect(screen.getByText('Image smaller.').closest('details')).toBe(line.closest('details'));
+  });
+
+  it('says a Deed could not be recorded, in red, with the reason inside', () => {
+    const reason = 'A Quest may record at most 3 Deeds in one turn; record only what matters most.';
+    render(<DeedLine tool={{ ...call, isError: true, output: reason }} />);
+    const line = screen.getByText('Your Quest couldn’t record a Deed.');
+    expect(line.closest('summary')?.className).toMatch(/text-red/);
+    expect(screen.getByText(reason).closest('details')).toBe(line.closest('details'));
   });
 });

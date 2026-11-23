@@ -158,7 +158,7 @@ export type ErrandTone = (typeof PROJECT_TONES)[number] | 'slate';
 /** The classes for each tone, written out whole so the stylesheet build keeps them. */
 export const ERRAND_TONES: Record<
   ErrandTone,
-  { bar: string; dot: string; wash: string; text: string; chip: string; stripe: string }
+  { bar: string; dot: string; wash: string; text: string; chip: string; on: string; stripe: string }
 > = {
   rose: {
     bar: 'bg-rose-400 dark:bg-rose-500',
@@ -166,6 +166,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-rose-100 dark:from-rose-950',
     text: 'text-rose-700 dark:text-rose-300',
     chip: 'bg-rose-100 text-rose-900 ring-rose-300 dark:bg-rose-950 dark:text-rose-200 dark:ring-rose-800',
+    on: 'bg-rose-500 text-white ring-rose-600 dark:bg-rose-400 dark:text-rose-950 dark:ring-rose-300',
     stripe: 'border-l-rose-400 dark:border-l-rose-500',
   },
   orange: {
@@ -174,6 +175,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-orange-100 dark:from-orange-950',
     text: 'text-orange-700 dark:text-orange-300',
     chip: 'bg-orange-100 text-orange-900 ring-orange-300 dark:bg-orange-950 dark:text-orange-200 dark:ring-orange-800',
+    on: 'bg-orange-500 text-white ring-orange-600 dark:bg-orange-400 dark:text-orange-950 dark:ring-orange-300',
     stripe: 'border-l-orange-400 dark:border-l-orange-500',
   },
   amber: {
@@ -182,6 +184,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-amber-100 dark:from-amber-950',
     text: 'text-amber-700 dark:text-amber-300',
     chip: 'bg-amber-100 text-amber-900 ring-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-800',
+    on: 'bg-amber-500 text-white ring-amber-600 dark:bg-amber-400 dark:text-amber-950 dark:ring-amber-300',
     stripe: 'border-l-amber-400 dark:border-l-amber-500',
   },
   lime: {
@@ -190,6 +193,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-lime-100 dark:from-lime-950',
     text: 'text-lime-700 dark:text-lime-300',
     chip: 'bg-lime-100 text-lime-900 ring-lime-300 dark:bg-lime-950 dark:text-lime-200 dark:ring-lime-800',
+    on: 'bg-lime-500 text-white ring-lime-600 dark:bg-lime-400 dark:text-lime-950 dark:ring-lime-300',
     stripe: 'border-l-lime-400 dark:border-l-lime-500',
   },
   emerald: {
@@ -198,6 +202,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-emerald-100 dark:from-emerald-950',
     text: 'text-emerald-700 dark:text-emerald-300',
     chip: 'bg-emerald-100 text-emerald-900 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-800',
+    on: 'bg-emerald-500 text-white ring-emerald-600 dark:bg-emerald-400 dark:text-emerald-950 dark:ring-emerald-300',
     stripe: 'border-l-emerald-400 dark:border-l-emerald-500',
   },
   teal: {
@@ -206,6 +211,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-teal-100 dark:from-teal-950',
     text: 'text-teal-700 dark:text-teal-300',
     chip: 'bg-teal-100 text-teal-900 ring-teal-300 dark:bg-teal-950 dark:text-teal-200 dark:ring-teal-800',
+    on: 'bg-teal-500 text-white ring-teal-600 dark:bg-teal-400 dark:text-teal-950 dark:ring-teal-300',
     stripe: 'border-l-teal-400 dark:border-l-teal-500',
   },
   violet: {
@@ -214,6 +220,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-violet-100 dark:from-violet-950',
     text: 'text-violet-700 dark:text-violet-300',
     chip: 'bg-violet-100 text-violet-900 ring-violet-300 dark:bg-violet-950 dark:text-violet-200 dark:ring-violet-800',
+    on: 'bg-violet-500 text-white ring-violet-600 dark:bg-violet-400 dark:text-violet-950 dark:ring-violet-300',
     stripe: 'border-l-violet-400 dark:border-l-violet-500',
   },
   fuchsia: {
@@ -222,6 +229,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-fuchsia-100 dark:from-fuchsia-950',
     text: 'text-fuchsia-700 dark:text-fuchsia-300',
     chip: 'bg-fuchsia-100 text-fuchsia-900 ring-fuchsia-300 dark:bg-fuchsia-950 dark:text-fuchsia-200 dark:ring-fuchsia-800',
+    on: 'bg-fuchsia-500 text-white ring-fuchsia-600 dark:bg-fuchsia-400 dark:text-fuchsia-950 dark:ring-fuchsia-300',
     stripe: 'border-l-fuchsia-400 dark:border-l-fuchsia-500',
   },
   slate: {
@@ -230,6 +238,7 @@ export const ERRAND_TONES: Record<
     wash: 'from-neutral-100 dark:from-neutral-900',
     text: 'text-neutral-600 dark:text-neutral-300',
     chip: 'bg-neutral-100 text-neutral-800 ring-neutral-300 dark:bg-neutral-900 dark:text-neutral-200 dark:ring-neutral-700',
+    on: 'bg-neutral-500 text-white ring-neutral-600 dark:bg-neutral-400 dark:text-neutral-950 dark:ring-neutral-300',
     stripe: 'border-l-neutral-300 dark:border-l-neutral-600',
   },
 };

@@ -418,7 +418,7 @@ so `interactive.test.ts` builds lines in the observed shapes instead. What the r
   the turn result's `total_cost_usd` and `modelUsage.session.contextWindow`, a
   `system/context_window` line of Crystal's own as soon as the size is known or changes, and `usage` events.
   With a configured size (`src/compact.ts`) that line also carries `compactWindow`; the statusline doesn't report it.
-  Crystal also adds a `system/turn_changes` line (`files`) after a turn, on both engines, from `src/changes.ts`. Per-turn tokens come from transcript `assistant` lines' `message.usage`, once per `message.id`.
+  Crystal also adds a `system/turn_changes` line (`files`, and `turnSeq`, the seq of its turn's `turn.finished`, which `src/node.ts` stamps) after a turn, on both engines, from `src/changes.ts`. Per-turn tokens come from transcript `assistant` lines' `message.usage`, once per `message.id`.
 - **Listing attachments** (internal): `attachment.type: skill_listing` with `names` (every skill, plugin skills
   prefixed `plugin:`; `isInitial`), and `deferred_tools_delta` with `addedNames`/`removedNames` (tool names, MCP ones as
   `mcp__<server>__<tool>`, claude.ai connectors as `mcp__claude_ai_<Name>__…`), `pendingMcpServers` and

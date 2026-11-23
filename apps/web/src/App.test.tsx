@@ -41,6 +41,7 @@ function fakeHub(): HubClient {
     onBoards: () => () => undefined,
     onPatrols: () => () => undefined,
     onErrands: () => () => undefined,
+    onDeeds: () => () => undefined,
     onReconnect: () => () => undefined,
     onAttention: (listener: (attention: unknown) => void) => {
       attentionListener = listener;
@@ -106,6 +107,18 @@ describe('App Kingdom tabs', () => {
     await renderApp();
     await waitFor(() => expect(document.title).toBe('Home fleet'));
     expect(screen.getAllByText('Home fleet').length).toBeGreaterThan(0);
+  });
+
+  it('draws each Kingdom’s Castle afresh, keeping nothing of the one before', async () => {
+    await renderApp();
+    const tabs = screen.getByRole('tablist', { name: 'Kingdoms' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: /node-b/ }));
+    const chronicle = () => screen.getByRole('button', { name: /Chronicle/ });
+    fireEvent.click(chronicle());
+    expect(chronicle().getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(within(tabs).getByRole('tab', { name: /node-a/ }));
+    expect(screen.getByRole('heading', { level: 1, name: 'node-a' })).toBeTruthy();
+    expect(chronicle().getAttribute('aria-expanded')).toBe('false');
   });
 
   it('forgets a removed Kingdom: asks the hub, and its tab goes', async () => {
@@ -1800,5 +1813,136 @@ describe('App: done until viewed', () => {
       });
     });
     await waitFor(() => expect(seenPosts()).toHaveLength(2));
+  });
+});
+
+describe('App Close offers Record its Deeds', () => {
+  const quest = sessions[0]!;
+  const envelopes = [
+    { node: 'node-b', session: quest.id, seq: 0, ts: 0, type: 'session.started', cwd: '/w', prompt: 'p', label: 'p' },
+    { node: 'node-b', session: quest.id, seq: 1, ts: 1, type: 'turn.finished' },
+  ] as unknown as Envelope[];
+  /** `engines: 'unread'` fails `/api/engines`, so the Kingdom's row hasn't come yet. */
+  const open = async (deeds?: boolean, engines: 'listed' | 'unread' = 'listed', offline = false) => {
+    localStorage.clear();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/engines' && engines === 'unread') return new Response('', { status: 503 });
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? offline
+                ? ['node-a']
+                : ['node-b', 'node-a']
+              : url === '/api/engines'
+                ? offline
+                  ? []
+                  : [{ node: 'node-b', engines: [], ...(deeds === undefined ? {} : { deeds }) }]
+                : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    const hub = { ...fakeHub(), events: () => envelopes } as unknown as HubClient;
+    window.history.replaceState(null, '', `/#/k/node-b/q/${quest.id}`);
+    render(<App hub={hub} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    return hub;
+  };
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('sends Record its Deeds with Close', async () => {
+    const hub = await open(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(hub.send).toHaveBeenCalledWith({ type: 'session.close', session: quest.id, deeds: true });
+    cleanup();
+    const second = await open(true);
+    fireEvent.click(screen.getByLabelText('Record its Deeds'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(second.send).toHaveBeenCalledWith({ type: 'session.close', session: quest.id });
+  });
+
+  it('greys the choice for a Kingdom that does not offer it', async () => {
+    await open();
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText('This Kingdom is too old to record Deeds at Close.')).toBeTruthy();
+  });
+
+  it('offers the choice until the Kingdom’s engines row has come', async () => {
+    await open(undefined, 'unread');
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText('This Kingdom is too old to record Deeds at Close.')).toBeNull();
+  });
+
+  it('greys the choice while the Quest’s Kingdom is offline, saying so', async () => {
+    await open(undefined, 'listed', true);
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText('node-b is offline: it can’t record Deeds at Close.')).toBeTruthy();
+  });
+});
+
+describe('App Deeds chips', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('keeps every project chip after a Quest is opened and closed with one chosen', async () => {
+    localStorage.clear();
+    const quest = sessions[0]!;
+    const rows = [
+      { id: `turn:${quest.id}:1`, kind: 'turn', at: Date.now() - 1000, session: quest.id, project: '/r/lantern' },
+      { id: 'turn:other:1', kind: 'turn', at: Date.now() - 2000, session: 'other', project: '/r/forge' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const project = /project=([^&]+)/.exec(url)?.[1];
+        const body = url.startsWith('/api/nodes/node-b/deeds')
+          ? { deeds: project ? rows.filter((r) => r.project === decodeURIComponent(project)) : rows }
+          : url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    window.history.replaceState(null, '', '/#/k/node-b');
+    await renderApp();
+    const chips = async () => {
+      const [group] = await screen.findAllByRole('group', { name: 'Filter by project' });
+      return within(group!)
+        .getAllByRole('button')
+        .map((b) => b.title)
+        .filter(Boolean)
+        .sort();
+    };
+    expect(await chips()).toEqual(['/r/forge', '/r/lantern']);
+    const [group] = screen.getAllByRole('group', { name: 'Filter by project' });
+    fireEvent.click(within(group!).getByRole('button', { name: /lantern/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /lantern/, pressed: true }).length).toBeGreaterThan(0),
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open Quest' })[0]!);
+    await waitFor(() => expect(screen.queryAllByRole('group', { name: 'Filter by project' })).toHaveLength(0));
+    // Back to the Castle, by its tab beside the Quest's.
+    const kingdoms = screen.getByRole('tablist', { name: 'Kingdoms' });
+    const castle = screen.getAllByRole('tab', { name: /node-b/ }).find((tab) => !kingdoms.contains(tab))!;
+    fireEvent.click(castle);
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /lantern/, pressed: true }).length).toBeGreaterThan(0),
+    );
+    expect(await chips()).toEqual(['/r/forge', '/r/lantern']);
   });
 });

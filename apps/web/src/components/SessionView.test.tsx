@@ -364,7 +364,81 @@ describe('SessionView closing', () => {
     // Removing is the default: a worktree with uncommitted changes is kept anyway, and the branch always stays.
     expect((screen.getByLabelText(/Remove its worktree/) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
-    expect(onClose).toHaveBeenCalledWith(true);
+    expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: false });
+  });
+
+  const finished = [...base, envelope(1, 'turn.finished', { ok: true })];
+
+  it('offers Record its Deeds at Close, on by default, with what it costs', () => {
+    localStorage.clear();
+    const onClose = view(finished);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).checked).toBe(true);
+    // Gold, as the Deeds are everywhere: the browser's own accent would be the window blue.
+    expect(screen.getByLabelText('Record its Deeds').className).toMatch(/\baccent-amber-\d+/);
+    expect(screen.getByText('Writes the Quest’s Deeds from a short digest of it, for a few cents.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: true });
+  });
+
+  it('keeps the choice on this device', () => {
+    localStorage.clear();
+    const onClose = view(finished);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByLabelText('Record its Deeds'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+    expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: false });
+    cleanup();
+    view(finished);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).checked).toBe(false);
+    localStorage.clear();
+  });
+
+  it('greys the choice with the reason', () => {
+    localStorage.clear();
+    const render1 = (envelopes: Envelope[], closeDeeds?: { offered: boolean }) => {
+      const onClose = vi.fn();
+      render(
+        <SessionView
+          envelopes={envelopes}
+          onAnswer={vi.fn()}
+          onSend={vi.fn()}
+          onInterrupt={vi.fn()}
+          onMode={vi.fn()}
+          onClose={onClose}
+          closeDeeds={closeDeeds}
+          subscribeErrors={() => () => {}}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      const box = screen.getByLabelText('Record its Deeds') as HTMLInputElement;
+      expect(box.disabled).toBe(true);
+      expect(box.checked).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+      expect(onClose).toHaveBeenCalledWith({ removeWorktree: true, deeds: false });
+      cleanup();
+    };
+    render1(finished, { offered: false });
+    render1(base);
+    // The reasons show beside the box.
+    render(
+      <SessionView
+        envelopes={finished}
+        onAnswer={vi.fn()}
+        onSend={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMode={vi.fn()}
+        closeDeeds={{ offered: false }}
+        subscribeErrors={() => () => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByText('This Kingdom is too old to record Deeds at Close.')).toBeTruthy();
+    cleanup();
+    view(base);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByText('No finished turn to record.')).toBeTruthy();
   });
 
   it('takes no follow-ups once closed', () => {
@@ -1201,5 +1275,70 @@ describe('SessionView attachments', () => {
     expect(screen.getByText('Look')).toBeTruthy();
     expect(screen.getByTitle('/tmp/x/123-1-shot.png').textContent).toContain('shot.png');
     expect(screen.queryByText(/\[Attached file/)).toBeNull();
+  });
+});
+
+describe('SessionView Deeds at Close (#289)', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+  const NOW = 1_800_000_000_000;
+  const DEED = '00000000-0000-4000-8000-000000000001';
+  const at = (seq: number, type: Envelope['type'], payload: unknown, ts = 0): Envelope => ({
+    ...envelope(seq, type, payload),
+    ts,
+  });
+  const base = [at(0, 'session.started', { cwd: '/w', prompt: 'p', label: 'p' }), at(1, 'session.closed', {})];
+  const view = (...more: Envelope[]) => renderView([...base, ...more]);
+
+  it('ends a closed Quest with its Deeds, or why there are none', () => {
+    view(
+      at(2, 'deed.recorded', { id: DEED, deed: 'Moved to Node 24', closing: true }),
+      at(3, 'deeds.closing', { outcome: 'recorded' }),
+    );
+    expect(screen.getByText('Your Quest’s Deeds are recorded in the annals of the Kingdom.')).toBeTruthy();
+    expectInPanelAndChat('Moved to Node 24');
+    // Laurels for a Deed from Close, in the chat as in the side panel and the feed.
+    const panel = screen.getByRole('region', { name: 'Deeds' });
+    const chat = screen.getAllByText('Moved to Node 24').find((el) => !panel.contains(el))!;
+    expect(chat.parentElement!.querySelector('svg')?.classList.contains('cb-icon-deedClosing')).toBe(true);
+    cleanup();
+    view(at(2, 'deeds.closing', { outcome: 'timeout' }));
+    expectInPanelAndChat('No Deeds recorded: the call took too long.');
+  });
+
+  /** One copy in the side panel's Deeds, one in the chat. */
+  function expectInPanelAndChat(text: string) {
+    const panel = screen.getByRole('region', { name: 'Deeds' });
+    expect(within(panel).getAllByText(text)).toHaveLength(1);
+    expect(screen.getAllByText(text).filter((el) => !panel.contains(el))).toHaveLength(1);
+  }
+
+  it('shows a call under way as writing, with a spinner', () => {
+    vi.useFakeTimers({ now: NOW });
+    view(at(2, 'deeds.closing', { outcome: 'writing' }, NOW - 119_000));
+    expect(screen.getByText('Your Quest is writing its Deeds…')).toBeTruthy();
+    expect(screen.getByTestId('deeds-writing-spinner')).toBeTruthy();
+  });
+
+  it('reads a writing that is past the call’s 2 minutes as stopped, never writing forever', () => {
+    vi.useFakeTimers({ now: NOW });
+    view(at(2, 'deeds.closing', { outcome: 'writing' }, NOW - 121_000));
+    expect(screen.queryByText('Your Quest is writing its Deeds…')).toBeNull();
+    expect(screen.queryByTestId('deeds-writing-spinner')).toBeNull();
+    expect(screen.getByText('No Deeds recorded: the call failed.')).toBeTruthy();
+    expect(screen.getByText('Crystal stopped before the Deeds came back.')).toBeTruthy();
+  });
+
+  it('turns a writing into stopped when the 2 minutes pass while it is open', () => {
+    vi.useFakeTimers({ now: NOW });
+    view(at(2, 'deeds.closing', { outcome: 'writing' }, NOW - 100_000));
+    expect(screen.getByText('Your Quest is writing its Deeds…')).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(21_000);
+    });
+    expect(screen.queryByText('Your Quest is writing its Deeds…')).toBeNull();
+    expect(screen.getByText('No Deeds recorded: the call failed.')).toBeTruthy();
   });
 });

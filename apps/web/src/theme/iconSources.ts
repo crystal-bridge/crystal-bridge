@@ -164,6 +164,15 @@ export const ICON_SOURCES = {
   errandDismiss: { pack: 'ph', icon: 'x-bold' },
   caret: { pack: 'ph', icon: 'caret-right-bold' },
   layoutCards: { pack: 'ph', icon: 'cards-fill' },
+  // Deeds
+  deedsFeed: { pack: 'game-icons', icon: 'laurels', author: 'Lorc' },
+  deedClosing: { pack: 'game-icons', icon: 'laurels', author: 'Lorc' },
+  deedTurns: { pack: 'game-icons', icon: 'crossed-swords', author: 'Lorc' },
+  deedOpen: { pack: 'ph', icon: 'circle-notch-bold' },
+  deedLoot: { pack: 'game-icons', icon: 'open-treasure-chest', author: 'Skoll' },
+  deedTrophy: { pack: 'game-icons', icon: 'trophy', author: 'Lorc' },
+  deedFilter: { pack: 'ph', icon: 'funnel-fill' },
+  deedLink: { pack: 'ph', icon: 'arrow-square-out-fill' },
 } as const satisfies Record<string, IconSource>;
 
 export type IconName = keyof typeof ICON_SOURCES;

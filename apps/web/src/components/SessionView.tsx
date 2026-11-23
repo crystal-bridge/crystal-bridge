@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { Attachment, Envelope, UsageWindow } from '@crystal-bridge/protocol';
+import { DeedsClosingOutcome, type Attachment, type Envelope, type UsageWindow } from '@crystal-bridge/protocol';
 import {
   IncrementalView,
   sessionEngine,
@@ -29,11 +29,20 @@ import { buildInventory } from '../inventory.js';
 import { usePanel } from '../panels.js';
 import { Icon } from '../theme/icons.js';
 import { Tip } from './Tip.js';
-import { hint, w } from '../theme/words.js';
+import {
+  closeOfflineReason,
+  closingLine,
+  closingStoppedReason,
+  deedsText,
+  hint,
+  recordDeedsChoice,
+  w,
+} from '../theme/words.js';
 import { Inventory } from './Inventory.js';
 import { ICON_BUTTON, PanelToggles } from './PanelToggles.js';
 import { SlashMenu, useSlashMenu } from './SlashMenu.js';
 import { MODES } from '../modes.js';
+import { QuestDeeds } from './Deeds.js';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel.js';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
 import { EFFORTS } from '../effort.js';
@@ -43,11 +52,13 @@ import { QuestionCard } from './QuestionCard.js';
 import { PromptBox } from './PromptBox.js';
 import {
   chatItems,
+  DeedLine,
   ErrandLine,
   type ErrandTally,
   errandTally,
   HelperBackLine,
   isAgentCall,
+  isDeedCall,
   isErrandCall,
   isSummonStart,
   isTitleCall,
@@ -61,6 +72,7 @@ import { ThemedSelect } from './ThemedSelect.js';
 import { HeroSprite } from './HeroSprite.js';
 import { FileOpenContext, QuestMarkdown } from './markdown.js';
 import { BattleCard } from './BattleCard.js';
+import { finishedTurnSinceClosing, useCloseDeeds } from '../deeds.js';
 import { loadDraft, saveDraft } from '../drafts.js';
 import { attachedPaths, toAttachments } from '../attachments.js';
 import { currentActivity } from '../activity.js';
@@ -106,7 +118,12 @@ export interface SessionViewProps {
   /** Sets the Quest's effort from the next message on; undefined is the CLI's default. */
   onEffort?: (effort: Effort | undefined) => void;
   /** Closes the session for good; true also removes its worktree if it has one. */
-  onClose?: (removeWorktree: boolean) => void;
+  onClose?: (close: { removeWorktree: boolean; deeds: boolean }) => void;
+  /**
+   * Whether the Quest's Kingdom can write its Deeds at Close, and if not, whether because it is offline; absent means
+   * it can (the hub drops what it can't).
+   */
+  closeDeeds?: { offered: boolean; offline?: boolean };
   /** Starts a fork of this session: a copy of the conversation so far that continues separately from this prompt. */
   onFork?: (prompt: string) => void;
   /** Shows another session, e.g. the one this fork came from. */
@@ -273,6 +290,7 @@ function Item({
       if (isAgentCall(item)) return <SetOutLine tool={item} manifest={manifest} />;
       if (isSummonStart(item)) return <SummonLine tool={item} manifest={manifest} />;
       if (isTitleCall(item)) return <TitleLine tool={item} manifest={manifest} />;
+      if (isDeedCall(item)) return <DeedLine tool={item} manifest={manifest} />;
       if (isErrandCall(item)) return <ErrandLine tool={item} tally={errands} session={session} />;
       return <ToolCard tool={item} manifest={manifest} />;
     case 'helper-back':
@@ -348,6 +366,8 @@ function Item({
           </p>
         </div>
       );
+    case 'deeds-closing':
+      return <DeedsClosingLine item={item} ts={ts} />;
     case 'error':
       return (
         <div className="rounded bg-red-100 px-3 py-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-300">
@@ -355,6 +375,68 @@ function Item({
         </div>
       );
   }
+}
+
+/** The call at Close's time limit: a `writing` older than this never got its outcome, so Crystal stopped mid-call. */
+const CLOSING_LIMIT_MS = 120_000;
+
+/** How the call that writes a closed Quest's Deeds went: its Deeds, why there are none, or that it's still writing. */
+function DeedsClosingLine({
+  item,
+  ts,
+}: {
+  item: Extract<ViewItem, { kind: 'deeds-closing' }>;
+  ts?: number | undefined;
+}) {
+  const writing = item.outcome === 'writing';
+  const staleAt = writing && ts !== undefined ? ts + CLOSING_LIMIT_MS : undefined;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (staleAt === undefined) return;
+    const wait = staleAt - Date.now();
+    if (wait <= 0) return;
+    const timer = setTimeout(() => setNow(Date.now()), wait + 1);
+    return () => clearTimeout(timer);
+  }, [staleAt]);
+  const stopped = staleAt !== undefined && now > staleAt;
+  const outcome = writing && stopped ? 'failed' : item.outcome;
+  const parsed = DeedsClosingOutcome.safeParse(outcome);
+  const line = closingLine(parsed.success ? parsed.data : 'failed');
+  const failed = outcome !== 'recorded' && outcome !== 'writing';
+  return (
+    <div
+      className={`space-y-1 text-sm ${failed ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-gold-bright'}`}
+    >
+      <p title={line.plain} className="flex items-center gap-2 py-0.5">
+        {outcome === 'writing' ? (
+          <span
+            data-testid="deeds-writing-spinner"
+            aria-hidden
+            className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+          />
+        ) : (
+          <Icon name="deedClosing" size={20} />
+        )}
+        <span className="cb-display text-base leading-none">{line.themed}</span>
+      </p>
+      {writing && stopped && <p className="pl-7 text-xs">{closingStoppedReason()}</p>}
+      {item.deeds.length > 0 && (
+        <ul className="space-y-0.5 pl-7">
+          {item.deeds.map((deed, i) => (
+            <li key={i}>
+              <details>
+                <summary className="flex cursor-pointer items-center gap-2 py-0.5">
+                  <Icon name="deedClosing" size={16} />
+                  <span className="font-bold">{deed.deed}</span>
+                </summary>
+                {deed.detail && <p className="pl-6 text-xs text-neutral-600 dark:text-neutral-400">{deed.detail}</p>}
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -389,6 +471,7 @@ export function SessionView({
   onMode,
   onEffort,
   onClose = () => {},
+  closeDeeds,
   onFork,
   onOpen,
   onOpenBoard,
@@ -455,6 +538,16 @@ export function SessionView({
     return seq === undefined ? undefined : tsBySeq.get(Number(seq));
   };
   const [confirmClose, setConfirmClose] = useState(false);
+  const [deedsChoice, setDeedsChoice] = useCloseDeeds();
+  const deedsReason =
+    closeDeeds?.offered === false
+      ? closeDeeds.offline
+        ? closeOfflineReason(kingdom || w('kingdom'))
+        : deedsText().tooOld
+      : !finishedTurnSinceClosing(envelopes)
+        ? deedsText().noTurn
+        : undefined;
+  const deedsWords = recordDeedsChoice();
   // While the draft is just "/name", suggest the session's slash commands and skills.
   const commands = useMemo(() => slashCommands(envelopes), [envelopes]);
   const slash = useSlashMenu(draft, commands, setDraft);
@@ -812,10 +905,23 @@ export function SessionView({
                     Remove its worktree (kept if it has uncommitted changes; the branch always stays)
                   </label>
                 )}
+                <span className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      className="accent-amber-600 dark:accent-amber-400"
+                      checked={!deedsReason && deedsChoice}
+                      disabled={Boolean(deedsReason)}
+                      onChange={(e) => setDeedsChoice(e.target.checked)}
+                    />
+                    {deedsWords.label}
+                  </label>
+                  <span className="text-neutral-500">{deedsReason ?? deedsWords.hint}</span>
+                </span>
                 <button
                   type="button"
                   onClick={() => {
-                    onClose(Boolean(worktree) && removeTree);
+                    onClose({ removeWorktree: Boolean(worktree) && removeTree, deeds: !deedsReason && deedsChoice });
                     setConfirmClose(false);
                   }}
                   className="rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700"
@@ -984,6 +1090,7 @@ export function SessionView({
                   plan={plan}
                   planAt={planAt}
                   errands={questErrands}
+                  deeds={<QuestDeeds envelopes={envelopes} />}
                 />
               </aside>
             )

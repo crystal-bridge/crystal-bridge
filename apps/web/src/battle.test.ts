@@ -138,6 +138,44 @@ describe('battleResults', () => {
     expect(quest.loot).toEqual(['a.ts', 'b.ts', 'c.ts']);
   });
 
+  it('attaches a stamped turn_changes line to its own turn, not the latest', () => {
+    const at = (n: number, type: Envelope['type'], payload: unknown): Envelope => ({ ...env(type, payload), seq: n });
+    const finished = (n: number) => at(n, 'turn.finished', { outcome: 'success' });
+    const changes = (n: number, files: string[], turnSeq?: number) =>
+      at(n, 'claude.event', {
+        engine: 'claude',
+        raw: { type: 'system', subtype: 'turn_changes', files, ...(turnSeq === undefined ? {} : { turnSeq }) },
+      });
+    const { turns, quest } = battleResults([
+      at(1, 'session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      { ...result({}), seq: 9 },
+      finished(10),
+      { ...result({}), seq: 19 },
+      finished(20),
+      changes(21, ['a.ts'], 10),
+      changes(22, ['b.ts']),
+    ]);
+    expect(turns.get('e9')!.loot).toEqual(['a.ts']);
+    expect(turns.get('e19')!.loot).toEqual(['b.ts']);
+    expect(quest.loot).toEqual(['a.ts', 'b.ts']);
+  });
+
+  it('counts a stamped turn_changes line whose turn had no result toward the Quest only', () => {
+    const at = (n: number, type: Envelope['type'], payload: unknown): Envelope => ({ ...env(type, payload), seq: n });
+    const changes = (n: number, files: string[], turnSeq: number) =>
+      at(n, 'claude.event', { engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files, turnSeq } });
+    const { turns, quest } = battleResults([
+      at(1, 'session.started', { cwd: '/w', prompt: 'p', label: 'p' }),
+      { ...result({}), seq: 9 },
+      at(10, 'turn.finished', { outcome: 'success' }),
+      // A turn that ended with no `result` (a crash, say): its changes name a turn that has no card.
+      at(20, 'turn.finished', { outcome: 'error' }),
+      changes(21, ['lost.ts'], 20),
+    ]);
+    expect(turns.get('e9')!.loot).toEqual([]);
+    expect(quest.loot).toEqual(['lost.ts']);
+  });
+
   it('finds pull requests a command printed on a line of their own, once each', () => {
     seq = 0;
     const output = (content: unknown) =>

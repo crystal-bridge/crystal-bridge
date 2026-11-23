@@ -846,3 +846,47 @@ describe('turnRunning and the interactive engine-s listing', () => {
     expect(turnRunning([event(0, 'turn.finished', { outcome: 'success' }), init(1)])).toBe(true);
   });
 });
+
+describe('the Deeds at Close (#289)', () => {
+  const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+  const closed = () => new Stream().started().push('session.closed', {});
+
+  it('gathers the Deeds from Close into one line with how the call went', () => {
+    const items = buildView(
+      closed()
+        .push('deed.recorded', { id: id(1), deed: 'Moved to Node 24', closing: true })
+        .push('deed.recorded', { id: id(2), deed: 'Fixed the smoke test', detail: 'It was a race.', closing: true })
+        .push('deeds.closing', { outcome: 'recorded', costUsd: 0.09 }).envelopes,
+    );
+    expect(items.map((item) => item.kind)).toEqual(['user', 'closed', 'deeds-closing']);
+    expect(items[2]).toMatchObject({
+      kind: 'deeds-closing',
+      outcome: 'recorded',
+      deeds: [{ deed: 'Moved to Node 24' }, { deed: 'Fixed the smoke test', detail: 'It was a race.' }],
+      costUsd: 0.09,
+    });
+  });
+
+  it('adds no item for a Deed from a turn, or for an unreadable closing', () => {
+    const items = buildView(
+      closed()
+        .push('deed.recorded', { id: id(1), deed: 'Moved to Node 24' })
+        .push('deeds.closing', { outcome: 'nonsense' }).envelopes,
+    );
+    expect(items.map((item) => item.kind)).toEqual(['user', 'closed']);
+  });
+
+  it('shows a call under way as writing, which the final outcome replaces in place', () => {
+    const stream = closed().push('deeds.closing', { outcome: 'writing' });
+    const writing = buildView(stream.envelopes);
+    expect(writing.at(-1)).toMatchObject({ kind: 'deeds-closing', outcome: 'writing', deeds: [] });
+    const done = buildView(
+      stream
+        .push('deed.recorded', { id: id(1), deed: 'Moved to Node 24', closing: true })
+        .push('deeds.closing', { outcome: 'recorded' }).envelopes,
+    );
+    expect(done.filter((item) => item.kind === 'deeds-closing')).toHaveLength(1);
+    expect(done.at(-1)).toMatchObject({ outcome: 'recorded', deeds: [{ deed: 'Moved to Node 24' }] });
+    expect(done.at(-1)?.id).toBe(writing.at(-1)?.id);
+  });
+});

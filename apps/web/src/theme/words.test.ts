@@ -21,6 +21,16 @@ import {
   sourceLine,
   patrolOutcomeWord,
   patrolStandingWord,
+  deedRecordedLine,
+  deedRefusedLine,
+  closingLine,
+  questStandingWord,
+  recordDeedsChoice,
+  closingStoppedReason,
+  deedsText,
+  deedsEmptyLines,
+  closeOfflineReason,
+  feedText,
 } from './words.js';
 
 describe('theme words', () => {
@@ -333,5 +343,114 @@ describe('Quest titles (#287)', () => {
     expect(classic.show).toBe('Show the follow-ups');
     expect(classic.showHint).toBe('Show this session’s follow-ups in the side panel');
     expect(classic.loadFailed).toBe('Couldn’t load follow-ups.');
+  });
+
+  it('names Deeds, and Outcomes and the Work log in the Classic theme', () => {
+    expect(w('deed', CRYSTAL)).toBe('Deed');
+    expect(w('deeds', CRYSTAL)).toBe('Deeds');
+    expect(w('deedsFeed', CRYSTAL)).toBe('Deeds');
+    expect(w('deed', CLASSIC)).toBe('Outcome');
+    expect(w('deeds', CLASSIC)).toBe('Outcomes');
+    expect(w('deedsFeed', CLASSIC)).toBe('Work log');
+    expect(hint('deedsFeed', CLASSIC)).toBe('Work log (what your Quests achieved, day by day)');
+  });
+
+  it('says a Deed was recorded in a turn', () => {
+    expect(deedRecordedLine(CRYSTAL).themed).toBe('A new Deed is recorded in the annals of the Kingdom.');
+    expect(deedRecordedLine(CLASSIC).themed).toBe('Outcome recorded.');
+    expect(deedRefusedLine(CRYSTAL).themed).toBe('Your Quest couldn’t record a Deed.');
+  });
+
+  it('says how the call at Close went', () => {
+    expect(closingLine('recorded', CRYSTAL).themed).toBe(
+      'Your Quest’s Deeds are recorded in the annals of the Kingdom.',
+    );
+    expect(closingLine('recorded', CLASSIC).themed).toBe('Summary recorded.');
+    expect(closingLine('timeout', CRYSTAL).themed).toBe('No Deeds recorded: the call took too long.');
+    expect(closingLine('timeout', CLASSIC).themed).toBe('No summary recorded: the call took too long.');
+    expect(closingLine('budget', CRYSTAL).themed).toContain('the call went over its budget');
+    expect(closingLine('empty', CRYSTAL).themed).toContain('the call wrote none');
+    expect(closingLine('failed', CRYSTAL).themed).toContain('the call failed');
+    expect(closingLine('unreadable', CRYSTAL).themed).toContain('the Quest’s transcript couldn’t be read');
+  });
+
+  it('names a Quest’s standing in the feed', () => {
+    expect(questStandingWord({ kind: 'open' }, CRYSTAL).themed).toBe('Still open');
+    expect(questStandingWord({ kind: 'deeds' }, CRYSTAL).themed).toBe('Closed with Deeds');
+    expect(questStandingWord({ kind: 'deeds' }, CLASSIC).themed).toBe('Closed with outcomes');
+    const why = (k: 'skipped' | 'timeout' | 'budget' | 'empty' | 'failed' | 'unreadable') =>
+      questStandingWord({ kind: 'closed', why: k }, CRYSTAL).themed;
+    expect(why('skipped')).toBe('Closed · skipped');
+    expect(why('timeout')).toBe('Closed · too long');
+    expect(why('budget')).toBe('Closed · over budget');
+    expect(why('empty')).toBe('Closed · nothing written');
+    expect(why('failed')).toBe('Closed · the call failed');
+    expect(why('unreadable')).toBe('Closed · transcript unreadable');
+  });
+
+  it('offers the choice at Close', () => {
+    expect(recordDeedsChoice(CRYSTAL)).toEqual({
+      label: 'Record its Deeds',
+      hint: 'Writes the Quest’s Deeds from a short digest of it, for a few cents.',
+    });
+    expect(recordDeedsChoice(CLASSIC).label).toBe('Record its outcomes');
+  });
+
+  it('words the feed’s own lines, and Classic shows none of the themed words', () => {
+    const crystal = feedText(CRYSTAL);
+    expect(crystal.reading).toBe('Reading the Deeds…');
+    expect(crystal.readFailed('down')).toBe('Couldn’t read the Deeds: down');
+    expect(crystal.rereadFailed('down')).toBe('Couldn’t read the Deeds again: down');
+    expect(crystal.olderFailed('down')).toBe('Couldn’t read older days: down');
+    expect(crystal.openQuest).toBe('Open Quest');
+    expect(crystal.openQuestTitle).toBe('Open this Quest');
+    expect(crystal.openRunTitle).toBe('Open this run in the Patrol log');
+    const classic = feedText(CLASSIC);
+    expect(classic.reading).toBe('Reading the work log…');
+    expect(classic.openQuest).toBe('Open session');
+    expect(classic.openRunTitle).toBe('Open this run in scheduled task runs');
+    const all = [
+      ...Object.values(classic).map((v) => (typeof v === 'function' ? v('x') : v)),
+      ...Object.values(deedsEmptyLines(undefined, false, CLASSIC)),
+    ];
+    expect(JSON.stringify(all)).not.toMatch(/deed|quest|kingdom|annal|patrol/i);
+    expect(deedsEmptyLines(undefined, false, CRYSTAL).title).toBe('The annals of the Kingdom are still blank');
+    expect(deedsEmptyLines(undefined, false, CLASSIC).title).toBe('Nothing recorded on this node yet');
+  });
+
+  it('says why Close can’t record Deeds while the Kingdom is offline', () => {
+    expect(closeOfflineReason('Lantern', CRYSTAL)).toBe('Lantern is offline: it can’t record Deeds at Close.');
+    expect(closeOfflineReason('Lantern', CLASSIC)).toBe('Lantern is offline: it can’t record outcomes at close.');
+  });
+
+  it('words the empty feed for a Kingdom or a project, and Classic never says Deed', () => {
+    expect(deedsEmptyLines('Lantern', false, CRYSTAL)).toEqual({
+      title: 'The annals of Lantern are still blank',
+      line: 'No Deeds yet. When a Quest finishes a turn, it shows here.',
+      showAll: 'Show all projects',
+    });
+    expect(deedsEmptyLines('lantern', true, CRYSTAL).line).toBe(
+      'No Deeds in this project yet. When a Quest there finishes a turn, it shows here.',
+    );
+    const classic = deedsEmptyLines('Lantern', true, CLASSIC);
+    expect(classic.title).toBe('Nothing recorded in Lantern yet');
+    expect(classic.line).toBe('No outcomes in this project yet. When a session there finishes a turn, it shows here.');
+    expect(JSON.stringify([classic, deedsEmptyLines('Lantern', false, CLASSIC)])).not.toMatch(/deed|quest|annal/i);
+  });
+
+  it('words the Deeds’ short lines in each theme, and Classic never says Deed', () => {
+    expect(deedsText(CRYSTAL)).toEqual({
+      tooOld: 'This Kingdom is too old to record Deeds at Close.',
+      noTurn: 'No finished turn to record.',
+      none: 'None yet.',
+      fromClose: 'From Close',
+      fromTurn: 'From a turn',
+    });
+    expect(closingStoppedReason(CRYSTAL)).toBe('Crystal stopped before the Deeds came back.');
+    const classic = deedsText(CLASSIC);
+    expect(classic.tooOld).toBe('This node is too old to record outcomes at close.');
+    expect(classic.fromClose).toBe('From close');
+    expect(closingStoppedReason(CLASSIC)).toBe('Crystal stopped before the summary came back.');
+    expect(JSON.stringify([classic, closingStoppedReason(CLASSIC)])).not.toMatch(/deed/i);
   });
 });
