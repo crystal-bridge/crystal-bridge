@@ -711,21 +711,63 @@ export function closeOfflineReason(kingdom: string, theme: Words = words): strin
   return `${kingdom} is offline: it can’t record ${deeds} at ${classic ? 'close' : 'Close'}.`;
 }
 
-/** The empty feed's card: the annals of a Kingdom (or of the chosen project) are blank, and a way back to all. */
+/**
+ * The empty feed's card: the annals of a Kingdom (or of the chosen project) are blank, and a way back to all. Without a
+ * place, the Kingdom's own word stands in.
+ */
 export function deedsEmptyLines(
-  place: string,
+  place: string | undefined,
   filtered: boolean,
   theme: Words = words,
 ): { title: string; line: string; showAll: string } {
   const classic = theme === CLASSIC;
   const deeds = classic ? w('deeds', theme).toLowerCase() : w('deeds', theme);
   const quest = classic ? w('quest', theme).toLowerCase() : w('quest', theme);
+  const kingdom = classic ? w('kingdom', theme).toLowerCase() : w('kingdom', theme);
   return {
-    title: classic ? `Nothing recorded in ${place} yet` : `The annals of ${place} are still blank`,
+    title: classic
+      ? place === undefined
+        ? `Nothing recorded on this ${kingdom} yet`
+        : `Nothing recorded in ${place} yet`
+      : `The annals of ${place ?? `the ${kingdom}`} are still blank`,
     line: filtered
       ? `No ${deeds} in this project yet. When a ${quest} there finishes a turn, it shows here.`
       : `No ${deeds} yet. When a ${quest} finishes a turn, it shows here.`,
     showAll: 'Show all projects',
+  };
+}
+
+/** The Deeds feed's own lines: reading, why it couldn't, its filter and buttons, and its links. */
+export function feedText(theme: Words = words): {
+  reading: string;
+  readFailed: (reason: string) => string;
+  rereadFailed: (reason: string) => string;
+  olderFailed: (reason: string) => string;
+  filter: string;
+  all: string;
+  loadOlder: string;
+  scriptRun: string;
+  runLog: string;
+  openRunTitle: string;
+  openQuest: string;
+  openQuestTitle: string;
+} {
+  const classic = theme === CLASSIC;
+  const lower = (concept: Concept) => (classic ? w(concept, theme).toLowerCase() : w(concept, theme));
+  const feed = lower('deedsFeed');
+  return {
+    reading: `Reading the ${feed}…`,
+    readFailed: (reason) => `Couldn’t read the ${feed}: ${reason}`,
+    rereadFailed: (reason) => `Couldn’t read the ${feed} again: ${reason}`,
+    olderFailed: (reason) => `Couldn’t read older days: ${reason}`,
+    filter: 'Filter by project',
+    all: 'All',
+    loadOlder: 'Load older days',
+    scriptRun: 'Script run',
+    runLog: 'Run log',
+    openRunTitle: `Open this run in ${classic ? '' : 'the '}${lower('patrolLog')}`,
+    openQuest: `Open ${lower('quest')}`,
+    openQuestTitle: `Open this ${lower('quest')}`,
   };
 }
 

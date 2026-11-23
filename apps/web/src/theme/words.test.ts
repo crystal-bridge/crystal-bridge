@@ -30,6 +30,7 @@ import {
   deedsText,
   deedsEmptyLines,
   closeOfflineReason,
+  feedText,
 } from './words.js';
 
 describe('theme words', () => {
@@ -393,6 +394,28 @@ describe('Quest titles (#287)', () => {
       hint: 'Writes the Quest’s Deeds from a short digest of it, for a few cents.',
     });
     expect(recordDeedsChoice(CLASSIC).label).toBe('Record its outcomes');
+  });
+
+  it('words the feed’s own lines, and Classic shows none of the themed words', () => {
+    const crystal = feedText(CRYSTAL);
+    expect(crystal.reading).toBe('Reading the Deeds…');
+    expect(crystal.readFailed('down')).toBe('Couldn’t read the Deeds: down');
+    expect(crystal.rereadFailed('down')).toBe('Couldn’t read the Deeds again: down');
+    expect(crystal.olderFailed('down')).toBe('Couldn’t read older days: down');
+    expect(crystal.openQuest).toBe('Open Quest');
+    expect(crystal.openQuestTitle).toBe('Open this Quest');
+    expect(crystal.openRunTitle).toBe('Open this run in the Patrol log');
+    const classic = feedText(CLASSIC);
+    expect(classic.reading).toBe('Reading the work log…');
+    expect(classic.openQuest).toBe('Open session');
+    expect(classic.openRunTitle).toBe('Open this run in scheduled task runs');
+    const all = [
+      ...Object.values(classic).map((v) => (typeof v === 'function' ? v('x') : v)),
+      ...Object.values(deedsEmptyLines(undefined, false, CLASSIC)),
+    ];
+    expect(JSON.stringify(all)).not.toMatch(/deed|quest|kingdom|annal|patrol/i);
+    expect(deedsEmptyLines(undefined, false, CRYSTAL).title).toBe('The annals of the Kingdom are still blank');
+    expect(deedsEmptyLines(undefined, false, CLASSIC).title).toBe('Nothing recorded on this node yet');
   });
 
   it('says why Close can’t record Deeds while the Kingdom is offline', () => {

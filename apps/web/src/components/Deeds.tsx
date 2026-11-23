@@ -23,6 +23,7 @@ import {
   closingLine,
   deedsEmptyLines,
   deedsText,
+  feedText,
   hint,
   type QuestStanding,
   questLabel,
@@ -101,6 +102,7 @@ export function DeedsFeed({
   chipMemory,
 }: DeedsFeedProps) {
   const feed = w('deedsFeed');
+  const text = feedText();
   const rows = project === undefined ? state.deeds : state.deeds.filter((row) => row.project === project);
   const days = deedDays(rows, now);
   const closes = new Map<string, Deed>();
@@ -125,16 +127,16 @@ export function DeedsFeed({
       </div>
       {state.error !== undefined && !state.loaded ? (
         <p role="alert" className="px-3 text-sm text-red-700 dark:text-red-400">
-          {`Couldn’t read the ${feed}: ${state.error}`}
+          {text.readFailed(state.error)}
         </p>
       ) : !state.loaded ? (
-        <p className="px-3 text-sm text-neutral-500">{`Reading the ${feed}…`}</p>
+        <p className="px-3 text-sm text-neutral-500">{text.reading}</p>
       ) : (
         <>
           {/* At the top: what shows below may be out of date. */}
           {state.refreshError !== undefined && (
             <p role="alert" className="px-3 text-sm text-red-700 dark:text-red-400">
-              {`Couldn’t read the ${feed} again: ${state.refreshError}`}
+              {text.rereadFailed(state.refreshError)}
             </p>
           )}
           {chips.projects.length > 0 && (
@@ -193,7 +195,7 @@ export function DeedsFeed({
           )}
           {state.error !== undefined && (
             <p role="alert" className="px-3 text-sm text-red-700 dark:text-red-400">
-              {`Couldn’t read older days: ${state.error}`}
+              {text.olderFailed(state.error)}
             </p>
           )}
           {state.older !== undefined && (
@@ -247,10 +249,10 @@ function Chips({
   return (
     <div
       role="group"
-      aria-label="Filter by project"
+      aria-label={feedText().filter}
       className={`flex items-center gap-1.5 ${phone ? 'overflow-x-auto' : 'flex-wrap'}`}
     >
-      <span aria-hidden="true" title="Filter by project" className="inline-flex text-neutral-400">
+      <span aria-hidden="true" title={feedText().filter} className="inline-flex text-neutral-400">
         <Icon name="deedFilter" size={14} />
       </span>
       <button
@@ -263,7 +265,8 @@ function Chips({
             : 'bg-white text-neutral-700 ring-neutral-300 dark:bg-neutral-950 dark:text-neutral-300 dark:ring-neutral-700'
         }`}
       >
-        All<span className="opacity-70">{chips.all}</span>
+        {feedText().all}
+        <span className="opacity-70">{chips.all}</span>
       </button>
       {chips.projects.map((chip) => {
         const on = chip.project === project;
@@ -300,7 +303,7 @@ function Empty({
   kingdom: string | undefined;
   onProject: (project: string | undefined) => void;
 }) {
-  const place = project !== undefined ? projectName(project) : (kingdom ?? `the ${w('kingdom')}`);
+  const place = project !== undefined ? projectName(project) : kingdom;
   const lines = deedsEmptyLines(place, project !== undefined);
   return (
     <div
@@ -350,7 +353,7 @@ function LoadOlder({ loading, onLoadOlder }: { loading: boolean; onLoadOlder: ()
         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50 disabled:opacity-60 dark:text-amber-300 dark:ring-amber-800 dark:hover:bg-amber-950"
       >
         <Icon name="hourglass" size={14} />
-        Load older days
+        {feedText().loadOlder}
       </button>
     </div>
   );
@@ -571,7 +574,7 @@ function RunLines({ entry, known }: { entry: Extract<DeedEntry, { kind: 'run' }>
   const runId = row.id.replace(/^run:/, '');
   return (
     <>
-      <p className="font-medium leading-snug [overflow-wrap:anywhere]">{row.text ?? 'Script run'}</p>
+      <p className="font-medium leading-snug [overflow-wrap:anywhere]">{row.text ?? feedText().scriptRun}</p>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500">
         <span
           className={`${PILL} ${
@@ -587,8 +590,8 @@ function RunLines({ entry, known }: { entry: Extract<DeedEntry, { kind: 'run' }>
         <span>{row.durationMs !== undefined ? `script · ${duration(row.durationMs)}` : 'script'}</span>
         {row.patrol && (
           <OpenLink
-            label="Run log"
-            title={`Open this run in the ${w('patrolLog')}`}
+            label={feedText().runLog}
+            title={feedText().openRunTitle}
             onClick={() => known.onOpenRun(row.patrol!, runId)}
           />
         )}
@@ -607,8 +610,8 @@ function QuestLines({ entry, known }: { entry: Extract<DeedEntry, { kind: 'quest
     <>
       {entry.project !== undefined && <ProjectChip project={entry.project} />}
       <OpenLink
-        label={`Open ${w('quest')}`}
-        title={`Open this ${w('quest')}`}
+        label={feedText().openQuest}
+        title={feedText().openQuestTitle}
         onClick={() => known.onOpenQuest(entry.session)}
       />
     </>
