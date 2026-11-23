@@ -12,7 +12,14 @@ import { usageFromRaw } from './usage.js';
 /** The subset of protocol event types a running `claude` process can emit on its own. */
 export type ClaudeSessionEventType = Extract<
   EventType,
-  'claude.event' | 'session.ended' | 'session.resumed' | 'turn.finished' | 'usage' | 'error' | 'terminal.screen'
+  | 'claude.event'
+  | 'session.ended'
+  | 'session.resumed'
+  | 'turn.finished'
+  | 'turn.tally'
+  | 'usage'
+  | 'error'
+  | 'terminal.screen'
 >;
 
 /** payload for `claude.event`, per `packages/protocol/src/envelope.ts`. */
@@ -108,6 +115,8 @@ export type ClaudeSessionEvent =
   | { type: 'session.resumed'; payload: Record<string, never> }
   | { type: 'usage'; payload: UsagePayload }
   | { type: 'turn.finished'; payload: TurnFinishedPayload }
+  /** The turn's diff is in; node.ts makes the protocol's `turn.tally` of it. */
+  | { type: 'turn.tally'; payload: { files?: string[] } }
   | { type: 'terminal.screen'; payload: TerminalScreenPayload }
   | { type: 'error'; payload: ErrorPayload };
 
@@ -621,7 +630,11 @@ export class ClaudeSession extends EventEmitter {
         this.lastTotalCost = total;
       }
       this.emitEvent({ type: 'turn.finished', payload: turnFinished(raw as Record<string, unknown>, cost) });
-      reportChanges(this.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
+      reportChanges(
+        this.changes,
+        (payload) => this.emitEvent({ type: 'claude.event', payload }),
+        (files) => this.emitEvent({ type: 'turn.tally', payload: files ? { files } : {} }),
+      );
       this.startIdleTimer(rec);
     }
   }

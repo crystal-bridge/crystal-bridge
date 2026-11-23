@@ -1275,6 +1275,81 @@ describe('startNode', () => {
     });
   });
 
+  describe('turn tallies (#289)', () => {
+    const PR = 'https://github.com/acme/lantern/pull/7';
+    async function startQuest() {
+      createNode({});
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (frame) => frame.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'go' }));
+      await waitForFrame(conn, (frame) => frame.type === 'session.started');
+      return { conn, session, fake: created.at(-1)!.fake };
+    }
+    const raw = (line: unknown) => ({ type: 'claude.event', payload: { engine: 'claude', raw: line } });
+    const write = (path: string) =>
+      raw({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 't1', name: 'Write', input: { file_path: path, content: '' } }] },
+      });
+    const printed = (text: string) =>
+      raw({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: text }] } });
+    const finished = { type: 'turn.finished', payload: { outcome: 'success' } };
+    const tally = (files?: string[]) => ({ type: 'turn.tally', payload: files ? { files } : {} });
+    const tallies = (conn: ConnRecorder) => conn.frames.filter((frame) => frame.type === 'turn.tally');
+
+    it('tallies a turn’s files and pull requests after its diff, under its turn.finished’s seq', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', write('/w/a.ts'));
+      fake.emit('event', printed(`Opened it:\n${PR}\n`));
+      fake.emit('event', finished);
+      const turn = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', tally(['a.ts', 'b.ts']));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect(sent).toMatchObject({ type: 'turn.tally', payload: { seq: turn.seq, files: 2, prs: [PR] } });
+      expect(sent.seq as number).toBeGreaterThan(turn.seq as number);
+    });
+
+    it('counts no more than 10 links', async () => {
+      const { conn, fake } = await startQuest();
+      const links = Array.from({ length: 12 }, (_, i) => `https://github.com/acme/lantern/pull/${i + 1}`);
+      fake.emit('event', printed(links.join('\n')));
+      fake.emit('event', finished);
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect((sent.payload as { prs: string[] }).prs).toEqual(links.slice(0, 10));
+    });
+
+    it('sends no tally for a turn whose diff never comes, and starts the next turn’s count afresh', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', write('/w/a.ts'));
+      fake.emit('event', printed(PR));
+      fake.emit('event', finished);
+      await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', write('/w/c.ts'));
+      fake.emit('event', finished);
+      const second = await waitForFrame(
+        conn,
+        (frame) => frame.type === 'turn.finished' && conn.frames.filter((f) => f.type === 'turn.finished').length === 2,
+      );
+      fake.emit('event', tally());
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect(sent.payload).toEqual({ seq: second.seq, files: 1, prs: [] });
+      fake.emit('event', tally(['x.ts']));
+      await delay(50);
+      expect(tallies(conn)).toHaveLength(1);
+    });
+
+    it('sends files 0 when nothing changed', async () => {
+      const { conn, fake } = await startQuest();
+      fake.emit('event', finished);
+      const turn = await waitForFrame(conn, (frame) => frame.type === 'turn.finished');
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect(sent.payload).toEqual({ seq: turn.seq, files: 0, prs: [] });
+    });
+  });
+
   function createNode(extra: Partial<Parameters<typeof startNode>[0]> = {}): CrystalNode {
     attachmentsBase = mkdtempSync(join(tmpdir(), 'cb-node-files-'));
     node = startNode({

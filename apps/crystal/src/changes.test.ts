@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { gitChanges } from './changes.js';
+import { gitChanges, reportChanges } from './changes.js';
 
 function repo() {
   const dir = mkdtempSync(join(tmpdir(), 'cb-changes-'));
@@ -124,5 +124,37 @@ describe('gitChanges', () => {
     await changes.begin();
     for (const name of ['a', 'b', 'c']) writeFileSync(join(dir, name), '1');
     expect(await changes.finish()).toHaveLength(2);
+  });
+});
+
+describe('reportChanges', () => {
+  const tracker = (files: string[] | undefined) => ({ begin: async () => {}, finish: async () => files });
+
+  it('calls back with the diff once it’s in, even when it found nothing', async () => {
+    const emit = vi.fn();
+    const diffed = vi.fn();
+    reportChanges(tracker([]), emit, diffed);
+    await vi.waitFor(() => expect(diffed).toHaveBeenCalledWith([]));
+    expect(emit).not.toHaveBeenCalled();
+
+    const order: string[] = [];
+    reportChanges(
+      tracker(['a.ts']),
+      (payload) => order.push(`emit ${JSON.stringify(payload.raw)}`),
+      (files) => order.push(`diffed ${JSON.stringify(files)}`),
+    );
+    await vi.waitFor(() => expect(order).toHaveLength(2));
+    expect(order).toEqual([
+      `emit ${JSON.stringify({ type: 'system', subtype: 'turn_changes', files: ['a.ts'] })}`,
+      'diffed ["a.ts"]',
+    ]);
+  });
+
+  it('with no tracker, calls back at once with nothing known', () => {
+    const emit = vi.fn();
+    const diffed = vi.fn();
+    reportChanges(undefined, emit, diffed);
+    expect(diffed).toHaveBeenCalledWith(undefined);
+    expect(emit).not.toHaveBeenCalled();
   });
 });

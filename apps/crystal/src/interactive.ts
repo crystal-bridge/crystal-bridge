@@ -446,7 +446,11 @@ export class InteractiveSession extends EventEmitter {
         },
       });
       this.emitEvent({ type: 'turn.finished', payload: { outcome: 'interrupted', durationMs } });
-      reportChanges(this.opts.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
+      reportChanges(
+        this.opts.changes,
+        (payload) => this.emitEvent({ type: 'claude.event', payload }),
+        (files) => this.emitEvent({ type: 'turn.tally', payload: files ? { files } : {} }),
+      );
     }
   }
 
@@ -881,7 +885,11 @@ export class InteractiveSession extends EventEmitter {
         ...(neutral ? { tokens: neutral } : {}),
       },
     });
-    reportChanges(this.opts.changes, (payload) => this.emitEvent({ type: 'claude.event', payload }));
+    reportChanges(
+      this.opts.changes,
+      (payload) => this.emitEvent({ type: 'claude.event', payload }),
+      (files) => this.emitEvent({ type: 'turn.tally', payload: files ? { files } : {} }),
+    );
     this.releaseHeld();
   }
 

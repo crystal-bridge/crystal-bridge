@@ -94,10 +94,18 @@ export function gitChanges(
 
 /**
  * Sends a finished turn's changed files as a line of their own, after `turn.finished`: that event never waits on git,
- * so closing a Quest as a turn ends can't lose it. The client reads the line as belonging to the turn before it.
+ * so closing a Quest as a turn ends can't lose it. The client reads the line as belonging to the turn before it. Then
+ * calls `diffed` with the diff (even an empty one), or with undefined at once when there is no tracker or it can't
+ * tell, so the turn's tally can go out.
  */
-export function reportChanges(changes: TurnChanges | undefined, emit: (payload: ClaudeEventPayload) => void): void {
-  void changes?.finish().then((files) => {
+export function reportChanges(
+  changes: TurnChanges | undefined,
+  emit: (payload: ClaudeEventPayload) => void,
+  diffed: (files: string[] | undefined) => void,
+): void {
+  if (!changes) return diffed(undefined);
+  void changes.finish().then((files) => {
     if (files?.length) emit({ engine: 'claude', raw: { type: 'system', subtype: 'turn_changes', files } });
+    diffed(files);
   });
 }

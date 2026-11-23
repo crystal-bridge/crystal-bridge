@@ -293,7 +293,8 @@ describe('ClaudeSession', () => {
     for (const line of lines) child.stdout.write(`${line}\n`);
     await flush();
 
-    // The fixture's rate_limit_event and result lines are also followed by derived usage and turn.finished events.
+    // The fixture’s rate_limit_event and result lines are also followed by derived usage, turn.finished and
+    // turn.tally events.
     const claudeEvents = events.filter((event) => event.type === 'claude.event');
     expect(claudeEvents).toHaveLength(lines.length);
     for (const [i, event] of claudeEvents.entries()) {
@@ -302,6 +303,7 @@ describe('ClaudeSession', () => {
     expect(events.filter((event) => event.type !== 'claude.event').map((event) => event.type)).toEqual([
       'usage',
       'turn.finished',
+      'turn.tally',
     ]);
   });
 
@@ -1421,10 +1423,11 @@ describe('ClaudeSession turn.finished', () => {
     children[0]!.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success' })}\n`);
     await flush();
     expect(begun).toEqual(['begin']);
-    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 1);
-    expect(events.at(-1)).toMatchObject({
+    expect(events.findIndex((e) => e.type === 'turn.finished')).toBeLessThan(events.length - 2);
+    expect(events.at(-2)).toMatchObject({
       type: 'claude.event',
       payload: { raw: { type: 'system', subtype: 'turn_changes', files: ['a.ts'] } },
     });
+    expect(events.at(-1)).toEqual({ type: 'turn.tally', payload: { files: ['a.ts'] } });
   });
 });
