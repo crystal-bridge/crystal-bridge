@@ -353,6 +353,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   /** Errands each Quest has left this turn; in memory only, counted again once the turn or process ends. */
   const errandsThisTurn = new Map<string, number>();
   const deedsThisTurn = new Map<string, number>();
+  /** The longest pull request link `TurnTallyPayload` takes. */
+  const MAX_TALLY_LINK = 500;
   /** Each Quest's Loot and Trophies so far this turn, by the shared rules, for its `turn.tally`. */
   const turnLoot = new Map<string, { files: Set<string>; prs: Set<string> }>();
   /**
@@ -480,7 +482,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     sendEnvelope(sessionId, 'turn.tally', {
       seq: loot.seq,
       files: loot.files.size,
-      prs: [...loot.prs].slice(0, MAX_TALLY_PRS),
+      // The hub ignores a whole tally with one link over the schema's length: leave such a link out.
+      prs: [...loot.prs].filter((link) => link.length <= MAX_TALLY_LINK).slice(0, MAX_TALLY_PRS),
     });
   }
 

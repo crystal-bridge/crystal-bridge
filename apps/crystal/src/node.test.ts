@@ -1474,6 +1474,16 @@ describe('startNode', () => {
       expect((sent.payload as { prs: string[] }).prs).toEqual(links.slice(0, 10));
     });
 
+    it('leaves out a link too long for the tally, keeping the rest', async () => {
+      const { conn, fake } = await startQuest();
+      const long = `https://github.com/acme/${'x'.repeat(500)}/pull/1`;
+      fake.emit('event', printed(`${long}\n${PR}`));
+      fake.emit('event', finished);
+      fake.emit('event', tally([]));
+      const sent = await waitForFrame(conn, (frame) => frame.type === 'turn.tally');
+      expect((sent.payload as { prs: string[] }).prs).toEqual([PR]);
+    });
+
     it('pairs each diff with the oldest turn still waiting for one, even when turns overlap', async () => {
       const { conn, fake } = await startQuest();
       fake.emit('event', write('/w/a.ts'));
