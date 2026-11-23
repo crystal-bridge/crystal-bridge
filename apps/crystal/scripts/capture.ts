@@ -629,6 +629,7 @@ async function main(): Promise<void> {
     const events = await transcriptEvents(file);
     const digest = buildDigest(events, { cwd });
     const text = digestText(digest);
+    if (text === undefined) throw new Error(`[${name}] the digest is over the cap`);
     const scratch = await mkdtemp(join(tmpdir(), 'crystal-closing-'));
     try {
       const started = Date.now();

@@ -70,10 +70,11 @@ records none during its turns. It still gets Deeds at Close, which needs no line
 **Close** gains a choice, **Record its Deeds**, on by default. Close itself works as today: the Quest stops at once and
 is closed, and its worktree is removed if you asked. With the choice on, Crystal then asks for the Quest's Deeds:
 
-1. Crystal builds a digest of the Quest from the CLI's transcript on the Kingdom: its title and project, the files and
-   pull requests its turns tallied, the Deeds and Errands it already left, and for each turn the prompt (up to 500
-   characters) and the final reply (up to 1,500). A digest over 24,000 characters keeps the first turn and the newest
-   ones, and says how many it left out.
+1. Crystal builds a digest of the Quest from the CLI's transcript on the Kingdom: its title and project, the files (up
+   to 100, each path cut to its last 200 characters) and pull requests (up to 10) its turns tallied, the newest 20
+   Deeds and 20 Errands it already left, and for each turn the prompt (up to 500 characters) and the final reply (up
+   to 1,500). A digest over 24,000 characters keeps the first turn and the newest ones, and says how many it left out;
+   one that still won't fit isn't sent, and the outcome is `unreadable`.
 2. Crystal sends the digest to one fresh one-shot `claude` call, the way a Scout's synthesis is made: `-p`,
    `--json-schema` for the answer, `--tools ''` and `--strict-mcp-config` with no MCP servers, so it has no tools at
    all, `--no-session-persistence`, so it leaves no session behind, and `--setting-sources ''`, so no settings load:

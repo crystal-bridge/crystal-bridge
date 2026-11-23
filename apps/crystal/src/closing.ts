@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   DeedRecordedPayload,
   MAX_CLOSING_DEEDS,
+  MAX_TALLY_PRS,
   lootPath,
   lootPaths,
   trophyLinks,
@@ -16,6 +17,12 @@ export const MAX_DIGEST_CHARS = 24_000;
 export const MAX_DIGEST_PROMPT = 500;
 export const MAX_DIGEST_REPLY = 1500;
 const MAX_DIGEST_FILES = 100;
+const MAX_DIGEST_PRS = MAX_TALLY_PRS;
+/** The newest Deeds and Errands the Quest left that the digest names. */
+const MAX_DIGEST_LEFT = 20;
+const MAX_DIGEST_PATH = 200;
+const MAX_DIGEST_LINK = 500;
+const MAX_DIGEST_LINE = 120;
 const MAX_TITLE_CHARS = 60;
 
 export interface QuestDigest {
@@ -50,13 +57,14 @@ function replyText(raw: Obj): string {
     .join('\n');
 }
 
-const unique = (list: string[], item: string) => (list.includes(item) ? list : [...list, item]);
+/** A path cut to its last characters, which name the file. */
+const shortPath = (path: string) => (path.length > MAX_DIGEST_PATH ? `…${path.slice(-(MAX_DIGEST_PATH - 1))}` : path);
 
 /** A Quest's digest for the call at Close (docs/DEEDS.md, Close the chapter), from its transcript's events. */
 export function buildDigest(events: readonly ReplayEvent[], quest: { cwd: string }): QuestDigest {
   const turns: { prompt: string; reply: string }[] = [];
-  let files: string[] = [];
-  let prs: string[] = [];
+  const files = new Set<string>();
+  const prs = new Set<string>();
   let planTitle: string | undefined;
   // Tool calls by id, so a result can say whether its call was refused.
   const pending = new Map<string, { name: string; input: Obj }>();
@@ -73,7 +81,7 @@ export function buildDigest(events: readonly ReplayEvent[], quest: { cwd: string
     const raw = event.payload.raw;
     if (!isObj(raw)) continue;
     if (raw.type === 'assistant') {
-      for (const path of lootPaths(raw)) files = unique(files, lootPath(path, quest.cwd));
+      for (const path of lootPaths(raw)) files.add(shortPath(lootPath(path, quest.cwd)));
       const message = raw.message;
       if (isObj(message) && Array.isArray(message.content)) {
         for (const block of message.content) {
@@ -87,7 +95,9 @@ export function buildDigest(events: readonly ReplayEvent[], quest: { cwd: string
       const turn = turns[turns.length - 1];
       if (turn && text) turn.reply = text.slice(0, MAX_DIGEST_REPLY);
     } else if (raw.type === 'user') {
-      for (const link of trophyLinks(raw)) prs = unique(prs, link);
+      for (const link of trophyLinks(raw)) {
+        if (prs.size < MAX_DIGEST_PRS && link.length <= MAX_DIGEST_LINK) prs.add(link);
+      }
       const message = raw.message;
       if (!isObj(message) || !Array.isArray(message.content)) continue;
       for (const block of message.content) {
@@ -96,40 +106,72 @@ export function buildDigest(events: readonly ReplayEvent[], quest: { cwd: string
         if (!used) continue;
         const { name, input } = used;
         if (name === 'mcp__crystal__title' && planTitle === undefined && typeof input.plain === 'string') {
-          planTitle = input.plain;
+          planTitle = input.plain.slice(0, MAX_DIGEST_LINE);
         } else if (name === 'mcp__crystal__deed' && typeof input.deed === 'string') {
-          deeds.push(input.deed);
+          deeds.push(input.deed.slice(0, MAX_DIGEST_LINE));
         } else if (name === 'mcp__crystal__errand' && typeof input.title === 'string') {
-          errands.push(input.title);
+          errands.push(input.title.slice(0, MAX_DIGEST_LINE));
         }
       }
     }
   }
 
   const title = planTitle ?? (first ?? '').split('\n')[0]!.slice(0, MAX_TITLE_CHARS);
+  const listed = [...files];
   return {
     title,
-    project: projectOf(quest.cwd),
-    files: files.slice(0, MAX_DIGEST_FILES),
-    ...(files.length > MAX_DIGEST_FILES ? { moreFiles: files.length - MAX_DIGEST_FILES } : {}),
-    prs,
-    deeds,
-    errands,
+    project: projectOf(quest.cwd).slice(0, MAX_DIGEST_LINE),
+    files: listed.slice(0, MAX_DIGEST_FILES),
+    ...(listed.length > MAX_DIGEST_FILES ? { moreFiles: listed.length - MAX_DIGEST_FILES } : {}),
+    prs: [...prs],
+    deeds: deeds.slice(-MAX_DIGEST_LEFT),
+    errands: errands.slice(-MAX_DIGEST_LEFT),
     turns,
   };
 }
 
-/** The digest as the call reads it: JSON, capped at MAX_DIGEST_CHARS, keeping the first turn and the newest ones. */
-export function digestText(digest: QuestDigest): string {
-  // `<` is escaped so a reply holding a closing tag can't end the block the digest is wrapped in.
-  const encode = (d: QuestDigest) => JSON.stringify(d).replace(/</g, '\\u003c');
-  let turns = digest.turns;
-  let text = encode(digest);
-  while (text.length > MAX_DIGEST_CHARS && turns.length > 1) {
-    turns = [turns[0]!, ...turns.slice(2)];
-    text = encode({ ...digest, turns, omittedTurns: digest.turns.length - turns.length });
+// `<` is escaped so a reply holding a closing tag can't end the block the digest is wrapped in.
+const encode = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c');
+
+/**
+ * The digest as the call reads it: JSON, capped at MAX_DIGEST_CHARS, keeping the first turn and the newest ones and
+ * saying how many it left out. Each part is encoded once, so a long Quest costs one pass. Undefined when even the
+ * first turn doesn't fit, so the call never reads more than the cap.
+ */
+export function digestText(digest: QuestDigest): string | undefined {
+  const whole = encode(digest);
+  if (whole.length <= MAX_DIGEST_CHARS) return whole;
+  const { turns, ...fixed } = digest;
+  // The fixed fields take at most half: past that, the file list gives way first.
+  let files = fixed.files;
+  const bare = encode({ ...fixed, files: [], moreFiles: fixed.files.length + (fixed.moreFiles ?? 0) });
+  let room = MAX_DIGEST_CHARS / 2 - bare.length;
+  const fitting: string[] = [];
+  for (const file of files) {
+    room -= encode(file).length + 1;
+    if (room < 0) break;
+    fitting.push(file);
   }
-  return text;
+  if (fitting.length < files.length) files = fitting;
+  const moreFiles = fixed.files.length - files.length + (fixed.moreFiles ?? 0);
+  const head = { ...fixed, files, ...(moreFiles > 0 ? { moreFiles } : {}) };
+  // Counted with the most turns there could be left out, so the final count's digits never take more room.
+  let used = encode({ ...head, turns: [], omittedTurns: turns.length }).length;
+  const kept: { prompt: string; reply: string }[] = [];
+  let newest = turns.length;
+  if (turns.length > 0) {
+    used += encode(turns[0]).length;
+    while (newest > 1) {
+      const size = encode(turns[newest - 1]).length + 1;
+      if (used + size > MAX_DIGEST_CHARS) break;
+      used += size;
+      newest--;
+    }
+    kept.push(turns[0]!, ...turns.slice(newest));
+  }
+  const omittedTurns = turns.length - kept.length;
+  const text = encode({ ...head, turns: kept, ...(omittedTurns > 0 ? { omittedTurns } : {}) });
+  return text.length <= MAX_DIGEST_CHARS ? text : undefined;
 }
 
 export const CLOSING_TIMEOUT_MS = 120_000;
@@ -276,7 +318,9 @@ export function createClosing(opts: {
     if (!events || !events.some((event) => event.type === 'user.message')) {
       return { outcome: 'unreadable', deeds: [], reason: "the Quest's transcript could not be read" };
     }
-    const prompt = closingPrompt(digestText(buildDigest(events, { cwd })));
+    const digest = digestText(buildDigest(events, { cwd }));
+    if (digest === undefined) return { outcome: 'unreadable', deeds: [], reason: "the Quest's digest is too long" };
+    const prompt = closingPrompt(digest);
     // A fresh empty folder: the Quest's own may be gone, and its settings stay out of a call that only reads a digest.
     const folder = await tmp();
     try {
