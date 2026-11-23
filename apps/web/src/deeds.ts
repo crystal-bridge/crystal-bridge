@@ -213,6 +213,21 @@ export function useCloseDeeds(): [boolean, (on: boolean) => void] {
   return [useSyncExternalStore(subscribePrefs, readCloseDeeds), setCloseDeeds];
 }
 
+/**
+ * Whether Close can offer to record a Quest's Deeds on its Kingdom: not while the Kingdom is offline (the hub drops the
+ * ask), whether this device hides it or not; else as its engines row says, and unknown (offered) until that row comes.
+ */
+export function closeDeedsOffer(
+  node: string | undefined,
+  kingdoms: readonly { id: string; connected: boolean }[],
+  rows: readonly { node: string; deeds?: boolean }[],
+): { offered: boolean; offline?: boolean } | undefined {
+  if (node === undefined) return undefined;
+  if (kingdoms.find((k) => k.id === node)?.connected === false) return { offered: false, offline: true };
+  const row = rows.find((r) => r.node === node);
+  return row ? { offered: Boolean(row.deeds) } : undefined;
+}
+
 /** Whether a Quest has a finished turn since its latest call at Close (or ever, if it has had none). */
 export function finishedTurnSinceClosing(envelopes: readonly Envelope[]): boolean {
   for (let i = envelopes.length - 1; i >= 0; i -= 1) {

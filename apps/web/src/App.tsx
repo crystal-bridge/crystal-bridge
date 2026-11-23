@@ -91,7 +91,7 @@ import {
   savePatrol,
   usePatrols,
 } from './patrols.js';
-import { useDeeds } from './deeds.js';
+import { closeDeedsOffer, useDeeds } from './deeds.js';
 import { addErrand, editErrand, errandsBySession, setErrandState, useErrandCounts, useErrands } from './errands.js';
 import { BoardPage } from './components/Board.js';
 import type { PatrolSeed } from './patrolForm.js';
@@ -1109,13 +1109,7 @@ export function App({ hub }: { hub: HubClient }) {
             ...(deeds ? { deeds: true } : {}),
           })
         }
-        closeDeeds={(() => {
-          // An offline Kingdom can't (the hub drops the ask); until its engines row arrives, whether a connected one
-          // can is unknown, which offers the choice.
-          if (visible.find((k) => k.id === node)?.connected === false) return { offered: false, offline: true };
-          const row = engineLists.find((engines) => engines.node === node);
-          return row ? { offered: Boolean(row.deeds) } : undefined;
-        })()}
+        closeDeeds={closeDeedsOffer(node, [...visible, ...hidden], engineLists)}
         onFork={primary ? fork : undefined}
         onOpen={openQuest}
         onOpenBoard={node ? (scout) => showBoard(node, scout) : undefined}

@@ -5,6 +5,7 @@ import {
   dayLabel,
   deedDays,
   deedProjects,
+  closeDeedsOffer,
   finishedTurnSinceClosing,
   PAGE_DAYS,
   questStanding,
@@ -13,6 +14,7 @@ import {
   useDeeds,
 } from './deeds.js';
 import { errandTone } from './errands.js';
+import { listKingdoms } from './kingdoms.js';
 import type { DeedsFrame, HubClient } from './hub.js';
 
 // A Wednesday, local noon.
@@ -493,5 +495,31 @@ describe('railLook', () => {
   it('shows a failed script run in red', () => {
     const failed = entry([deed('run:1', at(0, 9), { kind: 'patrol', outcome: 'failed' })]);
     expect(railLook(failed).tile).toContain('red');
+  });
+});
+
+describe('closeDeedsOffer', () => {
+  const quest = {
+    id: 'q',
+    node: 'forge',
+    cwd: '/r',
+    label: 'q',
+    status: 'idle' as const,
+    createdAt: 0,
+    lastActivity: 0,
+  };
+  it('greys the choice for an offline Kingdom, hidden on this device or not', () => {
+    for (const hidden of [[], ['forge']]) {
+      const { visible, hidden: away } = listKingdoms(['anvil'], [quest], { names: {}, hidden });
+      expect(closeDeedsOffer('forge', [...visible, ...away], [])).toEqual({ offered: false, offline: true });
+    }
+  });
+
+  it('offers it until a connected Kingdom’s engines row says otherwise', () => {
+    const kingdoms = [{ id: 'forge', connected: true }];
+    expect(closeDeedsOffer('forge', kingdoms, [])).toBeUndefined();
+    expect(closeDeedsOffer('forge', kingdoms, [{ node: 'forge', deeds: true }])).toEqual({ offered: true });
+    expect(closeDeedsOffer('forge', kingdoms, [{ node: 'forge' }])).toEqual({ offered: false });
+    expect(closeDeedsOffer(undefined, kingdoms, [])).toBeUndefined();
   });
 });
