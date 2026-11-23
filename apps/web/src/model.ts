@@ -1,4 +1,4 @@
-import { ScoutLink, type Envelope } from '@crystal-bridge/protocol';
+import { DeedRecordedPayload, DeedsClosingPayload, ScoutLink, type Envelope } from '@crystal-bridge/protocol';
 import type { Helper } from './heroes.js';
 
 /** The tools that send out a helper. */
@@ -61,6 +61,8 @@ export type ViewItem =
     }
   | { kind: 'resumed'; id: string }
   | { kind: 'closed'; id: string; worktree: { removed: boolean; reason?: string } | undefined }
+  /** How the call at Close went and the Deeds it wrote; a `writing` one is replaced in place by the final outcome. */
+  | { kind: 'deeds-closing'; id: string; outcome: string; deeds: { deed: string; detail?: string }[]; costUsd?: number }
   /** A terminal asking something only it shows. At most one, kept where it was raised and replaced as it changes. */
   | { kind: 'terminal'; id: string; text: string; held: boolean }
   | { kind: 'error'; id: string; message: string };
@@ -118,6 +120,8 @@ export class ViewBuilder {
   /** The latest Skill tool, until the skill's text arrives. */
   private pendingSkill: Extract<ViewItem, { kind: 'tool' }> | undefined;
   private readonly permissions = new Map<string, Extract<ViewItem, { kind: 'permission' }>>();
+  /** The Deeds the call at Close has written so far, gathered into the line that ends it. */
+  private closingDeeds: { deed: string; detail?: string }[] = [];
   /** What each helper handed back, by the id of the call that sent it. */
   private readonly reports = new Map<string, string>();
   /** Helpers already seen back: an agent can be notified twice, and a foreground one both ways. */
@@ -213,6 +217,31 @@ export class ViewBuilder {
           : undefined;
         this.expireCards();
         this.items.push({ kind: 'closed', id, worktree });
+        return;
+      }
+      case 'deed.recorded': {
+        const parsed = DeedRecordedPayload.safeParse(payload);
+        // A Deed from a turn has its tool call's line; only the call at Close's Deeds are gathered.
+        if (!parsed.success || !parsed.data.closing) return;
+        const { deed, detail } = parsed.data;
+        this.closingDeeds.push({ deed, ...(detail !== undefined ? { detail } : {}) });
+        return;
+      }
+      case 'deeds.closing': {
+        const parsed = DeedsClosingPayload.safeParse(payload);
+        if (!parsed.success) return;
+        const { outcome, costUsd } = parsed.data;
+        const item: ViewItem = {
+          kind: 'deeds-closing',
+          id,
+          outcome,
+          deeds: this.closingDeeds,
+          ...(costUsd !== undefined ? { costUsd } : {}),
+        };
+        this.closingDeeds = [];
+        const writing = this.items.findIndex((it) => it.kind === 'deeds-closing' && it.outcome === 'writing');
+        if (writing >= 0) this.items[writing] = { ...item, id: this.items[writing]!.id };
+        else this.items.push(item);
         return;
       }
       case 'error':

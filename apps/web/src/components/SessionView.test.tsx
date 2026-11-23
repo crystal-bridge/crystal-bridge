@@ -1275,3 +1275,57 @@ describe('SessionView attachments', () => {
     expect(screen.queryByText(/\[Attached file/)).toBeNull();
   });
 });
+
+describe('SessionView Deeds at Close (#289)', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+  const NOW = 1_800_000_000_000;
+  const DEED = '00000000-0000-4000-8000-000000000001';
+  const at = (seq: number, type: Envelope['type'], payload: unknown, ts = 0): Envelope => ({
+    ...envelope(seq, type, payload),
+    ts,
+  });
+  const base = [at(0, 'session.started', { cwd: '/w', prompt: 'p', label: 'p' }), at(1, 'session.closed', {})];
+  const view = (...more: Envelope[]) => renderView([...base, ...more]);
+
+  it('ends a closed Quest with its Deeds, or why there are none', () => {
+    view(
+      at(2, 'deed.recorded', { id: DEED, deed: 'Moved to Node 24', closing: true }),
+      at(3, 'deeds.closing', { outcome: 'recorded' }),
+    );
+    expect(screen.getByText('Your Quest’s Deeds are recorded in the annals of the Kingdom.')).toBeTruthy();
+    expect(screen.getByText('Moved to Node 24')).toBeTruthy();
+    cleanup();
+    view(at(2, 'deeds.closing', { outcome: 'timeout' }));
+    expect(screen.getByText('No Deeds recorded: the call took too long.')).toBeTruthy();
+  });
+
+  it('shows a call under way as writing, with a spinner', () => {
+    vi.useFakeTimers({ now: NOW });
+    view(at(2, 'deeds.closing', { outcome: 'writing' }, NOW - 119_000));
+    expect(screen.getByText('Your Quest is writing its Deeds…')).toBeTruthy();
+    expect(screen.getByTestId('deeds-writing-spinner')).toBeTruthy();
+  });
+
+  it('reads a writing that is past the call’s 2 minutes as stopped, never writing forever', () => {
+    vi.useFakeTimers({ now: NOW });
+    view(at(2, 'deeds.closing', { outcome: 'writing' }, NOW - 121_000));
+    expect(screen.queryByText('Your Quest is writing its Deeds…')).toBeNull();
+    expect(screen.queryByTestId('deeds-writing-spinner')).toBeNull();
+    expect(screen.getByText('No Deeds recorded: the call failed.')).toBeTruthy();
+    expect(screen.getByText('Crystal stopped before the Deeds came back.')).toBeTruthy();
+  });
+
+  it('turns a writing into stopped when the 2 minutes pass while it is open', () => {
+    vi.useFakeTimers({ now: NOW });
+    view(at(2, 'deeds.closing', { outcome: 'writing' }, NOW - 100_000));
+    expect(screen.getByText('Your Quest is writing its Deeds…')).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(21_000);
+    });
+    expect(screen.queryByText('Your Quest is writing its Deeds…')).toBeNull();
+    expect(screen.getByText('No Deeds recorded: the call failed.')).toBeTruthy();
+  });
+});

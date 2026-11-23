@@ -679,6 +679,11 @@ export function closingLine(outcome: DeedsClosingOutcome, theme: Words = words):
   return { themed: classic ? plain : `No ${w('deeds', theme)} recorded: ${reason}.`, plain };
 }
 
+/** Why a `writing` line that never got its outcome reads as stopped: Crystal went away mid-call. */
+export function closingStoppedReason(): string {
+  return 'Crystal stopped before the Deeds came back.';
+}
+
 export type QuestStanding =
   { kind: 'open' } | { kind: 'deeds' } | { kind: 'closed'; why: 'skipped' | Exclude<DeedsClosingOutcome, 'recorded'> };
 
