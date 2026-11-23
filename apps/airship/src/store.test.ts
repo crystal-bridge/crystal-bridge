@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { umask } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { deedIdFor } from './deeds.js';
 import { ErrandsFrame, MAX_OPEN_ERRANDS, type Envelope } from '@crystal-bridge/protocol';
 import {
   ERRANDS_KEPT_MS,
@@ -1803,5 +1804,139 @@ describe('Deeds (#289)', () => {
     expect(store.deedsPage('node-a', { after: 0, before: 1000 }).deeds).toEqual([]);
     expect(store.deedsPage('node-b', { after: 0, before: 1000 }).deeds).toHaveLength(1);
     void session;
+  });
+
+  describe('from events', () => {
+    const run = randomUUID();
+    const started = (session: string) =>
+      makeEnvelope({
+        node,
+        session,
+        seq: 0,
+        ts: 50,
+        type: 'session.started',
+        payload: {
+          cwd: '/r/lantern/.worktrees/abcd1234',
+          worktree: { root: '/r/lantern', branch: 'cb/abcd1234' },
+          prompt: 'Sweep',
+          label: 'Sweep',
+          patrol: { patrol: 'sweep', run },
+        },
+      });
+    const finished = (session: string, seq: number, ts = 100): Envelope =>
+      makeEnvelope({
+        node,
+        session,
+        seq,
+        ts,
+        type: 'turn.finished',
+        payload: { outcome: 'success', summary: 'Done.', costUsd: 0.2 },
+      });
+    const send = (event: Envelope) => store.appendEvent(event);
+
+    it("writes a turn record from turn.finished, under the Quest's project and Patrol", () => {
+      const session = randomUUID();
+      send(started(session));
+      expect(send(finished(session, 3))).toBe(true);
+      expect(store.deed(`turn:${session}:3`)).toMatchObject({
+        project: '/r/lantern',
+        patrol: 'sweep',
+        at: 100,
+        text: 'Done.',
+        costUsd: 0.2,
+      });
+    });
+
+    it('fills its counts from turn.tally, and writes Deeds and the call at Close from their events', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      send(started(session));
+      send(finished(session, 3));
+      send(makeEnvelope({ node, session, seq: 4, type: 'turn.tally', payload: { seq: 3, files: 2, prs: [] } }));
+      send(makeEnvelope({ node, session, seq: 5, type: 'deed.recorded', payload: { id, deed: 'Moved it' } }));
+      send(makeEnvelope({ node, session, seq: 6, type: 'deeds.closing', payload: { outcome: 'writing' } }));
+      expect(store.deed(`close:${session}:6`)).toBeUndefined();
+      send(
+        makeEnvelope({ node, session, seq: 7, type: 'deeds.closing', payload: { outcome: 'recorded', costUsd: 0.1 } }),
+      );
+      expect(store.deed(`turn:${session}:3`)).toMatchObject({ files: 2, prs: [] });
+      expect(store.deed(`deed:${id}`)).toMatchObject({ text: 'Moved it', project: '/r/lantern', seq: 5 });
+      expect(store.deed(`close:${session}:7`)).toMatchObject({ outcome: 'recorded', costUsd: 0.1 });
+      expect(page(0, Date.now() + 1000).deeds).toHaveLength(3);
+    });
+
+    it("stores an event it can't read, and writes no row", () => {
+      const session = randomUUID();
+      const bad: [string, unknown][] = [
+        ['turn.finished', 'nope'],
+        ['deed.recorded', { id: 'x', deed: '' }],
+        ['turn.tally', { seq: -1 }],
+        ['deeds.closing', { outcome: 'skipped' }],
+      ];
+      bad.forEach(([type, payload], seq) => {
+        expect(send(makeEnvelope({ node, session, seq, type: type as Envelope['type'], payload }))).toBe(true);
+      });
+      expect(store.eventsSince(session, 0)).toHaveLength(4);
+      expect(page().deeds).toEqual([]);
+    });
+
+    it('never lets a repeated Deed id refuse the event', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      send(makeEnvelope({ node, session, seq: 5, type: 'deed.recorded', payload: { id, deed: 'First' } }));
+      expect(
+        send(makeEnvelope({ node, session, seq: 8, type: 'deed.recorded', payload: { id, deed: 'Second' } })),
+      ).toBe(true);
+      expect(store.deed(`deed:${id}`)).toMatchObject({ seq: 5, text: 'First' });
+    });
+
+    it('names the row each event made', () => {
+      const session = randomUUID();
+      const id = randomUUID();
+      const e = (seq: number, type: Envelope['type'], payload: unknown) =>
+        makeEnvelope({ node, session, seq, type, payload });
+      expect(deedIdFor(finished(session, 3))).toBe(`turn:${session}:3`);
+      expect(deedIdFor(e(4, 'turn.tally', { seq: 3, files: 1, prs: [] }))).toBe(`turn:${session}:3`);
+      expect(deedIdFor(e(5, 'deed.recorded', { id, deed: 'x' }))).toBe(`deed:${id}`);
+      expect(deedIdFor(e(6, 'deeds.closing', { outcome: 'recorded' }))).toBe(`close:${session}:6`);
+      expect(deedIdFor(e(7, 'user.message', { text: 'hi' }))).toBeUndefined();
+      expect(deedIdFor(e(8, 'turn.finished', 'nope'))).toBeUndefined();
+    });
+
+    it("writes a script Patrol's run as the store records it", () => {
+      const runId = randomUUID();
+      const finishedRun: PatrolRun = {
+        id: runId,
+        startedAt: 1000,
+        finishedAt: 2000,
+        trigger: 'schedule',
+        outcome: 'finished',
+        summary: 'Backed up.',
+      };
+      const runs = store.recordPatrolRun(node, 'backup', finishedRun);
+      expect(runs).toHaveLength(1);
+      expect(store.deed(`run:${runId}`)).toMatchObject({ kind: 'patrol', patrol: 'backup', text: 'Backed up.' });
+    });
+
+    it('knows whether a Quest has a finished turn since its last Deeds at Close', () => {
+      const session = randomUUID();
+      expect(store.finishedTurnSinceClosing(session)).toBe(false);
+      send(finished(session, 1));
+      expect(store.finishedTurnSinceClosing(session)).toBe(true);
+      send(makeEnvelope({ node, session, seq: 2, type: 'deeds.closing', payload: { outcome: 'recorded' } }));
+      expect(store.finishedTurnSinceClosing(session)).toBe(false);
+      send(finished(session, 3));
+      expect(store.finishedTurnSinceClosing(session)).toBe(true);
+    });
+
+    it('forgetting a Kingdom deletes its Deeds, and closing a Quest keeps them', () => {
+      const session = randomUUID();
+      send(started(session));
+      send(finished(session, 3));
+      send(makeEnvelope({ node, session, seq: 4, type: 'session.closed', payload: {} }));
+      expect(page().deeds).toHaveLength(1);
+      store.forgetNode(node);
+      expect(page().deeds).toEqual([]);
+    });
   });
 });

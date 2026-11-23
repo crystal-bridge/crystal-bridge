@@ -1,12 +1,14 @@
 import type Database from 'better-sqlite3';
-import type {
-  Deed,
-  DeedKind,
+import {
   DeedRecordedPayload,
   DeedsClosingPayload,
-  PatrolRun,
   TurnTallyPayload,
+  type Deed,
+  type DeedKind,
+  type Envelope,
+  type PatrolRun,
 } from '@crystal-bridge/protocol';
+import { z } from 'zod';
 
 /** Rows in one page of the feed, at most. */
 export const DEEDS_PAGE_ROWS = 5000;
@@ -19,6 +21,34 @@ export interface QuestEvent {
   ts: number;
   project?: string;
   patrol?: string;
+}
+
+/** What a `turn.finished` carries that a turn record keeps; a bad optional field is dropped, a bad outcome refuses it. */
+export const TurnFinishedRecord = z.object({
+  outcome: z.string().max(32),
+  summary: z.string().optional().catch(undefined),
+  costUsd: z.number().nonnegative().optional().catch(undefined),
+  durationMs: z.number().int().nonnegative().optional().catch(undefined),
+});
+
+/** The id of the row an event made (or would make), or undefined for an event that makes none or can't be read. */
+export function deedIdFor(event: Envelope): string | undefined {
+  switch (event.type) {
+    case 'turn.finished':
+      return TurnFinishedRecord.safeParse(event.payload).success ? `turn:${event.session}:${event.seq}` : undefined;
+    case 'turn.tally': {
+      const tally = TurnTallyPayload.safeParse(event.payload).data;
+      return tally && `turn:${event.session}:${tally.seq}`;
+    }
+    case 'deed.recorded': {
+      const deed = DeedRecordedPayload.safeParse(event.payload).data;
+      return deed && `deed:${deed.id}`;
+    }
+    case 'deeds.closing':
+      return DeedsClosingPayload.safeParse(event.payload).success ? `close:${event.session}:${event.seq}` : undefined;
+    default:
+      return undefined;
+  }
 }
 
 /** The store's Deeds (docs/DEEDS.md), on the store's own database. */
@@ -81,7 +111,7 @@ function toDeed(row: Row): Deed {
 export function openDeeds(db: Database.Database): Deeds {
   const insert = db.prepare(
     `INSERT OR IGNORE INTO deeds (id, node, session, seq, patrol, project, kind, text, detail, outcome, cost_usd, duration_ms, files, prs, at)
-     VALUES (@id, @node, @session, @seq, NULL, @project, @kind, @text, @detail, @outcome, @costUsd, @durationMs, NULL, NULL, @at)`,
+     VALUES (@id, @node, @session, @seq, @patrol, @project, @kind, @text, @detail, @outcome, @costUsd, @durationMs, NULL, NULL, @at)`,
   );
   const upsertRun = db.prepare(
     `INSERT INTO deeds (id, node, session, seq, patrol, project, kind, text, detail, outcome, cost_usd, duration_ms, files, prs, at)
@@ -107,17 +137,18 @@ export function openDeeds(db: Database.Database): Deeds {
   const one = db.prepare(`SELECT ${COLUMNS} FROM deeds WHERE id = ?`);
   const forget = db.prepare(`DELETE FROM deeds WHERE node = ?`);
 
-  const blank = { text: null, detail: null, outcome: null, costUsd: null, durationMs: null };
+  const blank = { patrol: null, text: null, detail: null, outcome: null, costUsd: null, durationMs: null };
   const write = (fields: Record<string, unknown>) => insert.run({ ...blank, ...fields });
 
   return {
-    recordTurn({ node, session, seq, ts, project, payload }) {
+    recordTurn({ node, session, seq, ts, project, patrol, payload }) {
       write({
         id: `turn:${session}:${seq}`,
         node,
         session,
         seq,
         project: project ?? null,
+        patrol: patrol ?? null,
         kind: 'turn',
         text: payload.outcome === 'success' ? (payload.summary ?? null) : null,
         outcome: payload.outcome,

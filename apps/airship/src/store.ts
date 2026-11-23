@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { type Boards, openBoards } from './boards.js';
 import { errandProject, openErrands, type Errands } from './errands.js';
-import { openDeeds, type Deeds } from './deeds.js';
+import { openDeeds, TurnFinishedRecord, type Deeds } from './deeds.js';
 import { openPatrols, type Patrols } from './patrols.js';
 import { migrate } from './migrations.js';
 import { makePrivate } from './paths.js';
@@ -14,7 +14,12 @@ import {
   PermissionMode,
   Engine,
   type Envelope,
+  type PatrolRun,
+  DeedRecordedPayload,
+  DeedsClosingPayload,
   ErrandLeftPayload,
+  PatrolId,
+  TurnTallyPayload,
   PushPrefs,
   PushSubscriptionJson,
   QuestTitledPayload,
@@ -120,6 +125,8 @@ export interface UnseenQuest {
 export interface Store extends Boards, Patrols, Errands, Deeds {
   /** Stores an event; false for a duplicate. Throws `BadEvent` for one that can never be stored. */
   appendEvent(event: Envelope): boolean;
+  /** Whether the Quest has a finished turn after its latest `deeds.closing`, so a call at Close would have something to read. */
+  finishedTurnSinceClosing(session: string): boolean;
   eventsSince(session: string, seq: number): Envelope[];
   listSessions(): ListedSession[];
   /** Finished turns since `since` (epoch ms), per node, ordered by node id. */
@@ -478,6 +485,25 @@ export function openStore(path: string): Store {
     return where ? errandProject(where.cwd, where.worktree?.root) : undefined;
   }
 
+  /** The Patrol a Quest was started by, if it was. */
+  function questPatrol(session: string): string | undefined {
+    const row = startedPayloadStmt.get(session) as { payload: string } | undefined;
+    if (!row) return undefined;
+    const link = z.object({ patrol: z.object({ patrol: PatrolId }) }).safeParse(JSON.parse(row.payload)).data;
+    return link?.patrol.patrol;
+  }
+  const finishedSinceClosingStmt = db
+    .prepare(
+      `SELECT EXISTS (SELECT 1 FROM events WHERE session = @s AND type = 'turn.finished' AND seq >
+         COALESCE((SELECT MAX(seq) FROM events WHERE session = @s AND type = 'deeds.closing'), -1))`,
+    )
+    .pluck();
+  const recordPatrolRunTxn = db.transaction((node: string, patrol: string, run: PatrolRun) => {
+    const runs = patrols.recordPatrolRun(node, patrol, run);
+    deeds.recordScriptRun(node, patrol, run);
+    return runs;
+  });
+
   const appendEventTxn = db.transaction((event: Envelope): boolean => {
     const result = insertEventStmt.run({
       session: event.session,
@@ -526,6 +552,48 @@ export function openStore(path: string): Store {
           project: questProject(event.session),
         });
       }
+    } else if (event.type === 'turn.finished') {
+      // Kept as an event even when unreadable, like quest.titled: only the row waits for a good one.
+      const turn = TurnFinishedRecord.safeParse(event.payload).data;
+      if (turn) {
+        deeds.recordTurn({
+          node: event.node,
+          session: event.session,
+          seq: event.seq,
+          ts: event.ts,
+          project: questProject(event.session),
+          patrol: questPatrol(event.session),
+          payload: turn,
+        });
+      }
+    } else if (event.type === 'turn.tally') {
+      const tally = TurnTallyPayload.safeParse(event.payload).data;
+      if (tally) deeds.recordTally({ ...tally, node: event.node, session: event.session });
+    } else if (event.type === 'deed.recorded') {
+      const deed = DeedRecordedPayload.safeParse(event.payload).data;
+      if (deed) {
+        deeds.recordDeed({
+          ...deed,
+          node: event.node,
+          session: event.session,
+          seq: event.seq,
+          ts: event.ts,
+          project: questProject(event.session),
+        });
+      }
+    } else if (event.type === 'deeds.closing') {
+      const close = DeedsClosingPayload.safeParse(event.payload).data;
+      // 'writing' only says the call has started; the row waits for how it ended.
+      if (close && close.outcome !== 'writing') {
+        deeds.recordClose({
+          ...close,
+          node: event.node,
+          session: event.session,
+          seq: event.seq,
+          ts: event.ts,
+          project: questProject(event.session),
+        });
+      }
     }
     return true;
   });
@@ -563,6 +631,12 @@ export function openStore(path: string): Store {
     ...patrols,
     ...errands,
     ...deeds,
+    recordPatrolRun(node, patrol, run) {
+      return recordPatrolRunTxn(node, patrol, run);
+    },
+    finishedTurnSinceClosing(session) {
+      return finishedSinceClosingStmt.get({ s: session }) === 1;
+    },
     appendEvent(event) {
       try {
         return appendEventTxn(event);
