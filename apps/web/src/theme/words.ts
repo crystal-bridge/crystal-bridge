@@ -4,6 +4,8 @@
  * the two differ (docs/THEME.md). Pick a theme at build time with `VITE_CB_THEME` (`crystal`, the default, or
  * `classic`); add one by adding a `Words` object below.
  */
+import type { DeedsClosingOutcome } from '@crystal-bridge/protocol';
+
 export interface Word {
   themed: string;
   plain: string;
@@ -87,7 +89,10 @@ export type Concept =
   | 'patrolLog'
   | 'nextRun'
   | 'errand'
-  | 'errands';
+  | 'errands'
+  | 'deed'
+  | 'deeds'
+  | 'deedsFeed';
 
 export type Words = Record<Concept, Word>;
 
@@ -171,6 +176,9 @@ export const CRYSTAL: Words = {
   nextRun: { themed: 'Next watch', plain: 'next run' },
   errand: { themed: 'Errand', plain: 'a step a Quest left for you to take' },
   errands: { themed: 'Errands', plain: 'steps your Quests left for you to take' },
+  deed: { themed: 'Deed', plain: 'a line a Quest wrote about what it achieved' },
+  deeds: { themed: 'Deeds', plain: 'lines your Quests wrote about what they achieved' },
+  deedsFeed: { themed: 'Deeds', plain: 'what your Quests achieved, day by day' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -255,6 +263,9 @@ export const CLASSIC: Words = {
   nextRun: { themed: 'Next run', plain: 'Next run' },
   errand: { themed: 'Follow-up', plain: 'a step a Quest left for you to take' },
   errands: { themed: 'Follow-ups', plain: 'steps your Quests left for you to take' },
+  deed: { themed: 'Outcome', plain: 'a line a Quest wrote about what it achieved' },
+  deeds: { themed: 'Outcomes', plain: 'lines your Quests wrote about what they achieved' },
+  deedsFeed: { themed: 'Work log', plain: 'what your Quests achieved, day by day' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };
@@ -615,4 +626,90 @@ export function patrolStandingWord(
   };
   const { themed, plain } = line[standing];
   return theme === CLASSIC ? { themed: plain, plain } : { themed, plain };
+}
+
+/** The chat's line when a Quest recorded a Deed in a turn. */
+export function deedRecordedLine(theme: Words = words): Word {
+  const plain = 'Recorded an outcome';
+  return {
+    themed:
+      theme === CLASSIC
+        ? `${w('deed', theme)} recorded.`
+        : `A new ${w('deed', theme)} is recorded in the annals of the ${w('kingdom', theme)}.`,
+    plain,
+  };
+}
+
+/** The chat's line when a Quest's `deed` call failed. */
+export function deedRefusedLine(theme: Words = words): Word {
+  const plain = 'Recording an outcome failed';
+  return {
+    themed: theme === CLASSIC ? plain : `Your ${w('quest', theme)} couldn’t record a ${w('deed', theme)}.`,
+    plain,
+  };
+}
+
+const CLOSING_REASONS: Record<Exclude<DeedsClosingOutcome, 'writing' | 'recorded'>, string> = {
+  empty: 'the call wrote none',
+  timeout: 'the call took too long',
+  budget: 'the call went over its budget',
+  failed: 'the call failed',
+  unreadable: 'the Quest’s transcript couldn’t be read',
+};
+
+/** The chat's line at Close for how the call that writes the Deeds went. */
+export function closingLine(outcome: DeedsClosingOutcome, theme: Words = words): Word {
+  const classic = theme === CLASSIC;
+  if (outcome === 'writing') {
+    return {
+      themed: classic ? 'Writing a summary…' : `Your ${w('quest', theme)} is writing its ${w('deeds', theme)}…`,
+      plain: 'Writing a summary…',
+    };
+  }
+  if (outcome === 'recorded') {
+    return {
+      themed: classic
+        ? 'Summary recorded.'
+        : `Your ${w('quest', theme)}’s ${w('deeds', theme)} are recorded in the annals of the ${w('kingdom', theme)}.`,
+      plain: 'Summary recorded.',
+    };
+  }
+  const reason = CLOSING_REASONS[outcome];
+  const plain = `No summary recorded: ${reason}.`;
+  return { themed: classic ? plain : `No ${w('deeds', theme)} recorded: ${reason}.`, plain };
+}
+
+export type QuestStanding =
+  { kind: 'open' } | { kind: 'deeds' } | { kind: 'closed'; why: 'skipped' | Exclude<DeedsClosingOutcome, 'recorded'> };
+
+const STANDING_WHY: Record<Exclude<QuestStanding, { kind: 'open' | 'deeds' }>['why'], string> = {
+  skipped: 'skipped',
+  writing: 'still writing',
+  timeout: 'too long',
+  budget: 'over budget',
+  empty: 'nothing written',
+  failed: 'the call failed',
+  unreadable: 'transcript unreadable',
+};
+
+/** A Quest's standing in the feed: still open, closed with Deeds, or closed and why it has none. */
+export function questStandingWord(standing: QuestStanding, theme: Words = words): Word {
+  if (standing.kind === 'open') return { themed: 'Still open', plain: 'Still open' };
+  if (standing.kind === 'deeds') {
+    return {
+      themed: `Closed with ${theme === CLASSIC ? w('deeds', theme).toLowerCase() : w('deeds', theme)}`,
+      plain: 'Closed with outcomes',
+    };
+  }
+  const text = `Closed · ${STANDING_WHY[standing.why]}`;
+  return { themed: text, plain: text };
+}
+
+/** The Close dialog's choice to have the Quest's Deeds written. */
+export function recordDeedsChoice(theme: Words = words): { label: string; hint: string } {
+  const noun = theme === CLASSIC ? w('deeds', theme).toLowerCase() : w('deeds', theme);
+  return {
+    label: `Record its ${noun}`,
+    hint: `Writes the ${theme === CLASSIC ? w('quest', theme).toLowerCase() : w('quest', theme)}’s ${noun} from a short digest of it, for a few cents.`,
+  };
 }

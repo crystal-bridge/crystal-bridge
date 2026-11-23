@@ -21,6 +21,11 @@ import {
   sourceLine,
   patrolOutcomeWord,
   patrolStandingWord,
+  deedRecordedLine,
+  deedRefusedLine,
+  closingLine,
+  questStandingWord,
+  recordDeedsChoice,
 } from './words.js';
 
 describe('theme words', () => {
@@ -333,5 +338,56 @@ describe('Quest titles (#287)', () => {
     expect(classic.show).toBe('Show the follow-ups');
     expect(classic.showHint).toBe('Show this session’s follow-ups in the side panel');
     expect(classic.loadFailed).toBe('Couldn’t load follow-ups.');
+  });
+
+  it('names Deeds, and Outcomes and the Work log in the Classic theme', () => {
+    expect(w('deed', CRYSTAL)).toBe('Deed');
+    expect(w('deeds', CRYSTAL)).toBe('Deeds');
+    expect(w('deedsFeed', CRYSTAL)).toBe('Deeds');
+    expect(w('deed', CLASSIC)).toBe('Outcome');
+    expect(w('deeds', CLASSIC)).toBe('Outcomes');
+    expect(w('deedsFeed', CLASSIC)).toBe('Work log');
+    expect(hint('deedsFeed', CLASSIC)).toBe('Work log (what your Quests achieved, day by day)');
+  });
+
+  it('says a Deed was recorded in a turn', () => {
+    expect(deedRecordedLine(CRYSTAL).themed).toBe('A new Deed is recorded in the annals of the Kingdom.');
+    expect(deedRecordedLine(CLASSIC).themed).toBe('Outcome recorded.');
+    expect(deedRefusedLine(CRYSTAL).themed).toBe('Your Quest couldn’t record a Deed.');
+  });
+
+  it('says how the call at Close went', () => {
+    expect(closingLine('recorded', CRYSTAL).themed).toBe(
+      'Your Quest’s Deeds are recorded in the annals of the Kingdom.',
+    );
+    expect(closingLine('recorded', CLASSIC).themed).toBe('Summary recorded.');
+    expect(closingLine('timeout', CRYSTAL).themed).toBe('No Deeds recorded: the call took too long.');
+    expect(closingLine('timeout', CLASSIC).themed).toBe('No summary recorded: the call took too long.');
+    expect(closingLine('budget', CRYSTAL).themed).toContain('the call went over its budget');
+    expect(closingLine('empty', CRYSTAL).themed).toContain('the call wrote none');
+    expect(closingLine('failed', CRYSTAL).themed).toContain('the call failed');
+    expect(closingLine('unreadable', CRYSTAL).themed).toContain('the Quest’s transcript couldn’t be read');
+  });
+
+  it('names a Quest’s standing in the feed', () => {
+    expect(questStandingWord({ kind: 'open' }, CRYSTAL).themed).toBe('Still open');
+    expect(questStandingWord({ kind: 'deeds' }, CRYSTAL).themed).toBe('Closed with Deeds');
+    expect(questStandingWord({ kind: 'deeds' }, CLASSIC).themed).toBe('Closed with outcomes');
+    const why = (k: 'skipped' | 'timeout' | 'budget' | 'empty' | 'failed' | 'unreadable') =>
+      questStandingWord({ kind: 'closed', why: k }, CRYSTAL).themed;
+    expect(why('skipped')).toBe('Closed · skipped');
+    expect(why('timeout')).toBe('Closed · too long');
+    expect(why('budget')).toBe('Closed · over budget');
+    expect(why('empty')).toBe('Closed · nothing written');
+    expect(why('failed')).toBe('Closed · the call failed');
+    expect(why('unreadable')).toBe('Closed · transcript unreadable');
+  });
+
+  it('offers the choice at Close', () => {
+    expect(recordDeedsChoice(CRYSTAL)).toEqual({
+      label: 'Record its Deeds',
+      hint: 'Writes the Quest’s Deeds from a short digest of it, for a few cents.',
+    });
+    expect(recordDeedsChoice(CLASSIC).label).toBe('Record its outcomes');
   });
 });
