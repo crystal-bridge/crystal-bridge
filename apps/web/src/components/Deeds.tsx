@@ -190,7 +190,9 @@ export function DeedsFeed({
               {`Couldn’t read older days: ${state.error}`}
             </p>
           )}
-          {state.older !== undefined && <LoadOlder loading={state.loadingOlder === true} onLoadOlder={onLoadOlder} />}
+          {state.older !== undefined && (
+            <LoadOlder loading={state.loadingOlder === true || state.reloading === true} onLoadOlder={onLoadOlder} />
+          )}
         </>
       )}
     </section>
@@ -316,20 +318,23 @@ function Empty({
   );
 }
 
-/** Load older days: a button, and the same when the feed's end scrolls into view where the browser can tell. */
+/**
+ * Load older days: a button, and the same when the feed's end scrolls into view where the browser can tell. Held while
+ * a read is under way; when it ends the end is looked at again, since an observer only speaks when the view changes.
+ */
 function LoadOlder({ loading, onLoadOlder }: { loading: boolean; onLoadOlder: () => void }) {
   const end = useRef<HTMLDivElement>(null);
   const load = useRef(onLoadOlder);
   load.current = onLoadOlder;
   useEffect(() => {
     const element = end.current;
-    if (!element || typeof IntersectionObserver === 'undefined') return;
+    if (loading || !element || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) load.current();
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [loading]);
   return (
     <div ref={end} className="px-3">
       <button

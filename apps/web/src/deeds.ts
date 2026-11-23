@@ -22,6 +22,8 @@ export interface DeedsState {
   /** Where the loaded days begin (epoch ms, a local midnight). */
   after?: number;
   loadingOlder?: boolean;
+  /** A reconnect is reading the newest days again over the loaded ones; older days wait for it. */
+  reloading?: boolean;
 }
 
 /** How many local days one page of the feed spans. */
@@ -109,8 +111,10 @@ export function useDeeds(
       heard = new Map();
       const after = midnightBefore(Date.now(), PAGE_DAYS - 1);
       reading = after;
-      // An older-days read still on its way is stale now: let go of it.
-      setState((s) => (s.loadingOlder ? { ...s, loadingOlder: false } : s));
+      // An older-days read still on its way is stale now: let go of it. Over loaded days, say a read is under way.
+      setState((s) =>
+        s.loaded || s.loadingOlder ? { ...s, loadingOlder: false, ...(s.loaded ? { reloading: true } : {}) } : s,
+      );
       const fresh = () => round === latest;
       readWindow(node, { after }, project, () => !fresh())
         .then((page) => {
@@ -127,7 +131,9 @@ export function useDeeds(
           const reason = error instanceof Error ? error.message : String(error);
           if (!fresh()) return;
           reading = undefined;
-          setState((current) => (current.loaded ? current : { deeds: [], loaded: false, error: reason }));
+          setState((current) =>
+            current.loaded ? { ...current, reloading: false } : { deeds: [], loaded: false, error: reason },
+          );
         });
     };
     older.current = () => {

@@ -203,6 +203,20 @@ describe('Deeds data', () => {
     expect(pending).toHaveLength(2);
   });
 
+  it('says it is reading the newest days again after a reconnect, until that read is over', async () => {
+    const { hub, reconnect } = fakeHub();
+    const { result } = renderHook(() => useDeeds(hub, 'forge'));
+    expect(result.current.reloading).toBeFalsy();
+    await act(async () => pending[0]?.answer({ deeds: [deed('turn:a:1', NOW)], older: midnight(20) }));
+    act(() => reconnect());
+    expect(result.current.reloading).toBe(true);
+    await act(async () => pending[1]?.answer({ deeds: [deed('turn:a:1', NOW)], older: midnight(20) }));
+    expect(result.current.reloading).toBeFalsy();
+    act(() => reconnect());
+    await act(async () => pending[2]?.answer({ error: 'down' }, 503));
+    expect(result.current.reloading).toBeFalsy();
+  });
+
   it('leaves out a frame’s rows from before the window while the first read is on its way', async () => {
     const { hub, frame } = fakeHub();
     const { result } = renderHook(() => useDeeds(hub, 'forge'));

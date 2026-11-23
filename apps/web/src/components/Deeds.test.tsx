@@ -365,6 +365,38 @@ describe('DeedsFeed', () => {
     expect(observed).toHaveLength(0);
   });
 
+  it('holds Load older days while the newest are read again, then loads them if the end is still in view', () => {
+    // As a browser does, the observer reports at once whether the end is in view.
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+        observe() {
+          this.callback([{ isIntersecting: true }]);
+        }
+        disconnect() {}
+      },
+    );
+    const state = { ...LOADED, older: at(10, 9, 0), reloading: true };
+    const { region, onLoadOlder, view } = feed({ state });
+    const button = within(region).getByRole('button', { name: 'Load older days' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(onLoadOlder).not.toHaveBeenCalled();
+    view.rerender(
+      <DeedsFeed
+        state={{ ...state, reloading: false }}
+        sessions={SESSIONS}
+        patrols={PATROLS}
+        now={NOW}
+        onProject={vi.fn()}
+        onOpenQuest={vi.fn()}
+        onOpenRun={vi.fn()}
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+
   it('on a phone, shows the same entries, chips and links with the totals line, and no unfolding', () => {
     const { region, onProject, onOpenQuest } = feed({ phone: true });
     expect(region.querySelector('details')).toBeNull();
