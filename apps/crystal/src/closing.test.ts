@@ -131,6 +131,42 @@ describe('the digest at Close (#289)', () => {
     expect(text.length).toBeLessThanOrEqual(MAX_DIGEST_CHARS);
   });
 
+  it('lists only the files that fit half the cap, counting the rest, and keeps the first ones', () => {
+    const files = Array.from({ length: 100 }, (_, i) => `${String(i).padStart(3, '0')}${'x'.repeat(197)}`);
+    const digest = {
+      title: 'Long',
+      project: 'lantern',
+      files,
+      moreFiles: 50,
+      prs: [],
+      deeds: [],
+      errands: [],
+      turns: Array.from({ length: 5 }, (_, i) => ({ prompt: `turn ${i + 1}`, reply: 'r'.repeat(1500) })),
+    };
+    expect(files[0]!.length).toBe(200);
+    const text = digestText(digest)!;
+    expect(text.length).toBeLessThanOrEqual(MAX_DIGEST_CHARS);
+    const parsed = JSON.parse(text) as { files: string[]; moreFiles: number; turns: unknown[] };
+    expect(parsed.files.length).toBeGreaterThan(0);
+    expect(parsed.files.length).toBeLessThan(100);
+    expect(parsed.files.length + parsed.moreFiles).toBe(150);
+    expect(parsed.files).toEqual(files.slice(0, parsed.files.length));
+    expect(parsed.turns).toHaveLength(5);
+  });
+
+  it('gives no digest when its fixed fields alone are over the cap', () => {
+    const digest = {
+      title: 'Huge',
+      project: 'lantern',
+      files: [],
+      prs: [],
+      deeds: Array.from({ length: 20 }, () => '<'.repeat(120)),
+      errands: Array.from({ length: 20 }, () => '<'.repeat(120)),
+      turns: [{ prompt: 'go', reply: '' }],
+    };
+    expect(digestText(digest)).toBeUndefined();
+  });
+
   it('caps a title the Quest set itself', () => {
     const events = [prompt('go'), call('t', 'mcp__crystal__title', { plain: 'x'.repeat(5000) }), result('t', 'ok')];
     expect(buildDigest(events, { cwd }).title.length).toBeLessThanOrEqual(120);
@@ -288,6 +324,32 @@ describe('the call at Close (#289)', () => {
     expect((await make(fake.collect, async () => undefined).run('s1', '/r')).outcome).toBe('unreadable');
     expect((await make(fake.collect, async () => [say('x')]).run('s1', '/r')).outcome).toBe('unreadable');
     expect(fake.requests).toHaveLength(0);
+  });
+
+  it('makes no call, and no folder, for a Quest whose digest is too long', async () => {
+    // Each `<` is escaped to six characters: 20 Deeds and 20 Errands of them fill more than the cap.
+    const huge: ReplayEvent[] = [prompt('go')];
+    for (let i = 0; i < 20; i++) {
+      huge.push(call(`d${i}`, 'mcp__crystal__deed', { deed: '<'.repeat(120) }), result(`d${i}`, 'ok'));
+      huge.push(call(`e${i}`, 'mcp__crystal__errand', { title: '<'.repeat(120) }), result(`e${i}`, 'ok'));
+    }
+    const collect = vi.fn();
+    const tmp = vi.fn(async () => mkdtempSync(join(testRoot, 'huge-')));
+    const closing = createClosing({
+      claudeBin: 'claude',
+      env: {},
+      budgetUsd: 1,
+      transcript: async () => huge,
+      collect,
+      tmp,
+    });
+    expect(await closing.run('s1', '/r/lantern')).toEqual({
+      outcome: 'unreadable',
+      deeds: [],
+      reason: "the Quest's digest is too long",
+    });
+    expect(tmp).not.toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
   });
 
   it('stop() stops a call still running', async () => {
