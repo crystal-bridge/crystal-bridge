@@ -66,6 +66,7 @@ import {
 import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, withAttachments } from './attachments.js';
 import { WebSocket } from 'ws';
 import { readSessionFile } from './files.js';
+import type { Closing } from './closing.js';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
 import type { ReplayEvent } from './transcripts.js';
 import type { ClaudeSessionEvent } from './session.js';
@@ -124,6 +125,8 @@ export interface PermissionServerLike {
 }
 
 export interface StartNodeOptions {
+  /** Makes the call at Close (`closing.ts`); without it, hello doesn't offer `deeds` and `session.close` ignores it. */
+  closing?: Closing;
   hubUrl: string;
   node: string;
   /** This node's token from the Airship's `node:add`, sent as a bearer header. */
@@ -970,6 +973,29 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       }));
     }
     sendEnvelope(cmd.session, 'session.closed', worktree ? { worktree } : {});
+    if (cmd.deeds && options.closing) void recordClosing(cmd.session, state.cwd);
+  }
+
+  /** The call at Close: says it is writing, then sends its Deeds and how it went; sends nothing once Crystal has closed. */
+  async function recordClosing(session: string, cwd: string): Promise<void> {
+    const closing = options.closing;
+    if (!closing || closed) return;
+    sendEnvelope(session, 'deeds.closing', { outcome: 'writing' });
+    let result: Awaited<ReturnType<Closing['run']>>;
+    try {
+      result = await closing.run(session, cwd);
+    } catch (error) {
+      result = { outcome: 'failed', deeds: [], reason: error instanceof Error ? error.message : String(error) };
+    }
+    if (closed) return;
+    for (const { deed, detail } of result.deeds) {
+      sendEnvelope(session, 'deed.recorded', { id: randomUUID(), deed, ...(detail ? { detail } : {}), closing: true });
+    }
+    sendEnvelope(session, 'deeds.closing', {
+      outcome: result.outcome,
+      ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+      ...(result.reason ? { reason: result.reason.slice(0, 300) } : {}),
+    });
   }
 
   /**
@@ -1239,6 +1265,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.release ? { release: options.release } : {}),
           ...(options.updateCli ? { cliUpdate: true } : {}),
           ...(options.listInventory ? { inventory: true } : {}),
+          ...(options.closing ? { deeds: true } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
           ...(options.scouts ? { scouts: true, scoutQuests: true, patrolDrafts: true } : {}),
           ...(options.patrols ? { patrols: true, patrolsFromApp: options.patrols.fromApp(), patrolPreview: true } : {}),
@@ -1328,6 +1355,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
 
   function close(): Promise<void> {
     closed = true;
+    options.closing?.stop();
     if (scanTimer) clearInterval(scanTimer);
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);

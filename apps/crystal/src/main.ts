@@ -27,6 +27,7 @@ import {
 import { createUpdater } from './self-update.js';
 import { createScouts } from './scouts.js';
 import { createPatrols } from './patrols.js';
+import { createClosing, DEFAULT_CLOSING_BUDGET_USD } from './closing.js';
 import {
   createSummons,
   envFileOf,
@@ -68,6 +69,18 @@ const PROJECTS_DIR = join(CONFIG_DIR, 'projects');
 const PROJECT_ROOTS = (process.env.CRYSTAL_PROJECT_ROOTS ?? join(homedir(), 'code')).split(delimiter).filter(Boolean);
 
 const CLAUDE_BIN = resolveClaudeBin(process.env);
+// The call at Close (docs/DEEDS.md): no model unless named, so the CLI's own default applies.
+const CLOSING_MODEL = process.env.CRYSTAL_CLOSING_MODEL || undefined;
+const CLOSING_BUDGET_USD = (() => {
+  const raw = process.env.CRYSTAL_CLOSING_BUDGET_USD;
+  if (raw === undefined || raw === '') return DEFAULT_CLOSING_BUDGET_USD;
+  const value = Number(raw);
+  if (Number.isFinite(value) && value > 0) return value;
+  console.log(
+    `[crystal] ignoring CRYSTAL_CLOSING_BUDGET_USD=${raw}: not a positive number, using ${DEFAULT_CLOSING_BUDGET_USD}`,
+  );
+  return DEFAULT_CLOSING_BUDGET_USD;
+})();
 // One folder per Scout (docs/SCOUTS.md); its schedule state sits beside the folder, not in it.
 const SCOUTS_DIR = process.env.CRYSTAL_SCOUTS_DIR || join(homedir(), '.crystal-bridge', 'scouts');
 // One folder per Patrol (docs/PATROLS.md), beside the Scouts; its state sits beside the folder too.
@@ -180,6 +193,16 @@ async function main(): Promise<void> {
   });
 
   node = startNode({
+    closing: createClosing({
+      claudeBin: CLAUDE_BIN,
+      env: sessionEnv,
+      model: CLOSING_MODEL,
+      budgetUsd: CLOSING_BUDGET_USD,
+      transcript: async (id) => {
+        const file = await findTranscript(PROJECTS_DIR, id);
+        return file ? transcriptEvents(file) : undefined;
+      },
+    }),
     ...(RELEASE ? { release: RELEASE } : {}),
     hubUrl: HUB_URL,
     node: NODE_ID,

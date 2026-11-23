@@ -1258,6 +1258,110 @@ describe('startNode', () => {
     });
   });
 
+  describe('the call at Close (#289)', () => {
+    const fakeClosing = (result: unknown) => ({
+      run: vi.fn(async (_session: string, _cwd: string) => {
+        if (result instanceof Error) throw result;
+        return result as never;
+      }),
+      stop: vi.fn(),
+    });
+    async function started(closing?: ReturnType<typeof fakeClosing>) {
+      createNode(closing ? { closing } : {});
+      const conn = await nextConnection(harness, 0);
+      const hello = await waitForFrame(conn, (f) => f.kind === 'hello');
+      const session = randomUUID();
+      conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'go' }));
+      await waitForFrame(conn, (f) => f.type === 'session.started');
+      return { conn, session, hello };
+    }
+    const types = ['session.closed', 'deeds.closing', 'deed.recorded'];
+    const seen = (conn: ConnRecorder) =>
+      conn.frames.filter((f) => types.includes(f.type as string)).map((f) => f as Record<string, any>);
+
+    it('offers the call in its hello', async () => {
+      expect((await started(fakeClosing({ outcome: 'empty', deeds: [] }))).hello).toMatchObject({ deeds: true });
+      node?.close();
+      node = undefined;
+      await closeHarness(harness);
+      harness = await startHarness();
+      expect((await started()).hello).not.toHaveProperty('deeds');
+    });
+
+    it('closes first, then sends the Deeds from Close and how the call went', async () => {
+      const closing = fakeClosing({
+        outcome: 'recorded',
+        deeds: [{ deed: 'Released v0.8.1' }, { deed: 'Wrote the guide', detail: 'Under docs/.' }],
+        costUsd: 0.09,
+      });
+      const { conn, session } = await started(closing);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'recorded');
+      const frames = seen(conn);
+      expect(frames.map((f) => `${f.type}${f.payload.outcome ? ':' + f.payload.outcome : ''}`)).toEqual([
+        'session.closed',
+        'deeds.closing:writing',
+        'deed.recorded',
+        'deed.recorded',
+        'deeds.closing:recorded',
+      ]);
+      expect(frames[2]!.payload).toMatchObject({ deed: 'Released v0.8.1', closing: true });
+      expect(frames[3]!.payload).toMatchObject({ deed: 'Wrote the guide', detail: 'Under docs/.', closing: true });
+      expect(frames[2]!.payload.id).not.toBe(frames[3]!.payload.id);
+      expect(frames[4]!.payload).toEqual({ outcome: 'recorded', costUsd: 0.09 });
+      expect(closing.run).toHaveBeenCalledWith(session, '/w');
+    });
+
+    it('says why there were none', async () => {
+      const closing = fakeClosing({ outcome: 'timeout', deeds: [], reason: 'stopped after 120 s' });
+      const { conn, session } = await started(closing);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'timeout');
+      expect(seen(conn).filter((f) => f.type === 'deed.recorded')).toHaveLength(0);
+      expect(seen(conn).at(-1)!.payload).toEqual({ outcome: 'timeout', reason: 'stopped after 120 s' });
+    });
+
+    it('reports a call that throws as failed', async () => {
+      const { conn, session } = await started(fakeClosing(new Error('spawn failed')));
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      const frame = await waitForFrame(
+        conn,
+        (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'failed',
+      );
+      expect(frame.payload).toEqual({ outcome: 'failed', reason: 'spawn failed' });
+    });
+
+    it('makes no call without the option, or for a Kingdom that restarted without one', async () => {
+      const closing = fakeClosing({ outcome: 'empty', deeds: [], reason: 'x' });
+      const { conn, session } = await started(closing);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session }));
+      await waitForFrame(conn, (f) => f.type === 'session.closed');
+      expect(closing.run).not.toHaveBeenCalled();
+      const other = randomUUID();
+      conn.socket.send(
+        JSON.stringify({ type: 'session.close', session: other, deeds: true, resume: { cwd: '/old', nextSeq: 5 } }),
+      );
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing' && (f.payload as any).outcome === 'empty');
+      expect(closing.run).toHaveBeenCalledWith(other, '/old');
+    });
+
+    it('stops a call still running when Crystal shuts down, and sends nothing for it', async () => {
+      let release!: (r: unknown) => void;
+      const closing = {
+        run: vi.fn(() => new Promise((resolve) => (release = resolve)) as never),
+        stop: vi.fn(),
+      };
+      const { conn, session } = await started(closing as never);
+      conn.socket.send(JSON.stringify({ type: 'session.close', session, deeds: true }));
+      await waitForFrame(conn, (f) => f.type === 'deeds.closing');
+      await node!.close();
+      expect(closing.stop).toHaveBeenCalled();
+      release({ outcome: 'recorded', deeds: [{ deed: 'late' }] });
+      await delay(30);
+      expect(seen(conn).filter((f) => f.type === 'deed.recorded')).toHaveLength(0);
+    });
+  });
+
   describe('Errands (#288)', () => {
     async function startQuest(crystal: CrystalNode) {
       const conn = await nextConnection(harness, 0);
