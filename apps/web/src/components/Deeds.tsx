@@ -340,8 +340,9 @@ const AUTO_PAGES = 3;
  * Load older days: a button, and the same when the feed's end scrolls into view where the browser can tell. Held while
  * a read is under way. After a page arrives the end is looked at again (an observer reports at once, then only on a
  * change), so a short feed fills itself, but only `AUTO_PAGES` in a row until the user scrolls or clicks. Only a read
- * that succeeded lets the end, already in view, ask again: after a failed one (of older days, or of the newest after a
- * reconnect) only the button or a scroll does, since the end being in view would otherwise ask over and over.
+ * that succeeded lets the end, already in view, ask again, since it would otherwise ask over and over: after an
+ * older-days read fails no observer is attached, so only the button tries again; after a reconnect's read of the newest
+ * days fails, a scroll to the end or the button does.
  */
 function LoadOlder({
   loading,
