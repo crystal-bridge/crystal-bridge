@@ -6,6 +6,7 @@ import { levelFor } from '../levels.js';
 import type { PatrolsState } from '../patrols.js';
 import { RECENT_MS } from '../quests.js';
 import { Castle } from './Castle.js';
+import { newChipMemory } from './Deeds.js';
 import { w } from '../theme/words.js';
 import type { SessionSummary } from './SessionList.js';
 
@@ -329,7 +330,9 @@ describe('Castle', () => {
         project,
       });
       const both = { ...deeds, deeds: [row('1', '/r/acme/lantern', 'a'), row('2', '/r/acme/forge', 'b')] };
-      const props = renderCastle({ deeds: both });
+      // Each Kingdom's chip memory, as the app keeps them.
+      const chipsOf = { k: newChipMemory(), k2: newChipMemory() };
+      const props = renderCastle({ deeds: both, deedsChips: chipsOf.k });
       const rerender = (overrides: Partial<Parameters<typeof Castle>[0]>) =>
         // The same tree, so Castle and the feeds stay mounted as they do in the app.
         render(<Castle {...props} {...overrides} />, { container: document.body.firstElementChild as HTMLElement });
@@ -357,11 +360,42 @@ describe('Castle', () => {
       const other = { id: 'k2', name: 'Forge', connected: true, sessions: 0 };
       rerender({
         kingdom: other,
+        deedsChips: chipsOf.k2,
         deeds: { ...deeds, deeds: [row('3', '/r/other/mill', 'c')] },
         deedsProject: '/r/other/mill',
       });
       expect(chips('phone')).toEqual(['/r/other/mill']);
       expect(chips('wide')).toEqual(['/r/other/mill']);
+    });
+
+    it('keeps the chips its caller holds when the Castle mounts again with a project chosen', () => {
+      const row = (id: string, project: string, session: string) => ({
+        ...deeds.deeds[0]!,
+        id: `turn:${SESSION}:${id}`,
+        session,
+        project,
+      });
+      const deedsChips = newChipMemory();
+      renderCastle({
+        deeds: { ...deeds, deeds: [row('1', '/r/acme/lantern', 'a'), row('2', '/r/acme/forge', 'b')] },
+        deedsChips,
+      });
+      // A Quest opened and closed: the Castle goes and comes back, the chosen project kept by the app.
+      cleanup();
+      renderCastle({
+        deeds: { ...deeds, deeds: [row('2', '/r/acme/forge', 'b')] },
+        deedsProject: '/r/acme/forge',
+        deedsChips,
+      });
+      for (const feed of feeds()) {
+        const group = within(feed).getByRole('group', { name: 'Filter by project' });
+        const titles = within(group)
+          .getAllByRole('button')
+          .map((b) => b.title)
+          .filter(Boolean)
+          .sort();
+        expect(titles).toEqual(['/r/acme/forge', '/r/acme/lantern']);
+      }
     });
 
     it('shows nothing for a Kingdom without deeds data', () => {

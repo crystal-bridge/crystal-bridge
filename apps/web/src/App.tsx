@@ -39,7 +39,7 @@ import {
 import { type CheckOutcome, type HubStatus, logAttention } from './components/ShipsLog.js';
 import { Airship } from './components/Airship.js';
 import { Castle } from './components/Castle.js';
-import { QuestDeeds } from './components/Deeds.js';
+import { newChipMemory, QuestDeeds } from './components/Deeds.js';
 import { QuestErrands } from './components/Errands.js';
 import { ConfigMenu } from './components/ConfigMenu.js';
 import type { PushState } from './components/DevicePush.js';
@@ -327,6 +327,16 @@ export function App({ hub }: { hub: HubClient }) {
   // The Deeds feed's project chip, per Kingdom and not stored, so it resets when you switch Kingdom.
   const [deedsProjects, setDeedsProjects] = useState<Record<string, string | undefined>>({});
   const deedsProject = active ? deedsProjects[active] : undefined;
+  // Each Kingdom's feed chips as last seen unfiltered, kept beside its chosen project: the Castle comes and goes.
+  const deedsChips = useRef(new Map<string, ReturnType<typeof newChipMemory>>());
+  const deedsChipsOf = (node: string) => {
+    let memory = deedsChips.current.get(node);
+    if (!memory) {
+      memory = newChipMemory();
+      deedsChips.current.set(node, memory);
+    }
+    return memory;
+  };
   const deeds = useDeeds(hub, active ?? undefined, deedsProject);
   const errandsPerQuest = useMemo(() => errandsBySession(errands.errands), [errands.errands]);
   const errandCounts = useErrandCounts(hub);
@@ -1687,6 +1697,7 @@ export function App({ hub }: { hub: HubClient }) {
                 errands={errands}
                 deeds={deeds}
                 deedsProject={deedsProject}
+                deedsChips={deedsChipsOf(kingdom.id)}
                 onDeedsProject={(project) => setDeedsProjects((all) => ({ ...all, [kingdom.id]: project }))}
                 onErrandState={(id, state) => changeErrandState(kingdom.id, id, state)}
                 onAddErrand={async (draft) => {

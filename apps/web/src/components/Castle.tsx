@@ -28,7 +28,7 @@ import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
 import { isBehind, releaseLabel } from '../release.js';
-import { DeedsFeed, newChipMemory } from './Deeds.js';
+import { type ChipMemory, DeedsFeed, newChipMemory } from './Deeds.js';
 import { ErrandsPanel } from './Errands.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
 import { Watchtower } from './Watchtower.js';
@@ -108,6 +108,11 @@ export interface CastleProps {
   /** The project chip the feed is filtered by. */
   deedsProject?: string | undefined;
   onDeedsProject?: (project: string | undefined) => void;
+  /**
+   * This Kingdom's project chips as last seen unfiltered, held by the caller beside the chosen project so they outlive
+   * the Castle (opening a Quest unmounts it); absent, the Castle keeps its own while it stays.
+   */
+  deedsChips?: { current: ChipMemory };
   /** Boards with a pinned tab on this device; the others' cards offer Pin when `onPinBoard` is given. */
   pinnedBoards?: ReadonlySet<string>;
   onPinBoard?: (scout: string) => void;
@@ -427,6 +432,7 @@ export function Castle({
   deeds,
   deedsProject,
   onDeedsProject,
+  deedsChips,
   pinnedBoards,
   onPinBoard,
   sessions,
@@ -511,13 +517,9 @@ export function Castle({
   const errandsHere = checklist && <div className="hidden xl:block">{errandsPanel(false)}</div>;
   // A script run asked for from the feed: both Watchtowers open that Patrol's runs and scroll to it.
   const [focus, setFocus] = useState<{ patrol: string; run: string } | undefined>();
-  // The feed's project chips per Kingdom, above its copies: a phone's copy remounts, and Kingdoms never share them.
-  const chipMemories = useRef(new Map<string, ReturnType<typeof newChipMemory>>());
-  let chipMemory = chipMemories.current.get(kingdom.id);
-  if (!chipMemory) {
-    chipMemory = newChipMemory();
-    chipMemories.current.set(kingdom.id, chipMemory);
-  }
+  // The feed's project chips, above its copies: a phone's copy remounts. Without the caller's, the Castle's own.
+  const ownChips = useRef(newChipMemory());
+  const chipMemory = deedsChips ?? ownChips.current;
   const deedsFeed = (phone: boolean) =>
     deeds && (
       <DeedsFeed
