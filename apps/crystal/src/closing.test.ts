@@ -301,6 +301,41 @@ describe('the call at Close (#289)', () => {
     await running;
   });
 
+  const good = JSON.stringify({
+    type: 'result',
+    is_error: false,
+    subtype: 'success',
+    structured_output: { deeds: [{ deed: 'Shipped' }] },
+  });
+  it.each([
+    ['a good answer', () => ({ kind: 'exited', code: 0, stdout: good, stderr: '' }), 'recorded'],
+    ['no result', () => ({ kind: 'exited', code: 1, stdout: 'nothing', stderr: '' }), 'failed'],
+    ['a signal', () => ({ kind: 'exited', code: null, signal: 'SIGKILL', stdout: '', stderr: '' }), 'failed'],
+    ['not started', () => ({ kind: 'not-started', message: 'ENOENT' }), 'failed'],
+    ['too much output', () => ({ kind: 'too-much', stderr: '' }), 'failed'],
+    ['a timeout', () => ({ kind: 'timed-out', stderr: '' }), 'timeout'],
+    [
+      'a collector that throws',
+      () => {
+        throw new Error('spawn blew up');
+      },
+      'failed',
+    ],
+    ['a result that rejects', () => Promise.reject(new Error('lost it')), 'failed'],
+  ] as const)('removes its folder after %s', async (_name, give, outcome) => {
+    const cwds: string[] = [];
+    const collect = (request: CollectRequest) => {
+      cwds.push(request.cwd);
+      const value = (give as () => CollectResult | Promise<CollectResult>)();
+      return { result: Promise.resolve(value), stop: () => {} };
+    };
+    const result = await make(collect, async () => events).run('s1', '/r/lantern');
+    expect(result.outcome).toBe(outcome);
+    expect(cwds).toHaveLength(1);
+    expect(cwds[0]!.startsWith(`${testRoot}${sep}`)).toBe(true);
+    expect(existsSync(cwds[0]!)).toBe(false);
+  });
+
   it('makes one call at a time', async () => {
     const releases: ((r: CollectResult) => void)[] = [];
     const collect = vi.fn(() => ({
