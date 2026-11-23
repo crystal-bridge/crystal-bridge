@@ -1,7 +1,18 @@
 import type { Deed, Envelope } from '@crystal-bridge/protocol';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { finishedTurnSinceClosing, PAGE_DAYS, useCloseDeeds, useDeeds } from './deeds.js';
+import {
+  dayLabel,
+  deedDays,
+  deedProjects,
+  finishedTurnSinceClosing,
+  PAGE_DAYS,
+  questStanding,
+  railLook,
+  useCloseDeeds,
+  useDeeds,
+} from './deeds.js';
+import { errandTone } from './errands.js';
 import type { DeedsFrame, HubClient } from './hub.js';
 
 // A Wednesday, local noon.
@@ -214,5 +225,182 @@ describe('Deeds data', () => {
     expect(finishedTurnSinceClosing(finished)).toBe(true);
     expect(finishedTurnSinceClosing([...finished, at('deeds.closing', 2)])).toBe(false);
     expect(finishedTurnSinceClosing([...finished, at('deeds.closing', 2), at('turn.finished', 3)])).toBe(true);
+  });
+});
+
+const LANTERN = '/r/acme/lantern';
+const QUARRY = '/r/acme/quarry';
+const OTHER = '22222222-2222-4222-8222-222222222222';
+const PR = 'https://github.com/acme/lantern/pull/7';
+const at = (daysBack: number, hour: number) => new Date(2026, 10, 18 - daysBack, hour).getTime();
+
+describe('the feed folded by day and Quest', () => {
+  it('groups by local day, newest first, labelled, leaving empty days out', () => {
+    const rows = [
+      deed('turn:a:1', at(0, 9), { session: SESSION }),
+      deed('turn:a:2', at(1, 9), { session: SESSION }),
+      deed('turn:a:3', at(4, 9), { session: SESSION }),
+    ];
+    const days = deedDays(rows, NOW);
+    expect(days.map((d) => d.day)).toEqual([midnight(0), midnight(1), midnight(4)]);
+    expect(days.slice(0, 2).map((d) => d.label)).toEqual(['Today', 'Yesterday']);
+    expect(days[2]!.label).toBe(dayLabel(midnight(4), NOW));
+    expect(days[2]!.label).not.toMatch(/Today|Yesterday/);
+    expect(deedDays([], NOW)).toEqual([]);
+  });
+
+  it("folds each Quest's rows on a day into one entry", () => {
+    const rows = [
+      deed('turn:a:1', at(0, 9), { session: SESSION, project: LANTERN, files: 3, costUsd: 0.5, durationMs: 600_000 }),
+      deed('turn:a:2', at(0, 10), {
+        session: SESSION,
+        project: LANTERN,
+        files: 4,
+        prs: [PR],
+        costUsd: 0.5,
+        durationMs: 600_000,
+      }),
+      deed('turn:a:3', at(0, 11), { session: SESSION, project: LANTERN, files: 5, costUsd: 0.5, durationMs: 600_000 }),
+      deed('turn:a:4', at(0, 11) + 60_000, { session: SESSION, project: LANTERN, costUsd: 0.34, durationMs: 720_000 }),
+      deed('deed:x', at(0, 11) + 120_000, { session: SESSION, project: LANTERN, kind: 'deed', text: 'Fixed it' }),
+      deed('turn:a:0', at(1, 9), { session: SESSION, project: LANTERN }),
+      deed('turn:b:1', at(0, 8), { session: OTHER, project: QUARRY }),
+    ];
+    const [today, yesterday] = deedDays(rows, NOW);
+    expect(today!.entries.map((e) => e.key)).toHaveLength(2);
+    const entry = today!.entries[0]!;
+    if (entry.kind !== 'quest') throw new Error('expected a quest entry');
+    expect(entry.session).toBe(SESSION);
+    expect(entry.project).toBe(LANTERN);
+    expect(entry.turns.map((t) => t.id)).toEqual(['turn:a:4', 'turn:a:3', 'turn:a:2', 'turn:a:1']);
+    expect(entry.deeds.map((d) => d.id)).toEqual(['deed:x']);
+    expect(entry.at).toBe(at(0, 11) + 120_000);
+    expect(entry.totals).toEqual({ turns: 4, files: 12, prs: [PR], costUsd: 1.84, durationMs: 2_520_000 });
+    expect(yesterday!.entries).toHaveLength(1);
+    expect(yesterday!.entries[0]!.kind).toBe('quest');
+    expect(yesterday!.entries[0]!.key).not.toBe(entry.key);
+  });
+
+  it('shows no counts where no tally came, never zeros', () => {
+    const none = deedDays([deed('turn:a:1', at(0, 9), { session: SESSION })], NOW)[0]!.entries[0]!;
+    const zero = deedDays([deed('turn:a:1', at(0, 9), { session: SESSION, files: 0 })], NOW)[0]!.entries[0]!;
+    if (none.kind !== 'quest' || zero.kind !== 'quest') throw new Error('expected quests');
+    expect(none.totals.files).toBeUndefined();
+    expect(zero.totals.files).toBe(0);
+  });
+
+  it('puts the call at Close on the day it ran', () => {
+    const rows = [
+      deed('turn:a:1', at(1, 9), { session: SESSION }),
+      deed('close:a:2', at(0, 9), { session: SESSION, kind: 'close', outcome: 'recorded', costUsd: 0.08 }),
+      deed('closing:1', at(0, 9) + 1, { session: SESSION, kind: 'closing', text: 'Shipped' }),
+    ];
+    const entry = deedDays(rows, NOW)[0]!.entries[0]!;
+    if (entry.kind !== 'quest') throw new Error('expected a quest entry');
+    expect(entry.turns).toEqual([]);
+    expect(entry.close?.id).toBe('close:a:2');
+    expect(entry.totals.costUsd).toBe(0.08);
+    expect(entry.deeds.map((d) => d.kind)).toEqual(['closing']);
+  });
+
+  it('takes a reply from the latest finished turn', () => {
+    const rows = [
+      deed('turn:a:1', at(0, 9), { session: SESSION, text: 'old' }),
+      deed('turn:a:2', at(0, 10), { session: SESSION }),
+      deed('turn:a:3', at(0, 11), { session: SESSION, text: 'new' }),
+      deed('turn:a:4', at(0, 12), { session: SESSION }),
+    ];
+    const entry = deedDays(rows, NOW)[0]!.entries[0]!;
+    if (entry.kind !== 'quest') throw new Error('expected a quest entry');
+    expect(entry.latestReply).toBe('new');
+  });
+
+  it('keeps a script run as an entry of its own', () => {
+    const row = deed('run:r1', at(0, 7), { kind: 'patrol', patrol: 'nightly' });
+    const entry = deedDays([row], NOW)[0]!.entries[0]!;
+    expect(entry).toMatchObject({ kind: 'run', row });
+  });
+
+  it("groups days in the viewer's time zone across a clock change", () => {
+    vi.stubEnv('TZ', 'America/Los_Angeles');
+    try {
+      // 2026-11-01 is the 25-hour day: 00:30 and 23:30 local are both on it; 00:30 on the 2nd is not.
+      const local = (day: number, h: number, m: number) => new Date(2026, 10, day, h, m).getTime();
+      const rows = [
+        deed('turn:a:1', local(1, 0, 30), { session: SESSION }),
+        deed('turn:a:2', local(1, 23, 30), { session: SESSION }),
+        deed('turn:a:3', local(2, 0, 30), { session: SESSION }),
+      ];
+      const days = deedDays(rows, local(2, 12, 0));
+      expect(days.map((d) => d.entries.length)).toEqual([1, 1]);
+      const first = days[1]!.entries[0]!;
+      if (first.kind !== 'quest') throw new Error('expected a quest entry');
+      expect(first.totals.turns).toBe(2);
+      expect(days.map((d) => d.label)[0]).toBe('Today');
+      expect(days.map((d) => d.label)[1]).toBe('Yesterday');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('questStanding', () => {
+  const close = (outcome: string): Deed => deed('close:a:1', 1, { kind: 'close', outcome });
+  it('says how a Quest stands', () => {
+    expect(questStanding({ status: 'running' }, undefined)).toEqual({ kind: 'open' });
+    expect(questStanding({ status: 'closed' }, close('recorded'))).toEqual({ kind: 'deeds' });
+    expect(questStanding({ status: 'closed' }, close('timeout'))).toEqual({ kind: 'closed', why: 'timeout' });
+    expect(questStanding({ status: 'closed' }, undefined)).toEqual({ kind: 'closed', why: 'skipped' });
+    expect(questStanding(undefined, undefined)).toEqual({ kind: 'closed', why: 'skipped' });
+  });
+});
+
+describe('deedProjects', () => {
+  it('lists each project once, the most used first, leaving script runs out', () => {
+    const rows = [
+      deed('turn:a:1', at(0, 9), { session: SESSION, project: QUARRY }),
+      deed('turn:b:1', at(0, 9), { session: OTHER, project: LANTERN }),
+      deed('turn:b:2', at(1, 9), { session: OTHER, project: LANTERN }),
+      deed('turn:b:3', at(1, 10), { session: OTHER, project: LANTERN }),
+      deed('run:1', at(0, 9), { kind: 'patrol' }),
+    ];
+    const projects = deedProjects(rows);
+    expect(projects.map((p) => [p.project, p.name, p.count])).toEqual([
+      [LANTERN, 'lantern', 2],
+      [QUARRY, 'quarry', 1],
+    ]);
+    expect(projects[0]!.tone).toBe(errandTone(LANTERN));
+  });
+});
+
+describe('railLook', () => {
+  const entry = (rows: Deed[]) => {
+    const found = deedDays(rows, NOW)[0]!.entries[0]!;
+    return found;
+  };
+  it('picks a look for each kind of entry, never blue', () => {
+    const turn = deed('turn:a:1', at(0, 9), { session: SESSION });
+    const looks = {
+      closing: railLook(entry([turn, deed('c:1', at(0, 9), { session: SESSION, kind: 'closing' })])),
+      turn: railLook(entry([turn, deed('d:1', at(0, 9), { session: SESSION, kind: 'deed' })])),
+      patrol: railLook(entry([deed('turn:p:1', at(0, 9), { session: SESSION, patrol: 'nightly' })])),
+      turns: railLook(entry([turn])),
+      run: railLook(entry([deed('run:1', at(0, 9), { kind: 'patrol' })])),
+    };
+    expect(looks.closing.icon).toBe('deedClosing');
+    expect(looks.turn.icon).toBe('quillInk');
+    expect(looks.patrol.icon).toBe('errandPatrol');
+    expect(looks.run.icon).toBe('errandPatrol');
+    expect(looks.turns.icon).toBe('deedTurns');
+    expect(looks.closing.tile).toContain('amber');
+    expect(looks.patrol.tile).toContain('stone');
+    for (const look of Object.values(looks)) {
+      expect(look.tile).not.toContain('blue-');
+      expect(look.label.themed).toBeTruthy();
+    }
+  });
+  it('shows a failed script run in red', () => {
+    const failed = entry([deed('run:1', at(0, 9), { kind: 'patrol', outcome: 'failed' })]);
+    expect(railLook(failed).tile).toContain('red');
   });
 });

@@ -3,7 +3,11 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { refusal, UNREACHABLE } from './api.js';
 import { readPref, subscribePrefs, writePref } from './devicePrefs.js';
 import type { HubClient } from './hub.js';
+import { type ErrandTone, errandTone } from './errands.js';
 import { startOfDay } from './home.js';
+import { projectName } from './quests.js';
+import { hint, type QuestStanding, w, type Word } from './theme/words.js';
+import type { IconName } from './theme/icons.js';
 
 /** A Kingdom's Deeds feed (docs/DEEDS.md) as far as it has been read. */
 export interface DeedsState {
@@ -195,4 +199,195 @@ export function finishedTurnSinceClosing(envelopes: readonly Envelope[]): boolea
     if (type === 'deeds.closing') return false;
   }
   return false;
+}
+
+export interface DeedTotals {
+  turns: number;
+  /** Absent when no turn of the entry reported a tally: no counts is not zero. */
+  files?: number;
+  prs: string[];
+  costUsd: number;
+  durationMs: number;
+}
+
+export type DeedEntry =
+  | {
+      kind: 'quest';
+      key: string;
+      session: string;
+      at: number;
+      project?: string;
+      patrol?: string;
+      /** The Deeds the Quest wrote, in turns and at Close (a `closing` row is from Close), newest first. */
+      deeds: Deed[];
+      /** The turn records, newest first. */
+      turns: Deed[];
+      close?: Deed;
+      totals: DeedTotals;
+      latestReply?: string;
+    }
+  | { kind: 'run'; key: string; at: number; row: Deed };
+
+export interface DeedDay {
+  day: number;
+  label: string;
+  entries: DeedEntry[];
+}
+
+/** "Today", "Yesterday", else the date in the browser's format (with the year when it isn't this one). */
+export function dayLabel(day: number, now: number): string {
+  if (day === startOfDay(now)) return 'Today';
+  if (day === midnightBefore(now, 1)) return 'Yesterday';
+  const sameYear = new Date(day).getFullYear() === new Date(now).getFullYear();
+  return new Date(day).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}
+
+function foldQuest(day: number, session: string, rows: Deed[]): DeedEntry {
+  const turns = rows.filter((r) => r.kind === 'turn');
+  const prs = new Set<string>();
+  let files: number | undefined;
+  let costUsd = 0;
+  let durationMs = 0;
+  for (const turn of turns) {
+    if (turn.files !== undefined) files = (files ?? 0) + turn.files;
+    for (const pr of turn.prs ?? []) prs.add(pr);
+    costUsd += turn.costUsd ?? 0;
+    durationMs += turn.durationMs ?? 0;
+  }
+  const close = rows.find((r) => r.kind === 'close');
+  costUsd += close?.costUsd ?? 0;
+  const first = rows[0]!;
+  const project = rows.find((r) => r.project !== undefined)?.project;
+  const patrol = rows.find((r) => r.patrol !== undefined)?.patrol;
+  const latestReply = turns.find((t) => t.text)?.text;
+  return {
+    kind: 'quest',
+    key: `${session}:${day}`,
+    session,
+    at: first.at,
+    ...(project !== undefined ? { project } : {}),
+    ...(patrol !== undefined ? { patrol } : {}),
+    deeds: rows.filter((r) => r.kind === 'deed' || r.kind === 'closing'),
+    turns,
+    ...(close ? { close } : {}),
+    totals: {
+      turns: turns.length,
+      ...(files !== undefined ? { files } : {}),
+      prs: [...prs],
+      costUsd: Math.round(costUsd * 1e6) / 1e6,
+      durationMs,
+    },
+    ...(latestReply ? { latestReply } : {}),
+  };
+}
+
+/**
+ * The feed's rows folded into local days, newest first (a day with no rows is left out); on each day, one entry per
+ * Quest and one per script run, newest first. The call at Close counts on the day it ran.
+ */
+export function deedDays(rows: readonly Deed[], now: number): DeedDay[] {
+  const byDay = new Map<number, Deed[]>();
+  for (const row of [...rows].sort(newestFirst)) {
+    const day = startOfDay(row.at);
+    const list = byDay.get(day);
+    if (list) list.push(row);
+    else byDay.set(day, [row]);
+  }
+  return [...byDay.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([day, dayRows]) => {
+      const quests = new Map<string, Deed[]>();
+      const entries: DeedEntry[] = [];
+      for (const row of dayRows) {
+        if (row.kind === 'patrol' || !row.session) {
+          entries.push({ kind: 'run', key: row.id, at: row.at, row });
+          continue;
+        }
+        const list = quests.get(row.session);
+        if (list) list.push(row);
+        else quests.set(row.session, [row]);
+      }
+      for (const [session, list] of quests) entries.push(foldQuest(day, session, list));
+      entries.sort((a, b) => b.at - a.at);
+      return { day, label: dayLabel(day, now), entries };
+    });
+}
+
+const CLOSED_WHY = new Set(['writing', 'timeout', 'budget', 'empty', 'failed', 'unreadable']);
+
+/** A Quest's standing from the session list and its latest call-at-Close row; a Quest the list lacks is closed. */
+export function questStanding(session: { status: string } | undefined, close: Deed | undefined): QuestStanding {
+  if (session && session.status !== 'closed') return { kind: 'open' };
+  if (close?.outcome === 'recorded') return { kind: 'deeds' };
+  const why = close?.outcome;
+  if (why && CLOSED_WHY.has(why))
+    return { kind: 'closed', why: why as Extract<QuestStanding, { kind: 'closed' }>['why'] };
+  return { kind: 'closed', why: 'skipped' };
+}
+
+/** Each project in the rows once, with how many entries it has, the most used first; script runs have none. */
+export function deedProjects(
+  rows: readonly Deed[],
+): { project: string; name: string; tone: ErrandTone; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const day of deedDays(rows, 0)) {
+    for (const entry of day.entries) {
+      if (entry.kind === 'quest' && entry.project) counts.set(entry.project, (counts.get(entry.project) ?? 0) + 1);
+    }
+  }
+  return [...counts]
+    .map(([project, count]) => ({ project, name: projectName(project), tone: errandTone(project), count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+const STONE = 'bg-stone-200 text-stone-700 ring-stone-300 dark:bg-stone-800 dark:text-stone-200 dark:ring-stone-600';
+const RED = 'bg-red-100 text-red-700 ring-red-300 dark:bg-red-950 dark:text-red-300 dark:ring-red-800';
+
+const both = (themed: string, plain: string): Word => ({ themed, plain });
+
+/** The icon, tile classes and label of an entry's rail marker: amber for Deeds, stone for a Patrol, red for a failed run. */
+export function railLook(entry: DeedEntry): { icon: IconName; tile: string; label: Word } {
+  const patrol = w('patrol');
+  if (entry.kind === 'run') {
+    const failed = entry.row.outcome === 'failed';
+    return {
+      icon: 'errandPatrol',
+      tile: failed ? RED : STONE,
+      label: both(
+        `${patrol} · script${failed ? ' · failed' : ''}`,
+        `${hint('patrol')} · script${failed ? ' · failed' : ''}`,
+      ),
+    };
+  }
+  if (entry.patrol) {
+    return {
+      icon: 'errandPatrol',
+      tile: STONE,
+      label: both(`${patrol}’s ${w('quest')}`, `${hint('patrol')}’s ${hint('quest')}`),
+    };
+  }
+  if (entry.deeds.some((d) => d.kind === 'closing')) {
+    return {
+      icon: 'deedClosing',
+      tile: 'bg-amber-100 text-amber-700 ring-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-700',
+      label: both('Summed up at close', 'Summed up at close'),
+    };
+  }
+  if (entry.deeds.length > 0) {
+    return {
+      icon: 'quillInk',
+      tile: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:ring-amber-800',
+      label: both(`Recorded by the ${w('quest')}`, `Recorded by the ${hint('quest')}`),
+    };
+  }
+  return {
+    icon: 'deedTurns',
+    tile: 'bg-neutral-100 text-neutral-600 ring-neutral-300 dark:bg-neutral-900 dark:text-neutral-300 dark:ring-neutral-700',
+    label: both('Turn records only', 'Turn records only'),
+  };
 }
