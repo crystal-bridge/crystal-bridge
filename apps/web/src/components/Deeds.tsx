@@ -1,0 +1,658 @@
+import type { Deed, ListedPatrol } from '@crystal-bridge/protocol';
+import { type ReactNode, useEffect, useRef } from 'react';
+import {
+  type DeedEntry,
+  deedDays,
+  deedProjects,
+  type DeedsState,
+  type DeedTotals,
+  questStanding,
+  railLook,
+} from '../deeds.js';
+import { ERRAND_TONES, errandTone } from '../errands.js';
+import { duration, money } from '../format.js';
+import { projectName } from '../quests.js';
+import { Icon, type IconName } from '../theme/icons.js';
+import { hint, type QuestStanding, questLabel, questStandingWord, w, words } from '../theme/words.js';
+import type { SessionSummary } from './SessionList.js';
+
+export interface DeedsFeedProps {
+  /** The Kingdom's feed as `useDeeds` reads it. */
+  state: DeedsState;
+  /** The Kingdom's Quests, to name each entry's Quest and tell whether it is still open. */
+  sessions: readonly SessionSummary[];
+  /** The Kingdom's Patrols, to name the one behind a Quest or a script run. */
+  patrols: readonly ListedPatrol[];
+  /** The project the feed is filtered by; absent for all. */
+  project?: string | undefined;
+  now?: number;
+  /** The phone's form: the same entries, chips and links, with no unfolding. */
+  phone?: boolean;
+  onProject: (project: string | undefined) => void;
+  /** Opens an entry's Quest, closed or not. */
+  onOpenQuest: (session: string) => void;
+  /** Opens a script Patrol's run in its log. */
+  onOpenRun: (patrol: string, run: string) => void;
+  onLoadOlder: () => void;
+}
+
+type ProjectCount = ReturnType<typeof deedProjects>[number];
+
+interface Known {
+  sessions: readonly SessionSummary[];
+  patrols: readonly ListedPatrol[];
+  /** Each Quest's latest call-at-Close row among the loaded rows, whatever day it landed on. */
+  closes: Map<string, Deed>;
+  phone: boolean;
+  onOpenQuest: (session: string) => void;
+  onOpenRun: (patrol: string, run: string) => void;
+}
+
+const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
+ * A Kingdom's Deeds on the Castle (docs/DEEDS.md, Read the annals): days newest first down a gold rail, one entry per
+ * Quest's day and per script run, a chip per project to filter by. Gold for Deeds, never window blue.
+ */
+export function DeedsFeed({
+  state,
+  sessions,
+  patrols,
+  project,
+  now = Date.now(),
+  phone = false,
+  onProject,
+  onOpenQuest,
+  onOpenRun,
+  onLoadOlder,
+}: DeedsFeedProps) {
+  const feed = w('deedsFeed');
+  const rows = project === undefined ? state.deeds : state.deeds.filter((row) => row.project === project);
+  const days = deedDays(rows, now);
+  const closes = new Map<string, Deed>();
+  for (const row of state.deeds) {
+    if (row.kind === 'close' && row.session && !closes.has(row.session)) closes.set(row.session, row);
+  }
+  const known: Known = { sessions, patrols, closes, phone, onOpenQuest, onOpenRun };
+  const chips = useChips(state.deeds, project);
+  return (
+    <section aria-label={feed} className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 px-3">
+        <span
+          aria-hidden="true"
+          className="grid size-7 place-items-center rounded-md bg-amber-100 text-amber-700 ring-1 ring-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-700"
+        >
+          <Icon name="deedsFeed" size={20} />
+        </span>
+        <h2 className="cb-display text-2xl leading-none" title={hint('deedsFeed')}>
+          {feed}
+        </h2>
+        {!phone && <span className="text-xs text-neutral-500">{capitalised(words.deedsFeed.plain)}</span>}
+      </div>
+      {state.error !== undefined && !state.loaded ? (
+        <p role="alert" className="px-3 text-sm text-red-700 dark:text-red-400">
+          {`Couldn’t read the ${feed}: ${state.error}`}
+        </p>
+      ) : !state.loaded ? (
+        <p className="px-3 text-sm text-neutral-500">{`Reading the ${feed}…`}</p>
+      ) : (
+        <>
+          {chips.projects.length > 0 && (
+            <div className="px-3">
+              <Chips chips={chips} project={project} phone={phone} onProject={onProject} />
+            </div>
+          )}
+          {days.length === 0 ? (
+            <Empty project={project} />
+          ) : phone ? (
+            <div>
+              {days.map((day) => (
+                <div key={day.day}>
+                  <h3 className="cb-display bg-neutral-50 px-3 py-1 text-lg leading-none text-amber-800 dark:bg-neutral-900 dark:text-amber-300">
+                    {day.label}
+                  </h3>
+                  <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                    {day.entries.map((entry) => (
+                      <Entry key={entry.key} entry={entry} known={known} />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-3">
+              <div className="relative">
+                <span
+                  data-rail
+                  aria-hidden="true"
+                  className="absolute bottom-2 left-[1.2rem] top-2 w-0.5 rounded bg-linear-to-b from-amber-300 via-neutral-200 to-transparent dark:from-amber-700 dark:via-neutral-800"
+                />
+                {days.map((day) => (
+                  <div key={day.day}>
+                    <div className="relative mb-1 flex items-center gap-2 pb-2 pt-1">
+                      <span
+                        aria-hidden="true"
+                        className="relative z-10 ml-2 grid size-5 place-items-center rounded-full bg-amber-400 ring-4 ring-white dark:bg-amber-500 dark:ring-neutral-950"
+                      >
+                        <span className="size-1.5 rounded-full bg-white" />
+                      </span>
+                      <h3 className="cb-display ml-3 text-xl leading-none text-amber-800 dark:text-amber-300">
+                        {day.label}
+                      </h3>
+                      <span aria-hidden="true" className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
+                    </div>
+                    <ul className="relative">
+                      {day.entries.map((entry) => (
+                        <Entry key={entry.key} entry={entry} known={known} />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {state.error !== undefined && (
+            <p role="alert" className="px-3 text-sm text-red-700 dark:text-red-400">
+              {`Couldn’t read older days: ${state.error}`}
+            </p>
+          )}
+          {state.older !== undefined && <LoadOlder loading={state.loadingOlder === true} onLoadOlder={onLoadOlder} />}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The chips' projects and counts. A filtered read holds only its project's rows, so the projects seen unfiltered stay
+ * listed while a filter is on.
+ */
+function useChips(rows: readonly Deed[], project: string | undefined): { all: number; projects: ProjectCount[] } {
+  const seen = useRef<{ all: number; projects: ProjectCount[] }>({ all: 0, projects: [] });
+  const listed = deedProjects(rows);
+  const all = deedDays(rows, 0).reduce((sum, day) => sum + day.entries.length, 0);
+  if (project === undefined) {
+    seen.current = { all, projects: listed };
+    return seen.current;
+  }
+  const projects = seen.current.projects.map((p) => listed.find((l) => l.project === p.project) ?? p);
+  for (const l of listed) if (!projects.some((p) => p.project === l.project)) projects.push(l);
+  if (!projects.some((p) => p.project === project)) {
+    projects.push({ project, name: projectName(project), tone: errandTone(project), count: 0 });
+  }
+  return { all: Math.max(seen.current.all, all), projects };
+}
+
+const CHIP =
+  'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-bold ring-1';
+
+function Chips({
+  chips,
+  project,
+  phone,
+  onProject,
+}: {
+  chips: { all: number; projects: ProjectCount[] };
+  project: string | undefined;
+  phone: boolean;
+  onProject: (project: string | undefined) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Filter by project"
+      className={`flex items-center gap-1.5 ${phone ? 'overflow-x-auto' : 'flex-wrap'}`}
+    >
+      <span aria-hidden="true" title="Filter by project" className="inline-flex text-neutral-400">
+        <Icon name="deedFilter" size={14} />
+      </span>
+      <button
+        type="button"
+        aria-pressed={project === undefined}
+        onClick={() => onProject(undefined)}
+        className={`${CHIP} ${
+          project === undefined
+            ? 'bg-neutral-800 text-white ring-neutral-800 dark:bg-neutral-200 dark:text-neutral-900 dark:ring-neutral-200'
+            : 'bg-white text-neutral-700 ring-neutral-300 dark:bg-neutral-950 dark:text-neutral-300 dark:ring-neutral-700'
+        }`}
+      >
+        All<span className="opacity-70">{chips.all}</span>
+      </button>
+      {chips.projects.map((chip) => {
+        const on = chip.project === project;
+        const tone = ERRAND_TONES[chip.tone];
+        return (
+          <button
+            key={chip.project}
+            type="button"
+            aria-pressed={on}
+            title={chip.project}
+            onClick={() => onProject(on ? undefined : chip.project)}
+            className={`${CHIP} ${on ? tone.on : tone.chip}`}
+          >
+            <span
+              aria-hidden="true"
+              className={`size-2 rounded-full ${on ? 'bg-white/90 dark:bg-neutral-950/70' : tone.dot}`}
+            />
+            {chip.name}
+            <span className="opacity-70">{chip.count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Empty({ project }: { project: string | undefined }) {
+  const line =
+    project === undefined
+      ? `No ${w('deedsFeed')} yet: when a ${w('quest')} finishes a turn, it shows here.`
+      : `No ${w('deedsFeed')} in ${projectName(project)} yet: when a ${w('quest')} there finishes a turn, it shows here.`;
+  return (
+    <div className="mx-3 flex items-center gap-2 rounded-lg border border-dashed border-amber-300 px-3 py-3 text-sm text-neutral-500 dark:border-amber-800">
+      <span aria-hidden="true" className="inline-flex text-amber-500 dark:text-amber-400">
+        <Icon name="deedsFeed" size={20} />
+      </span>
+      <p>{line}</p>
+    </div>
+  );
+}
+
+/** Load older days: a button, and the same when the feed's end scrolls into view where the browser can tell. */
+function LoadOlder({ loading, onLoadOlder }: { loading: boolean; onLoadOlder: () => void }) {
+  const end = useRef<HTMLDivElement>(null);
+  const load = useRef(onLoadOlder);
+  load.current = onLoadOlder;
+  useEffect(() => {
+    const element = end.current;
+    if (!element || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) load.current();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <div ref={end} className="px-3">
+      <button
+        type="button"
+        disabled={loading}
+        onClick={onLoadOlder}
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50 disabled:opacity-60 dark:text-amber-300 dark:ring-amber-800 dark:hover:bg-amber-950"
+      >
+        <Icon name="hourglass" size={14} />
+        Load older days
+      </button>
+    </div>
+  );
+}
+
+const clock = (at: number) => {
+  const time = new Date(at);
+  return `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
+};
+
+/** 42m, 1h 05m: a day's working time as the feed shows it; under a minute in seconds. */
+function spent(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const minutes = Math.round(ms / 60_000);
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` : `${minutes}m`;
+}
+
+/** A pull request link as `#319`, else the link itself. */
+const prLabel = (link: string) => {
+  const number = /\/(\d+)\/?$/.exec(link)?.[1];
+  return number ? `#${number}` : link;
+};
+
+const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+
+/** The stat icons keep one colour each. */
+const STAT: Record<'turns' | 'files' | 'prs' | 'cost' | 'time', { icon: IconName; tone: string; title: string }> = {
+  turns: { icon: 'deedTurns', tone: 'text-neutral-500 dark:text-neutral-400', title: hint('turns') },
+  files: { icon: 'deedLoot', tone: 'text-orange-700 dark:text-orange-400', title: hint('loot') },
+  prs: { icon: 'deedTrophy', tone: 'text-yellow-600 dark:text-yellow-400', title: hint('prs') },
+  cost: { icon: 'gold', tone: 'text-amber-600 dark:text-amber-400', title: hint('gold') },
+  time: { icon: 'hourglass', tone: 'text-stone-500 dark:text-stone-400', title: hint('workingTime') },
+};
+
+/** "4 turns · 12 files · PR #319 · $1.84 · 42m", each with its icon; no files count where no turn reported one. */
+function StatLine({ totals, turns = true, small = false }: { totals: DeedTotals; turns?: boolean; small?: boolean }) {
+  const parts: [keyof typeof STAT, string][] = [];
+  if (turns) parts.push(['turns', plural(totals.turns, 'turn')]);
+  if (totals.files !== undefined) parts.push(['files', plural(totals.files, 'file')]);
+  if (totals.prs.length > 0) parts.push(['prs', `PR ${totals.prs.map(prLabel).join(' ')}`]);
+  parts.push(['cost', money(totals.costUsd)]);
+  parts.push(['time', spent(totals.durationMs)]);
+  return (
+    <span
+      className={`inline-flex flex-wrap items-center gap-y-0.5 ${small ? 'text-[11px]' : 'text-xs'} text-neutral-600 dark:text-neutral-400`}
+    >
+      {parts.map(([kind, text], i) => (
+        <span key={kind} className="inline-flex items-center">
+          {i > 0 && (
+            <span aria-hidden="true" className="px-1 text-neutral-300 dark:text-neutral-700">
+              {' · '}
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1 whitespace-nowrap" title={STAT[kind].title}>
+            <span aria-hidden="true" className={`inline-flex ${STAT[kind].tone}`}>
+              <Icon name={STAT[kind].icon} size={14} />
+            </span>
+            {text}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+const STANDING: Record<QuestStanding['kind'], { icon: IconName; chip: string }> = {
+  open: {
+    icon: 'deedOpen',
+    chip: 'bg-emerald-50 text-emerald-800 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-800',
+  },
+  deeds: {
+    icon: 'markSealCheck',
+    chip: 'bg-amber-100 text-amber-900 ring-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-700',
+  },
+  closed: {
+    icon: 'markFlag',
+    chip: 'bg-neutral-100 text-neutral-700 ring-neutral-300 dark:bg-neutral-900 dark:text-neutral-300 dark:ring-neutral-700',
+  },
+};
+
+const PILL = 'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-bold ring-1';
+
+function StandingChip({ standing }: { standing: QuestStanding }) {
+  const look = STANDING[standing.kind];
+  const word = questStandingWord(standing);
+  return (
+    <span title={word.plain} className={`${PILL} ${look.chip}`}>
+      <Icon name={look.icon} size={12} />
+      {word.themed}
+    </span>
+  );
+}
+
+function ProjectChip({ project }: { project: string }) {
+  const tone = ERRAND_TONES[errandTone(project)];
+  return (
+    <span
+      title={project}
+      className={`inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-bold ring-1 ${tone.chip}`}
+    >
+      <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${tone.dot}`} />
+      <span className="truncate">{projectName(project)}</span>
+    </span>
+  );
+}
+
+function OpenLink({ label, title, onClick }: { label: string; title: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className="inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] font-bold text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
+    >
+      <Icon name="deedLink" size={12} />
+      {label}
+    </button>
+  );
+}
+
+function PatrolName({ name }: { name: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+      <Icon name="errandPatrol" size={14} />
+      {`${w('patrol')}: ${name}`}
+    </span>
+  );
+}
+
+const patrolName = (patrols: readonly ListedPatrol[], id: string) =>
+  patrols.find((p) => p.id === id)?.manifest?.name ?? id;
+
+/** No browser marker on a fold's summary: the caret stands in for it. */
+const SUMMARY = 'cursor-pointer list-none [&::-webkit-details-marker]:hidden';
+
+function Caret() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex shrink-0 text-neutral-400 transition-transform group-open/fold:rotate-90 dark:text-neutral-500"
+    >
+      <Icon name="caret" size={10} />
+    </span>
+  );
+}
+
+/** One entry: its tile on the rail (or at the row's start on a phone), then its lines in its project's colour. */
+function Entry({ entry, known }: { entry: DeedEntry; known: Known }) {
+  const look = railLook(entry);
+  const project = entry.kind === 'run' ? undefined : entry.project;
+  const tone = ERRAND_TONES[errandTone(project)];
+  const name = entry.kind === 'run' ? (entry.row.text ?? look.label.themed) : questName(entry.session, known);
+  const tile = (size: string, icon: number) => (
+    <span
+      data-rail-tile
+      title={look.label.themed}
+      className={`grid shrink-0 place-items-center rounded-full ${size} ${look.tile}`}
+    >
+      <Icon name={look.icon} size={icon} />
+    </span>
+  );
+  const body =
+    entry.kind === 'run' ? <RunLines entry={entry} known={known} /> : <QuestLines entry={entry} known={known} />;
+  if (known.phone) {
+    return (
+      <li data-entry aria-label={name} className={`flex gap-2.5 border-l-4 ${tone.stripe} px-2.5 py-2`}>
+        <span className="mt-0.5">{tile('size-7 ring-1', 16)}</span>
+        <div className="min-w-0 flex-1">
+          <div className="mb-0.5 flex items-center gap-2 text-[11px] text-neutral-400">
+            <span className="font-mono">{clock(entry.at)}</span>
+          </div>
+          {body}
+        </div>
+      </li>
+    );
+  }
+  return (
+    <li data-entry aria-label={name} className="relative pb-3 pl-12">
+      <span className="absolute left-1 top-0">{tile('size-8 ring-2', 18)}</span>
+      <div
+        className={`rounded-md border-l-4 ${tone.stripe} bg-linear-to-r ${tone.wash} to-transparent to-50% py-1 pl-3 pr-2`}
+      >
+        <div className="mb-0.5 flex items-center gap-2 text-[11px] text-neutral-400">
+          <span className="font-mono">{clock(entry.at)}</span>
+          <span title={look.label.plain}>{look.label.themed}</span>
+        </div>
+        {body}
+      </div>
+    </li>
+  );
+}
+
+function questName(session: string, known: Known): string {
+  const quest = known.sessions.find((s) => s.id === session);
+  return quest ? questLabel(quest) : w('quest');
+}
+
+function RunLines({ entry, known }: { entry: Extract<DeedEntry, { kind: 'run' }>; known: Known }) {
+  const { row } = entry;
+  const failed = row.outcome === 'failed';
+  const runId = row.id.replace(/^run:/, '');
+  return (
+    <>
+      <p className="font-medium leading-snug [overflow-wrap:anywhere]">{row.text ?? 'Script run'}</p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500">
+        <span
+          className={`${PILL} ${
+            failed
+              ? 'bg-red-100 text-red-800 ring-red-300 dark:bg-red-950 dark:text-red-200 dark:ring-red-800'
+              : 'bg-emerald-100 text-emerald-800 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-800'
+          }`}
+        >
+          <Icon name={failed ? 'markXCircle' : 'markIssueClosed'} size={12} />
+          {failed ? 'Failed' : 'Ran'}
+        </span>
+        {row.patrol && <PatrolName name={patrolName(known.patrols, row.patrol)} />}
+        <span>{row.durationMs !== undefined ? `script · ${duration(row.durationMs)}` : 'script'}</span>
+        {row.patrol && (
+          <OpenLink
+            label="Run log"
+            title={`Open this run in the ${w('patrolLog')}`}
+            onClick={() => known.onOpenRun(row.patrol!, runId)}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+function QuestLines({ entry, known }: { entry: Extract<DeedEntry, { kind: 'quest' }>; known: Known }) {
+  const quest = known.sessions.find((s) => s.id === entry.session);
+  const title = questName(entry.session, known);
+  const standing = questStanding(quest, known.closes.get(entry.session));
+  const fold = !known.phone && entry.turns.length > 0;
+  const patrol = entry.patrol !== undefined && <PatrolName name={patrolName(known.patrols, entry.patrol)} />;
+  const links = (
+    <>
+      {entry.project !== undefined && <ProjectChip project={entry.project} />}
+      <OpenLink
+        label={`Open ${w('quest')}`}
+        title={`Open this ${w('quest')}`}
+        onClick={() => known.onOpenQuest(entry.session)}
+      />
+    </>
+  );
+  if (entry.deeds.length > 0) {
+    const line = (
+      <>
+        <span className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">{title}</span>
+        <StandingChip standing={standing} />
+        <StatLine totals={entry.totals} />
+      </>
+    );
+    return (
+      <>
+        <ul className="space-y-0.5">
+          {entry.deeds.map((deed) => (
+            <DeedLine key={deed.id} deed={deed} />
+          ))}
+        </ul>
+        {fold ? (
+          <details className="group/fold mt-1">
+            <summary
+              className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded px-0.5 py-0.5 hover:bg-neutral-50 dark:hover:bg-neutral-900 ${SUMMARY}`}
+            >
+              <Caret />
+              {line}
+            </summary>
+            <TurnList turns={entry.turns} />
+          </details>
+        ) : (
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 px-0.5">{line}</div>
+        )}
+        <div className="mt-0.5 flex flex-wrap items-center gap-2 pl-4">
+          {patrol}
+          {links}
+        </div>
+      </>
+    );
+  }
+  const head = (
+    <>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {fold && <Caret />}
+        <span className="font-bold [overflow-wrap:anywhere]">{title}</span>
+        <StatLine totals={entry.totals} />
+      </span>
+      {entry.latestReply && (
+        <span
+          className={`mt-0.5 block truncate text-[13px] text-neutral-500 dark:text-neutral-500 ${fold ? 'pl-4 group-open/fold:hidden' : ''}`}
+        >
+          {`“${entry.latestReply}”`}
+        </span>
+      )}
+    </>
+  );
+  return (
+    <>
+      {fold ? (
+        <details className="group/fold">
+          <summary className={`block rounded px-0.5 py-0.5 hover:bg-neutral-50 dark:hover:bg-neutral-900 ${SUMMARY}`}>
+            {head}
+          </summary>
+          <TurnList turns={entry.turns} />
+        </details>
+      ) : (
+        <div className="px-0.5 py-0.5">{head}</div>
+      )}
+      <div className="mt-1 flex flex-wrap items-center gap-2 pl-4">
+        <StandingChip standing={standing} />
+        {patrol}
+        {links}
+      </div>
+    </>
+  );
+}
+
+/** A Deed as a line: laurels for one written at Close, the quill for one a turn recorded; its detail beneath. */
+function DeedLine({ deed }: { deed: Deed }) {
+  const closing = deed.kind === 'closing';
+  return (
+    <li data-deed className="leading-snug">
+      <span className="flex items-start gap-2 font-bold">
+        <span
+          title={closing ? 'From Close' : 'From a turn'}
+          className="mt-0.5 inline-flex text-amber-600 dark:text-amber-400"
+        >
+          <Icon name={closing ? 'deedClosing' : 'quillInk'} size={16} />
+        </span>
+        <span data-deed-text className="[overflow-wrap:anywhere]">
+          {deed.text ?? ''}
+        </span>
+      </span>
+      {deed.detail && (
+        <p className="pl-6 text-[13px] font-normal text-neutral-600 [overflow-wrap:anywhere] dark:text-neutral-400">
+          {deed.detail}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** A Quest's turn records for the day: time, totals and the start of the reply, newest first. */
+function TurnList({ turns }: { turns: Deed[] }): ReactNode {
+  return (
+    <ol className="ml-1 mt-1.5 space-y-1 border-l-2 border-dashed border-neutral-200 dark:border-neutral-800">
+      {turns.map((turn, i) => (
+        <li key={turn.id} className="ml-2 rounded-md px-2 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-900">
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="font-mono font-bold text-neutral-500">{clock(turn.at)}</span>
+            <span className="text-neutral-400">{`turn ${turns.length - i}`}</span>
+            <span className="flex-1" />
+            <StatLine
+              small
+              turns={false}
+              totals={{
+                turns: 1,
+                ...(turn.files !== undefined ? { files: turn.files } : {}),
+                prs: turn.prs ?? [],
+                costUsd: turn.costUsd ?? 0,
+                durationMs: turn.durationMs ?? 0,
+              }}
+            />
+          </div>
+          {turn.text && (
+            <p className="text-[13px] leading-snug text-neutral-600 [overflow-wrap:anywhere] dark:text-neutral-400">
+              {turn.text}
+            </p>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
