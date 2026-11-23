@@ -114,8 +114,8 @@ stays closed, its turn records stay as they were, and the chat and the feed say 
 Yesterday, then dates). A chip per project filters it, each project in its own colour, as on the Errands panel. It
 uses gold for Deeds and never window blue, since nothing in it waits on you. It sits in the Castle's left column,
 under Active Quests, as a timeline: a gold rail down the side with a marker for each day and one row per Quest's
-day, its icon on the rail. Below the xl breakpoint it comes after the Castle's columns. The feed reads 7 local days a
-page.
+day, its icon on the rail. Below the xl breakpoint, and on a phone, it still comes right after Active Quests. The
+feed reads 7 local days a page.
 
 Within a day, each Quest's records fold into one entry, so a run of short turns ("yes, go on") reads as one line:
 

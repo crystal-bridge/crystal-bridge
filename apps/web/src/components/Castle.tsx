@@ -101,8 +101,8 @@ export interface CastleProps {
   onAddErrand?: (draft: ErrandCreate) => Promise<void>;
   onEditErrand?: (id: string, edit: ErrandEdit) => Promise<void>;
   /**
-   * This Kingdom's Deeds feed; without it (an older hub), no feed. On a wide screen it sits in the left column under
-   * Active Quests; below xl it follows the other panels, and a phone reads it without unfolding.
+   * This Kingdom's Deeds feed; without it (an older hub), no feed. At every width it follows Active Quests (in the
+   * left column from xl), and a phone reads it without unfolding.
    */
   deeds?: DeedsState & { loadOlder(): void };
   /** The project chip the feed is filtered by. */
@@ -536,10 +536,12 @@ export function Castle({
     );
   const rightOthers = haunts.length > 0 || Boolean(garrison);
   const rightColumn = rightOthers || checklist;
-  // With a right column the xl copy sits under Active Quests and the md copy below the columns; without one the left
-  // column's single copy serves every width from md.
-  const deedsWide = deeds && (
-    <div className={rightColumn ? 'hidden xl:block' : 'hidden md:block'}>{deedsFeed(false)}</div>
+  // Right after Active Quests at every width: beside the right column from xl, above everything it stacks below that.
+  const deedsWide = deeds && <div className="hidden md:block">{deedsFeed(false)}</div>;
+  const deedsPhone = deeds && (deedsProject !== undefined || (deeds.loaded && deeds.deeds.length > 0)) && (
+    // The phone reads the feed only (its entries don't unfold there); kept while a project is chosen, so its chips
+    // stay in reach to clear it.
+    <div className="md:hidden">{deedsFeed(true)}</div>
   );
 
   return (
@@ -631,6 +633,7 @@ export function Castle({
             </Section>
 
             {deedsWide}
+            {deedsPhone}
 
             <Folded title={w('chronicle')} plain={hint('chronicle')} count={history.length}>
               <input
@@ -706,13 +709,6 @@ export function Castle({
             </div>
           )}
         </div>
-
-        {deeds && rightColumn && <div className="hidden md:block xl:hidden">{deedsFeed(false)}</div>}
-        {/* The phone reads the feed only: its entries don't unfold there. */}
-        {deeds && (deedsProject !== undefined || (deeds.loaded && deeds.deeds.length > 0)) && (
-          // Kept while a project is chosen, so its chips stay in reach to clear it.
-          <div className="md:hidden">{deedsFeed(true)}</div>
-        )}
 
         {onOpenBoard && scouts.length > 0 && (
           // A desktop panel for now, like the Summoning Circle below.

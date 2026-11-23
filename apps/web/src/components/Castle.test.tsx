@@ -296,30 +296,27 @@ describe('Castle', () => {
     const feeds = () => screen.queryAllByRole('region', { name: w('deedsFeed') });
     const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
-    it('puts the feed in the left column under Active Quests on a wide screen', () => {
+    it('puts one wide copy right after Active Quests, before Chronicle and the right column’s panels', () => {
       renderCastle({ deeds });
-      const wide = feeds().find((r) => r.closest('.hidden.xl\\:block'))!;
-      expect(wide).toBeTruthy();
-      expect(before(screen.getByRole('region', { name: 'Active Quests' }), wide)).toBe(true);
-      expect(before(wide, screen.getByRole('button', { name: /Chronicle/ }))).toBe(true);
-    });
-
-    it('follows the other panels below that', () => {
-      renderCastle({ deeds });
-      const middle = feeds().find((r) => r.closest('.hidden.md\\:block.xl\\:hidden'))!;
-      expect(before(screen.getByRole('region', { name: 'Haunts' }), middle)).toBe(true);
+      const wide = feeds().filter((r) => r.closest('.hidden.md\\:block'));
+      expect(wide).toHaveLength(1);
+      expect(wide[0]!.closest('.xl\\:hidden, .xl\\:block')).toBeNull();
+      expect(before(screen.getByRole('region', { name: 'Active Quests' }), wide[0]!)).toBe(true);
+      expect(before(wide[0]!, screen.getByRole('button', { name: /Chronicle/ }))).toBe(true);
+      expect(before(wide[0]!, screen.getByRole('region', { name: 'Haunts' }))).toBe(true);
       cleanup();
       renderCastle({ deeds, sessions: [], waiting: new Set() });
       expect(screen.queryByRole('region', { name: 'Haunts' })).toBeNull();
       expect(feeds()).toHaveLength(2);
-      expect(feeds().filter((r) => r.closest('.hidden.md\\:block:not(.xl\\:hidden):not(.xl\\:block)'))).toHaveLength(1);
     });
 
-    it('on a phone, shows the read-only feed after the other panels', () => {
+    it('on a phone, shows the read-only feed right after Active Quests', () => {
       renderCastle({ deeds });
       const phone = feeds().find((r) => r.closest('.md\\:hidden'))!;
       expect(phone).toBeTruthy();
-      expect(before(screen.getByRole('region', { name: 'Haunts' }), phone)).toBe(true);
+      expect(before(screen.getByRole('region', { name: 'Active Quests' }), phone)).toBe(true);
+      expect(before(phone, screen.getByRole('button', { name: /Chronicle/ }))).toBe(true);
+      expect(before(phone, screen.getByRole('region', { name: 'Haunts' }))).toBe(true);
       expect(within(phone).queryByRole('button', { name: /Fixed the build/ })).toBeNull();
     });
 
