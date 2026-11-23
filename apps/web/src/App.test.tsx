@@ -1810,11 +1810,13 @@ describe('App Close offers Record its Deeds', () => {
     { node: 'node-b', session: quest.id, seq: 0, ts: 0, type: 'session.started', cwd: '/w', prompt: 'p', label: 'p' },
     { node: 'node-b', session: quest.id, seq: 1, ts: 1, type: 'turn.finished' },
   ] as unknown as Envelope[];
-  const open = async (deeds?: boolean) => {
+  /** `engines: 'unread'` fails `/api/engines`, so the Kingdom's row hasn't come yet. */
+  const open = async (deeds?: boolean, engines: 'listed' | 'unread' = 'listed') => {
     localStorage.clear();
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url === '/api/engines' && engines === 'unread') return new Response('', { status: 503 });
         const body =
           url === '/api/sessions'
             ? sessions
@@ -1856,5 +1858,11 @@ describe('App Close offers Record its Deeds', () => {
     await open();
     expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText('This Kingdom is too old to record Deeds at Close.')).toBeTruthy();
+  });
+
+  it('offers the choice until the Kingdom’s engines row has come', async () => {
+    await open(undefined, 'unread');
+    expect((screen.getByLabelText('Record its Deeds') as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText('This Kingdom is too old to record Deeds at Close.')).toBeNull();
   });
 });

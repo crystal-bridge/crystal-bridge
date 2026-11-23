@@ -1099,7 +1099,11 @@ export function App({ hub }: { hub: HubClient }) {
             ...(deeds ? { deeds: true } : {}),
           })
         }
-        closeDeeds={{ offered: Boolean(engineLists.find((row) => row.node === node)?.deeds) }}
+        closeDeeds={(() => {
+          // Until the Kingdom's engines row arrives, whether it can is unknown, which offers the choice.
+          const row = engineLists.find((engines) => engines.node === node);
+          return row ? { offered: Boolean(row.deeds) } : undefined;
+        })()}
         onFork={primary ? fork : undefined}
         onOpen={openQuest}
         onOpenBoard={node ? (scout) => showBoard(node, scout) : undefined}
