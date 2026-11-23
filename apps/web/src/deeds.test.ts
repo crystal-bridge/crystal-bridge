@@ -162,6 +162,46 @@ describe('Deeds data', () => {
     expect(pending).toHaveLength(count);
   });
 
+  it('clears an older-days error once a later read of them succeeds', async () => {
+    const { hub } = fakeHub();
+    const { result } = renderHook(() => useDeeds(hub, 'forge'));
+    await act(async () => pending[0]?.answer({ deeds: [deed('turn:a:1', NOW)], older: midnight(20) }));
+    act(() => result.current.loadOlder());
+    await act(async () => pending[1]?.answer({ error: 'the Kingdom is busy' }, 503));
+    expect(result.current.error).toBe('the Kingdom is busy');
+    act(() => result.current.loadOlder());
+    await act(async () => pending[2]?.answer({ deeds: [deed('turn:a:0', midnight(20))] }));
+    expect(result.current.deeds).toHaveLength(2);
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('lets go of an older-days read that a reconnect supersedes, even when the new read fails', async () => {
+    const { hub, reconnect } = fakeHub();
+    const { result } = renderHook(() => useDeeds(hub, 'forge'));
+    await act(async () => pending[0]?.answer({ deeds: [deed('turn:a:1', NOW)], older: midnight(20) }));
+    act(() => result.current.loadOlder());
+    expect(result.current.loadingOlder).toBe(true);
+    act(() => reconnect());
+    expect(result.current.loadingOlder).toBe(false);
+    await act(async () => pending[1]?.answer({ deeds: [deed('turn:a:0', midnight(20))] }));
+    await act(async () => pending[2]?.answer({ error: 'down' }, 503));
+    expect(result.current.loadingOlder).toBe(false);
+    expect(result.current.deeds.map((d) => d.id)).toEqual(['turn:a:1']);
+    // Once the read is over, the older days can be asked for again.
+    const count = pending.length;
+    act(() => result.current.loadOlder());
+    expect(pending).toHaveLength(count + 1);
+  });
+
+  it('leaves out a frame’s rows from before the window while the first read is on its way', async () => {
+    const { hub, frame } = fakeHub();
+    const { result } = renderHook(() => useDeeds(hub, 'forge'));
+    const after = midnight(PAGE_DAYS - 1);
+    act(() => frame('forge', [deed('turn:a:0', after - 1), deed('turn:a:2', NOW)]));
+    await act(async () => pending[0]?.answer({ deeds: [deed('turn:a:1', NOW - 5)], older: after - 1 }));
+    expect(result.current.deeds.map((d) => d.id)).toEqual(['turn:a:2', 'turn:a:1']);
+  });
+
   it('reads one project’s rows when given one', async () => {
     const { hub, frame } = fakeHub();
     const { result } = renderHook(() => useDeeds(hub, 'forge', '/r/acme/lantern'));

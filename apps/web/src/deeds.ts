@@ -100,16 +100,22 @@ export function useDeeds(
     }
     let latest = 0;
     let heard = new Map<string, Deed>();
+    // Where the window being read begins, so a frame landing before the read is done keeps to it as well.
+    let reading: number | undefined;
     const keeps = (row: Deed) => project === undefined || row.project === project;
     const load = () => {
       latest += 1;
       const round = latest;
       heard = new Map();
       const after = midnightBefore(Date.now(), PAGE_DAYS - 1);
+      reading = after;
+      // An older-days read still on its way is stale now: let go of it.
+      setState((s) => (s.loadingOlder ? { ...s, loadingOlder: false } : s));
       const fresh = () => round === latest;
       readWindow(node, { after }, project, () => !fresh())
         .then((page) => {
           if (!fresh()) return;
+          reading = undefined;
           setState(() => ({
             deeds: merge([...heard.values()], page.deeds),
             loaded: true,
@@ -119,12 +125,16 @@ export function useDeeds(
         })
         .catch((error: unknown) => {
           const reason = error instanceof Error ? error.message : String(error);
-          if (fresh()) setState((current) => (current.loaded ? current : { deeds: [], loaded: false, error: reason }));
+          if (!fresh()) return;
+          reading = undefined;
+          setState((current) => (current.loaded ? current : { deeds: [], loaded: false, error: reason }));
         });
     };
     older.current = () => {
       const current = known.current;
       if (!current.loaded || current.older === undefined || current.after === undefined || current.loadingOlder) return;
+      // Not while the newest days are read again: what that read brings replaces the window.
+      if (reading !== undefined) return;
       const round = latest;
       const before = current.after;
       const after = midnightBefore(current.older, PAGE_DAYS - 1);
@@ -133,7 +143,7 @@ export function useDeeds(
         .then((page) => {
           if (round !== latest) return;
           setState((s) => {
-            const { older: _spent, ...rest } = s;
+            const { older: _spent, error: _cleared, ...rest } = s;
             return {
               ...rest,
               deeds: merge(s.deeds, page.deeds),
@@ -156,14 +166,14 @@ export function useDeeds(
         // The Kingdom was forgotten: what a read still on its way brings is stale too.
         latest += 1;
         heard = new Map();
+        reading = undefined;
         setState({ deeds: [], loaded: true });
         return;
       }
       setState((current) => {
+        const after = current.after ?? reading;
         const rows = frame.deeds.filter(
-          (row) =>
-            keeps(row) &&
-            (current.after === undefined || row.at >= current.after || current.deeds.some((d) => d.id === row.id)),
+          (row) => keeps(row) && (after === undefined || row.at >= after || current.deeds.some((d) => d.id === row.id)),
         );
         for (const row of rows) heard.set(row.id, row);
         if (rows.length === 0) return current;
