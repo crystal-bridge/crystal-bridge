@@ -201,6 +201,7 @@ describe('ClaudeSession', () => {
       '--allowedTools',
       'mcp__crystal__title',
       'mcp__crystal__errand',
+      'mcp__crystal__deed',
       // The CLI defers MCP tools, so only the system prompt gets the Quest to use them (test/fixtures/README.md).
       '--append-system-prompt',
       QUEST_PROMPT,

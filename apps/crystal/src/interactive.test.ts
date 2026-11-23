@@ -208,7 +208,7 @@ describe('InteractiveSession', () => {
     const { args } = spawned[0]!;
     const settings = JSON.parse(readFileSync(args[args.indexOf('--settings') + 1]!, 'utf8'));
     expect(settings.permissions).toEqual({
-      allow: ['mcp__crystal__title', 'mcp__crystal__errand'],
+      allow: ['mcp__crystal__title', 'mcp__crystal__errand', 'mcp__crystal__deed'],
       additionalDirectories: ['/tmp/files/s1'],
     });
   });

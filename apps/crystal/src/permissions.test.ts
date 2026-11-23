@@ -7,6 +7,7 @@ import {
   createPermissionServer,
   QUEST_TOOLS,
   ERRAND_INSTRUCTION,
+  DEED_INSTRUCTION,
   type PermissionDecision,
   type PermissionRequest,
   type PermissionServer,
@@ -461,7 +462,7 @@ describe('the errand tool (#288)', () => {
     expect(ERRAND_INSTRUCTION).toContain('reply');
     expect(QUEST_PROMPT).toContain(TITLE_INSTRUCTION);
     expect(QUEST_PROMPT).toContain(ERRAND_INSTRUCTION);
-    expect(QUEST_TOOLS).toEqual(['mcp__crystal__title', 'mcp__crystal__errand']);
+    expect(QUEST_TOOLS).toEqual(['mcp__crystal__title', 'mcp__crystal__errand', 'mcp__crystal__deed']);
   });
 
   it('passes an Errand on with the Quest it came from, and answers with its id', async () => {
@@ -523,5 +524,72 @@ describe('the errand tool (#288)', () => {
     expect(tools.map((tool) => tool.name)).not.toContain('errand');
     await other.close();
     await bare.close();
+  });
+});
+
+describe('the deed tool (#289)', () => {
+  let server: PermissionServer;
+  let client: Client;
+  let deeds: { session: string; deed: { deed: string; detail?: string } }[];
+  let refusal: string | undefined;
+
+  beforeEach(async () => {
+    deeds = [];
+    refusal = undefined;
+    server = await createPermissionServer({
+      port: 0,
+      onRequest: async () => ({ behavior: 'allow' }),
+      onDeed: (session, deed) => {
+        if (refusal) return { ok: false, reason: refusal };
+        deeds.push({ session, deed });
+        return { ok: true, id: 'deed-1' };
+      },
+    });
+    client = await connectClient(server, 'quest-1');
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it('offers a line and a detail, and the prompt line names the tool and ToolSearch', async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((candidate) => candidate.name === 'deed');
+    expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(['deed', 'detail']);
+    expect(DEED_INSTRUCTION).toContain('mcp__crystal__deed');
+    expect(DEED_INSTRUCTION).toContain('ToolSearch');
+    expect(DEED_INSTRUCTION).toContain('Routine');
+    expect(QUEST_PROMPT).toContain(TITLE_INSTRUCTION);
+    expect(QUEST_PROMPT).toContain(ERRAND_INSTRUCTION);
+    expect(QUEST_PROMPT).toContain(DEED_INSTRUCTION);
+    expect(QUEST_TOOLS).toEqual(['mcp__crystal__title', 'mcp__crystal__errand', 'mcp__crystal__deed']);
+  });
+
+  it('passes a Deed on with the Quest it came from', async () => {
+    const result = await client.callTool({
+      name: 'deed',
+      arguments: { deed: ' Moved the hub to Node 24 ', detail: 'Image 30 MB smaller.' },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.stringify(result.content)).toContain('deed-1');
+    expect(deeds).toEqual([
+      { session: 'quest-1', deed: { deed: 'Moved the hub to Node 24', detail: 'Image 30 MB smaller.' } },
+    ]);
+    await client.callTool({ name: 'deed', arguments: { deed: 'Fixed it' } });
+    expect(deeds[1]?.deed).toEqual({ deed: 'Fixed it' });
+    expect('detail' in (deeds[1]?.deed ?? {})).toBe(false);
+  });
+
+  it('turns a bad line, a long detail or a refusal into an error the Quest can read', async () => {
+    const empty = await client.callTool({ name: 'deed', arguments: { deed: ' ' } });
+    expect(empty.isError).toBe(true);
+    const long = await client.callTool({ name: 'deed', arguments: { deed: 'x', detail: 'a'.repeat(281) } });
+    expect(long.isError).toBe(true);
+    expect(deeds).toEqual([]);
+    refusal = 'A Quest may record at most 3 Deeds in one turn.';
+    const refused = await client.callTool({ name: 'deed', arguments: { deed: 'x' } });
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toEqual([{ type: 'text', text: refusal }]);
   });
 });
