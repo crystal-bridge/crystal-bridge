@@ -218,7 +218,9 @@ Crystal watches the Library folder and skips the folders the listing leaves out:
 Changes are batched for half a second and sent as one `library-changed` frame with the changed paths (at most 200;
 beyond that, it says the whole listing changed). The hub passes it to the browsers that have that Kingdom's Library
 open, and they update the listing and any open Tome. A watcher error is logged and reported as the whole listing
-changed, so the browsers load it again; the Library keeps serving, and it never stops Crystal.
+changed, so the browsers load it again; the Library keeps serving, and it never stops Crystal. Changes made while a
+Kingdom was offline go unreported, so when one with a Library connects again, the hub tells those browsers the whole
+listing changed.
 
 ## Mind the wards: trust and confinement
 

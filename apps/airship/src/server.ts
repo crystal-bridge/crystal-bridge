@@ -250,6 +250,9 @@ function libraryHeaders(reply: FastifyReply, csp = "sandbox; default-src 'none'"
     .header('cross-origin-resource-policy', 'same-origin');
 }
 
+/** Why a Kingdom that's online can't answer for a Library. */
+const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
+
 /** How many image reads may be in flight to one Kingdom, so a page of pictures can't hold up approvals on its link. */
 const LIBRARY_IMAGE_SLOTS = 2;
 /**
@@ -521,8 +524,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const loginOf = (request: FastifyRequest): string => auth?.identify(request) ?? 'default';
 
   // On every answer, refusals and misses included: what's left of an exfiltrating image if a client ever renders one.
-  app.addHook('onRequest', async (_request, reply) => {
-    void reply.header('content-security-policy', CONTENT_SECURITY_POLICY);
+  // The Library's routes take the Library's headers instead, here too, so an answer Fastify gives before the route runs
+  // (invalid JSON, a body over the limit, a refusal below) has them; a route serving a file sets its own after this.
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.routeOptions.url?.startsWith('/api/nodes/:node/library')) libraryHeaders(reply);
+    else void reply.header('content-security-policy', CONTENT_SECURITY_POLICY);
   });
 
   app.addHook('onRequest', async (request, reply) => {
@@ -1688,14 +1694,15 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   ) {
     libraryHeaders(reply);
     if (!nodes.has(node)) return reply.code(404).send({ error: 'that Kingdom is offline' });
-    if (!libraryNodes.has(node))
-      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    if (!libraryNodes.has(node)) return reply.code(409).send({ error: NO_LIBRARY });
     if (image && !(await takeImageSlot(node))) return reply.code(409).send({ error: 'the Kingdom is busy' });
     let answer: KingdomAnswer;
     try {
-      // Looked up again: the Kingdom may have gone, or come back on another socket, while this waited for a slot.
+      // Looked up again: the Kingdom may have gone, or come back on another socket (perhaps without a Library), while
+      // this waited for a slot.
       const socket = nodes.get(node);
       if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+      if (!libraryNodes.has(node)) return reply.code(409).send({ error: NO_LIBRARY });
       answer = await askKingdom(socket, node, frame, LIBRARY_WAIT_MS);
     } finally {
       if (image) freeImageSlot(node);
@@ -1934,8 +1941,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else patrolDraftNodes.delete(helloNode);
           if (hello.data.deeds) deedsNodes.add(helloNode);
           else deedsNodes.delete(helloNode);
-          if (hello.data.library) libraryNodes.set(helloNode, hello.data.library);
-          else libraryNodes.delete(helloNode);
+          if (hello.data.library) {
+            libraryNodes.set(helloNode, hello.data.library);
+            // What changed while it was away went unsaid: the tabs with its Library open reread it all.
+            const reread: HubToClient = { kind: 'library-changed', node: helloNode, all: true };
+            for (const watcher of libraryWatchers.get(helloNode) ?? []) sendToClient(watcher, reread);
+          } else libraryNodes.delete(helloNode);
           if (hello.data.patrols) patrolNodes.add(helloNode);
           else patrolNodes.delete(helloNode);
           if (hello.data.patrols && hello.data.patrolsFromApp) patrolEditNodes.add(helloNode);

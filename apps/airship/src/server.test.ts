@@ -751,6 +751,7 @@ describe('airship server', () => {
       return { socket, frames };
     }
 
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
     const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
     const call = (method: string, path: string, body?: unknown) =>
       fetch(`${baseUrl}${path}`, {
@@ -1015,6 +1016,7 @@ describe('airship server', () => {
   describe('Errands (#288)', () => {
     const ERRAND = '44444444-4444-4444-8444-444444444444';
     const SESSION = '22222222-2222-4222-8222-222222222222';
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
     const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
     const call = (method: string, path: string, body?: unknown) =>
       fetch(`${baseUrl}${path}`, {
@@ -1200,6 +1202,7 @@ describe('airship server', () => {
   describe('Deeds (#289)', () => {
     const SESSION = '22222222-2222-4222-8222-222222222222';
     const RUN = '55555555-5555-4555-8555-555555555555';
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
     const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
     const call = (method: string, path: string, body?: unknown) =>
       fetch(`${baseUrl}${path}`, {
@@ -1506,6 +1509,7 @@ describe('airship server', () => {
     const VERSION = { size: 5, mtimeMs: 1, hash: 'a'.repeat(64) };
     const NEWER = { size: 6, mtimeMs: 2, hash: 'b'.repeat(64) };
     const TOME = { path: 'a.md', kind: 'md', content: '# Hi\n', encoding: 'utf8', truncated: false, version: VERSION };
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
     const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
     const call = (method: string, path: string, body?: unknown) =>
       fetch(`${baseUrl}${path}`, {
@@ -1608,7 +1612,7 @@ describe('airship server', () => {
       expect(node.frames.frames.filter((frame) => String(frame.kind).startsWith('library-'))).toEqual([]);
     });
 
-    it('says the Kingdom is offline (404), too old (409, no library in its hello) or slow (409 after 15 s)', async () => {
+    it('says the Kingdom is offline (404), has no Library (409, none in its hello) or is slow (409 after 15 s)', async () => {
       expect(await json(await call('GET', '/api/nodes/node-z/library'))).toEqual({
         status: 404,
         body: { error: 'that Kingdom is offline' },
@@ -1616,7 +1620,7 @@ describe('airship server', () => {
       const old = await started({});
       expect(await json(await call('GET', '/api/nodes/node-a/library'))).toEqual({
         status: 409,
-        body: { error: 'update this Kingdom first: it is too old for this' },
+        body: { error: NO_LIBRARY },
       });
       old.socket.terminate();
 
@@ -1679,6 +1683,32 @@ describe('airship server', () => {
         expect(response.headers.get('x-content-type-options')).toBe('nosniff');
         expect(response.headers.get('cross-origin-resource-policy')).toBe('same-origin');
       }
+    });
+
+    it('carries the Library headers on answers Fastify gives before the route runs', async () => {
+      await started();
+      const put = (payload: string, headers: Record<string, string> = {}) =>
+        app.inject({
+          method: 'PUT',
+          url: '/api/nodes/node-a/library/tome',
+          headers: { 'content-type': 'application/json', ...headers },
+          payload,
+        });
+      const responses = [
+        await put('{"path": "a.md", '),
+        await put(JSON.stringify({ path: 'a.md', content: 'x'.repeat(4 * 1024 * 1024), base: null })),
+        await put(JSON.stringify({ path: 'a.md', content: 'x', base: null }), { 'sec-fetch-site': 'cross-site' }),
+      ];
+      expect(responses.map((response) => response.statusCode)).toEqual([400, 413, 403]);
+      for (const response of responses) {
+        expect(response.headers['content-security-policy']).toBe("sandbox; default-src 'none'");
+        expect(response.headers['x-content-type-options']).toBe('nosniff');
+        expect(response.headers['cross-origin-resource-policy']).toBe('same-origin');
+      }
+      // Everything else keeps the hub's own CSP.
+      expect((await app.inject({ method: 'GET', url: '/api/sessions' })).headers['content-security-policy']).toBe(
+        "img-src 'self' data: blob:; frame-ancestors 'none'",
+      );
     });
 
     describe('images', () => {
@@ -1879,6 +1909,72 @@ describe('airship server', () => {
           vi.useRealTimers();
         }
       });
+
+      it('answers held and queued image reads when their Kingdom goes, and gives its return two slots', async () => {
+        const node = await started();
+        const reads = [1, 2, 3].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await node.frames.waitFor(() => libraryReads(node).length === 2);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(libraryReads(node).map((frame) => frame.path)).toEqual(['1.png', '2.png']);
+        node.socket.terminate();
+        const settled = await Promise.all(reads);
+        expect(settled.map((response) => response.status)).toEqual([409, 409, 404]);
+        expect(await settled[2]?.json()).toEqual({ error: 'that Kingdom is offline' });
+
+        const again = await started();
+        const more = [4, 5].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await again.frames.waitFor(() => libraryReads(again).length === 2);
+        for (const frame of libraryReads(again))
+          send(again.socket, { kind: 'library-answer', requestId: frame.requestId, ...image(String(frame.path), PNG) });
+        expect((await Promise.all(more)).map((response) => response.status)).toEqual([200, 200]);
+      });
+
+      it('tells a queued image read its Kingdom came back without a Library', async () => {
+        const node = await started();
+        const asked = new Promise<void>((resolve) => {
+          let seen = 0;
+          node.socket.on('message', (data) => {
+            if ((JSON.parse(data.toString()) as { kind?: string }).kind === 'library-read' && ++seen === 2) resolve();
+          });
+        });
+        // The hub's timers and clock: the sockets keep real ones.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        try {
+          const inject = (n: number) =>
+            app.inject({ method: 'GET', url: `/api/nodes/node-a/library/file?path=${n}.png` });
+          const held = [inject(1), inject(2)];
+          await asked;
+          let settled = false;
+          const queued = inject(3);
+          void queued.then(() => (settled = true));
+          for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+
+          // The first link has gone quiet, so a new one takes the name: a Kingdom with no Library. The first link's
+          // reads are left to time out, and the queued one takes a slot then.
+          vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+          const back = await connectNode('node-a');
+          for (let tries = 0; tries < 200; tries++) {
+            const listed = (await app.inject({ method: 'GET', url: '/api/engines' })).json<
+              { node: string; library?: unknown }[]
+            >();
+            if (listed.some((row) => row.node === 'node-a' && !row.library)) break;
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+          await vi.advanceTimersByTimeAsync(15_000);
+          expect((await Promise.all(held)).map((response) => response.json())).toEqual([
+            { error: 'the Kingdom did not answer in time' },
+            { error: 'the Kingdom did not answer in time' },
+          ]);
+          for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+          expect(settled).toBe(true);
+          const response = await queued;
+          expect([response.statusCode, response.json()]).toEqual([409, { error: NO_LIBRARY }]);
+          expect(libraryReads(back)).toEqual([]);
+        } finally {
+          await vi.advanceTimersByTimeAsync(15_000);
+          vi.useRealTimers();
+        }
+      });
     });
 
     describe('HTML Tomes', () => {
@@ -2048,6 +2144,22 @@ describe('airship server', () => {
         expect(b.frames.frames.filter(changed)).toHaveLength(0);
       });
 
+      it('tells the watching tabs to reread everything when their Kingdom comes back', async () => {
+        const first = await connectNode('node-a', LIBRARY);
+        const a = await connectClient();
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        await settled(a);
+        first.socket.terminate();
+        await new Promise((resolve) => first.socket.once('close', resolve));
+        await connectNode('node-a', LIBRARY);
+        expect(await a.frames.waitFor(changed)).toEqual({ kind: 'library-changed', node: 'node-a', all: true });
+        // Back without a Library: nothing to reread.
+        await connectNode('node-b');
+        send(a.socket, { kind: 'library-watch', node: 'node-b', open: true });
+        await settled(a);
+        expect(a.frames.frames.filter(changed)).toHaveLength(1);
+      });
+
       it('keeps a watch on a Kingdom that is offline, and ignores nonsense', async () => {
         const a = await connectClient();
         send(a.socket, { kind: 'library-watch', node: 'node-a', open: true });
@@ -2056,7 +2168,10 @@ describe('airship server', () => {
         await settled(a);
         const node = await connectNode('node-a', LIBRARY);
         send(node.socket, { kind: 'library-changed', paths: ['b.md'] });
-        expect(await a.frames.waitFor(changed)).toMatchObject({ node: 'node-a', paths: ['b.md'] });
+        expect(await a.frames.waitFor((frame) => changed(frame) && 'paths' in frame)).toMatchObject({
+          node: 'node-a',
+          paths: ['b.md'],
+        });
       });
     });
   });

@@ -103,12 +103,13 @@ Its routes sit under `/api/nodes/:node/library` (the list, `tome` to read and wr
 and `page` for HTML Tomes). Each needs a login like any `/api/` route, even when the app shell loads without one (`AIRSHIP_AUTH=token`).
 
 - **Headers on every answer.** A `Content-Security-Policy` with `sandbox`, which replaces the hub's global one;
-  `X-Content-Type-Options: nosniff`; and `Cross-Origin-Resource-Policy: same-origin`.
+  `X-Content-Type-Options: nosniff`; and `Cross-Origin-Resource-Policy: same-origin`. Refusals the hub gives before
+  a route runs carry them too: malformed JSON, a body over the limit, a request from another site or without a login.
 - **Content types come from the hub.** It maps the file's extension to a type and never takes one from the Kingdom.
 - **SVG** is sent with `sandbox; default-src 'none'; style-src 'unsafe-inline'`, so a picture can't run script or
   load anything, even when opened directly.
-- **Images** are read two at a time per Kingdom, and an answer that takes more than 15 seconds gives up, so a page of
-  images can't tie up the link.
+- **Images** are read two at a time per Kingdom. A read waits at most 15 seconds for a slot, then at most 15 seconds
+  for its answer, so a page of images can't tie up the link.
 - **HTML Tomes** are served as a page only into the app's own frame: the request must carry `Sec-Fetch-Dest: iframe`
   and `Sec-Fetch-Site: same-origin`. Any other request, such as a pasted address, gets the file as a download. The page
   carries `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src
