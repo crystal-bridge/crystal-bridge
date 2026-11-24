@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_IMAGE_BYTES, MAX_TOME_BYTES, type TomeVersion } from '@crystal-bridge/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLibrary, type Library } from './library.js';
+import { createLibrary, libraryDirFrom, type Library } from './library.js';
 
 // Runs as `writeTome` picks its temporary name, after the name was looked at: a test can act in that gap.
 const gap = vi.hoisted(() => ({ onTemp: undefined as (() => void) | undefined }));
@@ -33,6 +33,19 @@ vi.mock('node:crypto', async (original) => {
 const noSymlinks = process.platform === 'win32';
 
 const sha256 = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
+
+describe('CRYSTAL_LIBRARY_DIR (#290)', () => {
+  it('is off, the default, or the folder named, made absolute', () => {
+    const home = join(tmpdir(), 'home');
+    expect(libraryDirFrom({ CRYSTAL_LIBRARY_DIR: 'off' }, home)).toBeUndefined();
+    expect(libraryDirFrom({}, home)).toBe(join(home, '.crystal-bridge', 'library'));
+    expect(libraryDirFrom({ CRYSTAL_LIBRARY_DIR: '' }, home)).toBe(join(home, '.crystal-bridge', 'library'));
+    // Relative to where Crystal starts, not to each Quest's project folder.
+    expect(libraryDirFrom({ CRYSTAL_LIBRARY_DIR: 'notes' }, home)).toBe(join(process.cwd(), 'notes'));
+    const absolute = join(tmpdir(), 'vault');
+    expect(libraryDirFrom({ CRYSTAL_LIBRARY_DIR: absolute }, home)).toBe(absolute);
+  });
+});
 
 describe("a Kingdom's Library (#290)", () => {
   let base: string;

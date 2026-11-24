@@ -92,8 +92,8 @@ A Kingdom serves the folder named by `CRYSTAL_LIBRARY_DIR` to the hub, and reads
 - **One answer for every refusal.** A refused path and a missing file both get "not in the Library", so a refusal
   never says what exists.
 - **Quests.** A Quest's permission mode decides whether it may touch the folder. `CRYSTAL_LIBRARY_QUESTS=folder` adds
-  the folder to every Quest, so enable it only where every Quest, including one working on an untrusted repository,
-  may read the Library and write any file type there.
+  the folder to every Quest, including the unattended Quests that Scouts and Patrols start, so enable it only where
+  every Quest, including one working on an untrusted repository, may read the Library and write any file type there.
 
 ## Self-updating Kingdoms
 

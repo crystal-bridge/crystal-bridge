@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import { lstat, mkdir, open, readdir, realpath, stat } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import {
   MAX_IMAGE_BYTES,
   MAX_LIBRARY_PATH,
@@ -42,6 +42,14 @@ export type LibraryOptions = {
   onChange?: (change: LibraryChange) => void;
   maxListing?: number;
 };
+
+/** The Library folder from `CRYSTAL_LIBRARY_DIR` (docs/LIBRARY.md): `off`, unset for the default, or a folder. */
+export function libraryDirFrom(env: Record<string, string | undefined>, home: string): string | undefined {
+  const value = env.CRYSTAL_LIBRARY_DIR;
+  if (value === 'off') return undefined;
+  // Resolved once, at start: a relative folder would otherwise be taken from each Quest's own project folder.
+  return value ? resolve(value) : join(home, '.crystal-bridge', 'library');
+}
 
 const NOT_HERE = 'not in the Library';
 const refused: Refusal = { ok: false, reason: NOT_HERE };
