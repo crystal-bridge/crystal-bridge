@@ -1,0 +1,78 @@
+/*
+ * Code colours in a Tome (rehype-highlight's `hljs-*` classes), loaded with the highlighter, so the app's own
+ * stylesheet doesn't carry them. The audition's palette: keywords in the Library's purple, values in green,
+ * comments quiet.
+ */
+.cb-tome .hljs-keyword,
+.cb-tome .hljs-selector-tag,
+.cb-tome .hljs-attr,
+.cb-tome .hljs-name,
+.cb-tome .hljs-section,
+.cb-tome .hljs-built_in {
+  color: #7e22ce;
+}
+.cb-tome .hljs-string,
+.cb-tome .hljs-number,
+.cb-tome .hljs-literal,
+.cb-tome .hljs-symbol,
+.cb-tome .hljs-regexp,
+.cb-tome .hljs-attribute {
+  color: #047857;
+}
+.cb-tome .hljs-title,
+.cb-tome .hljs-type,
+.cb-tome .hljs-variable,
+.cb-tome .hljs-template-variable,
+.cb-tome .hljs-meta {
+  color: #b45309;
+}
+.cb-tome .hljs-comment,
+.cb-tome .hljs-quote {
+  color: #a3a3a3;
+  font-style: italic;
+}
+.cb-tome .hljs-deletion {
+  color: #be123c;
+}
+.cb-tome .hljs-addition {
+  color: #047857;
+}
+.cb-tome .hljs-emphasis {
+  font-style: italic;
+}
+.cb-tome .hljs-strong {
+  font-weight: 700;
+}
+@media (prefers-color-scheme: dark) {
+  .cb-tome .hljs-keyword,
+  .cb-tome .hljs-selector-tag,
+  .cb-tome .hljs-attr,
+  .cb-tome .hljs-name,
+  .cb-tome .hljs-section,
+  .cb-tome .hljs-built_in {
+    color: #d8b4fe;
+  }
+  .cb-tome .hljs-string,
+  .cb-tome .hljs-number,
+  .cb-tome .hljs-literal,
+  .cb-tome .hljs-symbol,
+  .cb-tome .hljs-regexp,
+  .cb-tome .hljs-attribute,
+  .cb-tome .hljs-addition {
+    color: #34d399;
+  }
+  .cb-tome .hljs-title,
+  .cb-tome .hljs-type,
+  .cb-tome .hljs-variable,
+  .cb-tome .hljs-template-variable,
+  .cb-tome .hljs-meta {
+    color: #fbbf24;
+  }
+  .cb-tome .hljs-comment,
+  .cb-tome .hljs-quote {
+    color: #737373;
+  }
+  .cb-tome .hljs-deletion {
+    color: #fda4af;
+  }
+}
