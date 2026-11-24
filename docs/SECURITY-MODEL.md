@@ -95,7 +95,9 @@ What this doesn't cover:
   push one. An edge build is a pre-release that only hubs following `main` take.
 - **Dependencies.** The proof covers this project's package. `npm install` resolves its dependencies from npm at
   install time, by the ranges in the package, as `join` does. Install scripts are off, but a dependency's code still runs.
-- **The first install.** `join` runs through `npx` from a URL and verifies nothing itself.
+- **The first install.** `join` runs through `npx`, from npm or a release's URL, and verifies nothing itself. The npm
+  packages are the release's attested tarballs, published by the release workflow with npm's own provenance, but `npx`
+  doesn't check either; `gh attestation verify` on the release's tarball does, before you run it.
 
 ## What is out of scope
 

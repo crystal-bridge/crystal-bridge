@@ -47,7 +47,7 @@ docker logs crystal-bridge   # shows a one-time setup code
 Put HTTPS in front of it (Caddy, nginx or a tunnel), because tokens travel in the clear without it. Then open the hub,
 enter the code and make your login in the browser ([First run](./OPERATIONS.md#first-run)), and add Kingdoms from the
 app as above. For a scripted setup, `crystal-bridge-airship token add <name>` still makes a login. The same hub runs
-without Docker from the release's tarball, with `AIRSHIP_AUTH=token` and `AIRSHIP_DATA` set; see
+without Docker from npm (`npx --yes @crystal-bridge/airship`), with `AIRSHIP_AUTH=token` and `AIRSHIP_DATA` set; see
 [Running a packaged hub](./OPERATIONS.md#running-a-packaged-hub).
 
 Whatever sits in front has to pass WebSocket upgrades on `/client` (browsers) and `/node` (Kingdoms), or the app loads and
