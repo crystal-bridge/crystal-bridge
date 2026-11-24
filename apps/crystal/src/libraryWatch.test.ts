@@ -40,7 +40,7 @@ describe('the Library watcher (#290)', () => {
       allowed: libraryFilter(root),
       onChange: (change) => changes.push(change),
       log: (msg) => logs.push(msg),
-      batchMs: 50,
+      batchMs: 300,
       ...opts,
     });
     watchers.push(watcher);
@@ -81,8 +81,8 @@ describe('the Library watcher (#290)', () => {
     writeFileSync(join(root, 'notes', 'a.md'), '# A, again\n');
     unlinkSync(join(root, 'notes', 'b.md'));
     await until(() => changes.length > 0);
-    // Long enough for a second batch to show up if the first was split.
-    await wait(300);
+    // Longer than a batch, so a second one would show up if the first was split.
+    await wait(600);
     expect(changes).toEqual([{ paths: ['notes/a.md', 'notes/b.md'] }]);
   });
 
@@ -103,7 +103,7 @@ describe('the Library watcher (#290)', () => {
     // A Tome written after them: anything the watcher let through would arrive no later than this.
     writeFileSync(join(root, 'notes', 'a.md'), '# A, again\n');
     await until(() => changes.length > 0);
-    await wait(200);
+    await wait(600);
     expect(changes).toEqual([{ paths: ['notes/a.md'] }]);
   });
 
@@ -113,7 +113,7 @@ describe('the Library watcher (#290)', () => {
     writeFileSync(join(root, 'notes', 'new', 'c.md'), '# C\n');
     await until(() => reported().includes('notes/new/c.md'));
 
-    await wait(200);
+    await wait(600);
     changes.length = 0;
     renameSync(join(root, 'notes', 'new'), join(root, 'notes', 'old'));
     writeFileSync(join(root, 'notes', 'old', 'd.md'), '# D\n');
@@ -122,7 +122,7 @@ describe('the Library watcher (#290)', () => {
     await until(() => reported().includes('notes/new'));
     expect(reported().filter((path) => path.startsWith('notes/new/'))).toEqual([]);
 
-    await wait(200);
+    await wait(600);
     changes.length = 0;
     rmSync(join(root, 'notes', 'old'), { recursive: true });
     await until(() => reported().includes('notes/old'));
@@ -144,7 +144,7 @@ describe('the Library watcher (#290)', () => {
       onChange: (change) => changes.push(change),
       onIgnoreChanged,
       log: (msg) => logs.push(msg),
-      batchMs: 50,
+      batchMs: 300,
     });
     watchers.push(watcher);
     await wait(300);
@@ -173,6 +173,37 @@ describe('the Library watcher (#290)', () => {
       const roomy = await start();
       expect(roomy.capped).toBe(false);
       expect(roomy.watchCount).toBe(8);
+    },
+  );
+
+  it.each(['win32', 'darwin'] as const)(
+    "on %s, a folder's own change event isn't a change, but one made or renamed is",
+    async (platform) => {
+      const listeners: ((event: string, name: string) => void)[] = [];
+      const fakeWatch = ((_path: string, _opts: unknown, listener: (event: string, name: string) => void) => {
+        listeners.push(listener);
+        return Object.assign(new EventEmitter(), { close: () => {} });
+      }) as unknown as typeof fs.watch;
+      const watcher = watchLibrary(root, {
+        allowed: libraryFilter(root),
+        onChange: (change) => changes.push(change),
+        log: (msg) => logs.push(msg),
+        batchMs: 20,
+        platform,
+        watch: fakeWatch,
+      });
+      watchers.push(watcher);
+      listeners[0]!('change', 'notes/a.md');
+      listeners[0]!('change', 'notes');
+      await until(() => changes.length > 0);
+      expect(changes).toEqual([{ paths: ['notes/a.md'] }]);
+
+      changes.length = 0;
+      mkdirSync(join(root, 'newdir'));
+      writeFileSync(join(root, 'newdir', 'x.md'), '# X\n');
+      listeners[0]!('rename', 'newdir');
+      await until(() => changes.length > 0);
+      expect(changes).toEqual([{ paths: ['newdir', 'newdir/x.md'] }]);
     },
   );
 

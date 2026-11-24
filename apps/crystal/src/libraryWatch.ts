@@ -30,7 +30,9 @@ export type WatchOptions = {
  * "Keep watch").
  *
  * - A path that is a Tome (a Library file the filter allows) is reported when it is made, changed or removed.
- * - A path that isn't a Tome names a folder: one made or renamed in is reported with every Tome under it; one
+ * - A path that isn't a Tome names a folder, and only a `rename` event counts for one (a folder's own `change` is its
+ *   modified time moving, which Windows reports when something inside it changes, so it is dropped). One made or
+ *   renamed in is reported with every Tome under it; one
  *   removed or renamed away is reported by its own path alone, since what was under it is gone, so a listing should
  *   drop or reload everything under that path. A removed file of another kind can't be told from a removed folder
  *   and is reported the same way, which costs only a needless reload.
@@ -120,8 +122,8 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
     let watcher: fs.FSWatcher;
     try {
       watcher = recursive
-        ? watch(root, { recursive: true }, (_event, name) => onRecursiveEvent(name))
-        : watch(abs(rel), (_event, name) => onFolderEvent(rel, watcher, name));
+        ? watch(root, { recursive: true }, (event, name) => onRecursiveEvent(event, name))
+        : watch(abs(rel), (event, name) => onFolderEvent(rel, watcher, event, name));
     } catch (error) {
       log(`Library watch on ${rel || '.'} failed: ${(error as Error).message}`);
       // Out of watches (ENOSPC) or a folder we may not read: either way some changes won't show.
@@ -162,7 +164,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
   }
 
   /** One changed path, relative to the Library with `/` between its parts. */
-  function changed(path: string): void {
+  function changed(path: string, event: string): void {
     if (path === '.gitignore') {
       opts.onIgnoreChanged?.();
       reportAll();
@@ -175,6 +177,9 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
       stats = undefined;
     }
     if (stats?.isDirectory()) {
+      // A folder's own `change` is its modified time moving because something in it changed (Windows reports it,
+      // and Crystal's own temp files cause it). What changed is reported by its own event.
+      if (event === 'change') return;
       if (!allowed(path, true)) return;
       report(path);
       walk(path, !recursive, true);
@@ -194,15 +199,15 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
     if (allowed(path, true)) report(path);
   }
 
-  function onRecursiveEvent(name: string | Buffer | null): void {
+  function onRecursiveEvent(event: string, name: string | Buffer | null): void {
     if (closed) return;
     if (name === null) return reportAll();
     const path = name.toString().split(sep).join('/').split('\\').join('/');
     if (path === '') return;
-    changed(path);
+    changed(path, event);
   }
 
-  function onFolderEvent(rel: string, watcher: fs.FSWatcher, name: string | Buffer | null): void {
+  function onFolderEvent(rel: string, watcher: fs.FSWatcher, event: string, name: string | Buffer | null): void {
     // A watch closed meanwhile, or one left on a folder that has since moved: the parent's event covers it.
     if (closed || watches.get(rel) !== watcher) return;
     if (!fs.existsSync(abs(rel))) {
@@ -210,7 +215,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
       return;
     }
     if (name === null) return reportAll();
-    changed(child(rel, name.toString()));
+    changed(child(rel, name.toString()), event);
   }
 
   if (recursive) addWatch('');
