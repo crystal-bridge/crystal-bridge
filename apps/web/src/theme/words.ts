@@ -92,7 +92,10 @@ export type Concept =
   | 'errands'
   | 'deed'
   | 'deeds'
-  | 'deedsFeed';
+  | 'deedsFeed'
+  | 'library'
+  | 'tome'
+  | 'tomes';
 
 export type Words = Record<Concept, Word>;
 
@@ -179,6 +182,9 @@ export const CRYSTAL: Words = {
   deed: { themed: 'Deed', plain: 'a line a Quest wrote about what it achieved' },
   deeds: { themed: 'Deeds', plain: 'lines your Quests wrote about what they achieved' },
   deedsFeed: { themed: 'Deeds', plain: 'what your Quests achieved, day by day' },
+  library: { themed: 'Library', plain: "a Kingdom's shared documents" },
+  tome: { themed: 'Tome', plain: 'document' },
+  tomes: { themed: 'Tomes', plain: 'documents' },
 };
 
 /** A plain theme: the same concepts with everyday words. */
@@ -266,6 +272,9 @@ export const CLASSIC: Words = {
   deed: { themed: 'Outcome', plain: 'a line a Quest wrote about what it achieved' },
   deeds: { themed: 'Outcomes', plain: 'lines your Quests wrote about what they achieved' },
   deedsFeed: { themed: 'Work log', plain: 'what your Quests achieved, day by day' },
+  library: { themed: 'Library', plain: "a Kingdom's shared documents" },
+  tome: { themed: 'Document', plain: 'document' },
+  tomes: { themed: 'Documents', plain: 'documents' },
 };
 
 export const THEMES: Record<string, Words> = { crystal: CRYSTAL, classic: CLASSIC };
@@ -426,6 +435,12 @@ export function postingsLine(count: number, board: string, theme: Words = words)
   if (theme === CLASSIC) return { themed: plain, plain };
   const named = /\bboard$/i.test(board) ? board : `${board} Board`;
   return { themed: `${count} new ${count === 1 ? 'posting' : 'postings'} on the ${named}.`, plain };
+}
+
+/** The line for opening a Kingdom's Library, e.g. "You open the Library of laptop.". */
+export function libraryLine(kingdom: string, theme: Words = words): Word {
+  const plain = `The Library of ${kingdom}`;
+  return { themed: theme === CLASSIC ? `${plain}.` : `You open the ${w('library', theme)} of ${kingdom}.`, plain };
 }
 
 /** The chat's line when a Quest starts a Cast, e.g. "You summoned Shiva!". */

@@ -173,6 +173,11 @@ export const ICON_SOURCES = {
   deedTrophy: { pack: 'game-icons', icon: 'trophy', author: 'Lorc' },
   deedFilter: { pack: 'ph', icon: 'funnel-fill' },
   deedLink: { pack: 'ph', icon: 'arrow-square-out-fill' },
+  // Library
+  library: { pack: 'game-icons', icon: 'bookshelf', author: 'Delapouite' },
+  tome: { pack: 'game-icons', icon: 'book-cover', author: 'Delapouite' },
+  htmlTome: { pack: 'ph', icon: 'file-html-fill' },
+  libraryFolder: { pack: 'ph', icon: 'folder-fill' },
 } as const satisfies Record<string, IconSource>;
 
 export type IconName = keyof typeof ICON_SOURCES;

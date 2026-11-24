@@ -9,6 +9,7 @@ import {
   useLine,
   w,
   castLine,
+  libraryLine,
   summonLine,
   questLabel,
   titledLine,
@@ -343,6 +344,17 @@ describe('Quest titles (#287)', () => {
     expect(classic.show).toBe('Show the follow-ups');
     expect(classic.showHint).toBe('Show this session’s follow-ups in the side panel');
     expect(classic.loadFailed).toBe('Couldn’t load follow-ups.');
+  });
+
+  it('names the Library and its Tomes, Documents in the Classic theme', () => {
+    expect(w('library', CRYSTAL)).toBe('Library');
+    expect(w('tome', CRYSTAL)).toBe('Tome');
+    expect(w('tomes', CRYSTAL)).toBe('Tomes');
+    expect(w('library', CLASSIC)).toBe('Library');
+    expect(w('tome', CLASSIC)).toBe('Document');
+    expect(w('tomes', CLASSIC)).toBe('Documents');
+    expect(libraryLine('laptop', CRYSTAL).themed).toBe('You open the Library of laptop.');
+    expect(libraryLine('laptop', CLASSIC).themed).toBe('The Library of laptop.');
   });
 
   it('names Deeds, and Outcomes and the Work log in the Classic theme', () => {
