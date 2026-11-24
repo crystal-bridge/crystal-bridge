@@ -1,12 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLibrary, type Library } from './library.js';
 import { resolveWikiLink } from '@crystal-bridge/protocol';
 import { createLinkIndex, linksIn, wikiLinkResolver } from './libraryLinks.js';
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('the link index (#290)', () => {
   it('finds wiki links and relative Markdown links, not those in code', () => {
@@ -130,22 +128,32 @@ describe('the link index (#290)', () => {
   });
 
   it('refreshes from changes at most once every few seconds', async () => {
-    let reads = 0;
-    const index = createLinkIndex({
-      list: async () => [{ path: 'a.md', kind: 'md' as const }],
-      read: async () => {
-        reads++;
-        return '[[b]]';
-      },
-      refreshMs: 100,
-    });
-    for (let i = 0; i < 10; i++) {
+    // Fake timers: real 5 ms sleeps last about 16 ms on Windows, so ten of them outran the window and made two rebuilds.
+    vi.useFakeTimers();
+    try {
+      let reads = 0;
+      const index = createLinkIndex({
+        list: async () => [{ path: 'a.md', kind: 'md' as const }],
+        read: async () => {
+          reads++;
+          return '[[b]]';
+        },
+        refreshMs: 100,
+      });
+      for (let i = 0; i < 10; i++) {
+        index.changed(['a.md']);
+        await vi.advanceTimersByTimeAsync(5);
+      }
+      await vi.advanceTimersByTimeAsync(250);
+      expect(reads).toBe(1);
+      // A change after the window is a second rebuild.
       index.changed(['a.md']);
-      await sleep(5);
+      await vi.advanceTimersByTimeAsync(250);
+      expect(reads).toBe(2);
+      index.stop();
+    } finally {
+      vi.useRealTimers();
     }
-    await sleep(250);
-    expect(reads).toBe(1);
-    index.stop();
   });
 
   describe('in a Library', () => {
