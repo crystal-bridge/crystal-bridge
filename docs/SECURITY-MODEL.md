@@ -92,10 +92,16 @@ What this doesn't cover:
   refuses a tag that isn't on `main` or fails the tests, but it reads that check from the tagged commit, which can leave
   it out, so only a rule on who may push tags closes this. Edge tags are the exception: the Publish workflow pushes one for each merge to `main`
   ([Releases](./OPERATIONS.md#releases)), so that rule leaves them out, and anyone who may push to the repository could
-  push one. An edge build is a pre-release that only hubs following `main` take.
+  push one. An edge build is a pre-release that only hubs following `main` take. npm's trusted publisher checks the
+  workflow's file name, not the tag, so the release workflow's `npm` job runs in a GitHub environment whose required
+  reviewer is the owner: no run reaches npm, an edge tag's included, until the owner approves it
+  ([Releases](./OPERATIONS.md#releases)).
 - **Dependencies.** The proof covers this project's package. `npm install` resolves its dependencies from npm at
   install time, by the ranges in the package, as `join` does. Install scripts are off, but a dependency's code still runs.
-- **The first install.** `join` runs through `npx` from a URL and verifies nothing itself.
+- **The first install.** `join` runs through `npx`, from npm or a release's URL, and verifies nothing itself. The npm
+  packages are the release's attested tarballs, and from the first release after 0.7.0 the release workflow publishes
+  them with npm's own provenance (0.7.0 was published by hand and has none), but `npx` doesn't check either;
+  `gh attestation verify` on the release's tarball does, before you run it.
 
 ## What is out of scope
 
