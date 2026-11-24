@@ -24,13 +24,19 @@ const tome = (content: string, more: Partial<LibraryTome> = {}): LibraryTome => 
 });
 
 type Answer = { status: number; body: unknown };
+/** An answer the test hands over later, to order a read against a save. */
+function later() {
+  let give!: (answer: Answer) => void;
+  const answer = new Promise<Answer>((resolve) => (give = resolve));
+  return { answer, give: (one: Answer) => act(async () => give(one)) };
+}
 const json = ({ status, body }: Answer) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 /** The hub as fetch sees it: each PUT and GET answered from its queue, in order, with every call kept. */
 function hubFetch() {
-  const puts: Answer[] = [];
-  const gets: Answer[] = [];
+  const puts: (Answer | Promise<Answer>)[] = [];
+  const gets: (Answer | Promise<Answer>)[] = [];
   const calls: { method: string; url: string; body?: { path: string; content: string; base: TomeVersion | null } }[] =
     [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -40,9 +46,9 @@ function hubFetch() {
       url,
       ...(init?.body ? { body: JSON.parse(String(init.body)) as (typeof calls)[number]['body'] } : {}),
     });
-    const answer = (method === 'PUT' ? puts : gets).shift();
-    if (!answer) throw new Error(`no answer queued for ${method} ${url}`);
-    return json(answer);
+    const queued = (method === 'PUT' ? puts : gets).shift();
+    if (!queued) throw new Error(`no answer queued for ${method} ${url}`);
+    return json(await queued);
   });
   vi.stubGlobal('fetch', fetchMock);
   return { puts, gets, calls, writes: () => calls.filter((one) => one.method === 'PUT') };
@@ -60,11 +66,14 @@ function fakeHub() {
     },
     changed: (paths: string[]) =>
       act(() => listeners.forEach((listener) => listener({ kind: 'library-changed', node: NODE, paths }))),
+    /** Too many files changed to name: the node says `all`. */
+    changedAll: () =>
+      act(() => listeners.forEach((listener) => listener({ kind: 'library-changed', node: NODE, all: true }))),
   };
 }
 
 function edit(content: string, more: Partial<LibraryTome> = {}) {
-  const { hub, changed } = fakeHub();
+  const { hub, changed, changedAll } = fakeHub();
   const onSaved = vi.fn();
   const onClose = vi.fn();
   const view = render(
@@ -78,7 +87,7 @@ function edit(content: string, more: Partial<LibraryTome> = {}) {
       onClose={onClose}
     />,
   );
-  return { ...view, onSaved, onClose, changed };
+  return { ...view, onSaved, onClose, changed, changedAll };
 }
 
 const box = () => screen.getByRole('textbox', { name: /Markdown/ }) as HTMLTextAreaElement;
@@ -183,6 +192,17 @@ describe('the Tome editor', () => {
     expect(hub.writes()[0]!.body!.content).toBe('# Backups\r\n\r\nNightly.\r\nWeekly.\r\n');
   });
 
+  it('names the save key as the platform does: Ctrl S, or ⌘ S on a Mac', () => {
+    edit('a\n');
+    expect(screen.getByRole('button', { name: /^Save/ }).textContent).toMatch(/Ctrl S/);
+    cleanup();
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    edit('a\n');
+    const button = screen.getByRole('button', { name: /^Save/ });
+    expect(button.textContent).toMatch(/⌘ S/);
+    expect(button.textContent).not.toMatch(/Ctrl/);
+  });
+
   it('asks before Cancel drops unsaved text', () => {
     const { onClose } = edit('a\n');
     type('b\n');
@@ -249,6 +269,59 @@ describe('changed on disk', () => {
     expect(box().value).toBe('shared\n');
   });
 
+  it('Reload takes the line endings of the file on disk', async () => {
+    const hub = hubFetch();
+    const { changed } = edit('shared\n');
+    hub.gets.push({ status: 200, body: { tome: tome('theirs\r\nshared\r\n', { version: V2 }) } });
+    changed([PATH]);
+    await screen.findByRole('alert', { name: /Changed on disk/ });
+    fireEvent.click(within(banner()).getByRole('button', { name: /Reload/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Yes, reload/ }));
+    await waitFor(() => expect(box().value).toBe('theirs\nshared\n'));
+    hub.puts.push({ status: 200, body: { version: V3 } });
+    type('theirs\nshared\nmine\n');
+    save();
+    await waitFor(() => expect(hub.writes()).toHaveLength(1));
+    expect(hub.writes()[0]!.body).toEqual({ path: PATH, content: 'theirs\r\nshared\r\nmine\r\n', base: V2 });
+  });
+
+  it('a read that started before a save and lands after it shows no banner', async () => {
+    const hub = hubFetch();
+    const { changed, onSaved } = edit('shared\n');
+    const stale = later();
+    hub.gets.push(stale.answer);
+    changed([PATH]);
+    await waitFor(() => expect(hub.calls).toHaveLength(1));
+    hub.puts.push({ status: 200, body: { version: V2 } });
+    type('mine\n');
+    save();
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(V2));
+    // The read saw the file before the save wrote it.
+    await stale.give({ status: 200, body: { tome: tome('shared\n') } });
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(screen.queryByRole('alert', { name: /Changed on disk/ })).toBeNull();
+  });
+
+  it('the banner goes when the file on disk is back at the version the text was edited from', async () => {
+    const hub = hubFetch();
+    const { changed } = edit('shared\n');
+    hub.gets.push({ status: 200, body: { tome: tome('theirs\n', { version: V2 }) } });
+    changed([PATH]);
+    await screen.findByRole('alert', { name: /Changed on disk/ });
+    hub.gets.push({ status: 200, body: { tome: tome('shared\n') } });
+    changed([PATH]);
+    await waitFor(() => expect(screen.queryByRole('alert', { name: /Changed on disk/ })).toBeNull());
+  });
+
+  it('a library-changed for all files checks the open Tome too', async () => {
+    const hub = hubFetch();
+    const { changedAll } = edit('shared\n');
+    hub.gets.push({ status: 200, body: { tome: tome('theirs\n', { version: V2 }) } });
+    changedAll();
+    await screen.findByRole('alert', { name: /Changed on disk/ });
+    expect(hub.calls).toHaveLength(1);
+  });
+
   it('a library-changed that finds the version it already has shows nothing', async () => {
     const hub = hubFetch();
     const { changed } = edit('shared\n');
@@ -299,6 +372,27 @@ describe('drafts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Restore draft' }));
     expect(box().value).toBe('a\nb\n');
     expect(screen.queryByRole('alert', { name: /Changed on disk/ })).toBeNull();
+  });
+
+  it('writes the last keystrokes on leaving, without waiting for typing to stop', () => {
+    const { unmount } = edit('a\n');
+    type('a\nb\n');
+    unmount();
+    expect(JSON.parse(localStorage.getItem(DRAFT_KEY)!)).toEqual({ text: 'a\nb\n', base: V1 });
+  });
+
+  it('writes the last keystrokes when the page goes away', () => {
+    edit('a\n');
+    type('a\nc\n');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(JSON.parse(localStorage.getItem(DRAFT_KEY)!)).toEqual({ text: 'a\nc\n', base: V1 });
+  });
+
+  it('leaving with a draft on offer leaves that draft alone', () => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ text: 'old\n', base: V1 }));
+    const { unmount } = edit('a\n');
+    unmount();
+    expect(JSON.parse(localStorage.getItem(DRAFT_KEY)!)).toEqual({ text: 'old\n', base: V1 });
   });
 
   it('Discard draft forgets it', () => {

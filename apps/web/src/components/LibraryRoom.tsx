@@ -18,6 +18,7 @@ import {
   useState,
 } from 'react';
 import { shortWhen } from '../format.js';
+import { isMac } from '../hotkeys.js';
 import {
   backlinks,
   LIBRARY_TONE,
@@ -56,8 +57,6 @@ function ago(at: number, now: number): string {
   if (minutes < 48 * 60) return 'yesterday';
   return shortWhen(at, now);
 }
-
-const isMac = () => /Mac/.test(navigator.platform);
 
 /** A phone gets the read-only room: Tailwind's md, as the rest of the app splits it. */
 function useWide(): boolean {

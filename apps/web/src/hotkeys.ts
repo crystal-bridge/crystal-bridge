@@ -45,7 +45,8 @@ export const HOTKEYS: readonly Hotkey[] = [
   { action: 'keys', code: 'Slash', what: () => 'List these keys' },
 ];
 
-const isMac = (): boolean => /mac/i.test(navigator.platform);
+/** Whether this is a Mac, where the app's keys name ⌘ instead of Ctrl. */
+export const isMac = (): boolean => /mac/i.test(navigator.platform);
 
 /** What open dialogs and pickers are made of: the keys stand down while one has the user's attention. */
 const OPEN_PICKER = '[role="dialog"], [role="listbox"], [role="menu"]';

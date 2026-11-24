@@ -8,6 +8,7 @@ import { type LibraryTome, MAX_TOME_BYTES, type TomeVersion } from '@crystal-bri
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { diffLines } from '../diff.js';
 import { loadDraft, saveDraft } from '../drafts.js';
+import { isMac } from '../hotkeys.js';
 import type { HubClient } from '../hub.js';
 import { LIBRARY_TONE, readTome, writeTome } from '../library.js';
 import { Icon } from '../theme/icons.js';
@@ -35,7 +36,7 @@ export interface TomeEditorProps {
 
 type View = 'write' | 'split' | 'preview';
 /** What the banner knows of the file on disk: a newer version (its text once read), or that it's gone. */
-type Disk = { kind: 'changed'; version: TomeVersion; content?: string } | { kind: 'gone' };
+type Disk = { kind: 'changed'; version: TomeVersion; content?: string; crlf?: boolean } | { kind: 'gone' };
 type Asking = 'reload' | 'keep' | 'recreate' | 'discard' | null;
 interface Draft {
   text: string;
@@ -142,7 +143,8 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
   const edited = text !== (saved ?? openedWith);
 
   // The latest of everything, for callbacks that outlive a render (the socket, the keyboard, a pending request).
-  const live = useRef({ text, base, crlf, busy, alive: true, recheck: false });
+  // `saves` counts saves begun, so a disk read that started before one can tell its answer is out of date.
+  const live = useRef({ text, base, crlf, busy, alive: true, recheck: false, saves: 0 });
   live.current = { ...live.current, text, base, crlf, busy };
   useEffect(() => {
     live.current.alive = true;
@@ -171,11 +173,12 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
       if (live.current.base !== null) setDisk({ kind: 'gone' });
       return;
     }
+    // The file is at the version the text was edited from, so no banner is news.
     if (now.version.hash === live.current.base?.hash) {
-      setDisk((was) => (was?.kind === 'gone' ? null : was));
+      setDisk(null);
       return;
     }
-    setDisk({ kind: 'changed', version: now.version, content: lf(now.content) });
+    setDisk({ kind: 'changed', version: now.version, content: lf(now.content), crlf: /\r\n/.test(now.content) });
   }, []);
 
   const check = useCallback(() => {
@@ -183,7 +186,11 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
       live.current.recheck = true;
       return;
     }
-    void learn().then(showDisk);
+    const saves = live.current.saves;
+    void learn().then((now) => {
+      // A save since the read began makes its answer stale; that save rechecks if the file changed again.
+      if (live.current.saves === saves) showDisk(now);
+    });
   }, [learn, showDisk]);
 
   useEffect(() => {
@@ -197,14 +204,29 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
     };
   }, [hub, node, path, check]);
 
-  // The draft follows the text, a moment after typing stops; while a draft is on offer, it's left alone.
+  // The draft follows the text, a moment after typing stops; while a draft is on offer, it's left alone. What's still
+  // waiting is written at once when the editor closes or the page goes away, so the last keystrokes aren't lost.
+  const pending = useRef<{ key: string; draft: string } | null>(null);
+  const flush = useCallback(() => {
+    if (pending.current) saveDraft(pending.current.key, pending.current.draft);
+    pending.current = null;
+  }, []);
   useEffect(() => {
-    if (offer) return;
-    const timer = setTimeout(() => {
-      saveDraft(key, unsaved && edited ? JSON.stringify({ text, base } satisfies Draft) : '');
-    }, DRAFT_WAIT_MS);
+    if (offer) {
+      pending.current = null;
+      return;
+    }
+    pending.current = { key, draft: unsaved && edited ? JSON.stringify({ text, base } satisfies Draft) : '' };
+    const timer = setTimeout(flush, DRAFT_WAIT_MS);
     return () => clearTimeout(timer);
-  }, [key, text, base, unsaved, edited, offer]);
+  }, [key, text, base, unsaved, edited, offer, flush]);
+  useEffect(() => {
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [flush]);
 
   const finish = () => {
     setDisk(null);
@@ -214,6 +236,7 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
 
   const write = async (over: TomeVersion | null) => {
     const { text: now, crlf: endings } = live.current;
+    live.current.saves += 1;
     setBusy(true);
     live.current.busy = true;
     setError(null);
@@ -225,6 +248,7 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
         live.current.base = result.version;
         setSaved(now);
         finish();
+        pending.current = null;
         saveDraft(key, '');
         onSaved(result.version);
       } else {
@@ -271,20 +295,21 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
     setAsking(null);
     let content = disk?.kind === 'changed' ? disk.content : undefined;
     let version = disk?.kind === 'changed' ? disk.version : undefined;
-    let raw: string | undefined;
-    if (content === undefined) {
+    let endings = disk?.kind === 'changed' ? disk.crlf : undefined;
+    if (content === undefined || endings === undefined) {
       const now = await learn();
       if (now === 'gone') return showDisk(now);
       if (!now || !live.current.alive) return;
-      raw = now.content;
       content = lf(now.content);
       version = now.version;
+      endings = /\r\n/.test(now.content);
     }
     setText(content);
     setSaved(content);
     setBase(version ?? null);
-    if (raw !== undefined) setCrlf(/\r\n/.test(raw));
+    setCrlf(endings);
     finish();
+    pending.current = null;
     saveDraft(key, '');
   };
 
@@ -300,6 +325,7 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
     else onClose();
   };
   const discard = () => {
+    pending.current = null;
     saveDraft(key, '');
     onClose();
   };
@@ -310,10 +336,11 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
     if (!tome) return;
     setBase(draft.base);
     if (draft.base?.hash !== tome.version.hash)
-      setDisk({ kind: 'changed', version: tome.version, content: lf(tome.content) });
+      setDisk({ kind: 'changed', version: tome.version, content: lf(tome.content), crlf: /\r\n/.test(tome.content) });
   };
   const forget = () => {
     setOffer(null);
+    pending.current = null;
     saveDraft(key, '');
   };
 
@@ -389,7 +416,7 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
               aria-keyshortcuts="Control+S Meta+S"
             >
               {busy ? 'Saving…' : 'Save'}
-              <kbd className="ml-1 rounded bg-white/20 px-1 font-mono text-[10px]">Ctrl S</kbd>
+              <kbd className="ml-1 rounded bg-white/20 px-1 font-mono text-[10px]">{isMac() ? '⌘ S' : 'Ctrl S'}</kbd>
             </button>
           </>
         )}
@@ -533,7 +560,7 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
         )}
         {showPreview && (
           <div className="min-h-0 overflow-auto px-6 py-4">
-            <div className="mb-2 inline-flex items-center gap-1 text-[11px] font-bold tracking-wide text-neutral-400 uppercase">
+            <div className="mb-2 inline-flex items-center gap-1 text-[11px] font-bold tracking-wide text-neutral-500 uppercase dark:text-neutral-400">
               <Icon name="markEye" size={14} />
               Preview
             </div>
