@@ -190,6 +190,7 @@ interface EngineRow {
   cli?: string;
   cliUpdate?: boolean;
   deeds?: boolean;
+  library?: { dir: string };
   selfUpdate?: SelfUpdate;
 }
 

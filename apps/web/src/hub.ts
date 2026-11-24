@@ -20,6 +20,7 @@ export type BoardsFrame = Extract<HubToClient, { kind: 'scouts' | 'board' | 'boa
 export type PatrolsFrame = Extract<HubToClient, { kind: 'patrols' | 'patrol-runs' }>;
 export type ErrandsFrame = Extract<HubToClient, { kind: 'errands' }>;
 export type DeedsFrame = Extract<HubToClient, { kind: 'deeds' }>;
+export type LibraryChangedFrame = Extract<HubToClient, { kind: 'library-changed' }>;
 
 /** How far a session's history has loaded: events received of the replay's total, and whether it's complete. */
 export interface ReplayProgress {
@@ -80,6 +81,9 @@ export class HubClient {
   private readonly patrolListeners = new Set<(frame: PatrolsFrame) => void>();
   private readonly errandListeners = new Set<(frame: ErrandsFrame) => void>();
   private readonly deedListeners = new Set<(frame: DeedsFrame) => void>();
+  private readonly libraryListeners = new Set<(frame: LibraryChangedFrame) => void>();
+  /** How many views watch each Kingdom's Library; the hub keeps one flag per socket, so only the first and last count. */
+  private readonly libraryWatchers = new Map<string, number>();
   private readonly appearanceListeners = new Set<(appearance: Appearance) => void>();
   private readonly seenListeners = new Set<(session: string) => void>();
   private readonly reconnectListeners = new Set<() => void>();
@@ -143,6 +147,34 @@ export class HubClient {
   onDeeds(listener: (frame: DeedsFrame) => void): () => void {
     this.deedListeners.add(listener);
     return () => this.deedListeners.delete(listener);
+  }
+
+  /** Files in a Kingdom's Library changed, for a Kingdom this tab watches (`watchLibrary`). */
+  onLibraryChanged(listener: (frame: LibraryChangedFrame) => void): () => void {
+    this.libraryListeners.add(listener);
+    return () => this.libraryListeners.delete(listener);
+  }
+
+  /**
+   * Asks the hub for a Kingdom's `library-changed` frames while the returned function hasn't been called. Watches are
+   * counted: two views of one Kingdom in a tab don't cancel each other, and a reconnect opens each watched Kingdom again.
+   */
+  watchLibrary(node: string): () => void {
+    const count = this.libraryWatchers.get(node) ?? 0;
+    this.libraryWatchers.set(node, count + 1);
+    if (count === 0) this.post({ kind: 'library-watch', node, open: true });
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      const left = (this.libraryWatchers.get(node) ?? 1) - 1;
+      if (left > 0) {
+        this.libraryWatchers.set(node, left);
+        return;
+      }
+      this.libraryWatchers.delete(node);
+      this.post({ kind: 'library-watch', node, open: false });
+    };
   }
 
   /** The socket came back after a drop. Sessions catch up by themselves; anything else may have missed frames. */
@@ -335,6 +367,9 @@ export class HubClient {
           JSON.stringify({ kind: 'subscribe', session, fromSeq: this.seenSeq(session) + 1 } satisfies ClientMessage),
         );
       }
+      for (const node of this.libraryWatchers.keys()) {
+        socket.send(JSON.stringify({ kind: 'library-watch', node, open: true } satisfies ClientMessage));
+      }
       this.flushOutbox(socket);
       // Only a hub that answers this gets more of them: an older one logs each as a frame it doesn't know.
       this.answersPing = false;
@@ -401,6 +436,10 @@ export class HubClient {
     }
     if (frame.data.kind === 'deeds') {
       for (const listener of this.deedListeners) listener(frame.data);
+      return;
+    }
+    if (frame.data.kind === 'library-changed') {
+      for (const listener of this.libraryListeners) listener(frame.data);
       return;
     }
     if (frame.data.kind === 'seen') {
