@@ -9,6 +9,9 @@
  * record among the Kingdom's Deeds. Then it closes the Quest asking for Deeds at Close: the call must record at least
  * one, and the hub must list them and the call's own row.
  *
+ * When the Kingdom offers a Library, it also writes a Tome through the hub, reads it back, and checks that a write
+ * from a stale version is refused.
+ *
  * Run with: `pnpm smoke` (= `tsx scripts/smoke.ts`). `SMOKE_ENGINE=interactive pnpm smoke` runs it on the
  * interactive engine instead, which the node must offer (`CRYSTAL_ENGINES=stream,interactive`).
  *
@@ -417,6 +420,58 @@ async function closeWithDeeds(
   return undefined;
 }
 
+/** The Library through the hub: write a Tome, read it back, write on its version, refuse a stale one. Why not, or nothing. */
+async function checkLibrary(base: string, node: string): Promise<string | undefined> {
+  const engines = (await (await fetch(`${base}/api/engines`)).json()) as unknown;
+  const offered =
+    Array.isArray(engines) && engines.some((row) => isObj(row) && row.node === node && isObj(row.library));
+  if (!offered) {
+    console.log("smoke: the Library was skipped: this Kingdom doesn't offer one (/api/engines shows no library)");
+    return undefined;
+  }
+
+  const path = `smoke-${randomUUID().slice(0, 8)}.md`;
+  const url = `${base}/api/nodes/${encodeURIComponent(node)}/library/tome`;
+  const write = async (content: string, version: unknown) => {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path, content, base: version }),
+    });
+    return { status: response.status, body: (await response.json()) as unknown };
+  };
+  const versionOf = (body: unknown) => (isObj(body) && isObj(body.version) ? body.version : undefined);
+
+  const created = await write('# Smoke\n', null);
+  const first = versionOf(created.body);
+  if (created.status !== 200 || !first) {
+    return `writing a new Tome returned HTTP ${created.status}: ${JSON.stringify(created.body)}`;
+  }
+  console.log(`smoke: the Library took a new Tome, ${path}`);
+
+  const read = await fetch(`${url}?path=${encodeURIComponent(path)}`);
+  const body = (await read.json()) as unknown;
+  const tome = isObj(body) ? body.tome : undefined;
+  if (read.status !== 200 || !isObj(tome) || tome.content !== '# Smoke\n') {
+    return `reading the Tome back returned HTTP ${read.status}: ${JSON.stringify(body)}`;
+  }
+  if (JSON.stringify(tome.version) !== JSON.stringify(first)) {
+    return `the Tome's version ${JSON.stringify(tome.version)} is not the one the write returned, ${JSON.stringify(first)}`;
+  }
+  console.log('smoke: the Library read it back, content and version as written');
+
+  const updated = await write('# Smoke, again\n', first);
+  if (updated.status !== 200 || !versionOf(updated.body)) {
+    return `writing on the Tome's version returned HTTP ${updated.status}: ${JSON.stringify(updated.body)}`;
+  }
+  console.log('smoke: the Library took a write on that version');
+
+  const stale = await write('# Smoke, stale\n', first);
+  if (stale.status !== 409) return `a write on the old version returned HTTP ${stale.status}, not 409`;
+  console.log('smoke: the Library refused a write on the old version (409)');
+  return undefined;
+}
+
 async function main(): Promise<void> {
   const base = httpBase(CLIENT_URL);
 
@@ -482,6 +537,12 @@ async function main(): Promise<void> {
     const closeFailure = await closeWithDeeds(CLIENT_URL, base, node, session, recent);
     if (closeFailure) {
       reportFailure(closeFailure, recent);
+      return;
+    }
+
+    const libraryFailure = await checkLibrary(base, node);
+    if (libraryFailure) {
+      reportFailure(libraryFailure, recent);
       return;
     }
 
