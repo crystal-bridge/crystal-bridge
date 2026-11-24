@@ -12,6 +12,7 @@ import {
   createContext,
   isValidElement,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -536,8 +537,10 @@ export interface TomeReaderProps {
    * Without it a missing Tome is drawn apart but can't be clicked (the phone, which can't write).
    */
   onMissing?: (target: string) => void;
-  /** A heading to scroll to once the Tome is drawn. */
+  /** A heading to scroll to once the Tome is drawn: once per value passed, not again when the Tome is re-read. */
   heading?: string;
+  /** The reader scrolled to `heading`; the room lets it go, so a later read of this Tome stays where the user is. */
+  onHeading?: () => void;
 }
 
 const CUT_KB = Math.round(MAX_TOME_BYTES / 1024);
@@ -580,8 +583,13 @@ export function TomeReader(props: TomeReaderProps) {
   return <MarkdownTome {...props} />;
 }
 
-function MarkdownTome({ node, tome, paths, onOpen, onMissing, heading }: TomeReaderProps) {
+function MarkdownTome({ node, tome, paths, onOpen, onMissing, heading, onHeading }: TomeReaderProps) {
   const article = useRef<HTMLElement>(null);
+  const scrollTo = useCallback((text: string) => {
+    const id = headingId(text);
+    const target = [...(article.current?.querySelectorAll('[id]') ?? [])].find((one) => one.id === id);
+    target?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, []);
   const { yaml, body } = useMemo(() => splitFrontmatter(tome.content), [tome.content]);
   const needs = useMemo(
     () => ({
@@ -640,17 +648,18 @@ function MarkdownTome({ node, tome, paths, onOpen, onMissing, heading }: TomeRea
       onOpen,
       onMissing,
       Mermaid: needs.mermaid ? loaded.mermaid : undefined,
-      scrollTo: (text) => {
-        const id = headingId(text);
-        const target = [...(article.current?.querySelectorAll('[id]') ?? [])].find((one) => one.id === id);
-        target?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
-      },
+      scrollTo,
     };
-  }, [node, tome.path, paths, onOpen, onMissing, needs.mermaid, loaded.mermaid]);
+  }, [node, tome.path, paths, onOpen, onMissing, needs.mermaid, loaded.mermaid, scrollTo]);
 
+  // Scrolls once per heading asked for; a re-read (new text, new links) leaves the reader where it is.
+  const headed = useRef(onHeading);
+  headed.current = onHeading;
   useEffect(() => {
-    if (heading) links.scrollTo(heading);
-  }, [heading, links, body]);
+    if (!heading) return;
+    scrollTo(heading);
+    headed.current?.();
+  }, [heading, scrollTo]);
 
   return (
     <article
@@ -701,10 +710,10 @@ function HtmlTome({ node, tome }: { node: string; tome: LibraryTome }) {
     <div className="flex min-h-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <span
-          className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-800 ring-1 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-800"
+          className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-900 ring-1 ring-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-800"
           title="It runs in a sandbox with an origin of its own: no access to the app's storage, cookies or login. It can still reach other sites, so open it as you would a web page."
         >
-          <Icon name="markShield" size={14} />
+          <Icon name="markWarning" size={14} />
           {HTML_BADGE}
         </span>
         <span className="flex-1" />
@@ -715,7 +724,7 @@ function HtmlTome({ node, tome }: { node: string; tome: LibraryTome }) {
           View source
         </button>
       </div>
-      <p className="text-[12px] text-neutral-500">
+      <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
         A page has to inline what it needs: one that loads a library from a CDN shows blank or broken.
       </p>
       {tome.truncated && <CutNotice />}

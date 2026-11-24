@@ -99,6 +99,17 @@ describe('the Library data', () => {
     await waitFor(() => expect(none.result.current.error).toMatch(/no Library/));
   });
 
+  it('useLibrary keeps the entries it has when a refresh fails', async () => {
+    const { hub, change } = fakeHub();
+    const { result } = renderHook(() => useLibrary(hub, 'node-a'));
+    await waitFor(() => expect(result.current.entries).toEqual([file('a.md')]));
+    fetches.mockImplementation(async () => reply({ error: 'that Kingdom is offline' }, 404));
+    act(() => change('node-a'));
+    await waitFor(() => expect(result.current.error).toBe('that Kingdom is offline'));
+    expect(result.current.entries).toEqual([file('a.md')]);
+    expect(result.current.loading).toBe(false);
+  });
+
   it('builds the routes, with each path escaped', async () => {
     expect(tomeFileUrl('node-a', 'ops/a b.png')).toBe('/api/nodes/node-a/library/file?path=ops%2Fa%20b.png');
     expect(tomePageUrl('node-a', 'x.html')).toBe('/api/nodes/node-a/library/page?path=x.html');

@@ -80,6 +80,9 @@ function fakeHub() {
     },
     changed: (paths: string[]) =>
       act(() => listeners.forEach((listener) => listener({ kind: 'library-changed', node: NODE, paths }))),
+    /** Too many files changed to name: the node says `all`. */
+    changedAll: () =>
+      act(() => listeners.forEach((listener) => listener({ kind: 'library-changed', node: NODE, all: true }))),
   };
 }
 
@@ -91,13 +94,15 @@ interface Options {
 
 /** The room as App holds it: the path lives in the route, which `onPath` changes. */
 function open({ path, online = true, dir = '/home/me/library' }: Options = {}) {
-  const { hub, changed } = fakeHub();
+  const { hub, changed, changedAll } = fakeHub();
   const onPath = vi.fn();
   let setOnline: (online: boolean) => void = () => {};
+  let setRoute: (path: string | undefined) => void = () => {};
   function Harness() {
     const [at, setAt] = useState<string | undefined>(path);
     const [up, setUp] = useState(online);
     setOnline = setUp;
+    setRoute = setAt;
     return (
       <LibraryRoom
         hub={hub}
@@ -114,7 +119,16 @@ function open({ path, online = true, dir = '/home/me/library' }: Options = {}) {
     );
   }
   const view = render(<Harness />);
-  return { ...view, hub, changed, onPath, goOffline: () => act(() => setOnline(false)) };
+  return {
+    ...view,
+    hub,
+    changed,
+    changedAll,
+    onPath,
+    goOffline: () => act(() => setOnline(false)),
+    /** The route changes from outside the room, as Back, Forward or a crumb does. */
+    go: (next: string | undefined) => act(() => setRoute(next)),
+  };
 }
 
 function phone(wide: boolean) {
@@ -145,7 +159,8 @@ describe('the Library room (#290)', () => {
 
     const left = screen.getByRole('complementary', { name: w('tomes') });
     expect(within(left).getByRole('combobox', { name: `Find a ${w('tome')}` })).toBeTruthy();
-    expect(within(left).getByRole('region', { name: 'Recent' })).toBeTruthy();
+    // Recent fills once the listing says the path is a file.
+    expect(await within(left).findByRole('region', { name: 'Recent' })).toBeTruthy();
     const tree = within(left).getByRole('tree');
     expect(within(tree).getByRole('treeitem', { name: /ops/ })).toBeTruthy();
     // An HTML Tome is marked; an image is listed.
@@ -216,6 +231,93 @@ describe('the Library room (#290)', () => {
     fireEvent.click(within(screen.getByRole('region', { name: 'Outline' })).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(scroll).toHaveBeenCalled());
     expect((scroll.mock.contexts.at(-1) as HTMLElement).id).toBe('tome-retry');
+  });
+
+  describe('[[Tome#Heading]]', () => {
+    const A = '# Summons\n\nSee [[Backups#Setup]].\n\n## Setup\n\nThe Summons setup.';
+    const B = '# Backups\n\n## Setup\n\nThe Backups setup.';
+    let scroll: ReturnType<typeof vi.fn<(options?: boolean | ScrollIntoViewOptions) => void>>;
+    const scrolled = () => scroll.mock.contexts.map((element) => (element as HTMLElement).id);
+    const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    const original = Element.prototype.scrollIntoView;
+    beforeEach(() => {
+      scroll = vi.fn<(options?: boolean | ScrollIntoViewOptions) => void>();
+      Element.prototype.scrollIntoView = scroll;
+    });
+    afterEach(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+
+    async function followed() {
+      const hub = library();
+      hub.tomes.set('ops/Summons.md', ok({ tome: tome('ops/Summons.md', A) }));
+      hub.tomes.set('ops/Backups.md', ok({ tome: tome('ops/Backups.md', B) }));
+      const view = open({ path: 'ops/Summons.md' });
+      await screen.findByRole('heading', { level: 1, name: 'Summons' });
+      fireEvent.click(screen.getByRole('button', { name: 'Backups > Setup' }));
+      await screen.findByRole('heading', { level: 1, name: 'Backups' });
+      await waitFor(() => expect(scrolled()).toEqual(['tome-setup']));
+      // The scroll landed in Backups, the Tome now open.
+      expect((scroll.mock.contexts[0] as HTMLElement).textContent).toBe('Setup');
+      expect(screen.queryByText('The Summons setup.')).toBeNull();
+      scroll.mockClear();
+      return { ...view, files: hub };
+    }
+
+    it('scrolls to the heading in the Tome it opens', async () => {
+      await followed();
+    });
+
+    it('Back to a Tome with a heading of the same name does not scroll there', async () => {
+      const { go } = await followed();
+      await go('ops/Summons.md');
+      await screen.findByText('The Summons setup.');
+      await settle();
+      expect(scrolled()).toEqual([]);
+    });
+
+    it('a re-read after scrolling away does not scroll back', async () => {
+      const { files, changed } = await followed();
+      files.tomes.set(
+        'ops/Backups.md',
+        ok({ tome: tome('ops/Backups.md', `${B}\n\nMore.`, { version: { ...VERSION, hash: 'b'.repeat(64) } }) }),
+      );
+      await changed(['ops/Backups.md']);
+      await screen.findByText('More.');
+      await settle();
+      expect(scrolled()).toEqual([]);
+    });
+  });
+
+  it('re-reads the open Tome when the Kingdom says all files changed', async () => {
+    const hub = library();
+    const { changedAll } = open({ path: 'ops/Summons.md' });
+    await screen.findByRole('heading', { level: 1, name: 'Summons' });
+    hub.tomes.set('ops/Summons.md', ok({ tome: tome('ops/Summons.md', '# Summoned') }));
+    await changedAll();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Summoned' })).toBeTruthy();
+  });
+
+  it('a path that turns out to be a folder is not remembered, and asks for no backlinks', async () => {
+    const hub = library();
+    let list: (answer: Answer) => void = () => {};
+    const listed = new Promise<Answer>((resolve) => (list = resolve));
+    const fetched = vi.mocked(fetch);
+    const answer = fetched.getMockImplementation()!;
+    fetched.mockImplementation(async (url, init) => {
+      if (new URL(String(url), 'http://hub').pathname.endsWith('/library')) {
+        const { status, body } = await listed;
+        return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+      }
+      return answer(url, init);
+    });
+    open({ path: 'ops' });
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => list(hub.listing));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /Backups/ }).length).toBeGreaterThan(0));
+    const asked = fetched.mock.calls.map(([url]) => String(url));
+    expect(asked.filter((url) => url.includes('/library/backlinks'))).toEqual([]);
+    expect(recentTomes(NODE)).not.toContain('ops');
   });
 
   it('copies a link to the Tome: the app address with its route', async () => {
@@ -339,7 +441,10 @@ describe('the Library room (#290)', () => {
       expect(heading.compareDocumentPosition(outline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
       expect(screen.queryByRole('tree')).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: `Browse the ${w('library')}` }));
+      // The drawer's button says what it opens, in words as well as a glyph.
+      const browse = screen.getByRole('button', { name: w('tomes') });
+      expect(browse.textContent).toBe(w('tomes'));
+      fireEvent.click(browse);
       const drawer = screen.getByRole('dialog', { name: w('library') });
       fireEvent.click(within(drawer).getByRole('treeitem', { name: /Backups/ }));
       expect(await screen.findByRole('heading', { level: 1, name: 'Backups' })).toBeTruthy();

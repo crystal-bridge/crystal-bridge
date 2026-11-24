@@ -37,7 +37,7 @@ async function get<T>(url: string): Promise<T> {
 /**
  * A Kingdom's Library listing: read on mount, again on a `library-changed` for the Kingdom and when the socket comes
  * back, with a watch held while mounted so the hub sends those frames. An answer that arrives after a newer request
- * went out is dropped. A refusal (offline, or no Library there) shows as `error`.
+ * went out is dropped. A refusal (offline, or no Library there) shows as `error`, beside the entries last listed.
  */
 export function useLibrary(hub: LibraryHub, node: string | undefined): LibraryState {
   const [state, setState] = useState<LibraryState>({ entries: [], truncated: false, loading: true });
@@ -56,7 +56,8 @@ export function useLibrary(hub: LibraryHub, node: string | undefined): LibrarySt
         (error: unknown) => {
           if (round === latest) {
             const reason = error instanceof Error ? error.message : String(error);
-            setState({ entries: [], truncated: false, error: reason, loading: false });
+            // A failed refresh keeps the listing it had; the first failure has nothing to keep.
+            setState((now) => ({ entries: now.entries, truncated: now.truncated, error: reason, loading: false }));
           }
         },
       );

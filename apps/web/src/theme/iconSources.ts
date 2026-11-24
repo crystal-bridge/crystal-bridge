@@ -175,6 +175,7 @@ export const ICON_SOURCES = {
   deedLink: { pack: 'ph', icon: 'arrow-square-out-fill' },
   // Library
   library: { pack: 'game-icons', icon: 'bookshelf', author: 'Delapouite' },
+  drawerList: { pack: 'ph', icon: 'list-bullets-fill' },
   tome: { pack: 'game-icons', icon: 'book-cover', author: 'Lorc' },
   htmlTome: { pack: 'ph', icon: 'file-html-fill' },
   libraryFolder: { pack: 'ph', icon: 'folder-fill' },

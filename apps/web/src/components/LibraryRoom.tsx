@@ -257,7 +257,9 @@ function QuickOpen({
             >
               <FileIcon path={entry.path} />
               <span className="min-w-0 flex-1 truncate">{titleOf(entry.path)}</span>
-              <span className="truncate font-mono text-[11px] text-neutral-400">{folderOf(entry.path)}</span>
+              <span className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+                {folderOf(entry.path)}
+              </span>
             </li>
           ))}
         </ul>
@@ -350,7 +352,7 @@ function Tree({
               <Icon name="libraryFolder" size={16} />
             </span>
             <span className="min-w-0 flex-1 truncate">{name}</span>
-            <span className="text-[11px] font-normal text-neutral-400">
+            <span className="text-[11px] font-normal text-neutral-500 dark:text-neutral-400">
               {folder.folders.length + folder.files.length}
             </span>
           </button>
@@ -397,7 +399,9 @@ function Recent({
             >
               <FileIcon path={path} />
               <span className="min-w-0 flex-1 truncate">{titleOf(path)}</span>
-              {folderOf(path) && <span className="truncate text-[11px] text-neutral-400">{folderOf(path)}</span>}
+              {folderOf(path) && (
+                <span className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">{folderOf(path)}</span>
+              )}
             </button>
           </li>
         ))}
@@ -511,7 +515,8 @@ export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: L
   const [creating, setCreating] = useState<{ folder: string; name?: string } | null>(null);
   const [linked, setLinked] = useState<LibraryBacklink[] | undefined>(undefined);
   const [recent, setRecent] = useState(() => recentTomes(node));
-  const [heading, setHeading] = useState<string | undefined>(undefined);
+  /** The heading a `[[Tome#Heading]]` link asked for, with the Tome it's in; let go once the reader scrolls there. */
+  const [heading, setHeading] = useState<{ path: string; at: string } | null>(null);
   const [drawer, setDrawer] = useState(false);
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
   const find = useRef<HTMLInputElement>(null);
@@ -523,14 +528,18 @@ export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: L
     setEditing(false);
     setCreating(null);
     setDrawer(false);
+    setHeading((asked) => (asked?.path === path ? asked : null));
   }, [node, path]);
+
+  // A route path is known to be a file, not a folder, only once the listing is in.
+  const filePath = listing.loading ? undefined : tomePath;
 
   // Opening a Tome puts it first among Recent.
   useEffect(() => {
-    if (!tomePath) return;
-    rememberTome(node, tomePath);
+    if (!filePath) return;
+    rememberTome(node, filePath);
     setRecent(recentTomes(node));
-  }, [node, tomePath]);
+  }, [node, filePath]);
 
   useEffect(() => {
     if (!tomePath || kindOf(tomePath) === 'image') {
@@ -559,9 +568,9 @@ export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: L
 
   useEffect(() => {
     setLinked(undefined);
-    if (!tomePath) return;
+    if (!filePath) return;
     let live = true;
-    backlinks(node, tomePath).then(
+    backlinks(node, filePath).then(
       (found) => {
         if (live) setLinked(found);
       },
@@ -570,7 +579,7 @@ export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: L
     return () => {
       live = false;
     };
-  }, [node, tomePath, tick]);
+  }, [node, filePath, tick]);
 
   // A change to the open Tome on disk reads it again; the editor watches for itself while it's open.
   useEffect(
@@ -606,12 +615,14 @@ export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: L
 
   const openTome = useCallback(
     (next: string, at?: string) => {
-      setHeading(at);
+      setHeading(at ? { path: next, at } : null);
       setDrawer(false);
       if (next !== path) onPath(next);
     },
     [onPath, path],
   );
+
+  const letHeadingGo = useCallback(() => setHeading(null), []);
 
   const ancestors = useMemo(() => {
     const set = new Set<string>();
@@ -746,7 +757,7 @@ export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: L
                 paths={paths}
                 onOpen={openTome}
                 {...(writable && !gone ? { onMissing: missing } : {})}
-                {...(heading !== undefined ? { heading } : {})}
+                {...(heading?.path === tomePath ? { heading: heading.at, onHeading: letHeadingGo } : {})}
               />
             </div>
           </div>
@@ -917,10 +928,13 @@ export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: L
             <button
               type="button"
               onClick={() => setDrawer(true)}
-              aria-label={`Browse the ${w('library')}`}
-              className="grid size-9 shrink-0 place-items-center rounded-md border border-neutral-300 dark:border-neutral-700"
+              title={`Browse the ${w('library')}`}
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 text-sm font-bold dark:border-neutral-700"
             >
-              <Icon name="library" size={20} />
+              <span aria-hidden="true">
+                <Icon name="drawerList" size={18} />
+              </span>
+              {w('tomes')}
             </button>
             <div className="min-w-0 flex-1">
               <div className={`flex items-center gap-1 text-[11px] text-neutral-500`}>
@@ -1136,8 +1150,10 @@ function FolderView({
                 <button type="button" onClick={() => onOpen(entry.path)} className={row}>
                   <FileIcon path={entry.path} />
                   <span className="min-w-0 flex-1 truncate">{titleOf(entry.path)}</span>
-                  <span className="truncate font-mono text-[11px] text-neutral-400">{folderOf(entry.path)}</span>
-                  <span className="text-[11px] text-neutral-400">{ago(entry.mtimeMs!, now)}</span>
+                  <span className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+                    {folderOf(entry.path)}
+                  </span>
+                  <span className="text-[11px] text-neutral-500 dark:text-neutral-400">{ago(entry.mtimeMs!, now)}</span>
                 </button>
               </li>
             ))}
@@ -1154,7 +1170,7 @@ function FolderView({
                   <Icon name="libraryFolder" size={16} />
                 </span>
                 <span className="min-w-0 flex-1 truncate">{nameOf(sub.path)}</span>
-                <span className="text-[11px] font-normal text-neutral-400">
+                <span className="text-[11px] font-normal text-neutral-500 dark:text-neutral-400">
                   {sub.folders.length + sub.files.length}
                 </span>
               </button>
@@ -1237,7 +1253,7 @@ export function LibraryCard({ hub, node, dir, onOpen }: LibraryCardProps) {
                 >
                   <FileIcon path={entry.path} />
                   <span className="min-w-0 flex-1 truncate">{titleOf(entry.path)}</span>
-                  <span className="text-[11px] text-neutral-400">{ago(entry.mtimeMs!, now)}</span>
+                  <span className="text-[11px] text-neutral-500 dark:text-neutral-400">{ago(entry.mtimeMs!, now)}</span>
                 </button>
               </li>
             ))}

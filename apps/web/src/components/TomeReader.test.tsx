@@ -237,8 +237,13 @@ describe('an HTML Tome', () => {
     expect(frame.getAttribute('src')).toBe(tomePageUrl(NODE, 'sketches/retry-curve.html'));
     expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
     expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
-    expect(screen.getByText("Sandboxed page: can't read the app, but can contact other sites")).toBeTruthy();
-    expect(screen.getByText(/has to inline what it needs/)).toBeTruthy();
+    const badge = screen.getByText("Sandboxed page: can't read the app, but can contact other sites");
+    // It warns, so it wears the warning's amber and mark, not a "safe" green shield.
+    expect(badge.className).toMatch(/\bbg-amber-50\b/);
+    expect(badge.className).not.toMatch(/emerald/);
+    expect(badge.querySelector('.cb-icon-markWarning')).not.toBeNull();
+    expect(badge.querySelector('.cb-icon-markShield')).toBeNull();
+    expect(screen.getByText(/has to inline what it needs/).className).toMatch(/dark:text-neutral-400/);
     expect(screen.getByRole('button', { name: /Full screen/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /View source/ }));
     expect(container.querySelector('pre')!.textContent).toContain('<h1>Retry curve</h1>');
