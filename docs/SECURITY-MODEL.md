@@ -58,6 +58,8 @@ hub's own login, which reads no identity header.
 | Text a Quest reads, such as an issue or a web page, that steers it | Leave you an Errand, since leaving one never asks, for example one with a harmful command in it. The app copies a command and never runs one, and renders no HTML or scripts from the body. Read a command before you run it, as you would one in the chat. A Quest can't edit, tick or remove an Errand, and leaves at most 10 a turn. |
 | Text a Quest reads, such as an issue or a web page, that steers it | Record a misleading Deed, since recording one never asks. A Deed is plain text in the feed (no Markdown, links or HTML), one line and a short detail, at most 3 a turn. At Close, the digest carries text the Quest read; the call that reads it is marked to treat it as data, loads no settings, and has no tools and no MCP servers, so it can only write Deeds. |
 | A Quest on a Kingdom with Summons | Run commands on every machine in that Kingdom's `CRYSTAL_SUMMONS`, as its SSH user, through `summon` or by using the Kingdom's SSH key directly. To limit that, give the Kingdom a restricted key or a limited user on the target. |
+| Text a Quest reads, such as an issue or a web page, that steers it | Write a Tome that steers a later Quest, since a Quest on a Kingdom with a Library writes files there with its ordinary tools. Each Quest's prompt says text from Tomes is reference material, but a Tome can carry an injection from one Quest to the next, as any file can. With `CRYSTAL_LIBRARY_QUESTS=folder` the Quest reaches the folder without asking; without it, its permission mode decides. |
+| A Kingdom that lies in its answers | Show you wrong Tomes, or none, in its own Library. |
 | A node token | Pose as that one Kingdom to the hub: see the Quests started for it, send fake events into its sessions. Not reach other Kingdoms' sessions. The hub re-checks a token at each heartbeat, so replacing one with `scripts/airship-node-add.sh` (hubs run from a checkout) closes the old token's live link within 30 seconds, and the Kingdom needs the new token in `crystal.env` by then. **Remove** on the Castle (`DELETE /api/nodes/<id>`) revokes the token and cuts its connection at once, and is how to replace one on a packaged hub: Remove, then add the Kingdom again. None of this needs a hub restart. |
 | A shell on a Kingdom as Crystal's user | Everything that user can already do, including running `claude`, reading the node token from `crystal.env` and answering Crystal's local permission port. A Quest's commands run as that user too. Crystal adds no protection inside one user account. |
 | A shell on a tailnet device owned by an allowed user, on `tailscale-serve` | Reach the hub as that login, with no token, because `tailscale serve` names the device's owner on every request. That includes a Quest's shell on a Kingdom owned by that login: it can start Quests and approve actions on every Kingdom, whatever its own permission mode. To stop this, tag your Kingdoms: a tagged device gets no identity header, so the hub refuses it as a user, and `/node` keeps working on its token as long as your tailnet policy lets the tag reach the hub. |
@@ -67,6 +69,31 @@ hub's own login, which reads no identity header.
 | The hub's disk or a backup | Every stored conversation, including any secret ever pasted into one. |
 | A shell on the hub host | All of the above for the hub, plus serving a modified web app to users. |
 | Control of the hub, on self-updating Kingdoms | Name a newer real release, which those Kingdoms would install. Not run its own code that way, and not move a Kingdom to an older release. It still has every power of an allowed login. |
+
+## The Library
+
+A Kingdom serves the folder named by `CRYSTAL_LIBRARY_DIR` to the hub, and reads and writes only inside it. The
+[Library guide](LIBRARY.md) describes the feature; these are its rules.
+
+- **Who can use it.** Anyone who can use the hub can read and edit every Kingdom's Library, as they can already start a
+  Quest there that reads the same files.
+- **The folder.** Crystal makes it with mode 0700 on start.
+- **Paths are checked twice.** First by their text, before the disk is touched, so a network path never makes Windows
+  reach out. Crystal refuses an empty or absolute path, a leading `/` or `\`, a `..` step, a NUL, a `:` anywhere
+  (`x:y.md` names an alternate data stream on Windows), Windows device names (`CON`, `NUL`, `COM1` and the like), and
+  names that end in a dot or a space. Then it resolves the real path, with symlinks followed, and refuses anything
+  outside the Library's real path.
+- **What is reachable.** Folders, Markdown (`.md`), HTML (`.html`, `.htm`) and images. Names that start with a dot (in
+  any letter case), `node_modules` and anything the top-level `.gitignore` excludes are left out of every read, write
+  and listing, not only the listing.
+- **Writes are narrower than reads.** They take `.md` files only. Crystal writes a temporary file with a random name,
+  created exclusively (`O_EXCL`), then renames it into place and checks the result's real path again. It never writes
+  over a symlink. So the app can't change `.git/hooks`, Obsidian's settings or plugins, or a file outside the Library.
+- **One answer for every refusal.** A refused path and a missing file both get "not in the Library", so a refusal
+  never says what exists.
+- **Quests.** A Quest's permission mode decides whether it may touch the folder. `CRYSTAL_LIBRARY_QUESTS=folder` adds
+  the folder to every Quest, including the unattended Quests that Scouts and Patrols start, so enable it only where
+  every Quest, including one working on an untrusted repository, may read the Library and write any file type there.
 
 ## Self-updating Kingdoms
 

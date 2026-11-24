@@ -1,4 +1,4 @@
-import { QUEST_PROMPT } from './permissions.js';
+import { QUEST_PROMPT, questPrompt } from './permissions.js';
 import { EventEmitter } from 'node:events';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -181,6 +181,13 @@ describe('InteractiveSession', () => {
     expect(args[args.indexOf('--mcp-config') + 2]).toMatch(/^--/); // the flag takes a list
     // The CLI defers MCP tools, so only the system prompt gets the Quest to name itself (#287).
     expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(QUEST_PROMPT);
+  });
+
+  it('tells a new Quest where the Library is (#290)', () => {
+    const { session, spawned } = harness({ permissionUrl: 'http://127.0.0.1:7701/mcp/x', library: '/w/library' });
+    session.start('hello');
+    const { args } = spawned[0]!;
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(questPrompt({ library: '/w/library' }));
   });
 
   it('asks a resumed Quest for no name: it was named already (#287)', async () => {

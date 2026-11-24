@@ -542,6 +542,17 @@ A restore loses only what happened after that backup; Crystals resend events the
 - The release that added it applied migration 14, so rolling back past it refuses to start (see
   [Rolling back](#rolling-back)).
 
+## Library
+
+- A Kingdom with a Library says so in its hello (`library: { dir }`). `CRYSTAL_LIBRARY_DIR=off` leaves the flag out.
+- Crystal makes the folder with mode 0700 on start. It adds no migration and stores nothing on the hub: the files stay
+  on the Kingdom.
+- Update the hub before the Kingdoms. An older hub drops the new frames (`library-*`) as frames it doesn't know.
+- Older Kingdoms send no flag, so they show no Library.
+- A new Quest on a Kingdom with a Library gets one more line in its prompt, naming the folder. A Quest started earlier
+  has no such line.
+- Rolling back needs nothing special: no migration is involved.
+
 ## Done until viewed
 
 - A Quest that finishes a turn or fails while you aren't looking at it stays marked until you open it, on every device.

@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { spawn as nodePtySpawn } from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import type { Effort, PermissionMode } from '@crystal-bridge/protocol';
-import { QUEST_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
+import { QUEST_TOOLS, mcpConfig, questPrompt } from './permissions.js';
 import { type ClaudeSessionEvent, neutralTokens, type TurnFinishedPayload } from './session.js';
 import {
   applyListing,
@@ -90,6 +90,8 @@ export interface InteractiveSessionOptions {
   effort?: Effort;
   /** Folders outside `cwd` the agent may read without asking (`permissions.additionalDirectories`), e.g. its attached files. */
   addDirs?: readonly string[];
+  /** The Kingdom's Library folder; a new Quest's prompt names it. */
+  library?: string;
   forkFrom?: string;
   claudeBin?: string;
   /** Where the generated settings file goes; default `<tmp>/crystal-bridge`. */
@@ -526,7 +528,9 @@ export class InteractiveSession extends EventEmitter {
             // The CLI defers MCP tools, so a new Quest only names itself when its system prompt says how (#287). A
             // resumed one was named already. A fork carries its source's prompt and the CLI ignores this one there,
             // so passing it is harmless (test/fixtures/README.md).
-            ...(resume ? [] : ['--append-system-prompt', QUEST_PROMPT]),
+            ...(resume
+              ? []
+              : ['--append-system-prompt', questPrompt(this.opts.library ? { library: this.opts.library } : {})]),
           ]
         : []),
       '--settings',

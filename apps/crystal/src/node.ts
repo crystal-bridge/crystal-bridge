@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import {
   HubAck,
   HubCliUpdate,
+  HubLibraryBacklinks,
+  HubLibraryList,
+  HubLibraryRead,
+  HubLibraryWrite,
   HubListInventory,
   HubKingdomVersion,
   HubPatrolChange,
@@ -25,6 +29,8 @@ import {
   MAX_CLI_UPDATE_REASON,
   NodeCliUpdated,
   NodeInventoryListed,
+  NodeLibraryAnswer,
+  NodeLibraryChanged,
   NodeCommand,
   NodeError,
   NodeHello,
@@ -68,6 +74,8 @@ import { ATTACHMENTS_DIR, attachmentDir, removeAttachments, saveAttachments, wit
 import { WebSocket } from 'ws';
 import { readSessionFile } from './files.js';
 import type { Closing } from './closing.js';
+import type { Library } from './library.js';
+import type { LibraryChange } from './libraryWatch.js';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
 import type { ReplayEvent } from './transcripts.js';
 import type { ClaudeSessionEvent } from './session.js';
@@ -118,6 +126,8 @@ export type SessionFactory = (opts: {
   effort?: Effort;
   /** Folders outside `cwd` it may read without asking: the session's attached files. */
   addDirs?: string[];
+  /** The Kingdom's Library folder, for a new Quest's prompt. */
+  library?: string;
 }) => SessionLike;
 
 /** All `startNode` needs from Task 4's permission server. */
@@ -126,6 +136,10 @@ export interface PermissionServerLike {
 }
 
 export interface StartNodeOptions {
+  /** The Kingdom's Library, already started; without it, hello leaves `library` out and every request is refused. */
+  library?: Library;
+  /** `folder` also gives every Quest, new or resumed, the Library folder as an extra folder (docs/LIBRARY.md). */
+  libraryQuests?: 'folder';
   /** Makes the call at Close (`closing.ts`); without it, hello doesn't offer `deeds` and `session.close` ignores it. */
   closing?: Closing;
   hubUrl: string;
@@ -212,6 +226,8 @@ export interface CrystalNode {
   reportPatrols(patrols: Patrol[]): void;
   /** Tells the hub a Patrol's run set out or ended. The latest runs go again on the next connect. */
   reportPatrolRun(patrol: string, run: PatrolRun): void;
+  /** Tells the hub files in the Library changed (sent only while the link is open). */
+  reportLibraryChanged(change: LibraryChange): void;
   /**
    * Starts a Patrol's Quest as New Quest would, marked with its run. Its first turn's end goes to `patrols.questEnded`,
    * and until then a permission prompt nobody answers within `waitForYouMs` is denied and the turn ended.
@@ -517,6 +533,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     } catch (error) {
       log(`no folder for attached files for ${sessionId}`, error);
     }
+    // A folder grant, not a prompt: it holds for resumed Quests too, as their extra folders always do.
+    if (options.library && options.libraryQuests === 'folder') addDirs.push(options.library.dir);
     const runtime = sessionFactory({
       session: sessionId,
       cwd,
@@ -526,6 +544,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       ...(engine ? { engine } : {}),
       ...(effort ? { effort } : {}),
       ...(addDirs.length ? { addDirs } : {}),
+      ...(options.library ? { library: options.library.dir } : {}),
     });
     sessions.set(sessionId, { seq, unacked: new Map(), runtime, cwd });
 
@@ -1183,6 +1202,33 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       return;
     }
 
+    const libraryList = HubLibraryList.safeParse(parsed);
+    if (libraryList.success) {
+      void answerLibrary(libraryList.data.requestId, (library) => library.list());
+      return;
+    }
+
+    const libraryRead = HubLibraryRead.safeParse(parsed);
+    if (libraryRead.success) {
+      const { requestId, path, as } = libraryRead.data;
+      void answerLibrary(requestId, (library) => library.read(path, as));
+      return;
+    }
+
+    const libraryWrite = HubLibraryWrite.safeParse(parsed);
+    if (libraryWrite.success) {
+      const { requestId, path, content, base } = libraryWrite.data;
+      void answerLibrary(requestId, (library) => library.write(path, content, base));
+      return;
+    }
+
+    const libraryBacklinks = HubLibraryBacklinks.safeParse(parsed);
+    if (libraryBacklinks.success) {
+      const { requestId, path } = libraryBacklinks.data;
+      void answerLibrary(requestId, (library) => library.backlinks(path));
+      return;
+    }
+
     const runNow = HubScoutRunNow.safeParse(parsed);
     if (runNow.success) {
       options.scouts?.runNow(runNow.data.scout);
@@ -1295,6 +1341,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
           ...(options.updateCli ? { cliUpdate: true } : {}),
           ...(options.listInventory ? { inventory: true } : {}),
           ...(options.closing ? { deeds: true } : {}),
+          ...(options.library ? { library: { dir: options.library.dir } } : {}),
           ...(options.onKingdomVersion ? { selfUpdate: true } : {}),
           ...(options.scouts ? { scouts: true, scoutQuests: true, patrolDrafts: true } : {}),
           ...(options.patrols ? { patrols: true, patrolsFromApp: options.patrols.fromApp(), patrolPreview: true } : {}),
@@ -1385,6 +1432,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
   function close(): Promise<void> {
     closed = true;
     options.closing?.stop();
+    options.library?.stop();
     if (scanTimer) clearInterval(scanTimer);
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -1456,6 +1504,40 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     wsSend({ kind: 'patrols', patrols } satisfies NodePatrols);
   }
 
+  function reportLibraryChanged(change: LibraryChange): void {
+    try {
+      wsSend(NodeLibraryChanged.parse({ kind: 'library-changed', ...change }));
+    } catch (error) {
+      log('could not report a Library change', error);
+    }
+  }
+
+  async function answerLibrary(
+    requestId: string,
+    ask: (library: Library) => Promise<Record<string, unknown>>,
+  ): Promise<void> {
+    let answer: Record<string, unknown>;
+    const library = options.library;
+    if (!library) {
+      answer = { ok: false, reason: 'this Kingdom has no Library' };
+    } else {
+      try {
+        answer = await ask(library);
+      } catch (error) {
+        log('the Library could not answer', error);
+        answer = { ok: false, reason: 'could not answer' };
+      }
+    }
+    let frame: NodeLibraryAnswer;
+    try {
+      frame = NodeLibraryAnswer.parse({ kind: 'library-answer', requestId, ...answer });
+    } catch (error) {
+      log('the Library made a malformed answer', error);
+      frame = { kind: 'library-answer', requestId, ok: false, reason: 'could not answer' };
+    }
+    wsSend(frame);
+  }
+
   function reportPatrolRun(patrol: string, run: PatrolRun): void {
     wsSend({ kind: 'patrol-run', patrol, run } satisfies NodePatrolRun);
   }
@@ -1517,6 +1599,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     reportScoutRun,
     reportPatrols,
     reportPatrolRun,
+    reportLibraryChanged,
     startPatrolQuest,
     forgetPatrolQuest(session: string) {
       // Still starting (its worktree being made): remembered, so it isn't watched once it's started.

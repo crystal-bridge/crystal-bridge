@@ -13,7 +13,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 
 | Licence | Packages |
 | --- | --- |
-| MIT | 255 |
+| MIT | 256 |
 | ISC | 12 |
 | Apache-2.0 | 7 |
 | BlueOak-1.0.0 | 6 |
@@ -145,6 +145,7 @@ Prebuilt binary packages for a single platform are installed per machine and car
 - http-errors 2.0.1: MIT
 - https-proxy-agent 7.0.6: MIT
 - iconv-lite 0.7.3: MIT
+- ignore 7.0.16: MIT
 - inherits 2.0.4: ISC
 - inline-style-parser 0.2.7: MIT
 - ip-address 10.7.5: MIT
@@ -4578,6 +4579,10 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+### ignore
+
+MIT (no licence file shipped)
 
 ### inherits
 

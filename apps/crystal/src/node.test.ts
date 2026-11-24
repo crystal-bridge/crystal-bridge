@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -17,6 +17,7 @@ import {
 import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionDecision, PermissionRequest } from './permissions.js';
+import { createLibrary, type Library } from './library.js';
 import { startNode, surviveRejections, type CrystalNode, type SessionFactory, type SessionLike } from './node.js';
 import type { ActResult, QuestStart } from './scouts.js';
 
@@ -1569,6 +1570,137 @@ describe('startNode', () => {
     });
     return node;
   }
+
+  describe('the Library (#290)', () => {
+    let libraryDir: string;
+    let library: Library | undefined;
+
+    beforeEach(() => {
+      libraryDir = mkdtempSync(join(tmpdir(), 'cb-node-library-'));
+      library = undefined;
+    });
+    afterEach(() => {
+      library?.stop();
+      rmSync(libraryDir, { recursive: true, force: true });
+    });
+
+    async function withLibrary(): Promise<ConnRecorder> {
+      library = createLibrary({
+        dir: libraryDir,
+        log: () => {},
+        onChange: (change) => node?.reportLibraryChanged(change),
+      });
+      await library.start();
+      createNode({ library });
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (f) => f.kind === 'hello');
+      return conn;
+    }
+
+    const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+    const answerTo = (conn: ConnRecorder, requestId: string) =>
+      waitForFrame(conn, (f) => f.kind === 'library-answer' && f.requestId === requestId);
+
+    it('says where its Library is in the hello', async () => {
+      const conn = await withLibrary();
+      const hello = await waitForFrame(conn, (f) => f.kind === 'hello');
+      expect(hello.library).toEqual({ dir: libraryDir });
+    });
+
+    it('leaves the key out of the hello with no Library', async () => {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      const hello = await waitForFrame(conn, (f) => f.kind === 'hello');
+      expect('library' in hello).toBe(false);
+    });
+
+    it('answers library-list, library-read, library-write and library-backlinks with the same requestId', async () => {
+      const conn = await withLibrary();
+      conn.socket.send(
+        JSON.stringify({ kind: 'library-write', requestId: id(1), path: 'a.md', content: '# A\n[[b]]\n', base: null }),
+      );
+      const written = await answerTo(conn, id(1));
+      expect(written).toMatchObject({ ok: true });
+      expect(written.version).toBeTruthy();
+
+      conn.socket.send(JSON.stringify({ kind: 'library-list', requestId: id(2) }));
+      const listed = (await answerTo(conn, id(2))) as { ok: boolean; entries: { path: string }[] };
+      expect(listed.ok).toBe(true);
+      expect(listed.entries.map((e) => e.path)).toContain('a.md');
+
+      conn.socket.send(JSON.stringify({ kind: 'library-read', requestId: id(3), path: 'a.md' }));
+      const read = (await answerTo(conn, id(3))) as { ok: boolean; tome: { content: string } };
+      expect(read.ok).toBe(true);
+      expect(read.tome.content).toContain('# A');
+
+      conn.socket.send(JSON.stringify({ kind: 'library-backlinks', requestId: id(4), path: 'a.md' }));
+      expect(await answerTo(conn, id(4))).toMatchObject({ ok: true });
+    });
+
+    it('refuses a bad path in plain words, never throwing', async () => {
+      const conn = await withLibrary();
+      conn.socket.send(JSON.stringify({ kind: 'library-read', requestId: id(5), path: '../x.md' }));
+      expect(await answerTo(conn, id(5))).toMatchObject({ ok: false, reason: 'not in the Library' });
+      conn.socket.send(JSON.stringify({ kind: 'library-list', requestId: id(6) }));
+      expect(await answerTo(conn, id(6))).toMatchObject({ ok: true });
+    });
+
+    it('sends library-changed after a write on disk', async () => {
+      const conn = await withLibrary();
+      mkdirSync(join(libraryDir, 'sub'), { recursive: true });
+      writeFileSync(join(libraryDir, 'sub', 'new.md'), '# New\n');
+      const changed = await waitForFrame(conn, (f) => f.kind === 'library-changed', 5000);
+      expect(changed.paths ?? changed.all).toBeTruthy();
+    });
+
+    it('answers a library frame that makes the library throw with a plain reason', async () => {
+      const conn = await withLibrary();
+      library!.list = async () => {
+        throw new Error('boom');
+      };
+      conn.socket.send(JSON.stringify({ kind: 'library-list', requestId: id(7) }));
+      expect(await answerTo(conn, id(7))).toMatchObject({ ok: false, reason: 'could not answer' });
+    });
+
+    it('answers library frames with "this Kingdom has no Library" when off', async () => {
+      createNode();
+      const conn = await nextConnection(harness, 0);
+      await waitForFrame(conn, (f) => f.kind === 'hello');
+      conn.socket.send(JSON.stringify({ kind: 'library-list', requestId: id(8) }));
+      expect(await answerTo(conn, id(8))).toMatchObject({ ok: false, reason: 'this Kingdom has no Library' });
+      conn.socket.send(
+        JSON.stringify({ kind: 'library-write', requestId: id(9), path: 'a.md', content: id(5), base: null }),
+      );
+      expect(await answerTo(conn, id(9))).toMatchObject({ ok: false, reason: 'this Kingdom has no Library' });
+    });
+  });
+
+  it.each([
+    ['folder', true],
+    [undefined, false],
+  ] as const)(
+    'tells the factory the Library, and grants its folder only with libraryQuests=%s (#290)',
+    async (quests, granted) => {
+      const libDir = mkdtempSync(join(tmpdir(), 'cb-node-library-'));
+      const attachmentsDir = mkdtempSync(join(tmpdir(), 'cb-node-attach-'));
+      const lib = createLibrary({ dir: libDir, log: () => {}, onChange: () => {} });
+      await lib.start();
+      try {
+        createNode({ attachmentsDir, library: lib, ...(quests ? { libraryQuests: quests } : {}) });
+        const conn = await nextConnection(harness, 0);
+        await waitForFrame(conn, (f) => f.kind === 'hello');
+        const session = randomUUID();
+        conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'hi' }));
+        await waitForFrame(conn, (f) => f.type === 'session.started');
+        const opts = created[0]!.opts as { library?: string; addDirs?: string[] };
+        expect(opts.library).toBe(lib.dir);
+        expect(opts.addDirs?.includes(lib.dir) ?? false).toBe(granted);
+        expect(opts.addDirs).toContain(join(attachmentsDir, session));
+      } finally {
+        lib.stop();
+      }
+    },
+  );
 
   it('saves files sent with a prompt or follow-up, names them in the text, and removes them on close', async () => {
     const attachmentsDir = mkdtempSync(join(tmpdir(), 'cb-node-attach-'));

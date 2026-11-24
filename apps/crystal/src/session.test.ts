@@ -1,4 +1,4 @@
-import { QUEST_PROMPT } from './permissions.js';
+import { QUEST_PROMPT, questPrompt } from './permissions.js';
 import type { TurnChanges } from './changes.js';
 import type { DescriptionReporter } from './descriptions.js';
 import { EventEmitter } from 'node:events';
@@ -132,6 +132,7 @@ function createSession(
     chrome: boolean;
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     addDirs: string[];
+    library: string;
     changes: TurnChanges;
     descriptions: DescriptionReporter;
     compactWindow: (model: string | undefined) => number | undefined;
@@ -245,6 +246,17 @@ describe('ClaudeSession', () => {
     for (const call of [calls[1]!, calls[2]!]) {
       expect(call.args[call.args.indexOf('--effort') + 1]).toBe('high');
     }
+  });
+
+  it('tells a new Quest where the Library is, and a resumed one nothing more (#290)', () => {
+    const { spawnFn, calls, children } = createSpawnMock();
+    const session = createSession(spawnFn, { library: '/w/library' });
+    session.start('hello');
+    finishExit(children[0]!, 0);
+    session.send('more');
+    const at = calls[0]!.args.indexOf('--append-system-prompt');
+    expect(calls[0]!.args[at + 1]).toBe(questPrompt({ library: '/w/library' }));
+    expect(calls[1]!.args).not.toContain('--append-system-prompt');
   });
 
   it('gives every process it starts the extra folders it may read (--add-dir, one each)', async () => {

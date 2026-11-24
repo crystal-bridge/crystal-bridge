@@ -2015,7 +2015,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           if (socket.readyState === socket.OPEN) socket.send(PONG_FRAME);
         } else if (message.data.kind === 'subscribe') {
           handleSubscribe(socket, message.data.session, message.data.fromSeq);
-        } else {
+        } else if (message.data.kind === 'command') {
           handleCommand(socket, message.data.command);
         }
       }),
