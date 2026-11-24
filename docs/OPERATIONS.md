@@ -274,7 +274,9 @@ Log out in Config ends that browser's login. It doesn't revoke the token: use `t
 A machine can join without SSH or a checkout. Add Kingdom in Config makes a one-time code and shows the command to run
 there (`joinCommand` in `packages/protocol`). The hub needs `AIRSHIP_NODES` for this. That command is
 `crystal-bridge-kingdom join <hub-url> <code>`. From npm it's `npx --yes @crystal-bridge/kingdom@<version> join
-https://hub.example.com <code>`, with `<version>` the hub's own. It checks that Node is 22 or newer, that Claude Code is
+https://hub.example.com <code>`, with `<version>` the hub's own. npm holds full releases and pre-releases from 0.7.0
+on, never edge builds, so for a hub on an edge build or anything before 0.7.0, use the command Add Kingdom shows, which
+fetches the release's tarball. It checks that Node is 22 or newer, that Claude Code is
 installed and signed in (it reads only the `loggedIn` field of `claude auth status`), that the service manager can be
 reached (`systemctl --user`, launchd's session for this user, or Task Scheduler, which it has take a throwaway task) and
 that port 7711 is free. It then copies itself to `~/.local/share/crystal-bridge/releases/<version>`, because npx's own
@@ -388,7 +390,9 @@ npx --yes @crystal-bridge/kingdom adopt
 ```
 
 That moves the Kingdom to that release and rewrites its service, keeping the env file, as in
-[Moving onto packages](#moving-onto-packages). It works with the Kingdom stopped too. On Windows `adopt` refuses, so
+[Moving onto packages](#moving-onto-packages). On a Kingdom running a newer edge build, that's a step back, until it
+follows the hub forward again; to keep its version, name it in the tarball form from Moving onto packages instead.
+It works with the Kingdom stopped too. On Windows `adopt` refuses, so
 repairing means `leave` and `join` again, which gives the machine a new token.
 
 ### Choosing when Kingdoms update
@@ -434,8 +438,9 @@ Then move each Kingdom, on that machine, to the hub's version:
 npx --yes @crystal-bridge/kingdom@<version> adopt
 ```
 
-Releases before 0.7.0 aren't on npm. For one of those, or to run a file you've checked yourself, use the release's
-tarball: `npx --yes --package=<kingdom-tarball-url> crystal-bridge-kingdom adopt`.
+Only full releases and pre-releases from 0.7.0 on are on npm, never edge builds. For an edge build, a release before
+0.7.0, or a file you've checked yourself, use the release's tarball:
+`npx --yes --package=<kingdom-tarball-url> crystal-bridge-kingdom adopt`.
 
 `adopt` waits up to an hour for Quests to finish, swaps the service to the package and restarts. The env file stays as it
 is, so the token, name and settings such as `CRYSTAL_ENGINES` carry over, and Quests resume on their next follow-up. Run it
@@ -659,17 +664,27 @@ names. The release workflow still refuses an edge tag that isn't on `main` or fa
 
 A full release, and a pre-release that isn't an edge build, also goes to npm as `@crystal-bridge/kingdom` and
 `@crystal-bridge/airship`. The release workflow's `npm` job downloads the two tarballs it just put on the GitHub
-Release, checks their attestations with `gh attestation verify`, and publishes those same files by npm's trusted
-publishing: npm trusts the workflow's OIDC token, so there's no npm token to keep, and npm adds its own provenance. A
-pre-release goes under the `next` dist-tag, so `latest` only ever names a full release. Edge builds stay on GitHub
-Releases only. A version already on npm is skipped, so re-running a run that failed halfway finishes the rest.
+Release, checks both were attested by `release.yml` at that tag with `gh attestation verify`, and publishes those same
+files by npm's trusted publishing: npm trusts the workflow's OIDC token, so there's no npm token to keep, and npm adds
+its own provenance. A pre-release goes under the `next` dist-tag, so `latest` only ever names a full release. Edge
+builds stay on GitHub Releases only. The job runs in the GitHub environment `npm`, so each release waits in its Actions
+run until the owner approves it there. A version already on npm is skipped, so **Re-run failed jobs** on a run that
+failed halfway finishes the rest. Not **Re-run all jobs**: that runs the `release` job again, and its
+`gh release create` fails on the release that's already there.
 
-Each package needs a one-time setup on npmjs.com, in its settings:
+0.7.0 went to npm by hand, from the attested `v0.7.0` tarballs (the same files, with the same sha512 as the release
+assets), so it has no npm provenance. Releases after it are published by the workflow.
 
-1. Under **Trusted publisher**, add GitHub Actions with the repository `crystal-bridge/crystal-bridge` and the workflow
-   `release.yml`.
-2. Under **Publishing access**, choose "Require two-factor authentication and disallow tokens", so nothing but that
-   workflow can publish.
+The one-time setup:
+
+1. In the repository's **Settings → Environments**, create an environment named `npm` with yourself as a required
+   reviewer. npm's trusted publisher checks the repository, the workflow's file name and the environment, never the
+   ref, so without this any run of `release.yml` could publish, an edge tag's included. A deployment tag rule can't
+   stand in for the reviewer, because `v*` matches edge tags too.
+2. On npmjs.com, in each package's settings, under **Trusted publisher**, add GitHub Actions with the repository
+   `crystal-bridge/crystal-bridge`, the workflow `release.yml` and the environment `npm`.
+3. Under **Publishing access**, choose "Require two-factor authentication and disallow tokens". Then only a run of
+   `release.yml` in the `npm` environment, which you approved, can publish without your own npm login and second factor.
 
 npm drops a new trusted publisher that goes unused for two days, so set it up just before pushing a full release tag.
 

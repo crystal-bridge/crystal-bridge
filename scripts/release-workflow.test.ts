@@ -64,12 +64,30 @@ describe('the release workflow', () => {
     assert.match(npm, /id-token: write/);
     assert.doesNotMatch(npm, /contents: write|NODE_AUTH_TOKEN|NPM_TOKEN|secrets\./);
     assert.match(npm, /registry-url: https:\/\/registry\.npmjs\.org/);
-    assert.match(npm, /npm install -g npm@\^11\.5\.1/);
+    assert.match(npm, /npm install -g npm@11\.21\.3$/m);
     assert.match(npm, /gh release download "\$GITHUB_REF_NAME" --pattern 'crystal-bridge-\*\.tgz'/);
-    assert.match(npm, /gh attestation verify "\$file" --repo "\$GITHUB_REPOSITORY"/);
-    assert.match(npm, /npm publish "\.\/\$file" --access public/);
-    assert.match(npm, /--tag next/);
     assert.match(npm, /npm view "\$pkg@\$version" version/);
+    // Both tarballs pass before either is published, and the publish line itself carries the dist-tag.
+    const verify = npm.indexOf('gh attestation verify');
+    const view = npm.indexOf('npm view');
+    const publish = npm.indexOf('npm publish');
+    assert.ok(verify !== -1 && verify < view && view < publish, 'verify, then npm view, then npm publish');
+    assert.match(npm.slice(verify, view), /^ +done$/m, 'every tarball is verified before the publishing loop');
+    assert.match(npm, /^ +npm publish "\.\/\$file" --access public "\$\{tag\[@\]\}"$/m);
+    assert.match(npm, /if \[\[ \$GITHUB_REF_NAME == \*-\* \]\]; then tag=\(--tag next\); fi/);
+  });
+
+  // npm's trusted publisher checks the workflow's file name, never its ref, so an edge tag could otherwise publish.
+  it('publishes to npm only through an environment the owner approves', () => {
+    assert.match(job('npm'), /^ {4}environment: npm$/m);
+  });
+
+  // The signer and the ref are pinned too, so a tarball attested by another workflow or at another tag doesn't pass.
+  it('checks each tarball was attested by this workflow at this tag', () => {
+    assert.match(
+      job('npm'),
+      /gh attestation verify "\$file" --repo "\$GITHUB_REPOSITORY" --signer-workflow "\$GITHUB_REPOSITORY\/\.github\/workflows\/release\.yml" --source-ref "\$GITHUB_REF"/,
+    );
   });
 
   it('keeps the ten newest edge releases, and only edge ones', () => {
