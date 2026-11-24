@@ -71,6 +71,9 @@ export async function handleMessage(event: MessageEvent): Promise<void> {
     mermaid.initialize(mermaidConfig(theme));
     drawn += 1;
     const { svg } = await mermaid.render(`diagram-${drawn}`, source);
+    // Tome text becomes markup here on purpose, and this is the one place it may: Mermaid's strict level sanitises the
+    // SVG, and this page runs in a sandbox with an opaque origin and a CSP that allows no requests, so even a flaw in
+    // Mermaid reaches neither the app nor the network (proved by scripts/browser/sandbox.spec.ts; docs/LIBRARY.md).
     target.innerHTML = svg;
     // The diagram's own box, not the page's scroll height: that never drops below the frame's viewport, so a frame
     // grown for a tall diagram would stay tall. The page's body has no margin to add (mermaid-frame.html).
