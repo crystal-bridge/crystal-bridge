@@ -5,6 +5,7 @@ import { type HeroManifest, type HeroState, LeaderContext } from '../heroes.js';
 import { projectName, questTitle } from '../quests.js';
 import { reorderHandlers } from '../tabOrder.js';
 import { keyHint } from '../hotkeys.js';
+import { LIBRARY_TONE } from '../library.js';
 import { boardIcon } from '../theme/boardIcons.js';
 import { Icon } from '../theme/icons.js';
 import { hint, w } from '../theme/words.js';
@@ -18,11 +19,13 @@ export interface QuestStripProps {
   castleName: string;
   /** The Quests that get a tab, in order (see `questTabs`). */
   quests: SessionSummary[];
-  /** What the main view shows: the Castle, the New Quest form, or a Quest's id. */
-  current: 'castle' | 'new' | string;
+  /** What the main view shows: the Castle, the Library, the New Quest form, or a Quest's id. */
+  current: 'castle' | 'library' | 'new' | string;
   /** Quests waiting on an approval or a question. */
   waiting: ReadonlySet<string>;
   onCastle: () => void;
+  /** Opens the Kingdom's Library; without it (a Kingdom with none), no Library tab. */
+  onLibrary?: (() => void) | undefined;
   onSelect: (id: string) => void;
   /** Takes a Quest's tab away on this device; it comes back when the Quest has new activity. */
   onPutAway: (id: string) => void;
@@ -60,6 +63,7 @@ export function QuestStrip({
   current,
   waiting,
   onCastle,
+  onLibrary,
   onSelect,
   onPutAway,
   onNew,
@@ -93,6 +97,24 @@ export function QuestStrip({
       >
         {castleName}
       </button>
+      {onLibrary && (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={current === 'library'}
+          title={hint('library')}
+          onClick={onLibrary}
+          className={`${TAB} relative ${current === 'library' ? ON : OFF}`}
+        >
+          <span aria-hidden="true" className={LIBRARY_TONE.text}>
+            <Icon name="library" size={18} />
+          </span>
+          <span className="cb-display text-lg leading-none">{w('library')}</span>
+          {current === 'library' && (
+            <span aria-hidden="true" className={`absolute inset-x-2 bottom-0 h-0.5 rounded ${LIBRARY_TONE.bar}`} />
+          )}
+        </button>
+      )}
       {/* A menu whose Board is no longer pinned, unpinned from its page meanwhile, has nothing to act on. */}
       {onBoard && boards.length > 0 && (
         // Pinned like a browser's pinned tabs: icon only, before the Quests, no close button.

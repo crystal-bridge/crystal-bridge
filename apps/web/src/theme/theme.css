@@ -205,6 +205,66 @@
   }
 }
 
+/*
+ * A Tome in the Library's reader: the prose above, with the audition's pixel-face headings, wiki links underlined in
+ * the Library's purple, and a link to a missing Tome drawn dotted and grey.
+ */
+.cb-tome h1,
+.cb-tome h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+.cb-tome h1 {
+  font-size: 2.25rem;
+}
+.cb-tome h2 {
+  font-size: 1.5rem;
+  margin-top: 1.25rem;
+}
+.cb-tome :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 1rem;
+}
+/* A Tome's code colours, read by components/tomeHighlight.css, which loads with the highlighter. */
+:root {
+  --tome-code-keyword: #7e22ce;
+  --tome-code-value: #047857;
+  --tome-code-title: #b45309;
+  --tome-code-comment: #a3a3a3;
+  --tome-code-deletion: #be123c;
+  --tome-code-addition: #047857;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tome-code-keyword: #d8b4fe;
+    --tome-code-value: #34d399;
+    --tome-code-title: #fbbf24;
+    --tome-code-comment: #737373;
+    --tome-code-deletion: #fda4af;
+    --tome-code-addition: #34d399;
+  }
+}
+.cb-tome .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25rem;
+}
+.cb-wiki {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.cb-wiki-missing {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+button.cb-wiki-missing {
+  cursor: pointer;
+}
+
 /* A file name that opens in the viewer: reads as code or a link, with the link colour and a pointer. */
 .cb-file-link {
   color: var(--color-window-top);

@@ -8,6 +8,8 @@ describe('route', () => {
     [{ page: 'new', node: 'node-a' }, '#/k/node-a/new'],
     [{ page: 'quest', node: 'node a/b', session: 'q-1' }, '#/k/node%20a%2Fb/q/q-1'],
     [{ page: 'board', node: 'node-a', scout: 'quest-board' }, '#/k/node-a/b/quest-board'],
+    [{ page: 'library', node: 'node-a' }, '#/k/node-a/l'],
+    [{ page: 'library', node: 'node-a', path: 'ops/How Summons.md' }, '#/k/node-a/l/ops/How%20Summons.md'],
   ];
 
   it('writes where the user is as a hash, and reads it back', () => {

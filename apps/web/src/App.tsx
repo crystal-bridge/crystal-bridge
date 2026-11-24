@@ -61,6 +61,7 @@ import { formatRoute, parseRoute, type Route } from './route.js';
 import { classXp, kingdomLevels, LevelContext, levelFor, type QuestXp } from './levels.js';
 import type { NodeUsageRow } from './components/NodeUsage.js';
 import { QuestStrip } from './components/QuestStrip.js';
+import { LibraryRoom } from './components/LibraryRoom.js';
 import type { SearchHit } from './components/SearchResults.js';
 import type { SessionSummary } from './components/SessionList.js';
 import { FILE_ASIDE, SessionView } from './components/SessionView.js';
@@ -190,6 +191,7 @@ interface EngineRow {
   cli?: string;
   cliUpdate?: boolean;
   deeds?: boolean;
+  library?: { dir: string };
   selfUpdate?: SelfUpdate;
 }
 
@@ -210,6 +212,8 @@ export function App({ hub }: { hub: HubClient }) {
   // Who holds a token; undefined until the hub has said, so a Kingdom never looks removed while the page loads.
   const [enrolled, setEnrolled] = useState<string[] | undefined>(undefined);
   const [engineLists, setEngineLists] = useState<EngineRow[]>([]);
+  // Each Kingdom's Library folder, as its last hello said: kept while it is offline, so its Library tab can say so.
+  const [libraries, setLibraries] = useState<Record<string, string>>({});
   // Where the address says the user was (a reload, or a link on this device); a hidden Kingdom's is ignored.
   const [startRoute] = useState(() => {
     const route = parseRoute(window.location.hash);
@@ -235,10 +239,18 @@ export function App({ hub }: { hub: HubClient }) {
     document.documentElement.style.setProperty('--prompt-text', text);
   }, [appearance]);
   // The main view: the Airship (Home), or inside the active Kingdom its Castle, the New Quest form, or a Quest.
-  const [page, setPage] = useState<'airship' | 'castle' | 'new' | 'board'>(() =>
-    startRoute?.page === 'airship' || startRoute?.page === 'new' || startRoute?.page === 'board'
+  const [page, setPage] = useState<'airship' | 'castle' | 'new' | 'board' | 'library'>(() =>
+    startRoute?.page === 'airship' ||
+    startRoute?.page === 'new' ||
+    startRoute?.page === 'board' ||
+    startRoute?.page === 'library'
       ? startRoute.page
       : 'castle',
+  );
+  // Where the Library is open, when the page is a Library: a Tome or a folder, or its top.
+  // Kept with its Kingdom: another Kingdom shown in its place (that one went away) opens at its Library's top.
+  const [libraryAt, setLibraryAt] = useState<{ node: string; path?: string | undefined } | null>(() =>
+    startRoute?.page === 'library' ? { node: startRoute.node, path: startRoute.path } : null,
   );
   // The Scout whose Board is open, when the page is a Board.
   const [boardScout, setBoardScout] = useState<string | null>(() =>
@@ -605,6 +617,17 @@ export function App({ hub }: { hub: HubClient }) {
     setPage('board');
   }
 
+  /** Shows a Kingdom's Library, at a Tome or folder or its top, leaving any open Quest. */
+  function showLibrary(node: string, path?: string) {
+    if (node !== active) {
+      if (loadPrefs().hidden.includes(node)) return;
+      updatePrefs((prev) => ({ ...prev, active: node }));
+    }
+    setSelected(null);
+    setLibraryAt({ node, path });
+    setPage('library');
+  }
+
   /** Names a Quest by hand (#287): shown here at once, and on every device from the hub's next list. */
   async function renameQuest(id: string, label: string) {
     const before = sessions.find((quest) => quest.id === id)?.label;
@@ -750,6 +773,20 @@ export function App({ hub }: { hub: HubClient }) {
     [hub],
   );
   const closeFile = useCallback(() => setFileView(null), []);
+  /** A Quest's Library, for its Scrolls: open one that lies in the Library as a Tome there. */
+  const scrollLibrary = (session: string) => {
+    const quest = sessions.find((one) => one.id === session);
+    const dir = quest && libraries[quest.node];
+    if (!quest || dir === undefined) return undefined;
+    return {
+      dir,
+      cwd: quest.cwd,
+      onOpen: (path: string) => {
+        setFileView(null);
+        showLibrary(quest.node, path);
+      },
+    };
+  };
   const viewing = fileView && (fileView.session === shown || fileView.session === splitShown) ? fileView : null;
   const fileViewer = viewing ? (
     <FileViewer
@@ -757,6 +794,7 @@ export function App({ hub }: { hub: HubClient }) {
       file={viewing}
       onClose={closeFile}
       onOpen={openFileFor(viewing.session)}
+      library={scrollLibrary(viewing.session)}
     />
   ) : null;
 
@@ -800,6 +838,19 @@ export function App({ hub }: { hub: HubClient }) {
     if (h) setServedRelease(h.release);
     keep(setProjectLists, p);
     keep(setEngineLists, e);
+    if (e) {
+      setLibraries((prev) => {
+        const next = { ...prev };
+        for (const row of e) {
+          if (row.library) next[row.node] = row.library.dir;
+          else delete next[row.node];
+        }
+        const same =
+          Object.keys(next).length === Object.keys(prev).length &&
+          Object.entries(next).every(([node, dir]) => prev[node] === dir);
+        return same ? prev : next;
+      });
+    }
     if (l) setLatestCli(l.latest);
     // The hub's word, so a reload or a new device knows too. Not for a Quest in view, or on a hidden Kingdom.
     if (a) {
@@ -1182,6 +1233,7 @@ export function App({ hub }: { hub: HubClient }) {
       )
     : [];
   const view = page === 'airship' ? 'airship' : shown ? 'quest' : page;
+  const libraryPath = libraryAt?.node === active ? libraryAt.path : undefined;
   const pinnedBoards = active ? boardTabs(scouts, prefs.unpinned?.[active] ?? [], prefs.boardOrder?.[active]) : [];
 
   // One listener; the keys call the same navigation as the tabs, so Back returns from each move.
@@ -1265,6 +1317,8 @@ export function App({ hub }: { hub: HubClient }) {
     else if (active && view === 'new') route = { page: 'new', node: active };
     else if (active && view === 'castle') route = { page: 'castle', node: active };
     else if (active && view === 'board' && boardScout) route = { page: 'board', node: active, scout: boardScout };
+    else if (active && view === 'library')
+      route = libraryPath ? { page: 'library', node: active, path: libraryPath } : { page: 'library', node: active };
     if (!route) return;
     const hash = formatRoute(route);
     if (window.location.hash !== hash) {
@@ -1273,7 +1327,7 @@ export function App({ hub }: { hub: HubClient }) {
       else window.history.replaceState(null, '', url);
     }
     addressSet.current = true;
-  }, [view, active, shown, boardScout]);
+  }, [view, active, shown, boardScout, libraryPath]);
   // And the view follows the address when something else changes it (a link, an edited address), as on a reload.
   const followRoute = useRef<(route: Route) => void>(() => {});
   followRoute.current = (route) => {
@@ -1283,8 +1337,9 @@ export function App({ hub }: { hub: HubClient }) {
     }
     if (prefs.hidden.includes(route.node)) return;
     updatePrefs((prev) => ({ ...prev, active: route.node }));
-    setPage(route.page === 'new' || route.page === 'board' ? route.page : 'castle');
+    setPage(route.page === 'new' || route.page === 'board' || route.page === 'library' ? route.page : 'castle');
     if (route.page === 'board') setBoardScout(route.scout);
+    if (route.page === 'library') setLibraryAt({ node: route.node, path: route.path });
     setSelected(route.page === 'quest' ? route.session : null);
   };
   useEffect(() => {
@@ -1430,6 +1485,10 @@ export function App({ hub }: { hub: HubClient }) {
                 setPage('castle');
                 setSelected(null);
               }}
+              // Kept while the Library shows: an offline Kingdom's hello isn't in this page's list after a reload.
+              onLibrary={
+                libraries[kingdom.id] !== undefined || view === 'library' ? () => showLibrary(kingdom.id) : undefined
+              }
               onSelect={openQuest}
               onPutAway={putAwayQuest}
               onRename={(id, label) => void renameQuest(id, label)}
@@ -1645,6 +1704,17 @@ export function App({ hub }: { hub: HubClient }) {
                   onMark: (patrol, run, done) => markPatrolRun(kingdom.id, patrol, run, done),
                 }}
               />
+            ) : view === 'library' ? (
+              <LibraryRoom
+                key={kingdom.id}
+                hub={hub}
+                node={kingdom.id}
+                kingdom={kingdom.name}
+                online={kingdom.connected}
+                dir={libraries[kingdom.id]}
+                path={libraryPath}
+                onPath={(path) => setLibraryAt({ node: kingdom.id, path })}
+              />
             ) : view === 'new' ? (
               <NewSession
                 key={`${kingdom.id}:${newCwd ?? ''}`}
@@ -1749,6 +1819,15 @@ export function App({ hub }: { hub: HubClient }) {
                   setNewCwd(cwd);
                   setPage('new');
                 }}
+                library={
+                  libraries[kingdom.id] !== undefined
+                    ? {
+                        hub,
+                        dir: libraries[kingdom.id]!,
+                        onOpen: (path?: string) => showLibrary(kingdom.id, path),
+                      }
+                    : undefined
+                }
                 onAdopt={adopt}
                 onSelect={openQuest}
                 onNew={() => {

@@ -27,10 +27,12 @@ import { type SearchHit, SearchResults } from './SearchResults.js';
 import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
+import { useWide } from '../media.js';
 import { isBehind, releaseLabel } from '../release.js';
 import { type ChipMemory, DeedsFeed, newChipMemory } from './Deeds.js';
 import { ErrandsPanel } from './Errands.js';
 import { Garrison, type GarrisonProps } from './Garrison.js';
+import { LibraryCard, type LibraryCardProps } from './LibraryRoom.js';
 import { Watchtower } from './Watchtower.js';
 import { hasCircle, SummoningCircle } from './SummoningCircle.js';
 import { Folded, HOME_PAGE, HOME_PAIR, QUEST_GRID, QuestCard, StatTiles } from './HomeParts.js';
@@ -128,6 +130,11 @@ export interface CastleProps {
   heroStates?: Record<string, HeroState>;
   /** Starts a New Quest with this folder chosen. */
   onNewIn?: (cwd: string) => void;
+  /**
+   * This Kingdom's Library, for its card under Errands (a wide screen's; the phone has the Library tab); without it (a
+   * Kingdom with none), no card. `onOpen` opens the Library at a Tome, or at its top.
+   */
+  library?: Omit<LibraryCardProps, 'node'> | undefined;
   now?: number;
 }
 
@@ -464,6 +471,7 @@ export function Castle({
   heroes,
   heroStates = {},
   onNewIn,
+  library,
   now = Date.now(),
 }: CastleProps) {
   const haunts = recentProjects(sessions);
@@ -537,7 +545,10 @@ export function Castle({
         onLoadOlder={deeds.loadOlder}
       />
     );
-  const rightOthers = haunts.length > 0 || Boolean(garrison);
+  // The Library card is a desktop panel (the phone reaches the Library from its tab), so on a phone it neither mounts,
+  // reading and watching the listing, nor holds the right column open.
+  const phone = !useWide();
+  const rightOthers = haunts.length > 0 || Boolean(garrison) || (Boolean(library) && !phone);
   const rightColumn = rightOthers || checklist;
   // Right after Active Quests at every width: beside the right column from xl, above everything it stacks below that.
   const deedsWide = deeds && <div className="hidden md:block">{deedsFeed(false)}</div>;
@@ -676,6 +687,7 @@ export function Castle({
             // Holding only the Checklist, it has nothing to show below xl, so it takes no grid gap there.
             <div className={`min-w-0 space-y-5 ${rightOthers ? '' : 'hidden xl:block'}`}>
               {errandsHere}
+              {library && !phone && <LibraryCard {...library} node={kingdom.id} />}
               {haunts.length > 0 && (
                 <Section title={w('haunts')} plain={hint('haunts')}>
                   <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">

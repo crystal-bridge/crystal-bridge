@@ -1,0 +1,45 @@
+/*
+ * Code colours in a Tome (rehype-highlight's `hljs-*` classes), loaded with the highlighter, so the app's own
+ * stylesheet doesn't carry the rules. The colours are the `--tome-code-*` tokens in theme/theme.css, light and dark:
+ * keywords in the Library's purple, values in green, comments quiet.
+ */
+.cb-tome .hljs-keyword,
+.cb-tome .hljs-selector-tag,
+.cb-tome .hljs-attr,
+.cb-tome .hljs-name,
+.cb-tome .hljs-section,
+.cb-tome .hljs-built_in {
+  color: var(--tome-code-keyword);
+}
+.cb-tome .hljs-string,
+.cb-tome .hljs-number,
+.cb-tome .hljs-literal,
+.cb-tome .hljs-symbol,
+.cb-tome .hljs-regexp,
+.cb-tome .hljs-attribute {
+  color: var(--tome-code-value);
+}
+.cb-tome .hljs-title,
+.cb-tome .hljs-type,
+.cb-tome .hljs-variable,
+.cb-tome .hljs-template-variable,
+.cb-tome .hljs-meta {
+  color: var(--tome-code-title);
+}
+.cb-tome .hljs-comment,
+.cb-tome .hljs-quote {
+  color: var(--tome-code-comment);
+  font-style: italic;
+}
+.cb-tome .hljs-deletion {
+  color: var(--tome-code-deletion);
+}
+.cb-tome .hljs-addition {
+  color: var(--tome-code-addition);
+}
+.cb-tome .hljs-emphasis {
+  font-style: italic;
+}
+.cb-tome .hljs-strong {
+  font-weight: 700;
+}

@@ -19,7 +19,7 @@ function textOf(children: ReactNode): string | undefined {
 }
 
 /** Inline code that names a file opens it; everything else (including code inside a block) stays code. */
-function InlineCode({
+export function InlineCode({
   node: _node,
   className,
   children,
@@ -45,10 +45,10 @@ function InlineCode({
 }
 
 /** Inside a link, where a remote image can't be a link of its own. */
-const InLink = createContext(false);
+export const InLink = createContext(false);
 
 /** Links to files in the Quest open in the viewer; web links open beside the app, never replacing it. */
-function Link({ node: _node, href, children, ...props }: ComponentPropsWithoutRef<'a'> & { node?: unknown }) {
+export function Link({ node: _node, href, children, ...props }: ComponentPropsWithoutRef<'a'> & { node?: unknown }) {
   const open = useContext(FileOpenContext);
   const path = fileHref(href);
   if (open && path) {
@@ -87,7 +87,7 @@ function hostOf(src: string): string {
  * Text from an agent or a repository can name any address, and an image loads with no click, so one could carry data
  * out in its URL with no tool call and no approval. Those stay links; the hub's Content-Security-Policy backs this up.
  */
-function Image({ node: _node, src, alt, ...props }: ComponentPropsWithoutRef<'img'> & { node?: unknown }) {
+export function Image({ node: _node, src, alt, ...props }: ComponentPropsWithoutRef<'img'> & { node?: unknown }) {
   const inLink = useContext(InLink);
   const address = typeof src === 'string' ? src : '';
   if (!address) return <>{alt}</>;
@@ -109,10 +109,10 @@ const COMPACT_COMPONENTS = {
   pre: (props: ComponentPropsWithoutRef<'pre'> & { node?: unknown }) => <CodeBlock {...props} compact />,
 };
 /** GitHub-flavoured markdown (tables, task lists, strikethrough, bare links), as Claude writes it. */
-const REMARK_PLUGINS = [remarkGfm];
+export const REMARK_PLUGINS = [remarkGfm];
 
 /** The usual safe addresses, plus inline images, which react-markdown would otherwise blank. */
-const safeUrl: UrlTransform = (url, key, element) =>
+export const safeUrl: UrlTransform = (url, key, element) =>
   element.tagName === 'img' && key === 'src' && /^data:image\//i.test(url) ? url : defaultUrlTransform(url);
 
 /** Markdown as the app shows it, in replies and in the viewer; `compact` for an Errand's body, where code is short. */

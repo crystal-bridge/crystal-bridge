@@ -426,3 +426,53 @@ describe('HubClient file viewer', () => {
     await expect(reading).resolves.toMatchObject({ ok: false });
   });
 });
+
+describe('HubClient Library watches', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const watchesOf = (socket: FakeSocket) => socket.sent.filter((m) => (m as { kind: string }).kind === 'library-watch');
+
+  it('counts watchers: the first opens, the last closes, a reconnect opens again', () => {
+    const hub = new HubClient('ws://hub/client');
+    const first = FakeSocket.last;
+    first.open();
+    const stopA = hub.watchLibrary('node-a');
+    const stopB = hub.watchLibrary('node-a');
+    expect(watchesOf(first)).toEqual([{ kind: 'library-watch', node: 'node-a', open: true }]);
+    stopA();
+    stopA();
+    expect(watchesOf(first)).toHaveLength(1);
+    stopB();
+    expect(watchesOf(first)).toEqual([
+      { kind: 'library-watch', node: 'node-a', open: true },
+      { kind: 'library-watch', node: 'node-a', open: false },
+    ]);
+
+    const stopC = hub.watchLibrary('node-a');
+    first.dispatchEvent(new Event('close'));
+    vi.advanceTimersByTime(60_000);
+    const second = FakeSocket.last;
+    expect(second).not.toBe(first);
+    second.open();
+    expect(watchesOf(second)).toEqual([{ kind: 'library-watch', node: 'node-a', open: true }]);
+    stopC();
+    hub.close();
+  });
+
+  it('tells listeners about library-changed frames', () => {
+    const hub = new HubClient('ws://hub/client');
+    FakeSocket.last.open();
+    const heard = vi.fn();
+    hub.onLibraryChanged(heard);
+    FakeSocket.last.deliver({ kind: 'library-changed', node: 'node-a', all: true });
+    expect(heard).toHaveBeenCalledWith({ kind: 'library-changed', node: 'node-a', all: true });
+    hub.close();
+  });
+});

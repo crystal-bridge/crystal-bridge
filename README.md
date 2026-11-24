@@ -26,6 +26,7 @@ _A tour of the app with `pnpm demo`, a scripted world of invented Kingdoms._
 - **Notifications:** desktop and Web Push, with a per-machine "Discreet" level that never shows session titles.
 - **Summons:** hand a long job to a machine you can reach by SSH, with nothing installed there, and stop spending tokens
   watching it. It survives dropped connections and restarts, and tells you when it ends.
+- **The Library:** a folder of Markdown and HTML pages on each machine, read and edited in the app, with diagrams, maths and links between pages ([the Library](docs/LIBRARY.md)).
 - **Bring sessions in:** adopt sessions you started in a terminal, and carry on from the browser.
 - **A theme with a plain alternative:** the default dresses everything up as a 16-bit RPG. The Classic theme uses plain
   words, and is a build choice, so it means running from a checkout (`VITE_CB_THEME=classic pnpm dev`): the released

@@ -143,6 +143,31 @@ describe('QuestStrip', () => {
       'rogue',
     ]);
   });
+  describe('the Library tab (#290)', () => {
+    it('sits right after the Castle, before pinned Boards, when the Kingdom has a Library', () => {
+      const onLibrary = vi.fn();
+      renderStrip({ onLibrary, boards: [{ id: 'gmail', name: 'Gmail', fresh: 0 }], onBoard: vi.fn() });
+      const tabs = screen.getAllByRole('tab');
+      expect(tabs.slice(0, 3).map((t) => t.getAttribute('aria-label') ?? t.textContent)).toEqual([
+        expect.stringContaining('Castle'),
+        expect.stringContaining('Library'),
+        'Gmail',
+      ]);
+      expect(tabs[1]!.getAttribute('aria-selected')).toBe('false');
+      fireEvent.click(tabs[1]!);
+      expect(onLibrary).toHaveBeenCalled();
+    });
+
+    it('is selected while the Library shows, and absent without one', () => {
+      renderStrip({ onLibrary: vi.fn(), current: 'library' });
+      expect(screen.getByRole('tab', { name: /Library/ }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByRole('tab', { name: /Castle/ }).getAttribute('aria-selected')).toBe('false');
+      cleanup();
+      renderStrip();
+      expect(screen.queryByRole('tab', { name: /Library/ })).toBeNull();
+    });
+  });
+
   describe('pinned Boards', () => {
     const boards = [
       { id: 'gmail', name: 'Gmail', icon: 'mail', fresh: 3 },

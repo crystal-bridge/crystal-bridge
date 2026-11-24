@@ -2,12 +2,6 @@
 
 Your own docs, kept in a folder on a Kingdom, and readable from any device.
 
-::: warning Planned
-This page is the agreed design; none of it is built yet. The work is tracked in the
-[v0.10 Library milestone](https://github.com/crystal-bridge/crystal-bridge/milestone/12) and
-[#290](https://github.com/crystal-bridge/crystal-bridge/issues/290).
-:::
-
 The **Library** is one folder of documents per Kingdom. It can be an empty folder Crystal makes, an Obsidian vault
 or a git repository. The app lists the folder, renders its pages and edits them. Pages render with diagrams, maths and
 links between them. The files stay the source of truth, so Quests write docs with their ordinary tools, while Obsidian
@@ -25,7 +19,7 @@ Game line: _"You open the Library of laptop."_
 | **Library frames** | list, read, write and watch, between the hub and the Kingdom            | the protocol                 |
 | **Library routes** | HTTP routes under `/api/` the browser reads and writes through          | the hub, which keeps nothing |
 | **Reader**         | renders a Tome: Markdown, Mermaid, maths, code, images and wiki links   | the web app                  |
-| **Editor**         | a plain Markdown editor with a live preview                             | the web app                  |
+| **Editor**         | a plain Markdown editor with line numbers and a live preview            | the web app                  |
 | **HTML frame**     | shows an HTML Tome in a sandbox kept apart from the app                 | the web app and the hub      |
 
 Reader, editor and HTML frame are plain terms, not theme words.
@@ -39,7 +33,7 @@ Crystal reads one folder per Kingdom:
 - Point it at an existing Obsidian vault or a git repository to read those in the app. Crystal never runs git and
   never changes Obsidian's settings.
 - `CRYSTAL_LIBRARY_DIR=off` turns the Library off. The Kingdom's hello then says it has none, and the app shows no
-  Library entry for that Kingdom.
+  Library entry for that Kingdom. A Kingdom that has one names its folder in its hello, so the app can show it.
 
 **What the app reaches.** The Library lists folders and these files, matched by a lower-cased extension:
 
@@ -71,7 +65,8 @@ extensions), plus:
 - **Images** in the Library, by relative path (`![](diagrams/flow.png)`) or Obsidian embed (`![[flow.png]]`), loaded
   through the hub. Images from other sites stay blocked, as everywhere in the app.
 - **Wiki links**, `[[Page]]`, `[[Page|label]]` and `[[Page#Heading]]`, resolved the way Obsidian does: by file name
-  anywhere in the Library, and the shortest path when two match. A link to a missing Tome is drawn apart. Relative
+  anywhere in the Library, and the shortest path when two match. A name drops the `.md` extension, but a file of
+  another kind keeps its own: `[[retry-curve.html]]`. A link to a missing Tome is drawn apart. Relative
   Markdown links to other Tomes open them in the reader.
 - **Backlinks**: the Tomes that link to the open one. Crystal keeps an index of the links between Tomes in memory,
   built at start and refreshed from the watcher at most once every few seconds, so asking costs no scan.
@@ -92,25 +87,28 @@ Library, the Scroll offers **Open in the Library**, so the two never look like d
 
 Each Kingdom with a Library gets a **Library tab**, a reading room, always right after its Castle tab:
 
-- **On the left,** a quick-open box, the Tomes you read last, and the folder as a tree.
-- **In the middle,** the open Tome, with its path above it and **Edit** beside it. Edit opens the editor and its
-  preview in the same place.
+- **On the left,** a quick-open box (Ctrl or Cmd+K), the Tomes you read last, and the folder as a tree under the Tomes
+  heading.
+- **In the middle,** the open Tome, with its path above it and **Edit** beside it. Edit opens the editor in the same
+  place.
 - **On the right,** a narrow rail with the Tome's outline and the Tomes that link to it.
 
-The Castle also gets a **Library card** in its right column, under Errands: the three Tomes changed last, the
-quick-open box, and **Open the Library**. The tab's URL names the Kingdom and the Tome's path, so a reload, a bookmark
+On a desktop, the Castle also gets a **Library card** in its right column, under Errands: the Kingdom's Library folder,
+the three Tomes changed last, the quick-open box, and **Open the Library**. Phones don't show the card; they reach the
+Library from its tab. The tab's URL names the Kingdom and the Tome's path, so a reload, a bookmark
 or a link from another Tome comes back to the same page.
 
 **States.**
 
 - **Empty:** a card says the Library is still empty, names its folder on that Kingdom and how to point it elsewhere,
   and offers **New Tome** on a desktop.
-- **Unreadable:** if the folder can't be listed (gone, or its permissions changed), the view says why.
+- **Unreadable:** if the folder can't be listed (gone, or its permissions changed), the view says why and names the
+  folder.
 - **Offline:** the view says _"The Library is closed: laptop is offline."_ A Tome already open stays on screen with
   that banner, read-only, until the Kingdom is back. The hub keeps no copy to show.
 - **Removed:** a Tome deleted while it is open stays on screen with _"This Tome is gone from the Library."_
 
-**On a phone,** the Library is read-only: the tree in a drawer, the Tome, then its outline and backlinks below it.
+**On a phone** (under 768 px), the Library is read-only: the tree in a drawer, the Tome, then its outline and backlinks below it.
 Edit, New Tome and the offer to create a missing Tome don't show, and an edit link opens the reader. Tree rows are
 full-width tap targets. This widens #286's phone scope (Errands only) on purpose: reading your docs from any device is
 one of the needs the Library answers.
@@ -151,21 +149,23 @@ HTML Tomes are read-only in the app. A Quest or your own editor changes them.
 
 ## Scribe your own: the editor
 
-**Edit** on a Markdown Tome opens a plain text editor beside a live preview; on a narrow screen the two are tabs. The
-editor has no rich-text mode, so it never rewrites Markdown it didn't understand, and it keeps the file's line endings.
+**Edit** on a Markdown Tome opens a plain text box with line numbers. **Write**, **Split** and **Preview** switch
+between the text, the text beside a live preview, and the preview alone; below 1024 px wide there is no Split, only
+Write and Preview. The editor has no rich-text mode, so it never rewrites Markdown it didn't understand, and it keeps the file's line endings.
 
-- **New Tome** makes a Markdown file in the open folder. A missing wiki link offers the same, in the folder of the
-  Tome that links to it, and shows the full path before it creates anything. New Tome refuses the names coding agents
+- **New Tome** asks for a name and shows the full path of the Markdown file it would make in the open folder. A
+  missing wiki link offers the same, in the folder of the Tome that links to it. Nothing is created until the first
+  **Save**. New Tome refuses the names coding agents
   load as instructions (`CLAUDE.md`, `AGENTS.md`), since a Library can also be a project folder.
 - **Save** writes the whole file. The write names the version it was edited from (the file's size, modified time and a
   hash of its content), and the Kingdom refuses it if the file changed since.
 - **Changed on disk.** When a save is refused, or the file changes while you edit, a banner says the Tome changed on
   disk and offers **Show changes** (a diff of the file against your text), **Reload** and **Keep mine**. Reload drops
-  your edits, and Keep mine saves over the newer version; each asks first.
+  your edits, and Keep mine saves over the newer version; each asks first, in the banner itself.
 - **Removed while editing.** If the file is deleted while you edit, the editor keeps your text, and Save asks before it
   makes the file again.
 - **Drafts.** Unsaved edits are kept on the device, per Kingdom and Tome, as drafts of a new Quest are. Opening that
-  Tome's editor again offers the draft back, or to discard it; if the file changed since, the changed-on-disk banner
+  Tome's editor again offers to **Restore draft** or **Discard draft**; if the file changed since, the changed-on-disk banner
   shows too.
 
 The app writes only `.md` files, never into a folder or file whose name starts with a dot (in any letter case), and
