@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createLibrary, type Library } from './library.js';
-import { createLinkIndex, linksIn } from './libraryLinks.js';
+import { resolveWikiLink } from '@crystal-bridge/protocol';
+import { createLinkIndex, linksIn, wikiLinkResolver } from './libraryLinks.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -34,6 +35,97 @@ describe('the link index (#290)', () => {
     expect(back.map((b) => b.path)).toEqual(['a.md', 'c.md', 'sub/b.md']);
     expect(back[0]!.line).toBe('one [[Glossary]] here');
     expect(back[2]!.line.length).toBe(200);
+    index.stop();
+  });
+
+  it('resolves wiki links by lookup exactly as resolveWikiLink does', () => {
+    const paths = [
+      'Glossary.md',
+      'ops/Glossary.md',
+      'a/b/Glossary.md',
+      'Zeta.md',
+      'zeta.md',
+      'b/zeta.md',
+      'a/zeta.md',
+      'img/flow.png',
+      'flow.png.md',
+      'ops/Release checklist.md',
+      'deep/ops/Release checklist.md',
+      'pages/report.html',
+      'x/y/z.md',
+      'y/z.md',
+      'Notes.MD',
+    ];
+    const targets = [
+      'Glossary',
+      'glossary',
+      'GLOSSARY.md',
+      'ops/glossary',
+      'b/Glossary',
+      'a/b/glossary.md',
+      'zeta',
+      'Zeta',
+      'a/zeta',
+      'flow.png',
+      'img/flow.png',
+      'flow',
+      'release checklist',
+      'ops/Release checklist',
+      'report.html',
+      'report',
+      'z',
+      'y/z',
+      'x/y/z',
+      '/z',
+      'notes',
+      'notes.md',
+      'NOTES.MD',
+      'missing',
+      '  Glossary  ',
+      '',
+      'lossary',
+      'b/Glossary.md/',
+    ];
+    const resolve = wikiLinkResolver(paths);
+    const reversed = wikiLinkResolver([...paths].reverse());
+    for (const target of targets) {
+      expect(resolve(target), JSON.stringify(target)).toBe(resolveWikiLink(target, paths));
+      expect(reversed(target), JSON.stringify(target)).toBe(resolveWikiLink(target, paths));
+    }
+  });
+
+  it('answers backlinks for 5,000 notes without a scan', async () => {
+    const paths = Array.from({ length: 5000 }, (_, i) => `notes/n${i}.md`);
+    const index = createLinkIndex({
+      list: async () => paths.map((path) => ({ path, kind: 'md' as const })),
+      read: async (p) => {
+        const i = Number(/n(\d+)/.exec(p)![1]);
+        return `[[n${(i + 1) % 5000}]] and [next](n${(i + 2) % 5000}.md)`;
+      },
+    });
+    await index.rebuild();
+    const started = performance.now();
+    const back = await index.backlinks('notes/n10.md');
+    for (let i = 0; i < 20; i++) await index.backlinks(`notes/n${i * 250}.md`);
+    expect(performance.now() - started).toBeLessThan(50);
+    expect(back.map((b) => b.path)).toEqual(['notes/n8.md', 'notes/n9.md']);
+    index.stop();
+  });
+
+  it('lists a linking line once per Tome, and not a Tome linking itself', async () => {
+    const files: Record<string, string> = {
+      'a.md': 'see [[a]]',
+      'b.md': '[[a]] and [[A]]\n[[a]] and [[A]]\nalso [[a.md]]',
+    };
+    const index = createLinkIndex({
+      list: async () => Object.keys(files).map((path) => ({ path, kind: 'md' as const })),
+      read: async (p) => files[p],
+    });
+    await index.rebuild();
+    expect(await index.backlinks('a.md')).toEqual([
+      { path: 'b.md', line: '[[a]] and [[A]]' },
+      { path: 'b.md', line: 'also [[a.md]]' },
+    ]);
     index.stop();
   });
 

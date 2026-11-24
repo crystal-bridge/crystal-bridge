@@ -1,5 +1,5 @@
 import { posix } from 'node:path';
-import { parseWikiLink, resolveWikiLink, type LibraryBacklink } from '@crystal-bridge/protocol';
+import { parseWikiLink, type LibraryBacklink } from '@crystal-bridge/protocol';
 import type { LibraryChange } from './libraryWatch.js';
 
 export type Link = { target: string; line: string };
@@ -54,6 +54,41 @@ function relativeTarget(url: string, from: string): string | undefined {
   return resolved.startsWith('..') || resolved === '.' ? undefined : resolved;
 }
 
+/** Fewest path segments first, then alphabetical: the tie rule of `resolveWikiLink`. */
+function better(a: string, b: string): boolean {
+  const da = a.split('/').length;
+  const db = b.split('/').length;
+  return da < db || (da === db && a < b);
+}
+
+/**
+ * `resolveWikiLink` from the protocol as a lookup built once: every name a path answers to (its full name, its name
+ * without `.md`, and each of those from any `/` on), lower-cased, maps to the path that wins it. `resolveWikiLink`
+ * stays the reference; the tests check the two agree.
+ */
+export function wikiLinkResolver(paths: readonly string[]): (target: string) => string | undefined {
+  const best = new Map<string, string>();
+  for (const path of paths) {
+    const full = path.toLowerCase();
+    const names = full.endsWith('.md') ? [full, full.slice(0, -3)] : [full];
+    for (const name of names) {
+      let from = 0;
+      for (;;) {
+        const key = name.slice(from);
+        const held = best.get(key);
+        if (held === undefined || better(path, held)) best.set(key, path);
+        const slash = name.indexOf('/', from);
+        if (slash < 0) break;
+        from = slash + 1;
+      }
+    }
+  }
+  return (target) => {
+    const want = target.trim().toLowerCase();
+    return want ? best.get(want) : undefined;
+  };
+}
+
 export type LinkIndexOptions = {
   /** Every file in the Library; only Markdown ones are read for links. */
   list: () => Promise<{ path: string; kind: string }[]>;
@@ -72,8 +107,8 @@ export type LinkIndex = {
 
 export function createLinkIndex(opts: LinkIndexOptions): LinkIndex {
   const refreshMs = opts.refreshMs ?? 3000;
-  let files: string[] = [];
-  let links = new Map<string, Link[]>();
+  // Each Tome to the Tomes that link to it, with the linking lines, sorted by path: built once per rebuild.
+  let backlinksTo = new Map<string, LibraryBacklink[]>();
   let current: Promise<void> | undefined;
   let again = false;
   let timer: NodeJS.Timeout | undefined;
@@ -81,7 +116,8 @@ export function createLinkIndex(opts: LinkIndexOptions): LinkIndex {
 
   async function build(): Promise<void> {
     const entries = await opts.list();
-    const nextLinks = new Map<string, Link[]>();
+    const resolve = wikiLinkResolver(entries.map((e) => e.path));
+    const next = new Map<string, LibraryBacklink[]>();
     for (const entry of entries) {
       if (entry.kind !== 'md') continue;
       let text: string | undefined;
@@ -91,11 +127,23 @@ export function createLinkIndex(opts: LinkIndexOptions): LinkIndex {
         text = undefined;
       }
       if (text === undefined) continue;
-      const found = linksIn(text, entry.path);
-      if (found.length > 0) nextLinks.set(entry.path, found);
+      // A line is listed once per Tome it links to, and a Tome linking itself isn't listed.
+      const seen = new Set<string>();
+      for (const link of linksIn(text, entry.path)) {
+        const target = resolve(link.target);
+        if (target === undefined || target === entry.path) continue;
+        const key = target + '\0' + link.line;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const line = { path: entry.path, line: link.line.trim().slice(0, LINE_LIMIT) };
+        const list = next.get(target);
+        if (list) list.push(line);
+        else next.set(target, [line]);
+      }
     }
-    files = entries.map((e) => e.path);
-    links = nextLinks;
+    // Stable, so one Tome's lines keep their order.
+    for (const list of next.values()) list.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    backlinksTo = next;
   }
 
   function rebuild(): Promise<void> {
@@ -132,18 +180,7 @@ export function createLinkIndex(opts: LinkIndexOptions): LinkIndex {
 
   async function backlinks(path: string): Promise<LibraryBacklink[]> {
     if (current) await current;
-    const out: LibraryBacklink[] = [];
-    for (const [source, found] of links) {
-      if (source === path) continue;
-      const seen = new Set<string>();
-      for (const link of found) {
-        if (seen.has(link.line) || resolveWikiLink(link.target, files) !== path) continue;
-        seen.add(link.line);
-        out.push({ path: source, line: link.line.trim().slice(0, LINE_LIMIT) });
-      }
-    }
-    out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    return out;
+    return (backlinksTo.get(path) ?? []).map((b) => ({ ...b }));
   }
 
   function stop(): void {
