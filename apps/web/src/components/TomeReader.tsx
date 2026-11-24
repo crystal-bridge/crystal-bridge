@@ -553,6 +553,18 @@ function CutNotice() {
   );
 }
 
+/** A Tome that is a symlink is shown, but written only where it points. */
+function LinkNotice() {
+  return (
+    <p
+      role="note"
+      className="mb-3 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[12px] text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
+    >
+      This {w('tome')} is a link; edit the file it points to.
+    </p>
+  );
+}
+
 /** A Tome, read: Markdown, an HTML page in its sandbox, or an image. */
 export function TomeReader(props: TomeReaderProps) {
   const { tome, node } = props;
@@ -645,6 +657,7 @@ function MarkdownTome({ node, tome, paths, onOpen, onMissing, heading }: TomeRea
       ref={article}
       className="cb-prose cb-tome min-w-0 text-[15px] leading-relaxed text-neutral-800 [overflow-wrap:anywhere] dark:text-neutral-200 [&_code]:font-mono [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
     >
+      {tome.link && <LinkNotice />}
       {tome.truncated && <CutNotice />}
       {front && <FrontStrip front={front} />}
       <TomeContext.Provider value={links}>
