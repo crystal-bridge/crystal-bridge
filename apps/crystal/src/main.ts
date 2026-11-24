@@ -87,6 +87,7 @@ const LIBRARY_DIR =
   process.env.CRYSTAL_LIBRARY_DIR === 'off'
     ? undefined
     : process.env.CRYSTAL_LIBRARY_DIR || join(homedir(), '.crystal-bridge', 'library');
+const LIBRARY_QUESTS = process.env.CRYSTAL_LIBRARY_QUESTS === 'folder';
 const SCOUTS_DIR = process.env.CRYSTAL_SCOUTS_DIR || join(homedir(), '.crystal-bridge', 'scouts');
 // One folder per Patrol (docs/PATROLS.md), beside the Scouts; its state sits beside the folder too.
 const PATROLS_DIR = process.env.CRYSTAL_PATROLS_DIR || join(homedir(), '.crystal-bridge', 'patrols');
@@ -216,6 +217,7 @@ async function main(): Promise<void> {
 
   node = startNode({
     ...(library ? { library } : {}),
+    ...(library && LIBRARY_QUESTS ? { libraryQuests: 'folder' as const } : {}),
     closing: createClosing({
       claudeBin: CLAUDE_BIN,
       env: sessionEnv,

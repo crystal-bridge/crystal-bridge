@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { Effort, EventType, PermissionMode, UsagePayload } from '@crystal-bridge/protocol';
-import { QUEST_TOOLS, mcpConfig, QUEST_PROMPT } from './permissions.js';
+import { QUEST_TOOLS, mcpConfig, questPrompt } from './permissions.js';
 import { usageFromRaw } from './usage.js';
 
 /** The subset of protocol event types a running `claude` process can emit on its own. */
@@ -144,6 +144,8 @@ export interface ClaudeSessionOptions {
   effort?: Effort;
   /** Folders outside `cwd` the agent may read without asking (`--add-dir`), e.g. its attached files. */
   addDirs?: readonly string[];
+  /** The Kingdom's Library folder; a new Quest's prompt names it. */
+  library?: string;
   /** Works out what each turn changed; unset, no `system/turn_changes` lines are sent. */
   changes?: TurnChanges;
   /** Sends what the Inventory's entries say about themselves; unset, no `system/descriptions` lines are sent. */
@@ -172,6 +174,8 @@ function buildArgs(
    * source's prompt and ignores one passed with it, so passing it there is harmless (test/fixtures/README.md).
    */
   newQuest = true,
+  /** The Kingdom's Library folder, named in a new Quest's prompt. */
+  library?: string,
 ): string[] {
   return [
     '-p',
@@ -190,7 +194,7 @@ function buildArgs(
     '--allowedTools',
     ...QUEST_TOOLS,
     // The CLI defers MCP tools, so the Quest only uses them when its system prompt says how: one value, one flag.
-    ...(newQuest ? ['--append-system-prompt', QUEST_PROMPT] : []),
+    ...(newQuest ? ['--append-system-prompt', questPrompt(library ? { library } : {})] : []),
     '--permission-mode',
     mode,
     ...(chrome ? ['--chrome'] : []),
@@ -317,6 +321,7 @@ export class ClaudeSession extends EventEmitter {
   /** The effort the live process started with, to tell when a new one is needed. */
   private processEffort: Effort | undefined;
   private readonly addDirs: readonly string[];
+  private readonly library: string | undefined;
   private controlSeq = 0;
 
   private current: ChildRecord | null = null;
@@ -359,6 +364,7 @@ export class ClaudeSession extends EventEmitter {
     this.chrome = opts.chrome ?? false;
     this.effort = opts.effort;
     this.addDirs = opts.addDirs ?? [];
+    this.library = opts.library;
     this.changes = opts.changes;
     this.descriptions = opts.descriptions;
     this.compactWindow = opts.compactWindow;
@@ -524,7 +530,16 @@ export class ClaudeSession extends EventEmitter {
     let sessionArgs = resume ? ['--resume', this.session] : ['--session-id', this.session];
     if (!resume && this.forkFrom) sessionArgs = ['--resume', this.forkFrom, '--fork-session', ...sessionArgs];
     this.processEffort = this.effort;
-    const args = buildArgs(this.permissionUrl, sessionArgs, this.mode, this.chrome, this.effort, this.addDirs, !resume);
+    const args = buildArgs(
+      this.permissionUrl,
+      sessionArgs,
+      this.mode,
+      this.chrome,
+      this.effort,
+      this.addDirs,
+      !resume,
+      this.library,
+    );
 
     const child = this.spawnFn(this.claudeBin, args, {
       cwd: this.cwd,

@@ -126,6 +126,8 @@ export type SessionFactory = (opts: {
   effort?: Effort;
   /** Folders outside `cwd` it may read without asking: the session's attached files. */
   addDirs?: string[];
+  /** The Kingdom's Library folder, for a new Quest's prompt. */
+  library?: string;
 }) => SessionLike;
 
 /** All `startNode` needs from Task 4's permission server. */
@@ -136,6 +138,8 @@ export interface PermissionServerLike {
 export interface StartNodeOptions {
   /** The Kingdom's Library, already started; without it, hello leaves `library` out and every request is refused. */
   library?: Library;
+  /** `folder` also gives every Quest, new or resumed, the Library folder as an extra folder (docs/LIBRARY.md). */
+  libraryQuests?: 'folder';
   /** Makes the call at Close (`closing.ts`); without it, hello doesn't offer `deeds` and `session.close` ignores it. */
   closing?: Closing;
   hubUrl: string;
@@ -529,6 +533,8 @@ export function startNode(options: StartNodeOptions): CrystalNode {
     } catch (error) {
       log(`no folder for attached files for ${sessionId}`, error);
     }
+    // A folder grant, not a prompt: it holds for resumed Quests too, as their extra folders always do.
+    if (options.library && options.libraryQuests === 'folder') addDirs.push(options.library.dir);
     const runtime = sessionFactory({
       session: sessionId,
       cwd,
@@ -538,6 +544,7 @@ export function startNode(options: StartNodeOptions): CrystalNode {
       ...(engine ? { engine } : {}),
       ...(effort ? { effort } : {}),
       ...(addDirs.length ? { addDirs } : {}),
+      ...(options.library ? { library: options.library.dir } : {}),
     });
     sessions.set(sessionId, { seq, unacked: new Map(), runtime, cwd });
 

@@ -1675,6 +1675,33 @@ describe('startNode', () => {
     });
   });
 
+  it.each([
+    ['folder', true],
+    [undefined, false],
+  ] as const)(
+    'tells the factory the Library, and grants its folder only with libraryQuests=%s (#290)',
+    async (quests, granted) => {
+      const libDir = mkdtempSync(join(tmpdir(), 'cb-node-library-'));
+      const attachmentsDir = mkdtempSync(join(tmpdir(), 'cb-node-attach-'));
+      const lib = createLibrary({ dir: libDir, log: () => {}, onChange: () => {} });
+      await lib.start();
+      try {
+        createNode({ attachmentsDir, library: lib, ...(quests ? { libraryQuests: quests } : {}) });
+        const conn = await nextConnection(harness, 0);
+        await waitForFrame(conn, (f) => f.kind === 'hello');
+        const session = randomUUID();
+        conn.socket.send(JSON.stringify({ type: 'session.start', node: 'test', session, cwd: '/w', prompt: 'hi' }));
+        await waitForFrame(conn, (f) => f.type === 'session.started');
+        const opts = created[0]!.opts as { library?: string; addDirs?: string[] };
+        expect(opts.library).toBe(lib.dir);
+        expect(opts.addDirs?.includes(lib.dir) ?? false).toBe(granted);
+        expect(opts.addDirs).toContain(join(attachmentsDir, session));
+      } finally {
+        lib.stop();
+      }
+    },
+  );
+
   it('saves files sent with a prompt or follow-up, names them in the text, and removes them on close', async () => {
     const attachmentsDir = mkdtempSync(join(tmpdir(), 'cb-node-attach-'));
     createNode({ attachmentsDir });
