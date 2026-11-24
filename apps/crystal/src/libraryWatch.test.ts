@@ -31,20 +31,33 @@ describe('the Library watcher (#290)', () => {
 
   const reported = () => changes.flatMap((change) => change.paths ?? []);
 
+  let lastEvent = 0;
+
   /**
-   * Starts a watcher, then lets it settle: macOS FSEvents can deliver events for the writes the setup made just before
-   * the watch began, so whatever arrives in the first moments is dropped from the record.
+   * Starts a watcher, then settles until quiet: macOS FSEvents can deliver events for the writes the setup made just
+   * before the watch began, late on a busy runner. Waits until nothing has been delivered for 500 ms (up to 5 s), then
+   * drops what arrived from the record.
    */
-  async function start(opts: { batchMs?: number; maxFolders?: number } = {}) {
+  async function start(opts: { batchMs?: number; maxFolders?: number; onIgnoreChanged?: () => void } = {}) {
+    lastEvent = Date.now();
+    const onIgnoreChanged = opts.onIgnoreChanged;
     const watcher = watchLibrary(root, {
       allowed: libraryFilter(root),
-      onChange: (change) => changes.push(change),
+      onChange: (change) => {
+        lastEvent = Date.now();
+        changes.push(change);
+      },
+      onIgnoreChanged: () => {
+        lastEvent = Date.now();
+        onIgnoreChanged?.();
+      },
       log: (msg) => logs.push(msg),
       batchMs: 300,
       ...opts,
     });
     watchers.push(watcher);
-    await wait(300);
+    const ceiling = Date.now() + 5000;
+    while (Date.now() - lastEvent < 500 && Date.now() < ceiling) await wait(20);
     changes.length = 0;
     return watcher;
   }
@@ -104,7 +117,7 @@ describe('the Library watcher (#290)', () => {
     writeFileSync(join(root, 'notes', 'a.md'), '# A, again\n');
     await until(() => changes.length > 0);
     await wait(600);
-    expect(changes).toEqual([{ paths: ['notes/a.md'] }]);
+    expect(changes, logs.join('\n')).toEqual([{ paths: ['notes/a.md'] }]);
   });
 
   it('follows a folder made, renamed and removed while watched', async () => {
@@ -139,16 +152,7 @@ describe('the Library watcher (#290)', () => {
 
   it('reports a change to the top-level .gitignore', async () => {
     const onIgnoreChanged = vi.fn();
-    const watcher = watchLibrary(root, {
-      allowed: libraryFilter(root),
-      onChange: (change) => changes.push(change),
-      onIgnoreChanged,
-      log: (msg) => logs.push(msg),
-      batchMs: 300,
-    });
-    watchers.push(watcher);
-    await wait(300);
-    changes.length = 0;
+    await start({ onIgnoreChanged });
     onIgnoreChanged.mockClear();
     writeFileSync(join(root, '.gitignore'), 'drafts/\nold/\n');
     await until(() => onIgnoreChanged.mock.calls.length > 0 && changes.some((change) => change.all));
@@ -206,6 +210,40 @@ describe('the Library watcher (#290)', () => {
       expect(changes).toEqual([{ paths: ['newdir', 'newdir/x.md'] }]);
     },
   );
+
+  it('logs why it reports everything as changed', async () => {
+    const listeners: ((event: string, name: string | null) => void)[] = [];
+    const fakeWatch = ((_path: string, _opts: unknown, listener: (event: string, name: string | null) => void) => {
+      listeners.push(listener);
+      return Object.assign(new EventEmitter(), { close: () => {} });
+    }) as unknown as typeof fs.watch;
+    const watcher = watchLibrary(root, {
+      allowed: libraryFilter(root),
+      onChange: (change) => changes.push(change),
+      log: (msg) => logs.push(msg),
+      batchMs: 20,
+      platform: 'darwin',
+      watch: fakeWatch,
+    });
+    watchers.push(watcher);
+
+    listeners[0]!('change', '.gitignore');
+    await until(() => changes.length === 1);
+    expect(logs.at(-1)).toContain('.gitignore changed');
+
+    listeners[0]!('rename', null);
+    await until(() => changes.length === 2);
+    expect(logs.at(-1)).toContain('an event without a file name');
+
+    for (let file = 0; file < 201; file++) {
+      writeFileSync(join(root, 'notes', `n${file}.md`), '');
+      listeners[0]!('change', `notes/n${file}.md`);
+    }
+    await until(() => changes.length === 3);
+    expect(logs.at(-1)).toContain('more than 200 paths');
+    expect(changes).toEqual([{ all: true }, { all: true }, { all: true }]);
+    expect(logs).toHaveLength(3);
+  });
 
   it('logs a watcher error and keeps serving', async () => {
     const emitters: EventEmitter[] = [];

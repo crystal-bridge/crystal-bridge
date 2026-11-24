@@ -81,13 +81,15 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
     pending.add(path);
     // Past the limit the batch says `all`; holding more paths would only cost memory.
     if (pending.size > MAX_CHANGED_PATHS) {
+      log(`Library reloads all: more than ${MAX_CHANGED_PATHS} paths`);
       all = true;
       pending.clear();
     }
     schedule();
   }
 
-  function reportAll(): void {
+  function reportAll(reason: string): void {
+    log(`Library reloads all: ${reason}`);
     all = true;
     pending.clear();
     schedule();
@@ -167,7 +169,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
   function changed(path: string, event: string): void {
     if (path === '.gitignore') {
       opts.onIgnoreChanged?.();
-      reportAll();
+      reportAll('.gitignore changed');
       return;
     }
     let stats: fs.Stats | undefined;
@@ -201,7 +203,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
 
   function onRecursiveEvent(event: string, name: string | Buffer | null): void {
     if (closed) return;
-    if (name === null) return reportAll();
+    if (name === null) return reportAll('an event without a file name');
     const path = name.toString().split(sep).join('/').split('\\').join('/');
     if (path === '') return;
     changed(path, event);
@@ -214,7 +216,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
       closeUnder(rel);
       return;
     }
-    if (name === null) return reportAll();
+    if (name === null) return reportAll('an event without a file name');
     changed(child(rel, name.toString()), event);
   }
 
