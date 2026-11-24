@@ -35,6 +35,9 @@ one entry.
   only on a phone. Close offers Record its Deeds, a choice kept per device and greyed with a reason when it can't run.
   The chat has lines for a Deed and for the Deeds at Close, and a Quest's side panel shows its own Deeds. See
   [Deeds](docs/DEEDS.md).
+- Full releases and pre-releases publish the Kingdom and hub to npm as `@crystal-bridge/kingdom` and
+  `@crystal-bridge/airship`, from the release's attested tarballs by trusted publishing (pre-releases under `next`).
+  Edge builds stay on GitHub Releases. See [Releases](docs/OPERATIONS.md#releases).
 
 ### Fixed
 
