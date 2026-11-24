@@ -23,7 +23,8 @@ Thanks for wanting to help. A few things keep Crystal Bridge working for everyon
 1. Open an issue first for anything bigger than a small fix.
 2. Write a failing test, then the change.
 3. Run `pnpm format`, `pnpm test`, `pnpm typecheck`, and for anything on the runtime path `pnpm smoke` against a
-   running `pnpm dev`.
+   running `pnpm dev`. For a change to the Library's frames or the hub's headers, also run `pnpm test:browser`
+   (install its browsers once with `pnpm exec playwright install --with-deps chromium webkit`).
 4. Open a pull request with what changed, why, and how you checked it.
 
 ### Docs
