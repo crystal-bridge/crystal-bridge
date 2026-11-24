@@ -181,7 +181,7 @@ npx --yes @crystal-bridge/airship
 ```
 
 That runs the newest full release. To pin one, name it: `npx --yes @crystal-bridge/airship@<version>`, with `<version>`
-from the [Releases page](https://github.com/crystal-bridge/crystal-bridge/releases), such as `0.7.0`. The package on npm
+from the [Releases page](https://github.com/crystal-bridge/crystal-bridge/releases), such as `0.8.0`. The package on npm
 is the release's own tarball. That page has it too, with its build provenance, so you can check a downloaded copy by
 hand with `gh attestation verify crystal-bridge-airship-<version>.tgz --repo crystal-bridge/crystal-bridge` and run the
 file you checked with `npx --yes --package=./crystal-bridge-airship-<version>.tgz crystal-bridge-airship`.
