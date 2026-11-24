@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -87,6 +87,41 @@ describe("the web app's responses", () => {
     const app = await buildServer({ store, webRoot });
     try {
       for (const url of ['/', '/index.html', '/api/health']) {
+        const response = await app.inject({ method: 'GET', url });
+        expect(response.headers['content-security-policy'], url).toBe(
+          "img-src 'self' data: blob:; frame-ancestors 'none'",
+        );
+      }
+    } finally {
+      await app.close();
+      store.close();
+      rmSync(webRoot, { recursive: true });
+    }
+  });
+
+  it("serve Mermaid's frame page under a CSP of its own, sandboxed and framed only by the app", async () => {
+    const store = openStore(':memory:');
+    const webRoot = mkdtempSync(path.join(tmpdir(), 'cb-web-'));
+    writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html>');
+    writeFileSync(path.join(webRoot, 'mermaid-frame.html'), '<!doctype html><title>frame</title>');
+    mkdirSync(path.join(webRoot, 'assets'));
+    writeFileSync(path.join(webRoot, 'assets', 'mermaidFrame-abc.js'), 'export {};');
+    const app = await buildServer({ store, webRoot });
+    try {
+      for (const url of ['/sandbox/mermaid-frame.html', '/mermaid-frame.html']) {
+        const frame = await app.inject({ method: 'GET', url });
+        expect(frame.statusCode, url).toBe(200);
+        expect(frame.body, url).toContain('<title>frame</title>');
+        expect(frame.headers['content-type'], url).toMatch(/^text\/html/);
+        expect(frame.headers['x-content-type-options'], url).toBe('nosniff');
+        expect(frame.headers['content-security-policy'], url).toBe(
+          "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'",
+        );
+      }
+      // The frame has an opaque origin, so its module scripts load cross-origin and need CORS.
+      const script = await app.inject({ method: 'GET', url: '/assets/mermaidFrame-abc.js' });
+      expect(script.headers['access-control-allow-origin']).toBe('*');
+      for (const url of ['/', '/index.html', '/assets/mermaidFrame-abc.js', '/api/health']) {
         const response = await app.inject({ method: 'GET', url });
         expect(response.headers['content-security-policy'], url).toBe(
           "img-src 'self' data: blob:; frame-ancestors 'none'",

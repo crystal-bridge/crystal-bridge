@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import rateLimit from '@fastify/rate-limit';
@@ -318,6 +319,14 @@ const OPEN_PATHS = new Set([
  * stray `<img>` could carry data out with no tool call. The app's sprites, icons and favicons all come from here.
  */
 const CONTENT_SECURITY_POLICY = "img-src 'self' data: blob:; frame-ancestors 'none'";
+
+/**
+ * The page Mermaid draws in (docs/LIBRARY.md, "Read the Tomes"), replacing the hub's usual CSP: `sandbox allow-scripts`
+ * gives it an opaque origin, so a flaw in Mermaid can't run script in the app; it runs only the app's own scripts, loads
+ * nothing else, and only the app may frame it.
+ */
+const MERMAID_FRAME_CSP =
+  "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'";
 
 /** Close code for a node whose hello names a different node than its token. */
 const CLOSE_WRONG_NODE = 4003;
@@ -974,6 +983,23 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const webDist = webRoot ?? path.resolve(here, '../../web/dist');
   if (existsSync(webDist)) {
     await app.register(fastifyStatic, { root: webDist });
+    // The frame's opaque origin makes its module scripts cross-origin loads, which need CORS. The app's built code is
+    // public anyway (it's this repository), and no answer here carries cookies or data.
+    app.addHook('onRequest', async (request, reply) => {
+      if (request.url.startsWith('/assets/')) void reply.header('access-control-allow-origin', '*');
+    });
+    // At the path the app frames, and at the path Vite builds it to, so neither runs Mermaid on the app's origin.
+    const mermaidFrame = async (_request: FastifyRequest, reply: FastifyReply) => {
+      const page = await readFile(path.join(webDist, 'mermaid-frame.html')).catch(() => undefined);
+      if (!page) return reply.code(404).send({ error: 'no Mermaid frame in this build' });
+      return reply
+        .header('content-security-policy', MERMAID_FRAME_CSP)
+        .header('x-content-type-options', 'nosniff')
+        .type('text/html; charset=utf-8')
+        .send(page);
+    };
+    app.get('/sandbox/mermaid-frame.html', mermaidFrame);
+    app.get('/mermaid-frame.html', mermaidFrame);
   }
 
   // Open to monitors (no login): connected node ids are codenames, not content.
