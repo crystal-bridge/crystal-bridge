@@ -155,6 +155,11 @@ export interface BuildServerOptions {
   wakeDelayMs?: number;
   /** Web Push: the VAPID public key browsers subscribe with, and what sends each attention to subscribed devices. */
   push?: { publicKey: string; pusher: Pusher };
+  /**
+   * Test only: the CSP an HTML Tome is served into the app's frame with, in place of `LIBRARY_PAGE_CSP`. It lets the
+   * browser gate build a hub with a wrong policy and see the page refused. Never set it outside a test.
+   */
+  libraryPageCsp?: string;
 }
 
 /** Tokens and codes can't be guessed, but each try costs a file read: a limit for the routes that take one. */
@@ -257,6 +262,19 @@ const LIBRARY_IMAGE_TYPES: Readonly<Record<string, string>> = {
 };
 /** An SVG may style itself but runs no script and loads nothing, even opened directly at the hub's address. */
 const LIBRARY_SVG_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+
+/**
+ * An HTML Tome in the app's frame: its scripts run with an opaque origin, it loads nothing, and only the app may frame
+ * it (docs/LIBRARY.md, "Open the sealed pages"). It replaces the hub's usual CSP, so `frame-ancestors 'none'` is gone.
+ */
+const LIBRARY_PAGE_CSP =
+  "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; frame-ancestors 'self'";
+const LIBRARY_PAGE_EXTENSIONS = new Set(['html', 'htm']);
+
+/** Whether the browser fetched this to show in a frame on one of the hub's own pages. */
+function forTheAppsFrame(headers: FastifyRequest['headers']): boolean {
+  return headers['sec-fetch-dest'] === 'iframe' && headers['sec-fetch-site'] === 'same-origin';
+}
 
 /** A Library path's extension, lower-cased, or '' when it has none. */
 function libraryExtension(file: string): string {
@@ -434,6 +452,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     clientHeartbeatMs = HEARTBEAT_MS,
     clientBacklogBytes = MAX_CLIENT_BACKLOG,
     duplicateHoldMs = DUPLICATE_HOLD_MS,
+    libraryPageCsp = LIBRARY_PAGE_CSP,
   } = options;
   const app = fastify({ logger });
   /**
@@ -1691,6 +1710,33 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         return reply.header('cache-control', 'no-store').type(type).send(bytes);
       },
     });
+  });
+  // An HTML Tome: into the app's sandboxed frame, or as a download, so it never poses as a page at the hub's address.
+  app.get('/api/nodes/:node/library/page', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    if (!LIBRARY_PAGE_EXTENSIONS.has(libraryExtension(wanted.data)))
+      return libraryHeaders(reply).code(404).send({ error: 'not an HTML Tome' });
+    const framed = forTheAppsFrame(request.headers);
+    return askLibrary(
+      node,
+      reply,
+      { kind: 'library-read', requestId: randomUUID(), path: wanted.data },
+      {
+        answered: ({ tome }) => {
+          if (tome?.kind !== 'html') return reply.code(409).send({ error: 'not an HTML Tome' });
+          const bytes = Buffer.from(tome.content, tome.encoding === 'base64' ? 'base64' : 'utf8');
+          reply.header('cache-control', 'no-store');
+          if (framed) return libraryHeaders(reply, libraryPageCsp).type('text/html; charset=utf-8').send(bytes);
+          const name = wanted.data.slice(wanted.data.lastIndexOf('/') + 1).replace(/[^A-Za-z0-9._-]/g, '_');
+          return reply
+            .header('content-disposition', `attachment; filename="${name}"`)
+            .type('application/octet-stream')
+            .send(bytes);
+        },
+      },
+    );
   });
   app.put('/api/nodes/:node/library/tome', { bodyLimit: LIBRARY_BODY_LIMIT }, async (request, reply) => {
     const { node } = request.params as { node: string };

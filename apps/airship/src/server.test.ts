@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import http from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -1842,6 +1843,117 @@ describe('airship server', () => {
         } finally {
           vi.useRealTimers();
         }
+      });
+    });
+
+    describe('HTML Tomes', () => {
+      const PAGE_CSP =
+        "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; frame-ancestors 'self'";
+      const FRAMED = { 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'same-origin' };
+      const HTML = '<!doctype html><script>document.title = "curve"</script>';
+      const page = (path: string) => ({
+        ok: true,
+        tome: { path, kind: 'html', encoding: 'utf8', content: HTML, truncated: false, version: VERSION },
+      });
+
+      /** A GET with the raw response headers, so a header sent twice shows twice. */
+      function rawGet(url: string, headers: Record<string, string> = {}) {
+        return new Promise<{ status: number; headers: string[]; body: string }>((resolve, reject) => {
+          const request = http.get(`${baseUrl}${url}`, { headers }, (response) => {
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk: Buffer) => chunks.push(chunk));
+            response.on('end', () =>
+              resolve({
+                status: response.statusCode ?? 0,
+                headers: response.rawHeaders,
+                body: Buffer.concat(chunks).toString('utf8'),
+              }),
+            );
+          });
+          request.on('error', reject);
+        });
+      }
+      /** Every value of one header, by its raw lines. */
+      const valuesOf = (raw: string[], name: string) =>
+        raw.flatMap((value, index) => (index % 2 === 1 && raw[index - 1]?.toLowerCase() === name ? [value] : []));
+
+      it("serves an HTML Tome only into the app's frame", async () => {
+        const node = await started();
+        const framed = rawGet('/api/nodes/node-a/library/page?path=sketches/retry-curve.html', FRAMED);
+        const asked = await answers(node, 'library-read', page('sketches/retry-curve.html'));
+        expect(asked).toEqual({
+          kind: 'library-read',
+          requestId: expect.any(String),
+          path: 'sketches/retry-curve.html',
+        });
+        const response = await framed;
+        expect(response.status).toBe(200);
+        expect(response.body).toBe(HTML);
+        expect(valuesOf(response.headers, 'content-type')).toEqual(['text/html; charset=utf-8']);
+        expect(valuesOf(response.headers, 'content-security-policy')).toEqual([PAGE_CSP]);
+        expect(valuesOf(response.headers, 'x-content-type-options')).toEqual(['nosniff']);
+        expect(valuesOf(response.headers, 'cross-origin-resource-policy')).toEqual(['same-origin']);
+        expect(valuesOf(response.headers, 'cache-control')).toEqual(['no-store']);
+        expect(valuesOf(response.headers, 'content-disposition')).toEqual([]);
+      });
+
+      it('answers anything else as a download', async () => {
+        const node = await started();
+        for (const headers of [
+          {} as Record<string, string>,
+          { 'sec-fetch-dest': 'iframe' },
+          { 'sec-fetch-site': 'same-origin' },
+          { 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'cross-site' },
+          { 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'same-site' },
+          { 'sec-fetch-dest': 'document', 'sec-fetch-site': 'same-origin' },
+        ]) {
+          node.frames.frames = [];
+          const download = rawGet('/api/nodes/node-a/library/page?path=sketches/retry%20curve%22%3B.htm', headers);
+          await answers(node, 'library-read', page('sketches/retry curve";.htm'));
+          const response = await download;
+          const label = JSON.stringify(headers);
+          expect(response.status, label).toBe(200);
+          expect(response.body, label).toBe(HTML);
+          expect(valuesOf(response.headers, 'content-type'), label).toEqual(['application/octet-stream']);
+          expect(valuesOf(response.headers, 'content-disposition'), label).toEqual([
+            'attachment; filename="retry_curve__.htm"',
+          ]);
+          expect(valuesOf(response.headers, 'content-security-policy'), label).toEqual(["sandbox; default-src 'none'"]);
+          expect(valuesOf(response.headers, 'x-content-type-options'), label).toEqual(['nosniff']);
+        }
+      });
+
+      it('refuses anything but .html and .htm here (404), and passes on the Kingdom’s refusals', async () => {
+        const node = await started();
+        const refused = await Promise.all(
+          ['a.md', 'a.png', 'a.svg', 'a', 'a.html.md'].map((file) =>
+            rawGet(`/api/nodes/node-a/library/page?path=${file}`, FRAMED),
+          ),
+        );
+        expect(refused.map((response) => response.status)).toEqual([404, 404, 404, 404, 404]);
+        for (const response of refused)
+          expect(valuesOf(response.headers, 'content-security-policy')).toEqual(["sandbox; default-src 'none'"]);
+        expect((await rawGet('/api/nodes/node-a/library/page', FRAMED)).status).toBe(400);
+        expect(node.frames.frames.filter((frame) => frame.kind === 'library-read')).toEqual([]);
+
+        const gone = rawGet('/api/nodes/node-a/library/page?path=a.HTML', FRAMED);
+        await answers(node, 'library-read', { ok: false, reason: 'gone' });
+        const response = await gone;
+        expect([response.status, JSON.parse(response.body)]).toEqual([404, { error: 'gone' }]);
+        expect(valuesOf(response.headers, 'content-security-policy')).toEqual(["sandbox; default-src 'none'"]);
+      });
+
+      it('takes another page CSP only from the test-only option', async () => {
+        await app.close();
+        app = await buildServer({ store, libraryPageCsp: "frame-ancestors 'none'" });
+        await app.listen({ port: 0, host: '127.0.0.1' });
+        const { port } = app.server.address() as AddressInfo;
+        baseUrl = `http://127.0.0.1:${port}`;
+        wsUrl = `ws://127.0.0.1:${port}`;
+        const node = await started();
+        const framed = rawGet('/api/nodes/node-a/library/page?path=a.html', FRAMED);
+        await answers(node, 'library-read', page('a.html'));
+        expect(valuesOf((await framed).headers, 'content-security-policy')).toEqual(["frame-ancestors 'none'"]);
       });
     });
 
