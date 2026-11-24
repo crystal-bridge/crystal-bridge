@@ -29,7 +29,7 @@ browser ──HTTPS──▶ tailscale serve ──▶ Airship (hub) on 127.0.0.
 | Kingdom → Patrol | A Patrol runs on its schedule as Crystal's user, with that user's full rights. A script Patrol runs its command with no approval at all, so it comes only from a file written on the Kingdom: the app can save Quest Patrols only, and never over a script Patrol's folder. A Quest Patrol's Quest asks for approvals in its permission mode like any Quest; a prompt nobody answers within its `waitForYou` is denied and the run ends. A script never gets the node token. Its stdout and stderr ends go to the hub and are stored there. `CRYSTAL_PATROLS_FROM_APP=off` stops the app creating or editing any Patrol on that Kingdom. A Patrol made with "Patrol this" keeps a Board item's text in its prompt, marked untrusted, and replays it on every run with nobody watching: its permission mode is the only limit on what that text can steer, so prefer `manual` or `plan` for items others wrote. See [Patrols](PATROLS.md). |
 | Hub at rest | SQLite on the hub's disk holds every event: prompts, replies, tool inputs and outputs, anything pasted. Nightly backups copy it. The hub keeps the database, its `-wal` and `-shm`, and each backup at 0600 whatever the umask, and tightens existing ones when it opens them or next backs up. It's plain file permissions, not encryption. |
 | Hub → phone | Web Push payloads are encrypted end to end to each browser; Discreet and Off levels keep titles and text out of them. |
-| Agent text → browser | Replies and repository files are shown as markdown, and an image loads with no click, so one could carry data out in its address. A remote image shows as a link instead, and only `data:` and same-origin images draw. Every hub response also sends `Content-Security-Policy: img-src 'self' data: blob:; frame-ancestors 'none'`. |
+| Agent text → browser | Replies and repository files are shown as markdown, and an image loads with no click, so one could carry data out in its address. A remote image shows as a link instead, and only `data:` and same-origin images draw. Every hub response also sends `Content-Security-Policy: img-src 'self' data: blob:; frame-ancestors 'none'`, except the Library's own answers, which send a stricter policy of their own (see [The Library](#the-library)). |
 
 It also refuses `AIRSHIP_HOST` on anything but loopback unless `AIRSHIP_AUTH=token`, because anyone who could reach it directly could send the identity header themselves.
 
@@ -59,7 +59,8 @@ hub's own login, which reads no identity header.
 | Text a Quest reads, such as an issue or a web page, that steers it | Record a misleading Deed, since recording one never asks. A Deed is plain text in the feed (no Markdown, links or HTML), one line and a short detail, at most 3 a turn. At Close, the digest carries text the Quest read; the call that reads it is marked to treat it as data, loads no settings, and has no tools and no MCP servers, so it can only write Deeds. |
 | A Quest on a Kingdom with Summons | Run commands on every machine in that Kingdom's `CRYSTAL_SUMMONS`, as its SSH user, through `summon` or by using the Kingdom's SSH key directly. To limit that, give the Kingdom a restricted key or a limited user on the target. |
 | Text a Quest reads, such as an issue or a web page, that steers it | Write a Tome that steers a later Quest, since a Quest on a Kingdom with a Library writes files there with its ordinary tools. Each Quest's prompt says text from Tomes is reference material, but a Tome can carry an injection from one Quest to the next, as any file can. With `CRYSTAL_LIBRARY_QUESTS=folder` the Quest reaches the folder without asking; without it, its permission mode decides. |
-| A Kingdom that lies in its answers | Show you wrong Tomes, or none, in its own Library. |
+| A Kingdom that lies in its answers | Show you wrong Tomes, or none, in its own Library. It can't pick how a file is served: the hub sets the content type from the file's extension and sends its own headers on every Library answer. |
+| A hostile HTML Tome, which a Quest or a person put in a Library | Run script in a frame with an opaque origin: it can't read the app's storage, cookies or login, call the hub's API, or open a popup. It can still contact other sites without a click, through WebRTC (every browser tested) and, in WebKit, preconnect links, and can send what the page contains, that you opened it and your IP address. Following a link in it, or its own navigation, can carry the same in an address. It can't reach the page's host as the hub: opened at its own address, it downloads. |
 | A node token | Pose as that one Kingdom to the hub: see the Quests started for it, send fake events into its sessions. Not reach other Kingdoms' sessions. The hub re-checks a token at each heartbeat, so replacing one with `scripts/airship-node-add.sh` (hubs run from a checkout) closes the old token's live link within 30 seconds, and the Kingdom needs the new token in `crystal.env` by then. **Remove** on the Castle (`DELETE /api/nodes/<id>`) revokes the token and cuts its connection at once, and is how to replace one on a packaged hub: Remove, then add the Kingdom again. None of this needs a hub restart. |
 | A shell on a Kingdom as Crystal's user | Everything that user can already do, including running `claude`, reading the node token from `crystal.env` and answering Crystal's local permission port. A Quest's commands run as that user too. Crystal adds no protection inside one user account. |
 | A shell on a tailnet device owned by an allowed user, on `tailscale-serve` | Reach the hub as that login, with no token, because `tailscale serve` names the device's owner on every request. That includes a Quest's shell on a Kingdom owned by that login: it can start Quests and approve actions on every Kingdom, whatever its own permission mode. To stop this, tag your Kingdoms: a tagged device gets no identity header, so the hub refuses it as a user, and `/node` keeps working on its token as long as your tailnet policy lets the tag reach the hub. |
@@ -94,6 +95,40 @@ A Kingdom serves the folder named by `CRYSTAL_LIBRARY_DIR` to the hub, and reads
 - **Quests.** A Quest's permission mode decides whether it may touch the folder. `CRYSTAL_LIBRARY_QUESTS=folder` adds
   the folder to every Quest, including the unattended Quests that Scouts and Patrols start, so enable it only where
   every Quest, including one working on an untrusted repository, may read the Library and write any file type there.
+
+### The hub's part
+
+The Kingdom confines paths. The hub decides how each answer is served, since a Library holds files other people wrote.
+Its routes sit under `/api/nodes/:node/library` (the list, `tome` to read and write, `backlinks`, `file` for images
+and `page` for HTML Tomes). Each needs a login like any `/api/` route, even when the app shell loads without one (`AIRSHIP_AUTH=token`).
+
+- **Headers on every answer.** A `Content-Security-Policy` with `sandbox`, which replaces the hub's global one;
+  `X-Content-Type-Options: nosniff`; and `Cross-Origin-Resource-Policy: same-origin`.
+- **Content types come from the hub.** It maps the file's extension to a type and never takes one from the Kingdom.
+- **SVG** is sent with `sandbox; default-src 'none'; style-src 'unsafe-inline'`, so a picture can't run script or
+  load anything, even when opened directly.
+- **Images** are read two at a time per Kingdom, and an answer that takes more than 15 seconds gives up, so a page of
+  images can't tie up the link.
+- **HTML Tomes** are served as a page only into the app's own frame: the request must carry `Sec-Fetch-Dest: iframe`
+  and `Sec-Fetch-Site: same-origin`. Any other request, such as a pasted address, gets the file as a download. The page
+  carries `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src
+  data: blob:; frame-ancestors 'self'`. The frame in the app has `sandbox="allow-scripts"` and no
+  `allow-same-origin`, so the page runs with an opaque origin.
+- **The Mermaid frame.** Each diagram is drawn in a page at `/sandbox/mermaid-frame.html` (also reachable as
+  `/mermaid-frame.html`), which has its own sandbox policy and is framed by the app only.
+- **`/assets/*` allows any origin.** It answers `Access-Control-Allow-Origin: *`, because the Mermaid frame has an
+  opaque origin and loads its module scripts across origins. Those files are the app's public code, which the app shell
+  already serves with no login, so this exposes nothing that wasn't open.
+- **Change notices** reach only the browser tabs that sent `library-watch`, so a tab that never opened the Library
+  hears nothing about it.
+
+**What an HTML Tome can still do.** The sandbox stops background requests, reading the app and popups. It doesn't stop
+a page from contacting other sites: WebRTC's STUN requests work in Chromium and WebKit, and WebKit also opens a
+connection for a preconnect link. A page can also navigate its own frame, or you can follow a link in it. So a page can
+send another site what it contains, that you opened it and your IP address. It can't read the app, the Kingdom's other
+files or anything you typed. The owner chose to keep scripts in HTML Tomes and say so, rather than strip them: the
+badge on the frame says it. The browser tests record the two gaps instead of failing on them. See
+[the Library guide](LIBRARY.md#open-the-sealed-pages-html-tomes) and, to run them, [Operating](OPERATIONS.md#the-rules).
 
 ## Self-updating Kingdoms
 
