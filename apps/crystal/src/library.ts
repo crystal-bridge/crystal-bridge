@@ -12,6 +12,7 @@ import {
   type TomeVersion,
 } from '@crystal-bridge/protocol';
 import { checkLibraryPath, libraryFilter, resolveForRead, writeTome, type Filter } from './libraryPaths.js';
+import { createLinkIndex, type LinkIndex } from './libraryLinks.js';
 import { watchLibrary, type LibraryChange, type LibraryWatcher } from './libraryWatch.js';
 
 type Refusal = { ok: false; reason: string };
@@ -110,12 +111,26 @@ export function createLibrary(opts: LibraryOptions): Library {
   const allowed: Filter = (path, isFolder) => filter(path, isFolder);
   let watcher: LibraryWatcher | undefined;
   let running = false;
+  const index: LinkIndex = createLinkIndex({
+    list: async () => {
+      const answer = await list();
+      return answer.ok ? answer.entries.filter((e) => e.kind !== 'folder') : [];
+    },
+    read: async (path) => {
+      const answer = await read(path);
+      return answer.ok && answer.tome.kind === 'md' ? answer.tome.content : undefined;
+    },
+  });
+  const changed = (change: LibraryChange): void => {
+    index.changed(change);
+    opts.onChange?.(change);
+  };
 
   function startWatching(): void {
     watcher = watchLibrary(dir, {
       allowed,
       log,
-      onChange: (change) => opts.onChange?.(change),
+      onChange: changed,
       onIgnoreChanged: () => {
         filter = libraryFilter(dir);
         log('Library .gitignore changed: reloading its filter');
@@ -124,7 +139,7 @@ export function createLibrary(opts: LibraryOptions): Library {
           if (!running) return;
           watcher?.close();
           startWatching();
-          opts.onChange?.({ all: true });
+          changed({ all: true });
         });
       },
     });
@@ -140,10 +155,13 @@ export function createLibrary(opts: LibraryOptions): Library {
     filter = libraryFilter(dir);
     running = true;
     startWatching();
+    // Not awaited: the first listing doesn't wait for the links.
+    void index.rebuild();
   }
 
   function stop(): void {
     running = false;
+    index.stop();
     watcher?.close();
     watcher = undefined;
   }
@@ -373,9 +391,11 @@ export function createLibrary(opts: LibraryOptions): Library {
     }
   }
 
-  async function backlinks(_path: string): Promise<BacklinksAnswer> {
-    // TODO(#290, Task 5): find the Tomes whose wiki links resolve to this one.
-    return { ok: true, backlinks: [] };
+  async function backlinks(path: string): Promise<BacklinksAnswer> {
+    const resolved = await resolveForRead(dir, path, allowed);
+    if (!resolved.ok) return refused;
+    const shown = path.split(/[/\\]/).join('/');
+    return { ok: true, backlinks: await index.backlinks(shown) };
   }
 
   return { dir, start, stop, list, read, write, backlinks };
