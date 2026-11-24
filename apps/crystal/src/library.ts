@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import { lstat, mkdir, open, readdir, realpath, stat } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   MAX_IMAGE_BYTES,
   MAX_LIBRARY_PATH,
@@ -12,7 +12,15 @@ import {
   type LibraryTome,
   type TomeVersion,
 } from '@crystal-bridge/protocol';
-import { checkLibraryPath, libraryFilter, resolveForRead, writeTome, type Filter } from './libraryPaths.js';
+import {
+  allowedAt,
+  checkLibraryPath,
+  libraryFilter,
+  libraryRelative,
+  resolveForRead,
+  writeTome,
+  type Filter,
+} from './libraryPaths.js';
 import { createLinkIndex, type LinkIndex } from './libraryLinks.js';
 import { watchLibrary, type LibraryChange, type LibraryWatcher } from './libraryWatch.js';
 
@@ -70,14 +78,6 @@ function folderForReason(dir: string): string {
  * read and written as `a/b.md`, another file.
  */
 const unlisted = (name: string) => process.platform !== 'win32' && name.includes('\\');
-
-function within(folder: string, path: string): boolean {
-  return path === folder || path.startsWith(folder + sep);
-}
-
-function libraryRelative(rootReal: string, real: string): string {
-  return relative(rootReal, real).split(sep).join('/');
-}
 
 const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
 
@@ -238,8 +238,8 @@ export function createLibrary(opts: LibraryOptions): Library {
           } catch {
             continue;
           }
-          if (target === rootReal || !within(rootReal, target)) continue;
-          if (!allowed(libraryRelative(rootReal, target), isFolder)) continue;
+          const inside = libraryRelative(rootReal, target);
+          if (!inside || !allowed(inside, isFolder)) continue;
         } else if (!isFolder && !dirent.isFile()) {
           continue;
         }
@@ -252,7 +252,7 @@ export function createLibrary(opts: LibraryOptions): Library {
         const check = checkLibraryPath(path);
         if (!check.ok || !check.kind || !allowed(path, false)) continue;
         if (target !== full) {
-          const there = checkLibraryPath(libraryRelative(rootReal, target));
+          const there = checkLibraryPath(libraryRelative(rootReal, target) ?? '');
           if (!there.ok || there.kind !== check.kind) continue;
         }
         let info;
@@ -363,7 +363,7 @@ export function createLibrary(opts: LibraryOptions): Library {
     } catch {
       return refused;
     }
-    if (!within(rootReal, ancestor) || !allowed(libraryRelative(rootReal, ancestor), true)) return refused;
+    if (!allowedAt(allowed, rootReal, ancestor, true)) return refused;
     const missing = folders.slice(existing);
 
     // What is at the name now. The app never saves through a symlink; one that is visibly in the Library says so.

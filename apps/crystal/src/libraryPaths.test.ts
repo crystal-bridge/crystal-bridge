@@ -16,7 +16,14 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkLibraryPath, libraryFilter, resolveForRead, writeTome } from './libraryPaths.js';
+import {
+  checkLibraryPath,
+  comparablePath,
+  libraryFilter,
+  libraryRelative,
+  resolveForRead,
+  writeTome,
+} from './libraryPaths.js';
 
 // The temporary file's name comes from randomBytes; a test can pin it to plant a symlink at exactly that name.
 // `onTemp` runs as the temporary name is picked, after the target was looked at: a test can act in that gap.
@@ -83,6 +90,37 @@ describe('Library paths (#290)', () => {
     pinned.realpath.clear();
     pinned.linkError = undefined;
     rmSync(base, { recursive: true, force: true });
+  });
+
+  describe('comparablePath', () => {
+    it('on Windows, drops the long-path prefix a real path can carry', () => {
+      expect(comparablePath('\\\\?\\C:\\x', 'win32')).toBe('C:\\x');
+      expect(comparablePath('\\\\?\\UNC\\server\\share\\x', 'win32')).toBe('\\\\server\\share\\x');
+      expect(comparablePath('C:\\x', 'win32')).toBe('C:\\x');
+      // Elsewhere a `\` is part of a name.
+      expect(comparablePath('\\\\?\\C:\\x', 'linux')).toBe('\\\\?\\C:\\x');
+      expect(comparablePath('/tmp/x', 'darwin')).toBe('/tmp/x');
+    });
+  });
+
+  describe('libraryRelative', () => {
+    it('gives a path in the Library with `/` between its parts, and nothing for a path outside it', () => {
+      const rootReal = realpathSync(root);
+      expect(libraryRelative(rootReal, join(rootReal, 'ops', 'summons.md'))).toBe('ops/summons.md');
+      // The Library itself, as the folder a top-level Tome goes in.
+      expect(libraryRelative(rootReal, rootReal)).toBe('');
+      expect(libraryRelative(rootReal, join(base, 'outside', 'secret.md'))).toBeUndefined();
+      expect(libraryRelative(rootReal, base)).toBeUndefined();
+      expect(libraryRelative(join(rootReal, 'ops'), join(rootReal, 'ops-2', 'x.md'))).toBeUndefined();
+    });
+
+    it.runIf(process.platform === 'win32')('matches a real path with the long-path prefix to one without', () => {
+      const rootReal = realpathSync.native(root);
+      expect(libraryRelative(rootReal, '\\\\?\\' + join(rootReal, 'ops', 'summons.md'))).toBe('ops/summons.md');
+      expect(libraryRelative('\\\\?\\' + rootReal, join(rootReal, 'ops', 'summons.md'))).toBe('ops/summons.md');
+      // Another drive: `relative` answers with an absolute path, which is outside.
+      expect(libraryRelative('C:\\lib', 'D:\\lib\\x.md')).toBeUndefined();
+    });
   });
 
   describe('checkLibraryPath', () => {
@@ -224,6 +262,17 @@ describe('Library paths (#290)', () => {
       expect(allowed('x/Node_Modules/y.md', false)).toBe(false);
     });
 
+    it('leaves out an absolute or outside path without throwing', () => {
+      // A path handed over by mistake (a Windows watch names the Library itself as `\\?\C:\...`): left out, never an
+      // exception escaping a Library request.
+      const allowed = libraryFilter(root);
+      for (const path of ['/etc/x.md', '//?/C:/vault/library/', '../x.md', '..', './x.md']) {
+        expect(() => allowed(path, false)).not.toThrow();
+        expect(allowed(path, false)).toBe(false);
+        expect(allowed(path, true)).toBe(false);
+      }
+    });
+
     it.runIf(process.platform === 'win32')('refuses a junction that leads out', async () => {
       writeFileSync(join(outside, 'x.md'), 'not yours');
       symlinkSync(outside, join(root, 'j'), 'junction');
@@ -338,7 +387,10 @@ describe('Library paths (#290)', () => {
       // A Windows short name (`GIT~1`) is one way a plain-looking name reaches a hidden file.
       mkdirSync(join(root, '.git'));
       writeFileSync(join(root, '.git', 'config.md'), 'git');
-      pinned.realpath.set(join(realpathSync(root), 'ops', 'summons.md'), join(realpathSync(root), '.git', 'config.md'));
+      // `realpath` from node:fs/promises is the native one, which on Windows also expands short names (`RUNNER~1`)
+      // in the temporary folder; the JavaScript `realpathSync` doesn't, so the key would never match there.
+      const rootReal = realpathSync.native(root);
+      pinned.realpath.set(join(rootReal, 'ops', 'summons.md'), join(rootReal, '.git', 'config.md'));
       expect(await writeTome(root, 'ops/summons.md', 'x', libraryFilter(root))).toEqual(REFUSED);
       expect(readFileSync(join(root, 'ops', 'summons.md'), 'utf8')).toBe('# Summons\n');
       expect(readdirSync(join(root, 'ops'))).toEqual(['summons.md']);

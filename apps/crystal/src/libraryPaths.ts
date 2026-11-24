@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { link, lstat, open, realpath, rename, stat, unlink } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import ignore from 'ignore';
 
 /** The kinds of file the Library reaches; folders are listed too, but never read or written. */
@@ -42,14 +42,32 @@ function hidden(segment: string): boolean {
   return segment.startsWith('.') || segment.toLowerCase() === 'node_modules';
 }
 
-/** `path` is the folder itself or somewhere under it: the rule from files.ts. */
-function within(folder: string, path: string): boolean {
-  return path === folder || path.startsWith(folder + sep);
+/**
+ * A real path in the form two real paths are compared in. On Windows a real path can carry the long-path prefix
+ * (`\\?\C:\...`, or `\\?\UNC\server\share\...` for a network one) where another spelling of the same path doesn't, so
+ * the prefix is dropped. Elsewhere a `\` is part of a name and the path is kept as it is.
+ */
+export function comparablePath(path: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'win32') return path;
+  if (path.startsWith('\\\\?\\UNC\\')) return '\\\\' + path.slice('\\\\?\\UNC\\'.length);
+  if (path.startsWith('\\\\?\\')) return path.slice('\\\\?\\'.length);
+  return path;
 }
 
-/** A real path under the Library's real path, in the Library's form (`/` between parts on every system). */
-function libraryRelative(rootReal: string, real: string): string {
-  return relative(rootReal, real).split(sep).join('/');
+/**
+ * A real path under the Library's real path, in the Library's form (`/` between parts on every system): `''` for the
+ * Library itself, and undefined for a path outside it, whose relative form is absolute (another drive) or climbs out.
+ */
+export function libraryRelative(rootReal: string, real: string): string | undefined {
+  const rel = relative(comparablePath(rootReal), comparablePath(real));
+  if (isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep)) return undefined;
+  return rel.split(sep).join('/');
+}
+
+/** A real path inside the Library (or the Library itself) that the filter allows. */
+export function allowedAt(allowed: Filter, rootReal: string, real: string, isFolder: boolean): boolean {
+  const path = libraryRelative(rootReal, real);
+  return path !== undefined && allowed(path, isFolder);
 }
 
 /** Lexical checks only: run before touching the disk, so a network path never makes Windows reach out. */
@@ -81,8 +99,13 @@ export function libraryFilter(root: string): Filter {
   return (path, isFolder) => {
     if (path === '') return true;
     if (path.split('/').some(hidden)) return false;
-    // `ignore` checks each parent folder too, so `drafts/` covers everything under it.
-    return !matcher.ignores(isFolder ? path + '/' : path);
+    try {
+      // `ignore` checks each parent folder too, so `drafts/` covers everything under it.
+      return !matcher.ignores(isFolder ? path + '/' : path);
+    } catch {
+      // A path that isn't relative to the Library (`ignore` throws a RangeError for one): never in it.
+      return false;
+    }
   };
 }
 
@@ -107,8 +130,8 @@ export async function resolveForRead(
   } catch {
     return refused;
   }
-  if (real === rootReal || !within(rootReal, real)) return refused;
   const path = libraryRelative(rootReal, real);
+  if (!path) return refused;
   const kind = kindOf(path.slice(path.lastIndexOf('/') + 1));
   if (!kind || kind !== check.kind || !allowed(path, false)) return refused;
   try {
@@ -149,9 +172,9 @@ export async function writeTome(
   } catch {
     return refused;
   }
-  if (!within(rootReal, parent) || !allowed(libraryRelative(rootReal, parent), true)) return refused;
+  if (!allowedAt(allowed, rootReal, parent, true)) return refused;
   const target = join(parent, name);
-  if (!allowed(libraryRelative(rootReal, target), false)) return refused;
+  if (!allowedAt(allowed, rootReal, target, false)) return refused;
 
   let mode = 0o644;
   try {
@@ -162,7 +185,7 @@ export async function writeTome(
     // The name as asked can differ from the file's own (a Windows short name such as `GIT~1`): check the real one
     // too, while nothing has been replaced yet.
     const real = await realpath(target);
-    if (!within(rootReal, real) || !allowed(libraryRelative(rootReal, real), false)) return refused;
+    if (!allowedAt(allowed, rootReal, real, false)) return refused;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return refused;
   }
@@ -202,7 +225,7 @@ export async function writeTome(
   }
   // This detects an escape made in the moments since step 2; it can't undo it. Removing the file now would lose the
   // old Tome as well as the new one, so it is left in place and the write refused.
-  if (!within(rootReal, real) || !allowed(libraryRelative(rootReal, real), false)) return refused;
+  if (!allowedAt(allowed, rootReal, real, false)) return refused;
   return { ok: true, real };
 }
 
