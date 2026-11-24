@@ -175,7 +175,7 @@ export const ICON_SOURCES = {
   deedLink: { pack: 'ph', icon: 'arrow-square-out-fill' },
   // Library
   library: { pack: 'game-icons', icon: 'bookshelf', author: 'Delapouite' },
-  tome: { pack: 'game-icons', icon: 'book-cover', author: 'Delapouite' },
+  tome: { pack: 'game-icons', icon: 'book-cover', author: 'Lorc' },
   htmlTome: { pack: 'ph', icon: 'file-html-fill' },
   libraryFolder: { pack: 'ph', icon: 'folder-fill' },
 } as const satisfies Record<string, IconSource>;
