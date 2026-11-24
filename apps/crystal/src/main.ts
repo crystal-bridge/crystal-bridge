@@ -26,6 +26,7 @@ import {
 } from './release.js';
 import { createUpdater } from './self-update.js';
 import { createScouts } from './scouts.js';
+import { createLibrary, type Library } from './library.js';
 import { createPatrols } from './patrols.js';
 import { createClosing, DEFAULT_CLOSING_BUDGET_USD } from './closing.js';
 import {
@@ -82,6 +83,10 @@ const CLOSING_BUDGET_USD = (() => {
   return DEFAULT_CLOSING_BUDGET_USD;
 })();
 // One folder per Scout (docs/SCOUTS.md); its schedule state sits beside the folder, not in it.
+const LIBRARY_DIR =
+  process.env.CRYSTAL_LIBRARY_DIR === 'off'
+    ? undefined
+    : process.env.CRYSTAL_LIBRARY_DIR || join(homedir(), '.crystal-bridge', 'library');
 const SCOUTS_DIR = process.env.CRYSTAL_SCOUTS_DIR || join(homedir(), '.crystal-bridge', 'scouts');
 // One folder per Patrol (docs/PATROLS.md), beside the Scouts; its state sits beside the folder too.
 const PATROLS_DIR = process.env.CRYSTAL_PATROLS_DIR || join(homedir(), '.crystal-bridge', 'patrols');
@@ -192,7 +197,25 @@ async function main(): Promise<void> {
     onHook: (session, event, body) => hooks.dispatch(session, event, body),
   });
 
+  // A Library that can't start is left out of the hello; Crystal runs on without it.
+  let library: Library | undefined;
+  if (LIBRARY_DIR) {
+    const made = createLibrary({
+      dir: LIBRARY_DIR,
+      log: (message) => console.error(`[crystal:library] ${message}`),
+      onChange: (change) => node.reportLibraryChanged(change),
+    });
+    try {
+      await made.start();
+      library = made;
+    } catch (error) {
+      console.error('[crystal] the Library could not start, so this Kingdom offers none', error);
+      made.stop();
+    }
+  }
+
   node = startNode({
+    ...(library ? { library } : {}),
     closing: createClosing({
       claudeBin: CLAUDE_BIN,
       env: sessionEnv,
