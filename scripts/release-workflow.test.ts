@@ -56,6 +56,22 @@ describe('the release workflow', () => {
     assert.match(job('image'), /if: \$\{\{ !contains\(github\.ref_name, '-edge\.'\) \}\}/);
   });
 
+  // npm gets the attested tarballs themselves, by trusted publishing: no token, and `latest` only names a full release.
+  it('publishes full releases and pre-releases, not edge builds, to npm from the attested tarballs', () => {
+    const npm = job('npm');
+    assert.match(npm, /if: \$\{\{ !contains\(github\.ref_name, '-edge\.'\) \}\}/);
+    assert.match(npm, /^ {4}needs: release$/m);
+    assert.match(npm, /id-token: write/);
+    assert.doesNotMatch(npm, /contents: write|NODE_AUTH_TOKEN|NPM_TOKEN|secrets\./);
+    assert.match(npm, /registry-url: https:\/\/registry\.npmjs\.org/);
+    assert.match(npm, /npm install -g npm@\^11\.5\.1/);
+    assert.match(npm, /gh release download "\$GITHUB_REF_NAME" --pattern 'crystal-bridge-\*\.tgz'/);
+    assert.match(npm, /gh attestation verify "\$file" --repo "\$GITHUB_REPOSITORY"/);
+    assert.match(npm, /npm publish "\.\/\$file" --access public/);
+    assert.match(npm, /--tag next/);
+    assert.match(npm, /npm view "\$pkg@\$version" version/);
+  });
+
   it('keeps the ten newest edge releases, and only edge ones', () => {
     const prune = job('prune');
     assert.match(prune, /needs: release/);

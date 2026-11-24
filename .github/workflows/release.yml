@@ -1,6 +1,6 @@
 # A `v*` tag builds the Kingdom and hub packages and publishes their tarballs to a GitHub Release, with build provenance a machine
-# can verify before running it. Publish dispatches it on the tag it gives each merge to main; a tag pushed by hand
-# starts it too.
+# can verify before running it, and puts full releases and pre-releases on npm too. Publish dispatches it on the tag it
+# gives each merge to main; a tag pushed by hand starts it too.
 name: Release
 
 on:
@@ -94,6 +94,60 @@ jobs:
         run: |
           prerelease=$([[ $GITHUB_REF_NAME == *-* ]] && echo --prerelease || true)
           gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/release/* --generate-notes --verify-tag $prerelease
+
+  # The same attested tarballs on npm, by trusted publishing: npm trusts this workflow's OIDC token, so there is no npm
+  # token to keep, and it adds its own provenance. Full releases and pre-releases only: edge builds are tagged on every
+  # merge to main and stay on GitHub Releases, like the image. A pre-release goes under `next`, so `latest` only ever
+  # names a full release. A version already on npm is skipped, so a re-run after a partial failure finishes the rest.
+  npm:
+    if: ${{ !contains(github.ref_name, '-edge.') }}
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      attestations: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later, and Node 22 ships npm 10.
+      - name: npm for trusted publishing
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+      - name: Download the release's tarballs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm"
+          cd "$RUNNER_TEMP/npm"
+          gh release download "$GITHUB_REF_NAME" --pattern 'crystal-bridge-*.tgz' --repo "$GITHUB_REPOSITORY"
+          ls -l
+      - name: Check and publish each package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/npm"
+          version=${GITHUB_REF_NAME#v}
+          tag=()
+          if [[ $GITHUB_REF_NAME == *-* ]]; then tag=(--tag next); fi
+          for name in kingdom airship; do
+            file=crystal-bridge-$name-$version.tgz
+            pkg=@crystal-bridge/$name
+            test -f "$file"
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
+            if [[ -n $(npm view "$pkg@$version" version 2>/dev/null) ]]; then
+              echo "::notice::$pkg@$version is already on npm, so it is skipped"
+              continue
+            fi
+            npm publish "./$file" --access public "${tag[@]}"
+          done
 
   # Only the ten newest edge builds stay: a hub following main wants the latest, and the Releases page stays readable.
   # A Kingdom keeps the release it runs, and the one before it, on disk.
