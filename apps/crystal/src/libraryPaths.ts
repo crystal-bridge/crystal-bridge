@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { lstat, open, realpath, rename, stat, unlink } from 'node:fs/promises';
+import { link, lstat, open, realpath, rename, stat, unlink } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import ignore from 'ignore';
 
@@ -124,13 +124,15 @@ export async function resolveForRead(
  * inside the Library and in it by the filter; a temporary file created exclusively (so a symlink planted at its name
  * is never followed) with the old file's permissions; and a rename into place, after which the result's real path is
  * checked again. A crash leaves the old Tome or the new one, never half of one. An existing symlink is never written
- * over, and a hard link is replaced by a plain file.
+ * over, and a hard link is replaced by a plain file. `exclusive` makes a new Tome only: a file already at the name,
+ * even one made a moment before it lands, answers `exists`.
  */
 export async function writeTome(
   root: string,
   requested: string,
   content: string,
   allowed: Filter,
+  { exclusive = false } = {},
 ): Promise<{ ok: true; real: string } | { ok: false; reason: string }> {
   // 1. Before touching the disk.
   const check = checkLibraryPath(requested, { write: true });
@@ -155,7 +157,12 @@ export async function writeTome(
   try {
     const old = await lstat(target);
     if (!old.isFile()) return refused;
+    if (exclusive) return EXISTS;
     mode = old.mode & 0o777;
+    // The name as asked can differ from the file's own (a Windows short name such as `GIT~1`): check the real one
+    // too, while nothing has been replaced yet.
+    const real = await realpath(target);
+    if (!within(rootReal, real) || !allowed(libraryRelative(rootReal, real), false)) return refused;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return refused;
   }
@@ -182,11 +189,10 @@ export async function writeTome(
   await handle.close();
 
   // 4. Into place, then the result checked again.
-  try {
-    await rename(temp, target);
-  } catch {
+  const placed = exclusive ? await placeExclusively(temp, target) : await placeOver(temp, target);
+  if (placed !== 'ok') {
     await unlink(temp).catch(() => {});
-    return refused;
+    return placed === 'exists' ? EXISTS : refused;
   }
   let real: string;
   try {
@@ -194,9 +200,37 @@ export async function writeTome(
   } catch {
     return refused;
   }
-  if (!within(rootReal, real) || !allowed(libraryRelative(rootReal, real), false)) {
-    await unlink(target).catch(() => {});
-    return refused;
-  }
+  // This detects an escape made in the moments since step 2; it can't undo it. Removing the file now would lose the
+  // old Tome as well as the new one, so it is left in place and the write refused.
+  if (!within(rootReal, real) || !allowed(libraryRelative(rootReal, real), false)) return refused;
   return { ok: true, real };
+}
+
+const EXISTS = { ok: false, reason: 'exists' } as const;
+
+async function placeOver(temp: string, target: string): Promise<'ok' | 'failed'> {
+  try {
+    await rename(temp, target);
+    return 'ok';
+  } catch {
+    return 'failed';
+  }
+}
+
+/**
+ * A hard link fails if the name is taken, where a rename would replace it. Then the temporary name goes. A file system
+ * without hard links (some network shares, FAT) falls back to a rename, which can replace a file made in the moment
+ * since the name was looked at.
+ */
+async function placeExclusively(temp: string, target: string): Promise<'ok' | 'exists' | 'failed'> {
+  try {
+    await link(temp, target);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') return 'exists';
+    if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'ENOSYS' && code !== 'EOPNOTSUPP') return 'failed';
+    return placeOver(temp, target);
+  }
+  await unlink(temp).catch(() => {});
+  return 'ok';
 }

@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -18,12 +19,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkLibraryPath, libraryFilter, resolveForRead, writeTome } from './libraryPaths.js';
 
 // The temporary file's name comes from randomBytes; a test can pin it to plant a symlink at exactly that name.
-const pinned = vi.hoisted(() => ({ bytes: undefined as Buffer | undefined }));
+// `onTemp` runs as the temporary name is picked, after the target was looked at: a test can act in that gap.
+const pinned = vi.hoisted(() => ({
+  bytes: undefined as Buffer | undefined,
+  onTemp: undefined as (() => void) | undefined,
+  // A real path to answer for a given path, as a Windows short (8.3) name would resolve to its long one.
+  realpath: new Map<string, string>(),
+  linkError: undefined as string | undefined,
+}));
 vi.mock('node:crypto', async (original) => {
   const crypto = await original<typeof import('node:crypto')>();
   return {
     ...crypto,
-    randomBytes: (size: number) => pinned.bytes ?? crypto.randomBytes(size),
+    randomBytes: (size: number) => {
+      pinned.onTemp?.();
+      return pinned.bytes ?? crypto.randomBytes(size);
+    },
+  };
+});
+vi.mock('node:fs/promises', async (original) => {
+  const fsp = await original<typeof import('node:fs/promises')>();
+  return {
+    ...fsp,
+    realpath: async (path: string) => pinned.realpath.get(path) ?? fsp.realpath(path),
+    link: async (from: string, to: string) => {
+      if (pinned.linkError) throw Object.assign(new Error(pinned.linkError), { code: pinned.linkError });
+      return fsp.link(from, to);
+    },
   };
 });
 
@@ -57,6 +79,9 @@ describe('Library paths (#290)', () => {
   });
   afterEach(() => {
     pinned.bytes = undefined;
+    pinned.onTemp = undefined;
+    pinned.realpath.clear();
+    pinned.linkError = undefined;
     rmSync(base, { recursive: true, force: true });
   });
 
@@ -93,6 +118,25 @@ describe('Library paths (#290)', () => {
       expect(checkLibraryPath('img/flow.PNG')).toEqual({ ok: true, parts: ['img', 'flow.PNG'], kind: 'image' });
       expect(checkLibraryPath('pages/report.htm')).toMatchObject({ ok: true, kind: 'html' });
       expect(checkLibraryPath('ops\\summons.md')).toEqual({ ok: true, parts: ['ops', 'summons.md'], kind: 'md' });
+    });
+
+    it('refuses a Windows device name and a name Windows would trim, in any folder', () => {
+      for (const path of [
+        'CON.md',
+        'nul.md',
+        'aux/x.md',
+        'com1.md',
+        'COM¹.md',
+        'lpt9.md',
+        'node_modules./x/readme.md',
+        '.git./config.md',
+        'ops /x.md',
+        'notes./x.md',
+      ]) {
+        expect(checkLibraryPath(path), JSON.stringify(path)).toEqual(REFUSED);
+      }
+      expect(checkLibraryPath('console.md')).toMatchObject({ ok: true, kind: 'md' });
+      expect(checkLibraryPath('conference/x.md')).toMatchObject({ ok: true, kind: 'md' });
     });
 
     it('refuses other extensions with the same reason', () => {
@@ -288,6 +332,56 @@ describe('Library paths (#290)', () => {
       expect(readFileSync(join(root, 'ops', 'summons.md'), 'utf8')).toBe('# New\n');
       expect(readFileSync(join(outside, 'linked.md'), 'utf8')).toBe('# Summons\n');
       expect(statSync(join(root, 'ops', 'summons.md')).nlink).toBe(1);
+    });
+
+    it('refuses a target whose real name the filter leaves out, before anything is renamed', async () => {
+      // A Windows short name (`GIT~1`) is one way a plain-looking name reaches a hidden file.
+      mkdirSync(join(root, '.git'));
+      writeFileSync(join(root, '.git', 'config.md'), 'git');
+      pinned.realpath.set(join(realpathSync(root), 'ops', 'summons.md'), join(realpathSync(root), '.git', 'config.md'));
+      expect(await writeTome(root, 'ops/summons.md', 'x', libraryFilter(root))).toEqual(REFUSED);
+      expect(readFileSync(join(root, 'ops', 'summons.md'), 'utf8')).toBe('# Summons\n');
+      expect(readdirSync(join(root, 'ops'))).toEqual(['summons.md']);
+    });
+
+    it('never removes the file it renamed in when the check after fails', async () => {
+      const target = join(root, 'ops', 'summons.md');
+      // Allows the Tome until the new text is in place, as if the real path had moved out in the meantime.
+      const plain = libraryFilter(root);
+      const allowed = (path: string, isFolder: boolean) =>
+        plain(path, isFolder) && !(path === 'ops/summons.md' && readFileSync(target, 'utf8') === '# New\n');
+      expect(await writeTome(root, 'ops/summons.md', '# New\n', allowed)).toEqual(REFUSED);
+      expect(existsSync(target)).toBe(true);
+    });
+
+    it('in exclusive mode, says exists when a file appears at the name before it lands', async () => {
+      const allowed = libraryFilter(root);
+      const target = join(root, 'ops', 'fresh.md');
+      pinned.onTemp = () => writeFileSync(target, 'theirs');
+      expect(await writeTome(root, 'ops/fresh.md', 'mine', allowed, { exclusive: true })).toEqual({
+        ok: false,
+        reason: 'exists',
+      });
+      expect(readFileSync(target, 'utf8')).toBe('theirs');
+      expect(readdirSync(join(root, 'ops')).sort()).toEqual(['fresh.md', 'summons.md']);
+
+      pinned.onTemp = undefined;
+      expect(await writeTome(root, 'ops/summons.md', 'x', allowed, { exclusive: true })).toEqual({
+        ok: false,
+        reason: 'exists',
+      });
+      expect(await writeTome(root, 'ops/other.md', 'other', allowed, { exclusive: true })).toMatchObject({ ok: true });
+      expect(readFileSync(join(root, 'ops', 'other.md'), 'utf8')).toBe('other');
+      expect(readdirSync(join(root, 'ops')).sort()).toEqual(['fresh.md', 'other.md', 'summons.md']);
+    });
+
+    it('in exclusive mode, falls back to a rename where the file system has no hard links', async () => {
+      pinned.linkError = 'EPERM';
+      expect(await writeTome(root, 'ops/fresh.md', 'mine', libraryFilter(root), { exclusive: true })).toMatchObject({
+        ok: true,
+      });
+      expect(readFileSync(join(root, 'ops', 'fresh.md'), 'utf8')).toBe('mine');
+      expect(readdirSync(join(root, 'ops')).sort()).toEqual(['fresh.md', 'summons.md']);
     });
 
     it.runIf(caseInsensitive)('on a case-insensitive disk, writes the stored file by any case', async () => {

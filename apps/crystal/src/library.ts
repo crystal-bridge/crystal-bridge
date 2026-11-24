@@ -287,7 +287,8 @@ export function createLibrary(opts: LibraryOptions): Library {
       } catch {
         return { ok: false, reason: 'not text' };
       }
-      // The version is the whole file's, so a cut Tome can't be saved over the part that wasn't sent.
+      // The version is the whole file's; `write` refuses a file over the limit, so a cut Tome is never saved over
+      // the part that wasn't sent.
       const tome: LibraryTome = { path: shown, kind, content, encoding: 'utf8', truncated, version };
       if (link) tome.link = true;
       return { ok: true, tome };
@@ -363,6 +364,8 @@ export function createLibrary(opts: LibraryOptions): Library {
         } catch {
           return refused;
         }
+        // It was sent cut, so a save from it would drop everything past the cut.
+        if (current.size > MAX_TOME_BYTES) return { ok: false, reason: 'too large to edit here' };
       }
     }
     if (base !== null) {
@@ -380,7 +383,7 @@ export function createLibrary(opts: LibraryOptions): Library {
         return refused;
       }
     }
-    const written = await writeTome(dir, parts.join('/'), content, allowed);
+    const written = await writeTome(dir, parts.join('/'), content, allowed, { exclusive: base === null });
     if (!written.ok) return written;
     try {
       const info = await stat(written.real);

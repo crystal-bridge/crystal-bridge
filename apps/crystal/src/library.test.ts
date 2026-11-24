@@ -13,8 +13,21 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_IMAGE_BYTES, MAX_TOME_BYTES, type TomeVersion } from '@crystal-bridge/protocol';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLibrary, type Library } from './library.js';
+
+// Runs as `writeTome` picks its temporary name, after the name was looked at: a test can act in that gap.
+const gap = vi.hoisted(() => ({ onTemp: undefined as (() => void) | undefined }));
+vi.mock('node:crypto', async (original) => {
+  const crypto = await original<typeof import('node:crypto')>();
+  return {
+    ...crypto,
+    randomBytes: (size: number) => {
+      gap.onTemp?.();
+      return crypto.randomBytes(size);
+    },
+  };
+});
 
 // Windows lets only administrators and developer mode make them.
 const noSymlinks = process.platform === 'win32';
@@ -34,6 +47,7 @@ describe("a Kingdom's Library (#290)", () => {
   });
 
   afterEach(() => {
+    gap.onTemp = undefined;
     library?.stop();
     library = undefined;
     if (existsSync(dir)) chmodSync(dir, 0o700);
@@ -165,6 +179,15 @@ describe("a Kingdom's Library (#290)", () => {
     expect(answer.tome.version.size).toBe(Buffer.byteLength(text));
   });
 
+  it('refuses to save over a Tome too large to have been sent whole', async () => {
+    const text = 'a'.repeat(600 * 1024);
+    put('big.md', text);
+    const lib = await open();
+    const version = await versionOf(lib, 'big.md');
+    expect(await lib.write('big.md', 'hello', version)).toEqual({ ok: false, reason: 'too large to edit here' });
+    expect(readFileSync(join(dir, 'big.md'), 'utf8')).toBe(text);
+  });
+
   it("refuses a file that isn't UTF-8 text, and an image over 5 MB", async () => {
     put('latin.md', Buffer.from([0x63, 0x61, 0x66, 0xe9])); // "café" in Latin-1
     put('zero.md', Buffer.from('a\0b'));
@@ -224,6 +247,13 @@ describe("a Kingdom's Library (#290)", () => {
     expect(await lib.write('.obsidian/x.md', '#', null)).toEqual({ ok: false, reason: 'not in the Library' });
     expect(await lib.write('notes/x.html', '#', null)).toEqual({ ok: false, reason: 'not in the Library' });
     expect(existsSync(join(dir, 'notes'))).toBe(false);
+  });
+
+  it('makes a new Tome only if nothing appears at its name first', async () => {
+    const lib = await open();
+    gap.onTemp = () => put('race.md', 'theirs');
+    expect(await lib.write('race.md', 'mine', null)).toEqual({ ok: false, reason: 'exists' });
+    expect(readFileSync(join(dir, 'race.md'), 'utf8')).toBe('theirs');
   });
 
   it.skipIf(noSymlinks)("doesn't make a folder through a symlink that leads out", async () => {
