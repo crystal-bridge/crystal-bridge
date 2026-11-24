@@ -85,4 +85,51 @@ describe('FileViewer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'B' }));
     expect(onOpen).toHaveBeenCalledWith('docs/B.md');
   });
+
+  describe('Open in the Library (#290)', () => {
+    it('offers a Scroll whose file lies under the Library folder, and opens it as a Tome', () => {
+      const onOpen = vi.fn();
+      render(
+        <FileViewer
+          file={file('notes/ops/Backups.md', { path: 'notes/ops/Backups.md', content: '# Backups', size: 9 })}
+          onClose={vi.fn()}
+          library={{ dir: '/home/me/vault/', cwd: '/home/me/vault', onOpen }}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Open in the Library' }));
+      expect(onOpen).toHaveBeenCalledWith('notes/ops/Backups.md');
+    });
+
+    it('finds the Tome from a Quest working above the Library folder', () => {
+      const onOpen = vi.fn();
+      render(
+        <FileViewer
+          file={file('library/Home.md', { path: 'library/Home.md', content: 'hi', size: 2 })}
+          onClose={vi.fn()}
+          library={{ dir: '/srv/crystal/library', cwd: '/srv/crystal', onOpen }}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Open in the Library' }));
+      expect(onOpen).toHaveBeenCalledWith('Home.md');
+    });
+
+    it("doesn't offer a file outside the folder, beside it under a longer name, or one the Library doesn't show", () => {
+      const cases: [string, string][] = [
+        ['/home/me/code', 'src/a.md'],
+        ['/home/me/vault-old', 'a.md'],
+        ['/home/me/vault', 'src/a.ts'],
+      ];
+      for (const [cwd, path] of cases) {
+        render(
+          <FileViewer
+            file={file(path, { path, content: 'x', size: 1 })}
+            onClose={vi.fn()}
+            library={{ dir: '/home/me/vault', cwd, onOpen: vi.fn() }}
+          />,
+        );
+        expect(screen.queryByRole('button', { name: 'Open in the Library' })).toBeNull();
+        cleanup();
+      }
+    });
+  });
 });

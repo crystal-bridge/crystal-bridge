@@ -5,6 +5,8 @@ import type { HubClient } from './hub.js';
 import {
   backlinks,
   LIBRARY_TONE,
+  libraryPathOf,
+  latestTomes,
   quickOpen,
   readTome,
   recentTomes,
@@ -162,5 +164,28 @@ describe('the Library data', () => {
 
   it('has a purple tone, written out whole', () => {
     expect(Object.values(LIBRARY_TONE).join(' ')).toMatch(/purple|violet/);
+  });
+
+  it('libraryPathOf finds a Quest file under the Library folder, lexically, with a separator', () => {
+    expect(libraryPathOf('/home/me/vault', '/home/me/vault', 'ops/a.md')).toBe('ops/a.md');
+    expect(libraryPathOf('/home/me/vault/', '/home/me', 'vault/a.html')).toBe('a.html');
+    expect(libraryPathOf('/home/me/vault', '/home/me/vault-old', 'a.md')).toBeUndefined();
+    expect(libraryPathOf('/home/me/vault', '/home/me/code', 'a.md')).toBeUndefined();
+    expect(libraryPathOf('/home/me/vault', '/home/me/vault', 'a.ts')).toBeUndefined();
+    expect(libraryPathOf('/home/me/vault', '/home/me/vault', 'img/A.PNG')).toBe('img/A.PNG');
+    expect(libraryPathOf('C:\\Users\\you\\vault', 'C:\\Users\\you', 'vault/ops/a.md')).toBe('ops/a.md');
+    expect(libraryPathOf('/home/me/vault', '/home/me/vault', '/etc/a.md')).toBeUndefined();
+  });
+
+  it('latestTomes takes the Tomes changed last, newest first, files only', () => {
+    const entries: LibraryEntry[] = [
+      { path: 'ops', kind: 'folder', mtimeMs: 99 },
+      { path: 'ops/a.md', kind: 'md', mtimeMs: 5 },
+      { path: 'b.html', kind: 'html', mtimeMs: 9 },
+      { path: 'c.png', kind: 'image', mtimeMs: 10 },
+      { path: 'd.md', kind: 'md', mtimeMs: 7 },
+      { path: 'e.md', kind: 'md' },
+    ];
+    expect(latestTomes(entries, 3).map((one) => one.path)).toEqual(['b.html', 'd.md', 'ops/a.md']);
   });
 });

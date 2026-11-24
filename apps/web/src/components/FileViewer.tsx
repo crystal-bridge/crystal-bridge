@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FileReply } from '@crystal-bridge/protocol';
 import { fileSize, isMarkdown, languageOf } from '../files.js';
+import { LIBRARY_TONE, libraryPathOf } from '../library.js';
+import { Icon } from '../theme/icons.js';
 import { hint, w } from '../theme/words.js';
 import { CodeBlock } from './CodeBlock.js';
 import { FileOpenContext, QuestMarkdown } from './markdown.js';
@@ -17,6 +19,11 @@ export interface FileViewerProps {
   onClose: () => void;
   /** Opens another file of the same Quest, e.g. a link in a markdown file. */
   onOpen?: (path: string) => void;
+  /**
+   * The Kingdom's Library folder and the Quest's folder: a file that lies in the Library offers to open it there as a
+   * Tome, through `onOpen` with its Library path.
+   */
+  library?: { dir: string; cwd: string; onOpen: (path: string) => void } | undefined;
 }
 
 /** A link in a markdown file is relative to that file, not to the Quest's folder. */
@@ -56,7 +63,7 @@ function CopyButton({ label, text }: { label: string; text: string }) {
  * A Quest's file, read-only, in the side panel (full screen on a phone): markdown rendered, anything else as code.
  * Esc closes it; focus moves in when it opens and back where it was when it closes.
  */
-export function FileViewer({ file, onClose, onOpen }: FileViewerProps) {
+export function FileViewer({ file, onClose, onOpen, library }: FileViewerProps) {
   const root = useRef<HTMLDivElement>(null);
   const reply = file.reply;
   const path = reply?.path ?? file.requested;
@@ -77,6 +84,7 @@ export function FileViewer({ file, onClose, onOpen }: FileViewerProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const tomePath = library && reply?.ok && reply.path ? libraryPathOf(library.dir, library.cwd, reply.path) : undefined;
   const openBeside = useMemo(() => (onOpen ? (target: string) => onOpen(besides(path, target)) : null), [onOpen, path]);
 
   return (
@@ -111,6 +119,17 @@ export function FileViewer({ file, onClose, onOpen }: FileViewerProps) {
             </div>
           )}
         </div>
+        {library && tomePath !== undefined && (
+          <button
+            type="button"
+            onClick={() => library.onOpen(tomePath)}
+            title={`Read it as a ${w('tome')}, with its outline and links`}
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold hover:bg-purple-100 dark:hover:bg-purple-950 ${LIBRARY_TONE.text}`}
+          >
+            <Icon name="library" size={14} />
+            Open in the {w('library')}
+          </button>
+        )}
         <CopyButton label="Copy path" text={path} />
         {reply?.ok && reply.content !== undefined && <CopyButton label="Copy contents" text={reply.content} />}
       </div>

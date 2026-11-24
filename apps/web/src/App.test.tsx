@@ -43,6 +43,8 @@ function fakeHub(): HubClient {
     onErrands: () => () => undefined,
     onDeeds: () => () => undefined,
     onReconnect: () => () => undefined,
+    onLibraryChanged: () => () => undefined,
+    watchLibrary: () => () => undefined,
     onAttention: (listener: (attention: unknown) => void) => {
       attentionListener = listener;
       return () => {};
@@ -1944,5 +1946,136 @@ describe('App Deeds chips', () => {
       expect(screen.getAllByRole('button', { name: /lantern/, pressed: true }).length).toBeGreaterThan(0),
     );
     expect(await chips()).toEqual(['/r/forge', '/r/lantern']);
+  });
+});
+
+describe('App Library (#290)', () => {
+  const QUEST = '22222222-2222-4222-8222-222222222222';
+  const VERSION = { size: 3, mtimeMs: 1, hash: 'a'.repeat(64) };
+  const listing = {
+    entries: [
+      { path: 'notes', kind: 'folder' },
+      { path: 'notes/Ops.md', kind: 'md', mtimeMs: 2 },
+    ],
+  };
+  const opsTome = {
+    tome: {
+      path: 'notes/Ops.md',
+      kind: 'md',
+      content: '# Ops runbook',
+      encoding: 'utf8',
+      truncated: false,
+      version: VERSION,
+    },
+  };
+
+  function serve(withLibrary: boolean) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const at = new URL(url, 'http://hub');
+        const body =
+          url === '/api/sessions'
+            ? sessions
+            : url === '/api/nodes'
+              ? ['node-b', 'node-a']
+              : url === '/api/engines'
+                ? [
+                    { node: 'node-a', engines: ['claude'], ...(withLibrary ? { library: { dir: '/m/library' } } : {}) },
+                    { node: 'node-b', engines: ['claude'] },
+                  ]
+                : at.pathname === '/api/nodes/node-a/library'
+                  ? listing
+                  : at.pathname === '/api/nodes/node-a/library/tome'
+                    ? opsTome
+                    : at.pathname === '/api/nodes/node-a/library/backlinks'
+                      ? { backlinks: [] }
+                      : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/');
+    localStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('gives a Kingdom with a Library its tab, whose view survives a reload, and Back returns to the Castle', async () => {
+    serve(true);
+    window.history.replaceState(null, '', '/#/k/node-a');
+    await renderApp();
+    const strip = screen.getByRole('tablist', { name: 'Quests' });
+    fireEvent.click(await within(strip).findByRole('tab', { name: /Library/ }));
+    expect(window.location.hash).toBe('#/k/node-a/l');
+    fireEvent.click(await screen.findByRole('treeitem', { name: /Ops/ }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ops runbook' })).toBeTruthy();
+    expect(window.location.hash).toBe('#/k/node-a/l/notes/Ops.md');
+
+    cleanup();
+    await renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ops runbook' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Library/, selected: true })).toBeTruthy();
+
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Quests' })).getByRole('tab', { name: 'node-a' }));
+    expect(window.location.hash).toBe('#/k/node-a');
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(window.location.hash).toBe('#/k/node-a/l/notes/Ops.md');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ops runbook' })).toBeTruthy();
+  });
+
+  it('has no Library tab for a Kingdom without one', async () => {
+    serve(false);
+    window.history.replaceState(null, '', '/#/k/node-a');
+    await renderApp();
+    const strip = screen.getByRole('tablist', { name: 'Quests' });
+    expect(within(strip).queryByRole('tab', { name: /Library/ })).toBeNull();
+  });
+
+  it('opens a Scroll under the Library folder as a Tome', async () => {
+    serve(true);
+    const REPLY = [
+      {
+        node: 'node-a',
+        session: QUEST,
+        seq: 0,
+        ts: 0,
+        type: 'claude.event',
+        payload: {
+          engine: 'claude',
+          raw: {
+            type: 'assistant',
+            message: { id: 'm1', content: [{ type: 'text', text: 'See `library/notes/Ops.md`.' }] },
+          },
+        },
+      },
+    ];
+    const readFile = vi.fn(async () => ({
+      kind: 'file' as const,
+      requestId: '33333333-3333-4333-8333-333333333333',
+      ok: true,
+      path: 'library/notes/Ops.md',
+      content: '# Ops runbook',
+      size: 13,
+    }));
+    const hub = { ...fakeHub(), events: (session: string) => (session === QUEST ? REPLY : NO_EVENTS), readFile };
+    render(<App hub={hub as unknown as HubClient} />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(screen.getByRole('tab', { name: /private work/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'library/notes/Ops.md' }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open in the Library' }));
+    expect(window.location.hash).toBe('#/k/node-a/l/notes/Ops.md');
+    expect(await screen.findByRole('tab', { name: /Library/, selected: true })).toBeTruthy();
   });
 });

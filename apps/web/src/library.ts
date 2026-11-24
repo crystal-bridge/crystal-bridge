@@ -15,6 +15,9 @@ export interface LibraryState {
   loading: boolean;
 }
 
+/** What the Library's views need of the hub's socket. */
+export type LibraryHub = Pick<HubClient, 'watchLibrary' | 'onLibraryChanged' | 'onReconnect'>;
+
 const base = (node: string) => `/api/nodes/${encodeURIComponent(node)}/library`;
 const pathQuery = (path: string) => `?path=${encodeURIComponent(path)}`;
 
@@ -36,7 +39,7 @@ async function get<T>(url: string): Promise<T> {
  * back, with a watch held while mounted so the hub sends those frames. An answer that arrives after a newer request
  * went out is dropped. A refusal (offline, or no Library there) shows as `error`.
  */
-export function useLibrary(hub: HubClient, node: string | undefined): LibraryState {
+export function useLibrary(hub: LibraryHub, node: string | undefined): LibraryState {
   const [state, setState] = useState<LibraryState>({ entries: [], truncated: false, loading: true });
   useEffect(() => {
     setState({ entries: [], truncated: false, loading: true });
@@ -130,6 +133,33 @@ export function quickOpen(entries: readonly LibraryEntry[], query: string): Libr
     ranked.push({ entry, rank });
   }
   return ranked.sort((a, b) => a.rank - b.rank).map((one) => one.entry);
+}
+
+/** The Tomes (Markdown and HTML) changed last, by the listing's modified time, newest first. */
+export function latestTomes(entries: readonly LibraryEntry[], count: number): LibraryEntry[] {
+  return entries
+    .filter((entry) => (entry.kind === 'md' || entry.kind === 'html') && entry.mtimeMs !== undefined)
+    .sort((a, b) => b.mtimeMs! - a.mtimeMs!)
+    .slice(0, count);
+}
+
+/** The extensions the Library shows (docs/LIBRARY.md, "What the app reaches"). */
+const SHOWN = /\.(?:md|html?|png|jpe?g|gif|webp|avif|svg)$/i;
+
+/**
+ * Where a Quest's file sits in a Kingdom's Library, if it does: the Quest's folder and the file's path in it joined,
+ * then checked lexically to start with the Library folder and a separator, for a kind the Library shows. `\` counts as a
+ * separator, so a Windows Kingdom's paths compare too.
+ */
+export function libraryPathOf(dir: string, cwd: string, path: string): string | undefined {
+  const slash = (text: string) => text.replace(/\\/g, '/');
+  const folder = slash(dir).replace(/\/+$/, '');
+  const relative = slash(path);
+  if (!folder || relative.startsWith('/') || /^[a-z]:/i.test(relative) || !SHOWN.test(relative)) return undefined;
+  const full = `${slash(cwd).replace(/\/+$/, '')}/${relative}`;
+  if (!full.startsWith(`${folder}/`)) return undefined;
+  const inside = full.slice(folder.length + 1);
+  return inside.split('/').some((part) => part === '..' || part === '.' || part === '') ? undefined : inside;
 }
 
 const RECENT_MAX = 10;

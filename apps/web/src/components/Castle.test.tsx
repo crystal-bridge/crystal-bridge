@@ -696,3 +696,69 @@ describe('Castle Garrison', () => {
     expect(screen.queryByRole('region', { name: 'Garrison' })).toBeNull();
   });
 });
+
+describe('Castle Library card (#290)', () => {
+  const listing = {
+    entries: [
+      { path: 'ops', kind: 'folder', mtimeMs: 50 },
+      { path: 'ops/Backups.md', kind: 'md', mtimeMs: 10 },
+      { path: 'ops/Release checklist.md', kind: 'md', mtimeMs: 30 },
+      { path: 'Glossary.md', kind: 'md', mtimeMs: 20 },
+      { path: 'Home.md', kind: 'md', mtimeMs: 5 },
+      { path: 'flow.png', kind: 'image', mtimeMs: 40 },
+    ],
+  };
+  const watchLibrary = vi.fn(() => () => {});
+  const hub = { watchLibrary, onLibraryChanged: () => () => {}, onReconnect: () => () => {} };
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(listing), { status: 200 })),
+    );
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('shows the three Tomes changed last, quick-open and Open the Library, holding a watch', async () => {
+    const onOpen = vi.fn();
+    renderCastle({ library: { hub, dir: '/home/me/library', onOpen } });
+    const card = screen.getByRole('region', { name: w('library') });
+    const rows = await within(card).findAllByRole('button', { name: /Release checklist|Glossary|Backups|Home/ });
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining('Release checklist'),
+      expect.stringContaining('Glossary'),
+      expect.stringContaining('Backups'),
+    ]);
+    expect(card.textContent).toContain('/home/me/library');
+    expect(watchLibrary).toHaveBeenCalledWith('k');
+    fireEvent.click(rows[1]!);
+    expect(onOpen).toHaveBeenCalledWith('Glossary.md');
+
+    fireEvent.change(within(card).getByRole('combobox', { name: `Find a ${w('tome')}` }), {
+      target: { value: 'home' },
+    });
+    fireEvent.click(within(card).getByRole('option', { name: /Home/ }));
+    expect(onOpen).toHaveBeenLastCalledWith('Home.md');
+
+    fireEvent.click(within(card).getByRole('button', { name: `Open the ${w('library')}` }));
+    expect(onOpen).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('sits in the right column, under Errands, and is gone without a Library', () => {
+    localStorage.setItem('crystal-bridge.errands-layout', 'checklist');
+    renderCastle({
+      library: { hub, dir: '/l', onOpen: vi.fn() },
+      errands: { errands: [], loaded: true },
+    });
+    const card = screen.getByRole('region', { name: w('library') });
+    const errandsPanel = screen.getAllByRole('region', { name: w('errands') }).at(-1)!;
+    expect(errandsPanel.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cleanup();
+    localStorage.clear();
+    renderCastle();
+    expect(screen.queryByRole('region', { name: w('library') })).toBeNull();
+  });
+});
