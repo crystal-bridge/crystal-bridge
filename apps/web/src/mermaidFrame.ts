@@ -72,7 +72,9 @@ export async function handleMessage(event: MessageEvent): Promise<void> {
     drawn += 1;
     const { svg } = await mermaid.render(`diagram-${drawn}`, source);
     target.innerHTML = svg;
-    tell({ type: 'height', id, height: Math.ceil(document.documentElement.scrollHeight) });
+    // The diagram's own box, not the page's scroll height: that never drops below the frame's viewport, so a frame
+    // grown for a tall diagram would stay tall. The page's body has no margin to add (mermaid-frame.html).
+    tell({ type: 'height', id, height: Math.ceil(target.getBoundingClientRect().height) });
   } catch (error) {
     target.replaceChildren();
     tell({ type: 'error', id, message: error instanceof Error ? error.message : String(error) });

@@ -173,3 +173,39 @@ test("a Mermaid diagram's %%{init}%% can't load styles or fonts, and the diagram
   expect(state.connections).toBe(0);
   expect(state.datagrams).toBe(0);
 });
+
+test('a Mermaid frame shrinks again after a taller diagram', async ({ page }) => {
+  await frameOnHub(page, world.openHub, '/sandbox/mermaid-frame.html');
+  await fromFrame(page, 'ready');
+  /** Draws `source`, then sizes the frame to the height it reports, as the app's reader does. */
+  const draw = (id: string, source: string) =>
+    page.evaluate(
+      async ({ id, source }) => {
+        const frame = document.getElementById('under-test') as HTMLIFrameElement;
+        const messages = (window as unknown as { fromFrame: { type?: string; id?: string; height?: number }[] })
+          .fromFrame;
+        frame.contentWindow!.postMessage({ type: 'render', id, source, theme: 'light' }, '*');
+        const started = Date.now();
+        for (;;) {
+          const reply = messages.find((message) => message.id === id);
+          if (reply?.type === 'height') {
+            frame.style.height = `${reply.height}px`;
+            return reply.height!;
+          }
+          if (reply) throw new Error(`diagram ${id}: ${JSON.stringify(reply)}`);
+          if (Date.now() - started > 15_000) throw new Error(`diagram ${id}: no answer`);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      },
+      { id, source },
+    );
+  const small = 'graph LR\n  A[Small]';
+  const tall = `graph TD\n${Array.from({ length: 14 }, (_, n) => `  N${n}[Step ${n}] --> N${n + 1}[Step ${n + 1}]`).join('\n')}`;
+
+  const first = await draw('small', small);
+  const grown = await draw('tall', tall);
+  const again = await draw('small-again', small);
+  const heights = `small ${first}, tall ${grown}, small again ${again}`;
+  expect(Math.abs(again - first), heights).toBeLessThanOrEqual(4);
+  expect(grown, heights).toBeGreaterThan(first * 3);
+});

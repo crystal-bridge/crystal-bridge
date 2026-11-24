@@ -75,6 +75,29 @@ describe('handleMessage', () => {
     expect(posted).toHaveBeenCalledWith({ type: 'height', id: 'd1', height: expect.any(Number) }, '*');
   });
 
+  it("reports the diagram's own height, so the frame shrinks after a smaller diagram", async () => {
+    // The page's height never goes below the frame's viewport: a frame grown for a tall diagram would stay tall.
+    const scrollHeight = vi.spyOn(document.documentElement, 'scrollHeight', 'get').mockReturnValue(680);
+    const target = document.createElement('div');
+    target.id = 'diagram';
+    document.body.append(target);
+    const heights = [64.2, 680, 64.2];
+    const rect = vi
+      .spyOn(target, 'getBoundingClientRect')
+      .mockImplementation(() => ({ height: heights.shift() ?? 0 }) as DOMRect);
+    mermaid.render.mockResolvedValue({ svg: '<svg></svg>' });
+    try {
+      for (const id of ['d1', 'd2', 'd3'])
+        await handleMessage(new MessageEvent('message', { data: { ...render, id }, source: window.parent }));
+      expect(posted.mock.calls.map(([message]: unknown[]) => (message as { height: number }).height)).toEqual([
+        65, 680, 65,
+      ]);
+    } finally {
+      scrollHeight.mockRestore();
+      rect.mockRestore();
+    }
+  });
+
   it("tells the parent a diagram's error", async () => {
     mermaid.render.mockRejectedValue(new Error('Parse error on line 1'));
     await handleMessage(new MessageEvent('message', { data: render, source: window.parent }));
