@@ -226,6 +226,25 @@
 .cb-tome :is(h1, h2, h3, h4, h5, h6) {
   scroll-margin-top: 1rem;
 }
+/* A Tome's code colours, read by components/tomeHighlight.css, which loads with the highlighter. */
+:root {
+  --tome-code-keyword: #7e22ce;
+  --tome-code-value: #047857;
+  --tome-code-title: #b45309;
+  --tome-code-comment: #a3a3a3;
+  --tome-code-deletion: #be123c;
+  --tome-code-addition: #047857;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tome-code-keyword: #d8b4fe;
+    --tome-code-value: #34d399;
+    --tome-code-title: #fbbf24;
+    --tome-code-comment: #737373;
+    --tome-code-deletion: #fda4af;
+    --tome-code-addition: #34d399;
+  }
+}
 .cb-tome .katex-display {
   overflow-x: auto;
   overflow-y: hidden;

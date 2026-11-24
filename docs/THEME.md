@@ -53,6 +53,7 @@ Decided in #18. The test for each piece of text: is it read at length, or glance
 - **Glanced at or picked wears the theme.** Field labels (`.cb-label`), section titles, select values
   (`ThemedSelect`), plates, badges, Stats labels and the wordmark use the display face (Jersey 15) at sizes where
   it stays crisp (about 1rem and up).
+- **A Tome's h1 and h2 are section titles** and wear the display face; its h3 and below and its body stay sans.
 - **Mono means a literal value.** Paths, branches, commands and code use JetBrains Mono, the typed value as well as
   its placeholder (the Project field). A Quest's tab shows its project this way under the title, by the repository's
   name for a Quest in a worktree, and so does Split View's picker beside the Kingdom, except for a Discreet Kingdom.
