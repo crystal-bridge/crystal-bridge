@@ -71,6 +71,8 @@ export const LibraryTome = z.object({
   encoding: z.enum(['utf8', 'base64']),
   truncated: z.boolean(),
   version: TomeVersion,
+  /** The Tome is a symlink (to a file inside the Library): readable, but the app doesn't save through it. */
+  link: z.literal(true).optional(),
 });
 export type LibraryTome = z.infer<typeof LibraryTome>;
 

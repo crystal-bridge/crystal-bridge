@@ -5,6 +5,7 @@ import {
   HubLibraryList,
   HubLibraryRead,
   HubLibraryWrite,
+  LibraryTome,
   MAX_TOME_BYTES,
   NodeLibraryAnswer,
   NodeLibraryChanged,
@@ -71,6 +72,13 @@ describe('the Library (#290)', () => {
     expect(
       NodeLibraryAnswer.safeParse({ kind: 'library-answer', requestId, ok: false, reason: 'x'.repeat(301) }).success,
     ).toBe(false);
+  });
+
+  it('marks a Tome that is a symlink, and nothing else for `link`', () => {
+    const tome = { path: 'a.md', kind: 'md', content: '# A', encoding: 'utf8', truncated: false, version };
+    expect(LibraryTome.parse({ ...tome, link: true })).toEqual({ ...tome, link: true });
+    expect(LibraryTome.parse(tome)).toEqual(tome);
+    expect(LibraryTome.safeParse({ ...tome, link: false }).success).toBe(false);
   });
 
   it('says what changed', () => {
