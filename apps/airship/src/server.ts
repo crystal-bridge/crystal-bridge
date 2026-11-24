@@ -77,6 +77,15 @@ import {
   MAX_OPEN_ERRANDS,
   ErrandProject,
   type Deed,
+  HubLibraryBacklinks,
+  type HubLibraryList,
+  HubLibraryRead,
+  HubLibraryWrite,
+  type LibraryInfo,
+  LibraryPath,
+  MAX_TOME_BYTES,
+  NodeLibraryAnswer,
+  TomeVersion,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
@@ -200,11 +209,40 @@ interface KingdomAnswer {
   times?: number[];
   draft?: PatrolDraft;
   refused?: boolean;
+  /** A Library request's whole answer, for the route to pass on. */
+  library?: NodeLibraryAnswer;
 }
 /** A Kingdom lists within 15 seconds or says it can't, so this only meets one that stopped answering. */
 const INVENTORY_WAIT_MS = 20_000;
 /** How long a Board's quest or run action waits for its Kingdom: a script there may take two minutes. */
 const SCOUT_ACTION_WAIT_MS = 150_000;
+/** How long a Library request waits for its Kingdom, as the file viewer's do: reading a file takes no script. */
+const LIBRARY_WAIT_MS = 15_000;
+/** A write carries up to `MAX_TOME_BYTES` of text, which JSON escaping can make up to six times longer. */
+const LIBRARY_BODY_LIMIT = MAX_TOME_BYTES * 6 + 64 * 1024;
+/** A Tome write as the app sends it. */
+const TomeWrite = z.object({
+  path: LibraryPath,
+  content: HubLibraryWrite.shape.content,
+  base: TomeVersion.nullable(),
+});
+
+/**
+ * The headers on every Library answer, refusals included, replacing the hub's usual CSP: a Tome is the Kingdom's text,
+ * so nothing in an answer may run, sniff its way into another type, or be read by another site (docs/LIBRARY.md,
+ * "Mind the wards"). The JSON routes take this CSP; a route that serves a file itself sets its own after this.
+ */
+function libraryHeaders(reply: FastifyReply, csp = "sandbox; default-src 'none'"): FastifyReply {
+  return reply
+    .header('content-security-policy', csp)
+    .header('x-content-type-options', 'nosniff')
+    .header('cross-origin-resource-policy', 'same-origin');
+}
+
+/** The HTTP status for a Kingdom's refused Library request: a stale write or a taken path is a conflict, a missing file is not found. */
+function libraryRefusalStatus(reason: string | undefined): number {
+  return reason === 'not in the Library' || reason === 'gone' ? 404 : 409;
+}
 
 /**
  * Sends an error and, for a refused WebSocket upgrade, closes the connection afterwards: an upgrade
@@ -496,6 +534,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   /** Kingdoms that answer `patrol-draft` ("Patrol this" on a Board). */
   const patrolDraftNodes = new Set<string>();
   const deedsNodes = new Set<string>();
+  /** Kingdoms that keep a Library, and where (docs/LIBRARY.md). */
+  const libraryNodes = new Map<string, LibraryInfo>();
   /** Kingdoms that run Patrols, and those of them that take Patrols from the app (docs/PATROLS.md). */
   const patrolNodes = new Set<string>();
   const patrolEditNodes = new Set<string>();
@@ -1373,13 +1413,23 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   }
 
   /**
-   * Sends a Board's request, a Patrol change or a preview to its Kingdom and waits for its answer (`scout-acted`,
-   * `patrol-changed` or `patrol-previewed`), or says it didn't answer in time.
+   * Sends a Board's request, a Patrol change, a preview or a Library request to its Kingdom and waits for its answer
+   * (`scout-acted`, `patrol-changed`, `patrol-previewed` or `library-answer`), or says it didn't answer in time.
    */
   function askKingdom(
     socket: WebSocket,
     node: string,
-    frame: HubScoutAction | HubScoutQuest | HubPatrolChange | HubPatrolPreview | HubPatrolDraft,
+    frame:
+      | HubScoutAction
+      | HubScoutQuest
+      | HubPatrolChange
+      | HubPatrolPreview
+      | HubPatrolDraft
+      | HubLibraryList
+      | HubLibraryRead
+      | HubLibraryWrite
+      | HubLibraryBacklinks,
+    waitMs = SCOUT_ACTION_WAIT_MS,
   ): Promise<KingdomAnswer> {
     return new Promise((resolve) => {
       const finish = (result: KingdomAnswer) => {
@@ -1387,10 +1437,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         kingdomAsks.delete(frame.requestId);
         resolve(result);
       };
-      const timer = setTimeout(
-        () => finish({ ok: false, reason: 'the Kingdom did not answer in time' }),
-        SCOUT_ACTION_WAIT_MS,
-      );
+      const timer = setTimeout(() => finish({ ok: false, reason: 'the Kingdom did not answer in time' }), waitMs);
       kingdomAsks.set(frame.requestId, { node, finish });
       sendJson(socket, frame);
     });
@@ -1516,6 +1563,58 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     return answer.session ? { session: answer.session } : {};
   });
+  // The Library: the hub carries each request to the Kingdom and its answer back, and keeps nothing (docs/LIBRARY.md).
+  /** Asks a Kingdom with a Library, and sends its answer, or why there is none, with the Library's headers. */
+  async function askLibrary(
+    node: string,
+    reply: FastifyReply,
+    frame: HubLibraryList | HubLibraryRead | HubLibraryWrite | HubLibraryBacklinks,
+  ) {
+    libraryHeaders(reply);
+    const socket = nodes.get(node);
+    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!libraryNodes.has(node))
+      return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
+    const answer = await askKingdom(socket, node, frame, LIBRARY_WAIT_MS);
+    const library = answer.library;
+    if (!library?.ok) {
+      const reason = library?.reason ?? answer.reason ?? 'the Kingdom could not do this';
+      return reply
+        .code(library ? libraryRefusalStatus(library.reason) : 409)
+        .send({ error: reason, ...(library?.version ? { version: library.version } : {}) });
+    }
+    const { kind: _kind, requestId: _requestId, ok: _ok, reason: _reason, ...result } = library;
+    return result;
+  }
+  const libraryPathOf = (request: FastifyRequest) => LibraryPath.safeParse((request.query as { path?: unknown }).path);
+  app.get('/api/nodes/:node/library', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    return askLibrary(node, reply, { kind: 'library-list', requestId: randomUUID() });
+  });
+  // Text only: images come through their own route, with their own content type.
+  app.get('/api/nodes/:node/library/tome', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    return askLibrary(node, reply, { kind: 'library-read', requestId: randomUUID(), path: wanted.data });
+  });
+  app.put('/api/nodes/:node/library/tome', { bodyLimit: LIBRARY_BODY_LIMIT }, async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = TomeWrite.safeParse(request.body);
+    if (!wanted.success) {
+      const issue = wanted.error.issues.find((one) => one.path[0] === 'content');
+      return libraryHeaders(reply)
+        .code(400)
+        .send({ error: issue ? issue.message : 'expected { path, content, base } with base a version or null' });
+    }
+    return askLibrary(node, reply, { kind: 'library-write', requestId: randomUUID(), ...wanted.data });
+  });
+  app.get('/api/nodes/:node/library/backlinks', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    return askLibrary(node, reply, { kind: 'library-backlinks', requestId: randomUUID(), path: wanted.data });
+  });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>
     [...engines]
@@ -1532,6 +1631,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           ...(cli ? { cli } : {}),
           ...(cliUpdaters.has(node) ? { cliUpdate: true } : {}),
           ...(deedsNodes.has(node) ? { deeds: true } : {}),
+          ...(libraryNodes.has(node) ? { library: libraryNodes.get(node) } : {}),
           ...(selfUpdate ? { selfUpdate } : {}),
         };
       }),
@@ -1662,6 +1762,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else patrolDraftNodes.delete(helloNode);
           if (hello.data.deeds) deedsNodes.add(helloNode);
           else deedsNodes.delete(helloNode);
+          if (hello.data.library) libraryNodes.set(helloNode, hello.data.library);
+          else libraryNodes.delete(helloNode);
           if (hello.data.patrols) patrolNodes.add(helloNode);
           else patrolNodes.delete(helloNode);
           if (hello.data.patrols && hello.data.patrolsFromApp) patrolEditNodes.add(helloNode);
@@ -1789,6 +1891,17 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           waiting.finish(
             times ? { ok: true, times } : { ok: false, refused: true, reason: reason ?? 'the Kingdom gave no times' },
           );
+          return;
+        }
+
+        const libraryAnswer = NodeLibraryAnswer.safeParse(parsed);
+        if (libraryAnswer.success) {
+          const waiting = kingdomAsks.get(libraryAnswer.data.requestId);
+          if (waiting?.node !== helloNode) {
+            app.log.warn({ node: helloNode }, 'dropped a Library answer nobody is waiting for from this node');
+            return;
+          }
+          waiting.finish({ ok: libraryAnswer.data.ok, library: libraryAnswer.data });
           return;
         }
 
@@ -1966,6 +2079,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           scoutQuestNodes.delete(helloNode);
           patrolDraftNodes.delete(helloNode);
           deedsNodes.delete(helloNode);
+          libraryNodes.delete(helloNode);
           patrolNodes.delete(helloNode);
           patrolEditNodes.delete(helloNode);
           patrolPreviewNodes.delete(helloNode);

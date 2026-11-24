@@ -1464,6 +1464,199 @@ describe('airship server', () => {
     expect(nodes).toEqual(['node-a']);
   });
 
+  describe('the Library (#290)', () => {
+    const SESSION = '22222222-2222-4222-8222-222222222222';
+    const LIBRARY = { library: { dir: '/w/library' } };
+    const VERSION = { size: 5, mtimeMs: 1, hash: 'a'.repeat(64) };
+    const NEWER = { size: 6, mtimeMs: 2, hash: 'b'.repeat(64) };
+    const TOME = { path: 'a.md', kind: 'md', content: '# Hi\n', encoding: 'utf8', truncated: false, version: VERSION };
+    const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
+    const call = (method: string, path: string, body?: unknown) =>
+      fetch(`${baseUrl}${path}`, {
+        method,
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      });
+    type Kingdom = { socket: WebSocket; frames: FrameRecorder };
+
+    async function started(hello: Record<string, unknown> = LIBRARY) {
+      const node = await connectNode('node-a', hello);
+      send(node.socket, sessionStartedEnvelope(SESSION, 'node-a'));
+      await node.frames.waitFor((frame) => frame.kind === 'ack');
+      return node;
+    }
+
+    /** Waits for the Kingdom to be asked, then answers with `answer`. */
+    async function answers(node: Kingdom, kind: string, answer: Record<string, unknown>) {
+      const asked = (await node.frames.waitFor((frame) => frame.kind === kind)) as Record<string, unknown>;
+      send(node.socket, { kind: 'library-answer', requestId: asked.requestId, ...answer });
+      return asked;
+    }
+
+    it('lists, reads, writes and asks for backlinks through the Kingdom', async () => {
+      const node = await started();
+      const entries = [{ path: 'a.md', kind: 'md', size: 5, mtimeMs: 1 }];
+      const listed = call('GET', '/api/nodes/node-a/library');
+      await answers(node, 'library-list', { ok: true, entries, truncated: false });
+      expect(await json(await listed)).toEqual({ status: 200, body: { entries, truncated: false } });
+
+      const read = call('GET', '/api/nodes/node-a/library/tome?path=a.md');
+      const askedRead = await answers(node, 'library-read', { ok: true, tome: TOME });
+      expect(askedRead).toEqual({ kind: 'library-read', requestId: expect.any(String), path: 'a.md' });
+      expect(await json(await read)).toEqual({ status: 200, body: { tome: TOME } });
+
+      const written = call('PUT', '/api/nodes/node-a/library/tome', {
+        path: 'a.md',
+        content: '# Hi!\n',
+        base: VERSION,
+      });
+      const askedWrite = await answers(node, 'library-write', { ok: true, version: NEWER });
+      expect(askedWrite).toMatchObject({ path: 'a.md', content: '# Hi!\n', base: VERSION });
+      expect(await json(await written)).toEqual({ status: 200, body: { version: NEWER } });
+
+      const backlinks = [{ path: 'b.md', line: 'see [[a]]' }];
+      const linked = call('GET', '/api/nodes/node-a/library/backlinks?path=a.md');
+      const askedLinks = await answers(node, 'library-backlinks', { ok: true, backlinks });
+      expect(askedLinks).toMatchObject({ path: 'a.md' });
+      expect(await json(await linked)).toEqual({ status: 200, body: { backlinks } });
+    });
+
+    it('writes a new Tome with a null base, and a Tome as large as the Library takes', async () => {
+      const node = await started();
+      const content = 'x'.repeat(512 * 1024);
+      const written = call('PUT', '/api/nodes/node-a/library/tome', { path: 'new.md', content, base: null });
+      const asked = await answers(node, 'library-write', { ok: true, version: NEWER });
+      expect(asked).toMatchObject({ path: 'new.md', base: null });
+      expect((asked.content as string).length).toBe(content.length);
+      expect((await written).status).toBe(200);
+    });
+
+    it('answers a refused write with 409 and the current version', async () => {
+      const node = await started();
+      const body = { path: 'a.md', content: '# Hi!\n', base: VERSION };
+      const changed = call('PUT', '/api/nodes/node-a/library/tome', body);
+      await answers(node, 'library-write', { ok: false, reason: 'changed', version: NEWER });
+      expect(await json(await changed)).toEqual({ status: 409, body: { error: 'changed', version: NEWER } });
+
+      node.frames.frames = [];
+      const exists = call('PUT', '/api/nodes/node-a/library/tome', { ...body, path: 'b.md', base: null });
+      await answers(node, 'library-write', { ok: false, reason: 'exists', version: VERSION });
+      expect(await json(await exists)).toEqual({ status: 409, body: { error: 'exists', version: VERSION } });
+    });
+
+    it('maps the Kingdom’s other refusals, and refuses bad input before asking', async () => {
+      const node = await started();
+      for (const [reason, status] of [
+        ['not in the Library', 404],
+        ['gone', 404],
+        ['a link', 409],
+      ] as const) {
+        node.frames.frames = [];
+        const read = call('GET', '/api/nodes/node-a/library/tome?path=a.md');
+        await answers(node, 'library-read', { ok: false, reason });
+        expect(await json(await read)).toEqual({ status, body: { error: reason } });
+      }
+      node.frames.frames = [];
+      const bad = [
+        call('GET', '/api/nodes/node-a/library/tome'),
+        call('GET', `/api/nodes/node-a/library/tome?path=${'a'.repeat(1025)}`),
+        call('GET', '/api/nodes/node-a/library/backlinks'),
+        call('PUT', '/api/nodes/node-a/library/tome', { path: 'a.md', base: null }),
+        call('PUT', '/api/nodes/node-a/library/tome', { path: 'a.md', content: 'x', base: { size: 1 } }),
+        call('PUT', '/api/nodes/node-a/library/tome', {
+          path: 'a.md',
+          content: 'x'.repeat(512 * 1024 + 1),
+          base: null,
+        }),
+      ];
+      expect((await Promise.all(bad)).map((response) => response.status)).toEqual([400, 400, 400, 400, 400, 400]);
+      expect(node.frames.frames.filter((frame) => String(frame.kind).startsWith('library-'))).toEqual([]);
+    });
+
+    it('says the Kingdom is offline (404), too old (409, no library in its hello) or slow (409 after 15 s)', async () => {
+      expect(await json(await call('GET', '/api/nodes/node-z/library'))).toEqual({
+        status: 404,
+        body: { error: 'that Kingdom is offline' },
+      });
+      const old = await started({});
+      expect(await json(await call('GET', '/api/nodes/node-a/library'))).toEqual({
+        status: 409,
+        body: { error: 'update this Kingdom first: it is too old for this' },
+      });
+      old.socket.terminate();
+
+      const node = await started();
+      // Only the hub's timers: the sockets and the frame recorder keep real ones.
+      const asked = new Promise<void>((resolve) =>
+        node.socket.on('message', (data) => {
+          if ((JSON.parse(data.toString()) as { kind?: string }).kind === 'library-list') resolve();
+        }),
+      );
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        let settled = false;
+        const slow = app.inject({ method: 'GET', url: '/api/nodes/node-a/library' });
+        void slow.then(() => (settled = true));
+        await asked;
+        await vi.advanceTimersByTimeAsync(14_999);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const response = await slow;
+        expect([response.statusCode, response.json()]).toEqual([409, { error: 'the Kingdom did not answer in time' }]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('drops an answer from another Kingdom', async () => {
+      const node = await started();
+      const other = await connectNode('node-b', LIBRARY);
+      const listed = call('GET', '/api/nodes/node-a/library');
+      const asked = (await node.frames.waitFor((frame) => frame.kind === 'library-list')) as { requestId: string };
+      send(other.socket, {
+        kind: 'library-answer',
+        requestId: asked.requestId,
+        ok: true,
+        entries: [],
+        truncated: true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const entries = [{ path: 'a.md', kind: 'md' }];
+      send(node.socket, { kind: 'library-answer', requestId: asked.requestId, ok: true, entries, truncated: false });
+      expect(await json(await listed)).toEqual({ status: 200, body: { entries, truncated: false } });
+    });
+
+    it('every Library answer carries nosniff, CORP same-origin and a sandbox CSP', async () => {
+      const node = await started();
+      const listed = call('GET', '/api/nodes/node-a/library');
+      await answers(node, 'library-list', { ok: true, entries: [], truncated: false });
+      const refused = call('PUT', '/api/nodes/node-a/library/tome', { path: 'a.md', content: 'x', base: null });
+      await answers(node, 'library-write', { ok: false, reason: 'exists', version: VERSION });
+      const responses = [
+        await listed,
+        await refused,
+        await call('GET', '/api/nodes/node-z/library/tome?path=a.md'),
+        await call('GET', '/api/nodes/node-a/library/backlinks'),
+      ];
+      expect(responses.map((response) => response.status)).toEqual([200, 409, 404, 400]);
+      for (const response of responses) {
+        expect(response.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+        expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(response.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+      }
+    });
+
+    it('/api/engines passes library: { dir } on', async () => {
+      await connectNode('node-a', LIBRARY);
+      await connectNode('node-b');
+      const start = Date.now();
+      let body: { node: string; library?: unknown }[] = [];
+      while (body.length < 2 && Date.now() - start < 2000)
+        body = (await (await fetch(`${baseUrl}/api/engines`)).json()) as typeof body;
+      expect(body.find((row) => row.node === 'node-a')?.library).toEqual({ dir: '/w/library' });
+      expect(body.find((row) => row.node === 'node-b')).not.toHaveProperty('library');
+    });
+  });
+
   describe('a Kingdom that goes quiet', () => {
     let quiet: import('fastify').FastifyInstance;
     let quietUrl: string;
@@ -4228,6 +4421,19 @@ describe('airship server and other sites', () => {
     expect((await post({ origin: 'https://evil.example' })).statusCode).toBe(403);
   });
 
+  it('refuses a Library write from another site', async () => {
+    const write = (headers: Record<string, string>) =>
+      app.inject({
+        method: 'PUT',
+        url: '/api/nodes/a/library/tome',
+        headers: { ...me, ...headers },
+        payload: { path: 'a.md', content: 'x', base: null },
+      });
+    expect((await write({ 'sec-fetch-site': 'cross-site' })).statusCode).toBe(403);
+    expect((await write({ origin: 'https://evil.example' })).statusCode).toBe(403);
+    expect((await write({})).statusCode).toBe(404);
+  });
+
   it('lets a page from the hub itself in, whatever a proxy did to Host', async () => {
     expect(await dial({ origin: 'https://hub.example', 'sec-fetch-site': 'same-origin' })).toBe('open');
     const host = new URL(base).host;
@@ -4339,6 +4545,23 @@ describe('airship server with token login', () => {
       canLogIn: true,
       setup: false,
     });
+  });
+
+  it('needs a login under token auth, even with publicApp, for the Library', async () => {
+    expect(auth.publicApp).toBe(true);
+    for (const [method, url] of [
+      ['GET', '/api/nodes/node-a/library'],
+      ['GET', '/api/nodes/node-a/library/tome?path=a.md'],
+      ['PUT', '/api/nodes/node-a/library/tome'],
+      ['GET', '/api/nodes/node-a/library/backlinks?path=a.md'],
+    ] as const) {
+      const response = await app.inject({
+        method,
+        url,
+        ...(method === 'PUT' ? { payload: { path: 'a.md', content: 'x', base: null } } : {}),
+      });
+      expect([url, response.statusCode]).toEqual([url, 403]);
+    }
   });
 
   it('refuses a bad token and sets no cookie', async () => {
