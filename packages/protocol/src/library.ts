@@ -9,8 +9,11 @@ export const MAX_LISTING = 10_000;
 /** The most paths one `library-changed` names; past that a node sends `all`. */
 export const MAX_CHANGED_PATHS = 200;
 
+/** The longest path a message carries, in UTF-16 units (a string's `length`); a longer one is left out. */
+export const MAX_LIBRARY_PATH = 1024;
+
 /** A path inside the Library, with `/` separators. */
-export const LibraryPath = z.string().min(1).max(1024);
+export const LibraryPath = z.string().min(1).max(MAX_LIBRARY_PATH);
 export type LibraryPath = z.infer<typeof LibraryPath>;
 
 export const LibraryEntryKind = z.enum(['folder', 'md', 'html', 'image']);

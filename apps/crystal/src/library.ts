@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readdir, realpath, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import {
   MAX_IMAGE_BYTES,
+  MAX_LIBRARY_PATH,
   MAX_LISTING,
   MAX_TOME_BYTES,
   type LibraryBacklink,
@@ -49,6 +50,18 @@ const refused: Refusal = { ok: false, reason: NOT_HERE };
 const INSTRUCTIONS = new Set(['claude.md', 'agents.md']);
 
 const CHUNK = 64 * 1024;
+
+/** The protocol carries a reason of up to 300 characters; a long folder path keeps its end, which tells folders apart. */
+const FOLDER_IN_REASON = 250;
+function folderForReason(dir: string): string {
+  return dir.length <= FOLDER_IN_REASON ? dir : '…' + dir.slice(-FOLDER_IN_REASON);
+}
+
+/**
+ * A name the Library leaves out outside Windows: a `\` is a separator only there, so elsewhere `a\b.md` would be
+ * read and written as `a/b.md`, another file.
+ */
+const unlisted = (name: string) => process.platform !== 'win32' && name.includes('\\');
 
 function within(folder: string, path: string): boolean {
   return path === folder || path.startsWith(folder + sep);
@@ -167,15 +180,16 @@ export function createLibrary(opts: LibraryOptions): Library {
   }
 
   async function list(): Promise<ListAnswer> {
+    const gone = `the Library folder is gone: ${folderForReason(dir)}`;
     let rootReal: string;
     try {
       rootReal = await realpath(dir);
-      if (!(await stat(rootReal)).isDirectory()) return { ok: false, reason: `the Library folder is gone: ${dir}` };
+      if (!(await stat(rootReal)).isDirectory()) return { ok: false, reason: gone };
       await readdir(rootReal);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'ENOTDIR') return { ok: false, reason: `the Library folder is gone: ${dir}` };
-      return { ok: false, reason: `the Library folder can't be read: ${dir}` };
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { ok: false, reason: gone };
+      return { ok: false, reason: `the Library folder can't be read: ${folderForReason(dir)}` };
     }
 
     const entries: LibraryEntry[] = [];
@@ -203,6 +217,8 @@ export function createLibrary(opts: LibraryOptions): Library {
       for (const dirent of dirents) {
         if (truncated) return;
         const path = rel === '' ? dirent.name : rel + '/' + dirent.name;
+        // Too long for a message; a folder's contents are longer still.
+        if (unlisted(dirent.name) || path.length > MAX_LIBRARY_PATH) continue;
         const full = join(real, dirent.name);
         let isFolder = dirent.isDirectory();
         let target = full;

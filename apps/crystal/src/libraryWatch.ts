@@ -1,12 +1,12 @@
 import * as fs from 'node:fs';
 import { join, sep } from 'node:path';
-import { MAX_CHANGED_PATHS } from '@crystal-bridge/protocol';
+import { MAX_CHANGED_PATHS, MAX_LIBRARY_PATH } from '@crystal-bridge/protocol';
 import { checkLibraryPath, type Filter } from './libraryPaths.js';
 
 export type LibraryChange = { paths?: string[]; all?: true };
 
 export type LibraryWatcher = {
-  /** Some folders went unwatched: Linux reached `maxFolders`, or ran out of watches. Stays true once set. */
+  /** Some changes may go unseen: Linux reached `maxFolders` or ran out of watches, or a watch failed. Stays true once set. */
   readonly capped: boolean;
   /** How many `fs.watch` handles are open. */
   readonly watchCount: number;
@@ -38,7 +38,10 @@ export type WatchOptions = {
  *   and is reported the same way, which costs only a needless reload.
  * - A change to the top-level `.gitignore` calls `onIgnoreChanged` and reports the whole listing as changed. The
  *   filter in use is the one given, so the caller reloads it and starts a new watcher.
- * - Past `MAX_CHANGED_PATHS` in a batch, or when an event names no path, the batch says `all`.
+ * - Past `MAX_CHANGED_PATHS` in a batch, when an event names no path, or when a watch fails (and so the watcher is
+ *   `capped`), the batch says `all`.
+ * - What the listing leaves out is never reported: a path longer than `MAX_LIBRARY_PATH`, and outside Windows a name
+ *   with a `\`, which would be read and written as a different path.
  *
  * On macOS and Windows one recursive watch covers the folder. On Linux, where the recursive watch puts a watch on
  * every file and can't skip a folder, the tree is walked (following no symlinks, skipping left-out folders) with one
@@ -96,6 +99,8 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
   }
 
   const isTome = (rel: string) => checkLibraryPath(rel).ok && allowed(rel, false);
+  /** A name the listing leaves out wherever it is: see `library.ts`. */
+  const unlisted = (name: string) => platform !== 'win32' && name.includes('\\');
 
   function close(rel: string): void {
     const watcher = watches.get(rel);
@@ -133,8 +138,10 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
       return false;
     }
     watcher.on('error', (error: Error) => {
-      log(`Library watch on ${rel || '.'} failed: ${error.message}`);
       if (watches.get(rel) === watcher) close(rel);
+      // Changes there go unseen from now on, so clients reload rather than trust what they have.
+      capped = true;
+      reportAll(`watch on ${rel || '.'} failed: ${error.message}`);
     });
     watches.set(rel, watcher);
     return true;
@@ -156,6 +163,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
     }
     for (const entry of entries) {
       const path = child(rel, entry.name);
+      if (unlisted(entry.name) || path.length > MAX_LIBRARY_PATH) continue;
       if (entry.isDirectory()) {
         if (allowed(path, true)) walk(path, watching, reporting);
       } else if (reporting && isTome(path)) {
@@ -167,6 +175,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
 
   /** One changed path, relative to the Library with `/` between its parts. */
   function changed(path: string, event: string): void {
+    if (path.length > MAX_LIBRARY_PATH) return;
     if (path === '.gitignore') {
       opts.onIgnoreChanged?.();
       reportAll('.gitignore changed');
@@ -184,6 +193,8 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
       if (event === 'change') return;
       if (!allowed(path, true)) return;
       report(path);
+      // A watch already here can be on a folder removed and made again at this path (Linux watches the old one).
+      if (!recursive) closeUnder(path);
       walk(path, !recursive, true);
       return;
     }
@@ -204,7 +215,9 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
   function onRecursiveEvent(event: string, name: string | Buffer | null): void {
     if (closed) return;
     if (name === null) return reportAll('an event without a file name');
-    const path = name.toString().split(sep).join('/').split('\\').join('/');
+    const raw = name.toString();
+    if (unlisted(raw)) return;
+    const path = raw.split(sep).join('/').split('\\').join('/');
     if (path === '') return;
     changed(path, event);
   }
@@ -217,6 +230,7 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
       return;
     }
     if (name === null) return reportAll('an event without a file name');
+    if (unlisted(name.toString())) return;
     changed(child(rel, name.toString()), event);
   }
 

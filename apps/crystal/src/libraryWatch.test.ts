@@ -160,9 +160,72 @@ describe('the Library watcher (#290)', () => {
 
   it.skipIf(noSymlinks)('survives a symlinked folder that loops', async () => {
     symlinkSync('..', join(root, 'notes', 'loop'));
-    await start();
+    const watcher = await start();
     writeFileSync(join(root, 'notes', 'a.md'), '# A, again\n');
     await until(() => reported().includes('notes/a.md'));
+    if (process.platform === 'linux') {
+      // The top and notes: the link isn't followed.
+      expect(watcher.watchCount).toBe(2);
+      expect(reported().filter((path) => path.includes('loop/'))).toEqual([]);
+    }
+  });
+
+  it.runIf(process.platform === 'linux')(
+    'on Linux, watches a folder removed and made again at once',
+    async () => {
+      await start();
+      rmSync(join(root, 'notes'), { recursive: true });
+      mkdirSync(join(root, 'notes'));
+      await until(() => reported().includes('notes'));
+      await wait(600);
+      changes.length = 0;
+      writeFileSync(join(root, 'notes', 'b.md'), '# B\n');
+      mkdirSync(join(root, 'notes', 'sub'));
+      await until(() => reported().includes('notes/sub'));
+      writeFileSync(join(root, 'notes', 'sub', 'c.md'), '# C\n');
+      await until(() => reported().includes('notes/b.md') && reported().includes('notes/sub/c.md'));
+    },
+    20_000,
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    "leaves out a name with a backslash, which isn't a separator here",
+    async () => {
+      await start();
+      writeFileSync(join(root, 'notes', 'a\\b.md'), '# odd\n');
+      mkdirSync(join(root, 'odd\\dir'));
+      writeFileSync(join(root, 'notes', 'a.md'), '# A, again\n');
+      await until(() => reported().includes('notes/a.md'));
+      await wait(600);
+      expect(reported()).toEqual(['notes/a.md']);
+    },
+  );
+
+  it('leaves out a path longer than the protocol carries', async () => {
+    const listeners: ((event: string, name: string) => void)[] = [];
+    const fakeWatch = ((_path: string, _opts: unknown, listener: (event: string, name: string) => void) => {
+      listeners.push(listener);
+      return Object.assign(new EventEmitter(), { close: () => {} });
+    }) as unknown as typeof fs.watch;
+    // Six folders of 200 characters: the sixth's path, and the Tome in it, are past the 1,024 a path may have.
+    const long = ['a', 'b', 'c', 'd', 'e', 'f'].map((letter) => letter.repeat(200));
+    mkdirSync(join(root, ...long), { recursive: true });
+    writeFileSync(join(root, ...long, 'x.md'), '');
+    const watcher = watchLibrary(root, {
+      allowed: libraryFilter(root),
+      onChange: (change) => changes.push(change),
+      log: (msg) => logs.push(msg),
+      batchMs: 20,
+      platform: 'darwin',
+      watch: fakeWatch,
+    });
+    watchers.push(watcher);
+    listeners[0]!('change', [...long, 'x.md'].join('/'));
+    listeners[0]!('rename', long.join('/'));
+    listeners[0]!('rename', long[0]!);
+    listeners[0]!('change', 'notes/a.md');
+    await until(() => changes.length > 0);
+    expect(changes).toEqual([{ paths: [long[0], 'notes/a.md'] }]);
   });
 
   it.runIf(process.platform === 'linux')(
@@ -266,14 +329,43 @@ describe('the Library watcher (#290)', () => {
         allowed: libraryFilter(root),
         onChange: (change) => changes.push(change),
         log: (msg) => logs.push(msg),
+        batchMs: 20,
         platform,
         watch: fakeWatch,
       });
       watchers.push(watcher);
       expect(emitters.length).toBeGreaterThan(0);
+      expect(watcher.capped).toBe(false);
+      changes.length = 0;
+      logs.length = 0;
       expect(() => emitters[0]!.emit('error', new Error('too many watches'))).not.toThrow();
-      expect(logs.at(-1)).toContain('too many watches');
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toContain('too many watches');
+      // Some changes may now go unseen, so clients are told to reload.
+      expect(watcher.capped, platform).toBe(true);
+      await until(() => changes.length > 0);
+      expect(changes, platform).toEqual([{ all: true }]);
       watcher.close();
+    }
+  });
+
+  it('logs a watch it can’t open and says it is capped', () => {
+    const fakeWatch = (() => {
+      throw Object.assign(new Error('ENOSPC: System limit for number of file watchers reached'), { code: 'ENOSPC' });
+    }) as unknown as typeof fs.watch;
+    for (const platform of ['linux', 'darwin'] as const) {
+      logs.length = 0;
+      const watcher = watchLibrary(root, {
+        allowed: libraryFilter(root),
+        onChange: (change) => changes.push(change),
+        log: (msg) => logs.push(msg),
+        platform,
+        watch: fakeWatch,
+      });
+      watchers.push(watcher);
+      expect(watcher.capped, platform).toBe(true);
+      expect(watcher.watchCount).toBe(0);
+      expect(logs.join('\n')).toContain('ENOSPC');
     }
   });
 });

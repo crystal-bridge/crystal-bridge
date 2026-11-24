@@ -50,7 +50,8 @@ Crystal reads one folder per Kingdom:
 Folders and files whose names start with a dot are left out: `.git`, `.obsidian`, `.trash`, `.env` and the like. So
 are `node_modules` and anything a `.gitignore` at the Library's top level excludes. The same rules apply to every
 read and write, not only to the listing: a request for a dot path, an ignored path or another extension is refused
-as if the file weren't there. A listing stops at 10,000 entries and says so.
+as if the file weren't there. A listing stops at 10,000 entries and says so. It also leaves out a path longer than
+1,024 characters and, outside Windows, a name with a `\`, which the app would take as a folder separator.
 
 ## Read the Tomes: the reader
 
@@ -169,10 +170,13 @@ Library. The write path has its own checks, stricter than the file viewer's read
 
 1. Refuse an absolute path, a `..` step, a `:` anywhere (on Windows, `x:y.md` writes to an alternate data stream) and
    any dot name, before touching the disk, so a network path never makes Windows reach out.
-2. Resolve the parent folder's real path and check it lies inside the Library's real path.
+2. Resolve the parent folder's real path and check it lies inside the Library's real path. An existing Tome's own real
+   path passes the same checks, so a Windows short name (`GIT~1`) can't reach a dot folder.
 3. Write to a temporary file with a random name, created exclusively (`O_EXCL`), so a symlink planted at that name is
    never followed; give it the old file's permissions.
-4. Rename it into place, then check the result's real path again.
+4. Rename it into place, then check the result's real path again. A new Tome is hard-linked into place instead, so a
+   file made there in the meantime is never replaced; a file system without hard links falls back to the rename. The
+   last check can refuse the write but can't undo it, so it never removes the file.
 
 So a crash never leaves half a Tome. A rename replaces a hard link with a plain file, which the Library accepts.
 
@@ -201,12 +205,13 @@ Crystal watches the Library folder and skips the folders the listing leaves out:
 - On macOS and Windows, one recursive watch on the whole folder, whose events for left-out paths are dropped.
 - On Linux, Node's recursive watcher puts a watch on every file and can't skip a folder, so a repository with
   `node_modules` would run out of watches. Crystal walks the tree itself instead, one watch per folder it lists, and
-  stops at 5,000 folders. Past that it says changes may not show until you reload.
+  stops at 5,000 folders. Past that the rest go unwatched and Crystal logs it at start; a change in one of them shows
+  the next time the listing is loaded.
 
 Changes are batched for half a second and sent as one `library-changed` frame with the changed paths (at most 200;
 beyond that, it says the whole listing changed). The hub passes it to the browsers that have that Kingdom's Library
-open, and they update the listing and any open Tome. A watcher error is logged and the Library keeps serving; it
-never stops Crystal.
+open, and they update the listing and any open Tome. A watcher error is logged and reported as the whole listing
+changed, so the browsers load it again; the Library keeps serving, and it never stops Crystal.
 
 ## Mind the wards: trust and confinement
 

@@ -133,6 +133,48 @@ describe("a Kingdom's Library (#290)", () => {
     expect(paths).not.toContain('c.md');
   });
 
+  it.runIf(process.platform !== 'win32')(
+    "leaves out a name with a backslash, which isn't a separator here",
+    async () => {
+      put('a.md', '#');
+      put('notes/a\\b.md', '#');
+      put('odd\\dir/c.md', '#');
+      const lib = await open();
+      const answer = await lib.list();
+      if (!answer.ok) throw new Error(answer.reason);
+      expect(answer.entries.map((e) => e.path)).toEqual(['a.md', 'notes']);
+    },
+  );
+
+  it('leaves out a path longer than the protocol carries', async () => {
+    // Six folders of 200 characters: the sixth's path, and what is in it, are past the 1,024 a path may have.
+    const long = ['a', 'b', 'c', 'd', 'e', 'f'].map((letter) => letter.repeat(200));
+    put([...long, 'x.md'].join('/'), '#');
+    put([...long.slice(0, 5), 'y'.repeat(30) + '.md'].join('/'), '#');
+    put([...long.slice(0, 5), 'z.md'].join('/'), '#');
+    const lib = await open();
+    const answer = await lib.list();
+    if (!answer.ok) throw new Error(answer.reason);
+    expect(answer.entries.map((e) => e.path)).toEqual([
+      ...[1, 2, 3, 4, 5].map((depth) => long.slice(0, depth).join('/')),
+      [...long.slice(0, 5), 'z.md'].join('/'),
+    ]);
+    expect(answer.entries.every((e) => e.path.length <= 1024)).toBe(true);
+  });
+
+  it('keeps the reason short when the folder has a long path', async () => {
+    dir = join(base, 'x'.repeat(200), 'y'.repeat(200), 'library');
+    const lib = await open();
+    rmSync(dir, { recursive: true, force: true });
+    const answer = await lib.list();
+    expect(answer.ok).toBe(false);
+    if (answer.ok) return;
+    expect(answer.reason.length).toBeLessThan(300);
+    expect(answer.reason).toMatch(/^the Library folder is gone: …/);
+    // The end of the path is kept: it is the part that tells one folder from another.
+    expect(answer.reason.endsWith(join('y'.repeat(20), 'library'))).toBe(true);
+  });
+
   it('stops at 10,000 entries and says so', async () => {
     for (const name of ['a', 'b', 'c', 'd', 'e']) put(`${name}.md`, '#');
     const lib = await open({ maxListing: 3 });
