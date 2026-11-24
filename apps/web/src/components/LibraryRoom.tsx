@@ -31,6 +31,7 @@ import {
   tomeFileUrl,
   useLibrary,
 } from '../library.js';
+import { useWide } from '../media.js';
 import { formatRoute } from '../route.js';
 import { Icon, type IconName } from '../theme/icons.js';
 import { hint, libraryLine, w } from '../theme/words.js';
@@ -56,21 +57,6 @@ function ago(at: number, now: number): string {
   if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h`;
   if (minutes < 48 * 60) return 'yesterday';
   return shortWhen(at, now);
-}
-
-/** A phone gets the read-only room: Tailwind's md, as the rest of the app splits it. */
-function useWide(): boolean {
-  const WIDE = '(min-width: 768px)';
-  const query = () => typeof window.matchMedia !== 'function' || window.matchMedia(WIDE).matches;
-  const [wide, setWide] = useState(query);
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const list = window.matchMedia(WIDE);
-    const update = () => setWide(list.matches);
-    list.addEventListener?.('change', update);
-    return () => list.removeEventListener?.('change', update);
-  }, []);
-  return wide;
 }
 
 // Each top-level folder gets a hue of its own, so the shelves scan apart. Spelled out whole for the stylesheet build;
@@ -492,6 +478,7 @@ interface Read {
 }
 
 export function LibraryRoom({ hub, node, kingdom, online, dir, path, onPath }: LibraryRoomProps) {
+  // A phone gets the read-only room.
   const wide = useWide();
   const listing = useLibrary(hub, node);
   const offline = !online || listing.error === OFFLINE;

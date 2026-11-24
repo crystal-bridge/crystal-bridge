@@ -11,6 +11,7 @@ import { loadDraft, saveDraft } from '../drafts.js';
 import { isMac } from '../hotkeys.js';
 import type { HubClient } from '../hub.js';
 import { LIBRARY_TONE, readTome, writeTome } from '../library.js';
+import { useMatches } from '../media.js';
 import { Icon } from '../theme/icons.js';
 import { w } from '../theme/words.js';
 import { Diff } from './Diff.js';
@@ -79,19 +80,6 @@ function plain(reason: string): string {
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const isGone = (reason: string) => reason === 'gone' || reason === 'not in the Library';
 
-function useWide(): boolean {
-  const query = () => typeof window.matchMedia !== 'function' || window.matchMedia(WIDE).matches;
-  const [wide, setWide] = useState(query);
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const list = window.matchMedia(WIDE);
-    const update = () => setWide(list.matches);
-    list.addEventListener?.('change', update);
-    return () => list.removeEventListener?.('change', update);
-  }, []);
-  return wide;
-}
-
 const BUTTON =
   'inline-flex items-center gap-1 rounded border border-neutral-300 px-2 py-1 text-xs font-bold hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800';
 const PRIMARY =
@@ -135,7 +123,7 @@ export function TomeEditor({ hub, node, path, tome, paths, onSaved, onClose }: T
     return draft && draft.text !== openedWith ? draft : null;
   });
   const [view, setView] = useState<View>('split');
-  const wide = useWide();
+  const wide = useMatches(WIDE);
   const shown: View = !wide && view === 'split' ? 'write' : view;
   const gutter = useRef<HTMLDivElement>(null);
 

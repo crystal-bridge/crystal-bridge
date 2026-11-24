@@ -27,6 +27,7 @@ import { type SearchHit, SearchResults } from './SearchResults.js';
 import { type SessionSummary, SessionList } from './SessionList.js';
 import type { HeroManifest, HeroState } from '../heroes.js';
 import { recentProjects, type TurnStats } from '../home.js';
+import { useWide } from '../media.js';
 import { isBehind, releaseLabel } from '../release.js';
 import { type ChipMemory, DeedsFeed, newChipMemory } from './Deeds.js';
 import { ErrandsPanel } from './Errands.js';
@@ -544,7 +545,10 @@ export function Castle({
         onLoadOlder={deeds.loadOlder}
       />
     );
-  const rightOthers = haunts.length > 0 || Boolean(garrison) || Boolean(library);
+  // The Library card is a desktop panel (the phone reaches the Library from its tab), so on a phone it neither mounts,
+  // reading and watching the listing, nor holds the right column open.
+  const phone = !useWide();
+  const rightOthers = haunts.length > 0 || Boolean(garrison) || (Boolean(library) && !phone);
   const rightColumn = rightOthers || checklist;
   // Right after Active Quests at every width: beside the right column from xl, above everything it stacks below that.
   const deedsWide = deeds && <div className="hidden md:block">{deedsFeed(false)}</div>;
@@ -683,12 +687,7 @@ export function Castle({
             // Holding only the Checklist, it has nothing to show below xl, so it takes no grid gap there.
             <div className={`min-w-0 space-y-5 ${rightOthers ? '' : 'hidden xl:block'}`}>
               {errandsHere}
-              {library && (
-                // A desktop panel: the phone reaches the Library from its tab.
-                <div className="hidden md:block">
-                  <LibraryCard {...library} node={kingdom.id} />
-                </div>
-              )}
+              {library && !phone && <LibraryCard {...library} node={kingdom.id} />}
               {haunts.length > 0 && (
                 <Section title={w('haunts')} plain={hint('haunts')}>
                   <ul className="divide-y divide-neutral-200 px-3 dark:divide-neutral-800">

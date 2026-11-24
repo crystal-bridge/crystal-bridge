@@ -761,4 +761,21 @@ describe('Castle Library card (#290)', () => {
     renderCastle();
     expect(screen.queryByRole('region', { name: w('library') })).toBeNull();
   });
+
+  it('stays off a phone: no card, no listing read, no watch', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    );
+    watchLibrary.mockClear();
+    renderCastle({ library: { hub, dir: '/l', onOpen: vi.fn() } });
+    expect(screen.queryByRole('region', { name: w('library') })).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(watchLibrary).not.toHaveBeenCalled();
+  });
 });
