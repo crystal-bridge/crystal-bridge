@@ -190,7 +190,7 @@ outside its project: in the default mode, reading or writing a Tome asks first. 
 and adding it unasked would let every Quest, including one working on an untrusted repository, read it and write any
 file type there, `.git/hooks` and Obsidian plugins included.
 
-A Kingdom can opt in with `CRYSTAL_LIBRARY_QUESTS=folder`, which adds the folder to every new Quest the way each engine
+A Kingdom can opt in with `CRYSTAL_LIBRARY_QUESTS=folder`, which adds the folder to every Quest, resumed ones included, the way each engine
 adds extra folders today: `--add-dir` on the stream engine, and the `additionalDirectories` setting on the interactive
 engine, which stops on a trust prompt for `--add-dir` (#297). Nothing depends on a plugin, hook or skill.
 
