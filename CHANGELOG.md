@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions follow [semantic versioning](https://semver.org). Releases before 0.3.0 share
 one entry.
 
-## Unreleased
+## 0.8.0
 
 ### Added
 
@@ -38,6 +38,18 @@ one entry.
 - Full releases and pre-releases publish the Kingdom and hub to npm as `@crystal-bridge/kingdom` and
   `@crystal-bridge/airship`, from the release's attested tarballs by trusted publishing (pre-releases under `next`).
   Edge builds stay on GitHub Releases. See [Releases](docs/OPERATIONS.md#releases).
+- Each Kingdom keeps a Library, one folder of Tomes (`CRYSTAL_LIBRARY_DIR`, by default `~/.crystal-bridge/library`;
+  `off` turns it off), which can be an Obsidian vault or a git repository. Its Library tab, right after the Castle tab,
+  lists, renders and edits the folder: Markdown with Mermaid diagrams, maths, highlighted code, images, wiki links,
+  backlinks, frontmatter and an outline, and a plain editor that checks the version it edited from and keeps drafts on
+  the device. The Castle gets a Library card, a phone reads the Library, and a Scroll in the Library offers Open in the
+  Library. New Quests learn where the Library is; `CRYSTAL_LIBRARY_QUESTS=folder` also gives them its folder. Paths are
+  confined to the folder, and writes are Markdown only. See [The Library](docs/LIBRARY.md).
+- An HTML Tome shows in a sandboxed frame that can't read the app. It can still contact other sites (through WebRTC,
+  through preconnect in Safari, or by navigating its frame), and its badge says so. See
+  [Open the sealed pages](docs/LIBRARY.md#open-the-sealed-pages-html-tomes).
+- `pnpm test:browser` proves the Library's sandboxes in Chromium and WebKit, and CI runs it and the Kingdom's tests on
+  macOS.
 
 ### Fixed
 
