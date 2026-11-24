@@ -1,8 +1,17 @@
 import { EventEmitter } from 'node:events';
 import type * as fs from 'node:fs';
-import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { libraryFilter } from './libraryPaths.js';
 import { watchLibrary } from './libraryWatch.js';
@@ -209,8 +218,12 @@ describe('the Library watcher (#290)', () => {
     }) as unknown as typeof fs.watch;
     // Six folders of 200 characters: the sixth's path, and the Tome in it, are past the 1,024 a path may have.
     const long = ['a', 'b', 'c', 'd', 'e', 'f'].map((letter) => letter.repeat(200));
-    mkdirSync(join(root, ...long), { recursive: true });
-    writeFileSync(join(root, ...long, 'x.md'), '');
+    // Only Linux lets a real path be this long (macOS stops at 1,024 characters, Windows at 260 by default). The length
+    // is checked before the disk is looked at, so elsewhere the events alone show it.
+    if (process.platform === 'linux') {
+      mkdirSync(join(root, ...long), { recursive: true });
+      writeFileSync(join(root, ...long, 'x.md'), '');
+    }
     const watcher = watchLibrary(root, {
       allowed: libraryFilter(root),
       onChange: (change) => changes.push(change),
@@ -273,6 +286,55 @@ describe('the Library watcher (#290)', () => {
       expect(changes).toEqual([{ paths: ['newdir', 'newdir/x.md'] }]);
     },
   );
+
+  /** A watcher on a fake recursive `fs.watch`, and the listener its events go to. */
+  function fakeRecursive(platform: NodeJS.Platform) {
+    const listeners: ((event: string, name: string | null) => void)[] = [];
+    const fakeWatch = ((_path: string, _opts: unknown, listener: (event: string, name: string | null) => void) => {
+      listeners.push(listener);
+      return Object.assign(new EventEmitter(), { close: () => {} });
+    }) as unknown as typeof fs.watch;
+    watchers.push(
+      watchLibrary(root, {
+        allowed: libraryFilter(root),
+        onChange: (change) => changes.push(change),
+        log: (msg) => logs.push(msg),
+        batchMs: 20,
+        platform,
+        watch: fakeWatch,
+      }),
+    );
+    return listeners[0]!;
+  }
+
+  it('on macOS, never reports the Library folder itself by its own name', async () => {
+    // FSEvents names an event on the watched folder (its making, just before the watch began) by the folder's name.
+    const emit = fakeRecursive('darwin');
+    emit('rename', basename(root));
+    emit('change', 'notes/a.md');
+    await until(() => changes.length > 0);
+    expect(changes).toEqual([{ paths: ['notes/a.md'] }]);
+
+    // A folder in the Library with that same name is reported as any other.
+    mkdirSync(join(root, basename(root)));
+    emit('rename', basename(root));
+    await until(() => changes.length > 1);
+    expect(changes[1]).toEqual({ paths: [basename(root)] });
+  });
+
+  it('on Windows, takes an event named by its absolute path, and never reports the Library itself or outside it', async () => {
+    // Windows names the watched folder by its absolute path, with the long-path prefix, when it is removed.
+    const emit = fakeRecursive('win32');
+    emit('rename', '\\\\?\\' + root + sep);
+    emit('rename', root);
+    emit('rename', realpathSync.native(root));
+    emit('change', '\\\\?\\' + join(root, 'notes', 'a.md'));
+    emit('rename', join(dirname(root), 'elsewhere.md'));
+    await until(() => changes.length > 0);
+    await wait(100);
+    expect(changes).toEqual([{ paths: ['notes/a.md'] }]);
+    expect(logs).toEqual([]);
+  });
 
   it('logs why it reports everything as changed', async () => {
     const listeners: ((event: string, name: string | null) => void)[] = [];

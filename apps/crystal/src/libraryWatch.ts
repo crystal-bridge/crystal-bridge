@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
-import { join, sep } from 'node:path';
+import { basename, isAbsolute, join, sep } from 'node:path';
 import { MAX_CHANGED_PATHS, MAX_LIBRARY_PATH } from '@crystal-bridge/protocol';
-import { checkLibraryPath, type Filter } from './libraryPaths.js';
+import { checkLibraryPath, comparablePath, libraryRelative, type Filter } from './libraryPaths.js';
 
 export type LibraryChange = { paths?: string[]; all?: true };
 
@@ -42,6 +42,8 @@ export type WatchOptions = {
  *   `capped`), the batch says `all`.
  * - What the listing leaves out is never reported: a path longer than `MAX_LIBRARY_PATH`, and outside Windows a name
  *   with a `\`, which would be read and written as a different path.
+ * - Nor is the Library folder itself, or a path outside it: macOS names an event on the watched folder by its own name
+ *   (so one of that name that isn't in the Library is dropped), and Windows names it by its absolute path.
  *
  * On macOS and Windows one recursive watch covers the folder. On Linux, where the recursive watch puts a watch on
  * every file and can't skip a folder, the tree is walked (following no symlinks, skipping left-out folders) with one
@@ -212,14 +214,44 @@ export function watchLibrary(root: string, opts: WatchOptions): LibraryWatcher {
     if (allowed(path, true)) report(path);
   }
 
+  // The Library's own path in each spelling an event can use: as given, and its real path (on Windows with long
+  // names for short ones such as `RUNNER~1`; on macOS through `/private`).
+  const rootForms = [root];
+  try {
+    rootForms.push(fs.realpathSync.native(root));
+  } catch {
+    // Not there (yet): an event names it as given, if at all.
+  }
+
+  /**
+   * The Library path a recursive event names, or undefined for the Library itself or a path outside it, which are
+   * never reported.
+   */
+  function recursivePath(raw: string): string | undefined {
+    const plain = comparablePath(raw, platform);
+    // Windows names the watched folder by its absolute path (with the long-path prefix) when it is removed.
+    if (isAbsolute(plain)) {
+      for (const form of rootForms) {
+        const path = libraryRelative(comparablePath(form, platform), plain);
+        if (path) return path;
+      }
+      return undefined;
+    }
+    const path = plain.split(sep).join('/').split('\\').join('/').replace(/\/+$/, '');
+    if (path === '') return undefined;
+    // FSEvents names an event on the watched folder itself (its making, just before the watch began, say) by the
+    // folder's own name, as if it were in it. Only an entry of that name really in the Library is one of its paths.
+    if (platform === 'darwin' && path === basename(root) && !fs.existsSync(join(root, path))) return undefined;
+    return path;
+  }
+
   function onRecursiveEvent(event: string, name: string | Buffer | null): void {
     if (closed) return;
     if (name === null) return reportAll('an event without a file name');
     const raw = name.toString();
     if (unlisted(raw)) return;
-    const path = raw.split(sep).join('/').split('\\').join('/');
-    if (path === '') return;
-    changed(path, event);
+    const path = recursivePath(raw);
+    if (path !== undefined) changed(path, event);
   }
 
   function onFolderEvent(rel: string, watcher: fs.FSWatcher, event: string, name: string | Buffer | null): void {

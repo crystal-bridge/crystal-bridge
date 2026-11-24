@@ -159,7 +159,9 @@ describe("a Kingdom's Library (#290)", () => {
     },
   );
 
-  it('leaves out a path longer than the protocol carries', async () => {
+  // Only Linux lets a real path be this long: macOS stops at 1,024 characters and Windows at 260 by default. The
+  // watcher's test checks the same length rule with events alone, on every system.
+  it.runIf(process.platform === 'linux')('leaves out a path longer than the protocol carries', async () => {
     // Six folders of 200 characters: the sixth's path, and what is in it, are past the 1,024 a path may have.
     const long = ['a', 'b', 'c', 'd', 'e', 'f'].map((letter) => letter.repeat(200));
     put([...long, 'x.md'].join('/'), '#');

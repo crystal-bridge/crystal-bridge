@@ -202,7 +202,10 @@ engine, which stops on a trust prompt for `--add-dir` (#297). Nothing depends on
 
 Crystal watches the Library folder and skips the folders the listing leaves out:
 
-- On macOS and Windows, one recursive watch on the whole folder, whose events for left-out paths are dropped.
+- On macOS and Windows, one recursive watch on the whole folder, whose events for left-out paths are dropped. So
+  are its events on the Library folder itself (macOS names one by the folder's own name, Windows by its full path):
+  only what is in it is reported. On macOS a removed entry with the same name as the Library folder therefore goes
+  unreported until the next listing.
 - On Linux, Node's recursive watcher puts a watch on every file and can't skip a folder, so a repository with
   `node_modules` would run out of watches. Crystal walks the tree itself instead, one watch per folder it lists, and
   stops at 5,000 folders. Past that the rest go unwatched and Crystal logs it at start; a change in one of them shows
