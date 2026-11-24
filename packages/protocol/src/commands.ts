@@ -3,6 +3,7 @@ import { Appearance } from './appearance.js';
 import { Envelope } from './envelope.js';
 import { DeedsFrame } from './deeds.js';
 import { ErrandsFrame } from './errands.js';
+import { LibraryChangedFrame, LibraryInfo } from './library.js';
 import { Effort, Engine, PermissionMode } from './mode.js';
 import { PatrolRunsFrame, PatrolsFrame } from './patrols.js';
 import { BoardFrame, BoardItemsFrame, ScoutsFrame } from './scouts.js';
@@ -248,6 +249,8 @@ export const NodeHello = z.object({
   patrolDrafts: z.boolean().optional(),
   /** This node makes the call at Close when `session.close` asks (docs/DEEDS.md); older nodes leave it out. */
   deeds: z.boolean().optional(),
+  /** This node has a Library (docs/LIBRARY.md); older nodes leave it out. */
+  library: LibraryInfo.optional(),
 });
 export type NodeHello = z.infer<typeof NodeHello>;
 
@@ -420,6 +423,8 @@ export const ClientMessage = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('command'), command: NodeCommand }),
   /** Is this link still alive? The hub answers `PONG_FRAME`; a hub older than this drops the frame and says nothing. */
   z.object({ kind: z.literal('ping') }),
+  /** The client opens or closes the Library on a Kingdom, so the hub knows who wants `library-changed`. A hub older than this drops it. */
+  z.object({ kind: z.literal('library-watch'), node: z.string(), open: z.boolean() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -490,6 +495,8 @@ export const HubToClient = z.discriminatedUnion('kind', [
   ErrandsFrame,
   /** Rows of a Kingdom's Deeds feed were added or changed; clients that don't know this frame ignore it. */
   DeedsFrame,
+  /** Files in a Kingdom's Library changed; clients that don't know this frame ignore it. */
+  LibraryChangedFrame,
 ]);
 export type HubToClient = z.infer<typeof HubToClient>;
 
