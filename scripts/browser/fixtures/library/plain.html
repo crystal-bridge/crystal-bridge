@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- An HTML Tome that only says it loaded, to tell a working frame from a blocked one. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Plain</title>
+  </head>
+  <body>
+    <h1 id="loaded">A plain page</h1>
+    <script>
+      parent.postMessage({ type: 'loaded' }, '*');
+    </script>
+  </body>
+</html>

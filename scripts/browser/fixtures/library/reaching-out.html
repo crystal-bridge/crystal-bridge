@@ -1,0 +1,88 @@
+<!doctype html>
+<!--
+  An HTML Tome that tries every way out of its sandbox that docs/LIBRARY.md says is closed, then tells its parent what
+  happened. The fake Kingdom in ../../sandbox-hub.ts swaps __ELSEWHERE__ for the recording server and __STUN__ for its
+  UDP port before serving this file.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Reaching out</title>
+    <link rel="stylesheet" href="__ELSEWHERE__/reaching-out/style.css" />
+    <link rel="dns-prefetch" href="__ELSEWHERE__/reaching-out/dns-prefetch" />
+    <link rel="preconnect" href="__ELSEWHERE__/reaching-out/preconnect" />
+    <style>
+      @font-face {
+        font-family: 'Elsewhere';
+        src: url('__ELSEWHERE__/reaching-out/font.woff2') format('woff2');
+      }
+      body {
+        font-family: 'Elsewhere', serif;
+      }
+    </style>
+    <script src="__ELSEWHERE__/reaching-out/script.js"></script>
+  </head>
+  <body>
+    <h1 id="loaded">A page that reaches out</h1>
+    <img src="__ELSEWHERE__/reaching-out/image.png" alt="" />
+    <script>
+      const report = { origin: String(self.origin) };
+      const attempt = (name, work) => {
+        try {
+          report[name] = { threw: false, value: String(work()) };
+        } catch (error) {
+          report[name] = { threw: true, error: String(error && error.name) };
+        }
+      };
+
+      attempt('localStorage', () => window.localStorage.getItem('x'));
+      attempt('cookie', () => document.cookie);
+      attempt('popup', () => window.open('__ELSEWHERE__/reaching-out/popup', '_blank'));
+
+      const fetched = fetch('__ELSEWHERE__/reaching-out/fetch').then(
+        () => 'answered',
+        (error) => 'failed: ' + error.name,
+      );
+      const xhr = new Promise((resolve) => {
+        try {
+          const request = new XMLHttpRequest();
+          request.open('GET', '__ELSEWHERE__/reaching-out/xhr');
+          request.onload = () => resolve('answered');
+          request.onerror = () => resolve('failed');
+          request.send();
+        } catch (error) {
+          resolve('threw: ' + error.name);
+        }
+      });
+      const rtc = new Promise((resolve) => {
+        try {
+          const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:__STUN__' }] });
+          const candidates = [];
+          const done = (how) => {
+            peer.close();
+            resolve(how + '; candidates: ' + (candidates.join(',') || 'none'));
+          };
+          peer.onicecandidate = (event) => {
+            if (event.candidate) candidates.push(event.candidate.type || 'unknown');
+            else done('gathered');
+          };
+          peer.createDataChannel('out');
+          peer
+            .createOffer()
+            .then((offer) => peer.setLocalDescription(offer))
+            .catch((error) => done('failed: ' + error.name));
+          setTimeout(() => done('timed out'), 4000);
+        } catch (error) {
+          resolve('threw: ' + error.name);
+        }
+      });
+
+      Promise.all([fetched, xhr, rtc]).then(([fetchResult, xhrResult, rtcResult]) => {
+        report.fetch = fetchResult;
+        report.xhr = xhrResult;
+        report.rtc = rtcResult;
+        parent.postMessage({ type: 'report', report }, '*');
+      });
+    </script>
+  </body>
+</html>
