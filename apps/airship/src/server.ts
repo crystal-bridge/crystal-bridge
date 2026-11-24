@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import rateLimit from '@fastify/rate-limit';
@@ -77,6 +78,17 @@ import {
   MAX_OPEN_ERRANDS,
   ErrandProject,
   type Deed,
+  HubLibraryBacklinks,
+  type HubLibraryList,
+  HubLibraryRead,
+  HubLibraryWrite,
+  type LibraryInfo,
+  LibraryPath,
+  MAX_IMAGE_BYTES,
+  MAX_TOME_BYTES,
+  NodeLibraryAnswer,
+  NodeLibraryChanged,
+  TomeVersion,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
 import type { FirstRun } from './first-run.js';
@@ -145,6 +157,11 @@ export interface BuildServerOptions {
   wakeDelayMs?: number;
   /** Web Push: the VAPID public key browsers subscribe with, and what sends each attention to subscribed devices. */
   push?: { publicKey: string; pusher: Pusher };
+  /**
+   * Test only: the CSP an HTML Tome is served into the app's frame with, in place of `LIBRARY_PAGE_CSP`. It lets the
+   * browser gate build a hub with a wrong policy and see the page refused. Never set it outside a test.
+   */
+  libraryPageCsp?: string;
 }
 
 /** Tokens and codes can't be guessed, but each try costs a file read: a limit for the routes that take one. */
@@ -200,11 +217,84 @@ interface KingdomAnswer {
   times?: number[];
   draft?: PatrolDraft;
   refused?: boolean;
+  /** A Library request's whole answer, for the route to pass on. */
+  library?: NodeLibraryAnswer;
 }
 /** A Kingdom lists within 15 seconds or says it can't, so this only meets one that stopped answering. */
 const INVENTORY_WAIT_MS = 20_000;
 /** How long a Board's quest or run action waits for its Kingdom: a script there may take two minutes. */
 const SCOUT_ACTION_WAIT_MS = 150_000;
+/** How long a Library request waits for its Kingdom, as the file viewer's do: reading a file takes no script. */
+const LIBRARY_WAIT_MS = 15_000;
+/** A write carries up to `MAX_TOME_BYTES` of text, which JSON escaping can make up to six times longer. */
+const LIBRARY_BODY_LIMIT = MAX_TOME_BYTES * 6 + 64 * 1024;
+/** A Tome write as the app sends it. */
+const TomeWrite = z.object({
+  path: LibraryPath,
+  content: HubLibraryWrite.shape.content,
+  base: TomeVersion.nullable(),
+});
+
+/** The longest Kingdom name a tab may ask to watch. */
+const MAX_NODE_ID = 200;
+
+/**
+ * The headers on every Library answer, refusals included, replacing the hub's usual CSP: a Tome is the Kingdom's text,
+ * so nothing in an answer may run, sniff its way into another type, or be read by another site (docs/LIBRARY.md,
+ * "Mind the wards"). The JSON routes take this CSP; a route that serves a file itself sets its own after this.
+ */
+function libraryHeaders(reply: FastifyReply, csp = "sandbox; default-src 'none'"): FastifyReply {
+  return reply
+    .header('content-security-policy', csp)
+    .header('x-content-type-options', 'nosniff')
+    .header('cross-origin-resource-policy', 'same-origin');
+}
+
+/** Why a Kingdom that's online can't answer for a Library. */
+const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
+
+/** How many image reads may be in flight to one Kingdom, so a page of pictures can't hold up approvals on its link. */
+const LIBRARY_IMAGE_SLOTS = 2;
+/**
+ * The content type of each image a Library serves, by extension. The hub sets it from this table alone, never from
+ * the Kingdom's answer, so a Kingdom can't pass HTML off as an image.
+ */
+const LIBRARY_IMAGE_TYPES: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  svg: 'image/svg+xml',
+};
+/** An SVG may style itself but runs no script and loads nothing, even opened directly at the hub's address. */
+const LIBRARY_SVG_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+
+/**
+ * An HTML Tome in the app's frame: its scripts run with an opaque origin, it loads nothing, and only the app may frame
+ * it (docs/LIBRARY.md, "Open the sealed pages"). It replaces the hub's usual CSP, so `frame-ancestors 'none'` is gone.
+ */
+const LIBRARY_PAGE_CSP =
+  "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; frame-ancestors 'self'";
+const LIBRARY_PAGE_EXTENSIONS = new Set(['html', 'htm']);
+
+/** Whether the browser fetched this to show in a frame on one of the hub's own pages. */
+function forTheAppsFrame(headers: FastifyRequest['headers']): boolean {
+  return headers['sec-fetch-dest'] === 'iframe' && headers['sec-fetch-site'] === 'same-origin';
+}
+
+/** A Library path's extension, lower-cased, or '' when it has none. */
+function libraryExtension(file: string): string {
+  const name = file.slice(file.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+/** The HTTP status for a Kingdom's refused Library request: a stale write or a taken path is a conflict, a missing file is not found. */
+function libraryRefusalStatus(reason: string | undefined): number {
+  return reason === 'not in the Library' || reason === 'gone' ? 404 : 409;
+}
 
 /**
  * Sends an error and, for a refused WebSocket upgrade, closes the connection afterwards: an upgrade
@@ -236,6 +326,14 @@ const OPEN_PATHS = new Set([
  * stray `<img>` could carry data out with no tool call. The app's sprites, icons and favicons all come from here.
  */
 const CONTENT_SECURITY_POLICY = "img-src 'self' data: blob:; frame-ancestors 'none'";
+
+/**
+ * The page Mermaid draws in (docs/LIBRARY.md, "Read the Tomes"), replacing the hub's usual CSP: `sandbox allow-scripts`
+ * gives it an opaque origin, so a flaw in Mermaid can't run script in the app; it runs only the app's own scripts, loads
+ * nothing else, and only the app may frame it.
+ */
+const MERMAID_FRAME_CSP =
+  "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'";
 
 /** Close code for a node whose hello names a different node than its token. */
 const CLOSE_WRONG_NODE = 4003;
@@ -370,6 +468,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     clientHeartbeatMs = HEARTBEAT_MS,
     clientBacklogBytes = MAX_CLIENT_BACKLOG,
     duplicateHoldMs = DUPLICATE_HOLD_MS,
+    libraryPageCsp = LIBRARY_PAGE_CSP,
   } = options;
   const app = fastify({ logger });
   /**
@@ -425,8 +524,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const loginOf = (request: FastifyRequest): string => auth?.identify(request) ?? 'default';
 
   // On every answer, refusals and misses included: what's left of an exfiltrating image if a client ever renders one.
-  app.addHook('onRequest', async (_request, reply) => {
-    void reply.header('content-security-policy', CONTENT_SECURITY_POLICY);
+  // The Library's routes take the Library's headers instead, here too, so an answer Fastify gives before the route runs
+  // (invalid JSON, a body over the limit, a refusal below) has them; a route serving a file sets its own after this.
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.routeOptions.url?.startsWith('/api/nodes/:node/library')) libraryHeaders(reply);
+    else void reply.header('content-security-policy', CONTENT_SECURITY_POLICY);
   });
 
   app.addHook('onRequest', async (request, reply) => {
@@ -496,6 +598,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   /** Kingdoms that answer `patrol-draft` ("Patrol this" on a Board). */
   const patrolDraftNodes = new Set<string>();
   const deedsNodes = new Set<string>();
+  /** Kingdoms that keep a Library, and where (docs/LIBRARY.md). */
+  const libraryNodes = new Map<string, LibraryInfo>();
+  /** Each Kingdom's image reads: how many are in flight, and who waits for a slot, first come first served. */
+  const libraryImageSlots = new Map<string, { busy: number; waiting: ((got: boolean) => void)[] }>();
   /** Kingdoms that run Patrols, and those of them that take Patrols from the app (docs/PATROLS.md). */
   const patrolNodes = new Set<string>();
   const patrolEditNodes = new Set<string>();
@@ -509,6 +615,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const kingdomAsks = new Map<string, { node: string; finish: (answer: KingdomAnswer) => void }>();
   // Every connected client, for errors that aren't about one session.
   const clients = new Set<WebSocket>();
+  /** The tabs with a Kingdom's Library open, by Kingdom; kept while it is offline, so a tab hears when it returns. */
+  const libraryWatchers = new Map<string, Set<WebSocket>>();
   // Each client's tailnet login, so a user's appearance change reaches only their own other tabs.
   const clientLogins = new Map<WebSocket, string>();
   // File viewer requests in flight: who asked, and which node may answer. An answer from anyone else goes nowhere.
@@ -887,6 +995,23 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const webDist = webRoot ?? path.resolve(here, '../../web/dist');
   if (existsSync(webDist)) {
     await app.register(fastifyStatic, { root: webDist });
+    // The frame's opaque origin makes its module scripts cross-origin loads, which need CORS. The app's built code is
+    // public anyway (it's this repository), and no answer here carries cookies or data.
+    app.addHook('onRequest', async (request, reply) => {
+      if (request.url.startsWith('/assets/')) void reply.header('access-control-allow-origin', '*');
+    });
+    // At the path the app frames, and at the path Vite builds it to, so neither runs Mermaid on the app's origin.
+    const mermaidFrame = async (_request: FastifyRequest, reply: FastifyReply) => {
+      const page = await readFile(path.join(webDist, 'mermaid-frame.html')).catch(() => undefined);
+      if (!page) return reply.code(404).send({ error: 'no Mermaid frame in this build' });
+      return reply
+        .header('content-security-policy', MERMAID_FRAME_CSP)
+        .header('x-content-type-options', 'nosniff')
+        .type('text/html; charset=utf-8')
+        .send(page);
+    };
+    app.get('/sandbox/mermaid-frame.html', mermaidFrame);
+    app.get('/mermaid-frame.html', mermaidFrame);
   }
 
   // Open to monitors (no login): connected node ids are codenames, not content.
@@ -1373,13 +1498,23 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   }
 
   /**
-   * Sends a Board's request, a Patrol change or a preview to its Kingdom and waits for its answer (`scout-acted`,
-   * `patrol-changed` or `patrol-previewed`), or says it didn't answer in time.
+   * Sends a Board's request, a Patrol change, a preview or a Library request to its Kingdom and waits for its answer
+   * (`scout-acted`, `patrol-changed`, `patrol-previewed` or `library-answer`), or says it didn't answer in time.
    */
   function askKingdom(
     socket: WebSocket,
     node: string,
-    frame: HubScoutAction | HubScoutQuest | HubPatrolChange | HubPatrolPreview | HubPatrolDraft,
+    frame:
+      | HubScoutAction
+      | HubScoutQuest
+      | HubPatrolChange
+      | HubPatrolPreview
+      | HubPatrolDraft
+      | HubLibraryList
+      | HubLibraryRead
+      | HubLibraryWrite
+      | HubLibraryBacklinks,
+    waitMs = SCOUT_ACTION_WAIT_MS,
   ): Promise<KingdomAnswer> {
     return new Promise((resolve) => {
       const finish = (result: KingdomAnswer) => {
@@ -1387,10 +1522,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         kingdomAsks.delete(frame.requestId);
         resolve(result);
       };
-      const timer = setTimeout(
-        () => finish({ ok: false, reason: 'the Kingdom did not answer in time' }),
-        SCOUT_ACTION_WAIT_MS,
-      );
+      const timer = setTimeout(() => finish({ ok: false, reason: 'the Kingdom did not answer in time' }), waitMs);
       kingdomAsks.set(frame.requestId, { node, finish });
       sendJson(socket, frame);
     });
@@ -1516,6 +1648,152 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
     return answer.session ? { session: answer.session } : {};
   });
+  // The Library: the hub carries each request to the Kingdom and its answer back, and keeps nothing (docs/LIBRARY.md).
+  /**
+   * Waits for one of a Kingdom's image slots: true once it holds one, false if none came free within the Library's wait.
+   * The holder hands it back with `freeImageSlot`.
+   */
+  function takeImageSlot(node: string): Promise<boolean> {
+    let slots = libraryImageSlots.get(node);
+    if (!slots) libraryImageSlots.set(node, (slots = { busy: 0, waiting: [] }));
+    if (slots.busy < LIBRARY_IMAGE_SLOTS) {
+      slots.busy += 1;
+      return Promise.resolve(true);
+    }
+    const queue = slots.waiting;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        queue.splice(queue.indexOf(given), 1);
+        resolve(false);
+      }, LIBRARY_WAIT_MS);
+      const given = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      queue.push(given);
+    });
+  }
+  /** Hands a slot to the longest waiter, or frees it. */
+  function freeImageSlot(node: string): void {
+    const slots = libraryImageSlots.get(node);
+    if (!slots) return;
+    const next = slots.waiting.shift();
+    if (next) return next(true);
+    slots.busy -= 1;
+    if (slots.busy === 0) libraryImageSlots.delete(node);
+  }
+  /**
+   * Asks a Kingdom with a Library, and sends its answer, or why there is none, with the Library's headers. `answered`
+   * sends a successful answer (by default the answer's fields as JSON); `image` takes one of the Kingdom's image slots.
+   */
+  async function askLibrary(
+    node: string,
+    reply: FastifyReply,
+    frame: HubLibraryList | HubLibraryRead | HubLibraryWrite | HubLibraryBacklinks,
+    { image = false, answered }: { image?: boolean; answered?: (library: NodeLibraryAnswer) => unknown } = {},
+  ) {
+    libraryHeaders(reply);
+    if (!nodes.has(node)) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!libraryNodes.has(node)) return reply.code(409).send({ error: NO_LIBRARY });
+    if (image && !(await takeImageSlot(node))) return reply.code(409).send({ error: 'the Kingdom is busy' });
+    let answer: KingdomAnswer;
+    try {
+      // Looked up again: the Kingdom may have gone, or come back on another socket (perhaps without a Library), while
+      // this waited for a slot.
+      const socket = nodes.get(node);
+      if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+      if (!libraryNodes.has(node)) return reply.code(409).send({ error: NO_LIBRARY });
+      answer = await askKingdom(socket, node, frame, LIBRARY_WAIT_MS);
+    } finally {
+      if (image) freeImageSlot(node);
+    }
+    const library = answer.library;
+    if (!library?.ok) {
+      const reason = library?.reason ?? answer.reason ?? 'the Kingdom could not do this';
+      return reply
+        .code(library ? libraryRefusalStatus(library.reason) : 409)
+        .send({ error: reason, ...(library?.version ? { version: library.version } : {}) });
+    }
+    if (answered) return answered(library);
+    const { kind: _kind, requestId: _requestId, ok: _ok, reason: _reason, ...result } = library;
+    return result;
+  }
+  const libraryPathOf = (request: FastifyRequest) => LibraryPath.safeParse((request.query as { path?: unknown }).path);
+  app.get('/api/nodes/:node/library', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    return askLibrary(node, reply, { kind: 'library-list', requestId: randomUUID() });
+  });
+  // Text only: images come through their own route, with their own content type.
+  app.get('/api/nodes/:node/library/tome', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    return askLibrary(node, reply, { kind: 'library-read', requestId: randomUUID(), path: wanted.data });
+  });
+  // An image's bytes, for the reader's <img>: typed by the hub from the extension, at most two in flight per Kingdom.
+  app.get('/api/nodes/:node/library/file', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    const extension = libraryExtension(wanted.data);
+    const type = Object.hasOwn(LIBRARY_IMAGE_TYPES, extension) ? LIBRARY_IMAGE_TYPES[extension] : undefined;
+    if (!type) return libraryHeaders(reply).code(404).send({ error: 'not an image the Library shows' });
+    const frame: HubLibraryRead = { kind: 'library-read', requestId: randomUUID(), path: wanted.data, as: 'image' };
+    return askLibrary(node, reply, frame, {
+      image: true,
+      answered: ({ tome }) => {
+        if (tome?.kind !== 'image') return reply.code(409).send({ error: 'not an image' });
+        const bytes = Buffer.from(tome.content, tome.encoding === 'base64' ? 'base64' : 'utf8');
+        if (bytes.length > MAX_IMAGE_BYTES) return reply.code(413).send({ error: 'too large' });
+        if (type === 'image/svg+xml') libraryHeaders(reply, LIBRARY_SVG_CSP);
+        return reply.header('cache-control', 'no-store').type(type).send(bytes);
+      },
+    });
+  });
+  // An HTML Tome: into the app's sandboxed frame, or as a download, so it never poses as a page at the hub's address.
+  app.get('/api/nodes/:node/library/page', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    if (!LIBRARY_PAGE_EXTENSIONS.has(libraryExtension(wanted.data)))
+      return libraryHeaders(reply).code(404).send({ error: 'not an HTML Tome' });
+    const framed = forTheAppsFrame(request.headers);
+    return askLibrary(
+      node,
+      reply,
+      { kind: 'library-read', requestId: randomUUID(), path: wanted.data },
+      {
+        answered: ({ tome }) => {
+          if (tome?.kind !== 'html') return reply.code(409).send({ error: 'not an HTML Tome' });
+          const bytes = Buffer.from(tome.content, tome.encoding === 'base64' ? 'base64' : 'utf8');
+          reply.header('cache-control', 'no-store');
+          if (framed) return libraryHeaders(reply, libraryPageCsp).type('text/html; charset=utf-8').send(bytes);
+          const name = wanted.data.slice(wanted.data.lastIndexOf('/') + 1).replace(/[^A-Za-z0-9._-]/g, '_');
+          return reply
+            .header('content-disposition', `attachment; filename="${name}"`)
+            .type('application/octet-stream')
+            .send(bytes);
+        },
+      },
+    );
+  });
+  app.put('/api/nodes/:node/library/tome', { bodyLimit: LIBRARY_BODY_LIMIT }, async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = TomeWrite.safeParse(request.body);
+    if (!wanted.success) {
+      const issue = wanted.error.issues.find((one) => one.path[0] === 'content');
+      return libraryHeaders(reply)
+        .code(400)
+        .send({ error: issue ? issue.message : 'expected { path, content, base } with base a version or null' });
+    }
+    return askLibrary(node, reply, { kind: 'library-write', requestId: randomUUID(), ...wanted.data });
+  });
+  app.get('/api/nodes/:node/library/backlinks', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    return askLibrary(node, reply, { kind: 'library-backlinks', requestId: randomUUID(), path: wanted.data });
+  });
   app.get('/api/projects', async () => [...projects].map(([node, list]) => ({ node, projects: list })));
   app.get('/api/engines', async () =>
     [...engines]
@@ -1532,6 +1810,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           ...(cli ? { cli } : {}),
           ...(cliUpdaters.has(node) ? { cliUpdate: true } : {}),
           ...(deedsNodes.has(node) ? { deeds: true } : {}),
+          ...(libraryNodes.has(node) ? { library: libraryNodes.get(node) } : {}),
           ...(selfUpdate ? { selfUpdate } : {}),
         };
       }),
@@ -1662,6 +1941,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           else patrolDraftNodes.delete(helloNode);
           if (hello.data.deeds) deedsNodes.add(helloNode);
           else deedsNodes.delete(helloNode);
+          if (hello.data.library) {
+            libraryNodes.set(helloNode, hello.data.library);
+            // What changed while it was away went unsaid: the tabs with its Library open reread it all.
+            const reread: HubToClient = { kind: 'library-changed', node: helloNode, all: true };
+            for (const watcher of libraryWatchers.get(helloNode) ?? []) sendToClient(watcher, reread);
+          } else libraryNodes.delete(helloNode);
           if (hello.data.patrols) patrolNodes.add(helloNode);
           else patrolNodes.delete(helloNode);
           if (hello.data.patrols && hello.data.patrolsFromApp) patrolEditNodes.add(helloNode);
@@ -1789,6 +2074,30 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           waiting.finish(
             times ? { ok: true, times } : { ok: false, refused: true, reason: reason ?? 'the Kingdom gave no times' },
           );
+          return;
+        }
+
+        const libraryChanged = NodeLibraryChanged.safeParse(parsed);
+        if (libraryChanged.success) {
+          const { paths, all } = libraryChanged.data;
+          const frame: HubToClient = {
+            kind: 'library-changed',
+            node: helloNode,
+            ...(paths ? { paths } : {}),
+            ...(all ? { all } : {}),
+          };
+          for (const watcher of libraryWatchers.get(helloNode) ?? []) sendToClient(watcher, frame);
+          return;
+        }
+
+        const libraryAnswer = NodeLibraryAnswer.safeParse(parsed);
+        if (libraryAnswer.success) {
+          const waiting = kingdomAsks.get(libraryAnswer.data.requestId);
+          if (waiting?.node !== helloNode) {
+            app.log.warn({ node: helloNode }, 'dropped a Library answer nobody is waiting for from this node');
+            return;
+          }
+          waiting.finish({ ok: libraryAnswer.data.ok, library: libraryAnswer.data });
           return;
         }
 
@@ -1966,6 +2275,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           scoutQuestNodes.delete(helloNode);
           patrolDraftNodes.delete(helloNode);
           deedsNodes.delete(helloNode);
+          libraryNodes.delete(helloNode);
           patrolNodes.delete(helloNode);
           patrolEditNodes.delete(helloNode);
           patrolPreviewNodes.delete(helloNode);
@@ -2017,6 +2327,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           handleSubscribe(socket, message.data.session, message.data.fromSeq);
         } else if (message.data.kind === 'command') {
           handleCommand(socket, message.data.command);
+        } else if (message.data.kind === 'library-watch') {
+          const { node, open } = message.data;
+          if (node.length === 0 || node.length > MAX_NODE_ID) return;
+          if (open) {
+            let watching = libraryWatchers.get(node);
+            if (!watching) libraryWatchers.set(node, (watching = new Set()));
+            watching.add(socket);
+          } else {
+            const watching = libraryWatchers.get(node);
+            watching?.delete(socket);
+            if (watching?.size === 0) libraryWatchers.delete(node);
+          }
         }
       }),
     );
@@ -2024,6 +2346,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     socket.on('close', () => {
       clients.delete(socket);
       clientLogins.delete(socket);
+      for (const [node, watching] of libraryWatchers) {
+        watching.delete(socket);
+        if (watching.size === 0) libraryWatchers.delete(node);
+      }
       for (const [requestId, pending] of fileRequests) {
         if (pending.client !== socket) continue;
         clearTimeout(pending.timer);

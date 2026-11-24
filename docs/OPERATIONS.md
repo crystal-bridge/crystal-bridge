@@ -11,6 +11,10 @@ host, `node-a-host`/`node-b-host` the Kingdoms'.
 - **Keep changes additive across the node link.** New optional fields and new event types are fine; old peers ignore
   them. Only a change an older peer can't handle bumps `PROTOCOL_VERSION`, and then the hub refuses old nodes with a
   clear reason instead of half working.
+- **Run the browser tests when the Library's sandboxes change.** `pnpm test:browser` (Playwright, Chromium and WebKit,
+  tests in `scripts/browser/`) proves what a sandboxed page can't do. Install the browsers once with
+  `pnpm exec playwright install --with-deps chromium webkit`, or without `--with-deps` if the system libraries are
+  there. CI runs it as the `browser` job, which isn't required to merge yet.
 - **Never edit a shipped migration.** Append a new one to `apps/airship/src/migrations.ts`.
 
 ## Compatibility

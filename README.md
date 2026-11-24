@@ -177,4 +177,5 @@ trademarks of Anthropic.
 Code: MIT (`LICENSE`). The Hero sprites in `apps/web/public/heroes` are LPC art under their own licences
 (`apps/web/public/heroes/LICENSE-ART.md`, `CREDITS.csv`). Bundled third-party packages and fonts (SIL Open Font
 License) are listed with their licence texts in `THIRD_PARTY_NOTICES.md`, regenerated with `pnpm notices`;
-`REUSE.toml` says which licence covers which paths.
+`REUSE.toml` says which licence covers which paths. The web app's diagram renderer bundles third-party code under
+licences other than MIT, such as EPL-2.0 for its graph layout, and lists it there too.

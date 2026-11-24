@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+  An HTML Tome that tries the other ways out that need no navigation: a form, a WebSocket, a beacon, a Worker from
+  another site and a nested frame. It has no preconnect link, so any connection elsewhere sees comes from these. The
+  fake Kingdom in ../../sandbox-hub.ts swaps __ELSEWHERE__ for the recording server before serving this file.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Reaching further</title>
+  </head>
+  <body>
+    <form id="form" method="post" action="__ELSEWHERE__/reaching-further/form">
+      <input name="secret" value="x" />
+    </form>
+    <script>
+      const report = {};
+      const attempt = (name, work) => {
+        try {
+          report[name] = { threw: false, value: String(work()) };
+        } catch (error) {
+          report[name] = { threw: true, error: String(error && error.name) };
+        }
+      };
+
+      attempt('form', () => document.getElementById('form').requestSubmit());
+      attempt('beacon', () => navigator.sendBeacon('__ELSEWHERE__/reaching-further/beacon', 'x'));
+      attempt('frame', () => {
+        const frame = document.createElement('iframe');
+        frame.src = '__ELSEWHERE__/reaching-further/frame';
+        document.body.append(frame);
+        return 'added';
+      });
+      const worker = new Promise((resolve) => {
+        try {
+          const started = new Worker('__ELSEWHERE__/reaching-further/worker.js');
+          started.onerror = () => resolve('failed');
+          setTimeout(() => resolve('no error'), 3000);
+        } catch (error) {
+          resolve('threw: ' + error.name);
+        }
+      });
+      const socket = new Promise((resolve) => {
+        try {
+          const opened = new WebSocket('__ELSEWHERE__/reaching-further/socket'.replace(/^http/, 'ws'));
+          opened.onopen = () => resolve('opened');
+          opened.onerror = () => resolve('failed');
+          setTimeout(() => resolve('timed out'), 3000);
+        } catch (error) {
+          resolve('threw: ' + error.name);
+        }
+      });
+
+      Promise.all([worker, socket]).then(([workerResult, socketResult]) => {
+        report.worker = workerResult;
+        report.socket = socketResult;
+        parent.postMessage({ type: 'report', report }, '*');
+      });
+    </script>
+  </body>
+</html>

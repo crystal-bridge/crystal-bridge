@@ -18,6 +18,7 @@
     "icons": "tsx apps/web/scripts/icons.ts && prettier --write apps/web/src/theme/iconData.ts",
     "test": "pnpm -r test && pnpm test:scripts",
     "test:scripts": "tsx --test scripts/*.test.ts examples/scouts/*/*.test.ts",
+    "test:browser": "playwright test",
     "checks": "tsx scripts/repo-checks.ts all",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && simple-git-hooks || true",
     "typecheck": "pnpm -r typecheck",
@@ -32,6 +33,7 @@
     "pre-push": "env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE sh -c 'pnpm typecheck && pnpm test'"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "concurrently": "^10.0.7",
     "prettier": "3.10.1",
     "simple-git-hooks": "2.14.0",

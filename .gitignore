@@ -13,3 +13,7 @@ docs/.vitepress/cache
 
 # Plans and design records are working files for Claude, not documentation
 docs/plans/
+
+# Playwright (pnpm test:browser)
+test-results/
+playwright-report/

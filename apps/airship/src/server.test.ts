@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -86,6 +87,41 @@ describe("the web app's responses", () => {
     const app = await buildServer({ store, webRoot });
     try {
       for (const url of ['/', '/index.html', '/api/health']) {
+        const response = await app.inject({ method: 'GET', url });
+        expect(response.headers['content-security-policy'], url).toBe(
+          "img-src 'self' data: blob:; frame-ancestors 'none'",
+        );
+      }
+    } finally {
+      await app.close();
+      store.close();
+      rmSync(webRoot, { recursive: true });
+    }
+  });
+
+  it("serve Mermaid's frame page under a CSP of its own, sandboxed and framed only by the app", async () => {
+    const store = openStore(':memory:');
+    const webRoot = mkdtempSync(path.join(tmpdir(), 'cb-web-'));
+    writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html>');
+    writeFileSync(path.join(webRoot, 'mermaid-frame.html'), '<!doctype html><title>frame</title>');
+    mkdirSync(path.join(webRoot, 'assets'));
+    writeFileSync(path.join(webRoot, 'assets', 'mermaidFrame-abc.js'), 'export {};');
+    const app = await buildServer({ store, webRoot });
+    try {
+      for (const url of ['/sandbox/mermaid-frame.html', '/mermaid-frame.html']) {
+        const frame = await app.inject({ method: 'GET', url });
+        expect(frame.statusCode, url).toBe(200);
+        expect(frame.body, url).toContain('<title>frame</title>');
+        expect(frame.headers['content-type'], url).toMatch(/^text\/html/);
+        expect(frame.headers['x-content-type-options'], url).toBe('nosniff');
+        expect(frame.headers['content-security-policy'], url).toBe(
+          "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'",
+        );
+      }
+      // The frame has an opaque origin, so its module scripts load cross-origin and need CORS.
+      const script = await app.inject({ method: 'GET', url: '/assets/mermaidFrame-abc.js' });
+      expect(script.headers['access-control-allow-origin']).toBe('*');
+      for (const url of ['/', '/index.html', '/assets/mermaidFrame-abc.js', '/api/health']) {
         const response = await app.inject({ method: 'GET', url });
         expect(response.headers['content-security-policy'], url).toBe(
           "img-src 'self' data: blob:; frame-ancestors 'none'",
@@ -715,6 +751,7 @@ describe('airship server', () => {
       return { socket, frames };
     }
 
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
     const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
     const call = (method: string, path: string, body?: unknown) =>
       fetch(`${baseUrl}${path}`, {
@@ -979,6 +1016,7 @@ describe('airship server', () => {
   describe('Errands (#288)', () => {
     const ERRAND = '44444444-4444-4444-8444-444444444444';
     const SESSION = '22222222-2222-4222-8222-222222222222';
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
     const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
     const call = (method: string, path: string, body?: unknown) =>
       fetch(`${baseUrl}${path}`, {
@@ -1164,6 +1202,7 @@ describe('airship server', () => {
   describe('Deeds (#289)', () => {
     const SESSION = '22222222-2222-4222-8222-222222222222';
     const RUN = '55555555-5555-4555-8555-555555555555';
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
     const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
     const call = (method: string, path: string, body?: unknown) =>
       fetch(`${baseUrl}${path}`, {
@@ -1462,6 +1501,679 @@ describe('airship server', () => {
       nodes = (await (await fetch(`${baseUrl}/api/nodes`)).json()) as string[];
     }
     expect(nodes).toEqual(['node-a']);
+  });
+
+  describe('the Library (#290)', () => {
+    const SESSION = '22222222-2222-4222-8222-222222222222';
+    const LIBRARY = { library: { dir: '/w/library' } };
+    const VERSION = { size: 5, mtimeMs: 1, hash: 'a'.repeat(64) };
+    const NEWER = { size: 6, mtimeMs: 2, hash: 'b'.repeat(64) };
+    const TOME = { path: 'a.md', kind: 'md', content: '# Hi\n', encoding: 'utf8', truncated: false, version: VERSION };
+    const NO_LIBRARY = 'this Kingdom has no Library: it is turned off there, or the Kingdom is too old for one';
+    const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as never });
+    const call = (method: string, path: string, body?: unknown) =>
+      fetch(`${baseUrl}${path}`, {
+        method,
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      });
+    type Kingdom = { socket: WebSocket; frames: FrameRecorder };
+
+    async function started(hello: Record<string, unknown> = LIBRARY) {
+      const node = await connectNode('node-a', hello);
+      send(node.socket, sessionStartedEnvelope(SESSION, 'node-a'));
+      await node.frames.waitFor((frame) => frame.kind === 'ack');
+      return node;
+    }
+
+    /** Waits for the Kingdom to be asked, then answers with `answer`. */
+    async function answers(node: Kingdom, kind: string, answer: Record<string, unknown>) {
+      const asked = (await node.frames.waitFor((frame) => frame.kind === kind)) as Record<string, unknown>;
+      send(node.socket, { kind: 'library-answer', requestId: asked.requestId, ...answer });
+      return asked;
+    }
+
+    it('lists, reads, writes and asks for backlinks through the Kingdom', async () => {
+      const node = await started();
+      const entries = [{ path: 'a.md', kind: 'md', size: 5, mtimeMs: 1 }];
+      const listed = call('GET', '/api/nodes/node-a/library');
+      await answers(node, 'library-list', { ok: true, entries, truncated: false });
+      expect(await json(await listed)).toEqual({ status: 200, body: { entries, truncated: false } });
+
+      const read = call('GET', '/api/nodes/node-a/library/tome?path=a.md');
+      const askedRead = await answers(node, 'library-read', { ok: true, tome: TOME });
+      expect(askedRead).toEqual({ kind: 'library-read', requestId: expect.any(String), path: 'a.md' });
+      expect(await json(await read)).toEqual({ status: 200, body: { tome: TOME } });
+
+      const written = call('PUT', '/api/nodes/node-a/library/tome', {
+        path: 'a.md',
+        content: '# Hi!\n',
+        base: VERSION,
+      });
+      const askedWrite = await answers(node, 'library-write', { ok: true, version: NEWER });
+      expect(askedWrite).toMatchObject({ path: 'a.md', content: '# Hi!\n', base: VERSION });
+      expect(await json(await written)).toEqual({ status: 200, body: { version: NEWER } });
+
+      const backlinks = [{ path: 'b.md', line: 'see [[a]]' }];
+      const linked = call('GET', '/api/nodes/node-a/library/backlinks?path=a.md');
+      const askedLinks = await answers(node, 'library-backlinks', { ok: true, backlinks });
+      expect(askedLinks).toMatchObject({ path: 'a.md' });
+      expect(await json(await linked)).toEqual({ status: 200, body: { backlinks } });
+    });
+
+    it('writes a new Tome with a null base, and a Tome as large as the Library takes', async () => {
+      const node = await started();
+      const content = 'x'.repeat(512 * 1024);
+      const written = call('PUT', '/api/nodes/node-a/library/tome', { path: 'new.md', content, base: null });
+      const asked = await answers(node, 'library-write', { ok: true, version: NEWER });
+      expect(asked).toMatchObject({ path: 'new.md', base: null });
+      expect((asked.content as string).length).toBe(content.length);
+      expect((await written).status).toBe(200);
+    });
+
+    it('answers a refused write with 409 and the current version', async () => {
+      const node = await started();
+      const body = { path: 'a.md', content: '# Hi!\n', base: VERSION };
+      const changed = call('PUT', '/api/nodes/node-a/library/tome', body);
+      await answers(node, 'library-write', { ok: false, reason: 'changed', version: NEWER });
+      expect(await json(await changed)).toEqual({ status: 409, body: { error: 'changed', version: NEWER } });
+
+      node.frames.frames = [];
+      const exists = call('PUT', '/api/nodes/node-a/library/tome', { ...body, path: 'b.md', base: null });
+      await answers(node, 'library-write', { ok: false, reason: 'exists', version: VERSION });
+      expect(await json(await exists)).toEqual({ status: 409, body: { error: 'exists', version: VERSION } });
+    });
+
+    it('maps the Kingdom’s other refusals, and refuses bad input before asking', async () => {
+      const node = await started();
+      for (const [reason, status] of [
+        ['not in the Library', 404],
+        ['gone', 404],
+        ['a link', 409],
+      ] as const) {
+        node.frames.frames = [];
+        const read = call('GET', '/api/nodes/node-a/library/tome?path=a.md');
+        await answers(node, 'library-read', { ok: false, reason });
+        expect(await json(await read)).toEqual({ status, body: { error: reason } });
+      }
+      node.frames.frames = [];
+      const bad = [
+        call('GET', '/api/nodes/node-a/library/tome'),
+        call('GET', `/api/nodes/node-a/library/tome?path=${'a'.repeat(1025)}`),
+        call('GET', '/api/nodes/node-a/library/backlinks'),
+        call('PUT', '/api/nodes/node-a/library/tome', { path: 'a.md', base: null }),
+        call('PUT', '/api/nodes/node-a/library/tome', { path: 'a.md', content: 'x', base: { size: 1 } }),
+        call('PUT', '/api/nodes/node-a/library/tome', {
+          path: 'a.md',
+          content: 'x'.repeat(512 * 1024 + 1),
+          base: null,
+        }),
+      ];
+      expect((await Promise.all(bad)).map((response) => response.status)).toEqual([400, 400, 400, 400, 400, 400]);
+      expect(node.frames.frames.filter((frame) => String(frame.kind).startsWith('library-'))).toEqual([]);
+    });
+
+    it('says the Kingdom is offline (404), has no Library (409, none in its hello) or is slow (409 after 15 s)', async () => {
+      expect(await json(await call('GET', '/api/nodes/node-z/library'))).toEqual({
+        status: 404,
+        body: { error: 'that Kingdom is offline' },
+      });
+      const old = await started({});
+      expect(await json(await call('GET', '/api/nodes/node-a/library'))).toEqual({
+        status: 409,
+        body: { error: NO_LIBRARY },
+      });
+      old.socket.terminate();
+
+      const node = await started();
+      // Only the hub's timers: the sockets and the frame recorder keep real ones.
+      const asked = new Promise<void>((resolve) =>
+        node.socket.on('message', (data) => {
+          if ((JSON.parse(data.toString()) as { kind?: string }).kind === 'library-list') resolve();
+        }),
+      );
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        let settled = false;
+        const slow = app.inject({ method: 'GET', url: '/api/nodes/node-a/library' });
+        void slow.then(() => (settled = true));
+        await asked;
+        await vi.advanceTimersByTimeAsync(14_999);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const response = await slow;
+        expect([response.statusCode, response.json()]).toEqual([409, { error: 'the Kingdom did not answer in time' }]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('drops an answer from another Kingdom', async () => {
+      const node = await started();
+      const other = await connectNode('node-b', LIBRARY);
+      const listed = call('GET', '/api/nodes/node-a/library');
+      const asked = (await node.frames.waitFor((frame) => frame.kind === 'library-list')) as { requestId: string };
+      send(other.socket, {
+        kind: 'library-answer',
+        requestId: asked.requestId,
+        ok: true,
+        entries: [],
+        truncated: true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const entries = [{ path: 'a.md', kind: 'md' }];
+      send(node.socket, { kind: 'library-answer', requestId: asked.requestId, ok: true, entries, truncated: false });
+      expect(await json(await listed)).toEqual({ status: 200, body: { entries, truncated: false } });
+    });
+
+    it('every Library answer carries nosniff, CORP same-origin and a sandbox CSP', async () => {
+      const node = await started();
+      const listed = call('GET', '/api/nodes/node-a/library');
+      await answers(node, 'library-list', { ok: true, entries: [], truncated: false });
+      const refused = call('PUT', '/api/nodes/node-a/library/tome', { path: 'a.md', content: 'x', base: null });
+      await answers(node, 'library-write', { ok: false, reason: 'exists', version: VERSION });
+      const responses = [
+        await listed,
+        await refused,
+        await call('GET', '/api/nodes/node-z/library/tome?path=a.md'),
+        await call('GET', '/api/nodes/node-a/library/backlinks'),
+      ];
+      expect(responses.map((response) => response.status)).toEqual([200, 409, 404, 400]);
+      for (const response of responses) {
+        expect(response.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+        expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(response.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+      }
+    });
+
+    it('carries the Library headers on answers Fastify gives before the route runs', async () => {
+      await started();
+      const put = (payload: string, headers: Record<string, string> = {}) =>
+        app.inject({
+          method: 'PUT',
+          url: '/api/nodes/node-a/library/tome',
+          headers: { 'content-type': 'application/json', ...headers },
+          payload,
+        });
+      const responses = [
+        await put('{"path": "a.md", '),
+        await put(JSON.stringify({ path: 'a.md', content: 'x'.repeat(4 * 1024 * 1024), base: null })),
+        await put(JSON.stringify({ path: 'a.md', content: 'x', base: null }), { 'sec-fetch-site': 'cross-site' }),
+      ];
+      expect(responses.map((response) => response.statusCode)).toEqual([400, 413, 403]);
+      for (const response of responses) {
+        expect(response.headers['content-security-policy']).toBe("sandbox; default-src 'none'");
+        expect(response.headers['x-content-type-options']).toBe('nosniff');
+        expect(response.headers['cross-origin-resource-policy']).toBe('same-origin');
+      }
+      // Everything else keeps the hub's own CSP.
+      expect((await app.inject({ method: 'GET', url: '/api/sessions' })).headers['content-security-policy']).toBe(
+        "img-src 'self' data: blob:; frame-ancestors 'none'",
+      );
+    });
+
+    describe('images', () => {
+      const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+      const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+      const image = (path: string, bytes: Buffer, extra: Record<string, unknown> = {}) => ({
+        ok: true,
+        tome: {
+          path,
+          kind: 'image',
+          encoding: 'base64',
+          content: bytes.toString('base64'),
+          truncated: false,
+          version: VERSION,
+          ...extra,
+        },
+      });
+      const libraryReads = (node: Kingdom) => node.frames.frames.filter((frame) => frame.kind === 'library-read');
+
+      it('serves an image with the type from its extension', async () => {
+        const node = await started();
+        const png = call('GET', '/api/nodes/node-a/library/file?path=img/flow.png');
+        const asked = await answers(node, 'library-read', image('img/flow.png', PNG));
+        expect(asked).toEqual({
+          kind: 'library-read',
+          requestId: expect.any(String),
+          path: 'img/flow.png',
+          as: 'image',
+        });
+        const pngResponse = await png;
+        expect(pngResponse.status).toBe(200);
+        expect(pngResponse.headers.get('content-type')).toBe('image/png');
+        expect(Buffer.from(await pngResponse.arrayBuffer())).toEqual(PNG);
+        expect(pngResponse.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+        expect(pngResponse.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(pngResponse.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+        expect(pngResponse.headers.get('cache-control')).toBe('no-store');
+
+        node.frames.frames = [];
+        const svg = call('GET', '/api/nodes/node-a/library/file?path=img/flow.svg');
+        await answers(node, 'library-read', image('img/flow.svg', Buffer.from(SVG)));
+        const svgResponse = await svg;
+        expect(svgResponse.status).toBe(200);
+        expect(svgResponse.headers.get('content-type')).toBe('image/svg+xml');
+        expect(svgResponse.headers.get('content-security-policy')).toBe(
+          "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        );
+        expect(await svgResponse.text()).toBe(SVG);
+
+        for (const [file, type] of [
+          ['a.jpg', 'image/jpeg'],
+          ['a.JPEG', 'image/jpeg'],
+          ['a.gif', 'image/gif'],
+          ['a.webp', 'image/webp'],
+          ['a.avif', 'image/avif'],
+        ] as const) {
+          node.frames.frames = [];
+          const one = call('GET', `/api/nodes/node-a/library/file?path=${file}`);
+          await answers(node, 'library-read', image(file, PNG));
+          expect((await one).headers.get('content-type'), file).toBe(type);
+        }
+      });
+
+      it('ignores any type the Kingdom suggests', async () => {
+        const node = await started();
+        const html = Buffer.from('<script>alert(1)</script>');
+        const read = call('GET', '/api/nodes/node-a/library/file?path=img/flow.png');
+        await answers(node, 'library-read', image('evil.html', html, { contentType: 'text/html', type: 'text/html' }));
+        const response = await read;
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toBe('image/png');
+        expect(response.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+      });
+
+      it('refuses .md and .html here (404)', async () => {
+        const node = await started();
+        const refused = await Promise.all(
+          ['a.md', 'a.html', 'a.htm', 'a', 'a.png.html', 'a.svgz', 'a.exe'].map((file) =>
+            call('GET', `/api/nodes/node-a/library/file?path=${file}`),
+          ),
+        );
+        expect(refused.map((response) => response.status)).toEqual([404, 404, 404, 404, 404, 404, 404]);
+        for (const response of refused)
+          expect(response.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+        expect((await call('GET', '/api/nodes/node-a/library/file')).status).toBe(400);
+        expect(libraryReads(node)).toEqual([]);
+      });
+
+      it('refuses an image over 5 MB (413)', async () => {
+        const node = await started();
+        const read = call('GET', '/api/nodes/node-a/library/file?path=big.png');
+        await answers(node, 'library-read', image('big.png', Buffer.alloc(5 * 1024 * 1024 + 1)));
+        const response = await read;
+        expect(response.status).toBe(413);
+        expect(response.headers.get('content-type')).toMatch(/^application\/json/);
+
+        node.frames.frames = [];
+        const most = call('GET', '/api/nodes/node-a/library/file?path=big.png');
+        await answers(node, 'library-read', image('big.png', Buffer.alloc(5 * 1024 * 1024)));
+        expect((await most).status).toBe(200);
+      });
+
+      it('passes on the Kingdom’s refusals', async () => {
+        const node = await started();
+        const gone = call('GET', '/api/nodes/node-a/library/file?path=a.png');
+        await answers(node, 'library-read', { ok: false, reason: 'gone' });
+        expect(await json(await gone)).toEqual({ status: 404, body: { error: 'gone' } });
+        node.frames.frames = [];
+        const notImage = call('GET', '/api/nodes/node-a/library/file?path=a.png');
+        await answers(node, 'library-read', { ok: false, reason: 'not an image' });
+        expect(await json(await notImage)).toEqual({ status: 409, body: { error: 'not an image' } });
+        node.frames.frames = [];
+        const text = call('GET', '/api/nodes/node-a/library/file?path=a.png');
+        await answers(node, 'library-read', { ok: true, tome: { ...TOME, path: 'a.png' } });
+        expect((await text).status).toBe(409);
+      });
+
+      it('sends at most two image reads at a time per Kingdom', async () => {
+        const node = await started();
+        const other = await connectNode('node-b', LIBRARY);
+        const reads = [1, 2, 3, 4, 5].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await node.frames.waitFor(() => libraryReads(node).length === 2);
+        // Another Kingdom has its own two.
+        const elsewhere = call('GET', '/api/nodes/node-b/library/file?path=b.png');
+        await answers(other, 'library-read', image('b.png', PNG));
+        expect((await elsewhere).status).toBe(200);
+        // A text read isn't held behind them.
+        const tome = call('GET', '/api/nodes/node-a/library/tome?path=a.md');
+        const text = await node.frames.waitFor((frame) => frame.kind === 'library-read' && frame.as === undefined);
+        send(node.socket, { kind: 'library-answer', requestId: text.requestId, ok: true, tome: TOME });
+        expect((await tome).status).toBe(200);
+        expect(libraryReads(node).filter((frame) => frame.as === 'image')).toHaveLength(2);
+
+        const answered = new Set<unknown>();
+        for (let n = 0; n < 5; n++) {
+          const next = await node.frames.waitFor(
+            (frame) => frame.kind === 'library-read' && frame.as === 'image' && !answered.has(frame.requestId),
+          );
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          expect(libraryReads(node).filter((frame) => frame.as === 'image').length).toBe(Math.min(n + 2, 5));
+          answered.add(next.requestId);
+          send(node.socket, { kind: 'library-answer', requestId: next.requestId, ...image(String(next.path), PNG) });
+        }
+        expect((await Promise.all(reads)).map((response) => response.status)).toEqual([200, 200, 200, 200, 200]);
+        // In the order they came.
+        expect(
+          libraryReads(node)
+            .filter((frame) => frame.as === 'image')
+            .map((frame) => frame.path),
+        ).toEqual(['1.png', '2.png', '3.png', '4.png', '5.png']);
+      });
+
+      it('frees a slot when a read is refused or its Kingdom goes, and says busy after 15 s in the queue', async () => {
+        const node = await started();
+        const first = [1, 2].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await node.frames.waitFor(() => libraryReads(node).length === 2);
+        const [one] = libraryReads(node);
+        send(node.socket, { kind: 'library-answer', requestId: one?.requestId, ok: false, reason: 'gone' });
+        expect((await first[0])?.status).toBe(404);
+        const third = call('GET', '/api/nodes/node-a/library/file?path=3.png');
+        await node.frames.waitFor(() => libraryReads(node).length === 3);
+        node.socket.terminate();
+        const settled = await Promise.all([first[1], third]);
+        expect(settled.map((response) => response?.status)).toEqual([409, 409]);
+
+        const again = await started();
+        const asked = new Promise<void>((resolve) => {
+          let seen = 0;
+          again.socket.on('message', (data) => {
+            if ((JSON.parse(data.toString()) as { kind?: string }).kind === 'library-read' && ++seen === 2) resolve();
+          });
+        });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+          const inject = (n: number) =>
+            app.inject({ method: 'GET', url: `/api/nodes/node-a/library/file?path=${n}.png` });
+          const held = [inject(1), inject(2)];
+          await asked;
+          await vi.advanceTimersByTimeAsync(1000);
+          const queued = [inject(3), inject(4), inject(5)];
+          for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+          // The two sent at 0 s time out at 15 s; 3 and 4 go out then, and 5 has waited 15 s at 16 s.
+          await vi.advanceTimersByTimeAsync(14_000);
+          expect((await Promise.all(held)).map((response) => response.json())).toEqual([
+            { error: 'the Kingdom did not answer in time' },
+            { error: 'the Kingdom did not answer in time' },
+          ]);
+          await vi.advanceTimersByTimeAsync(1000);
+          const busy = await queued[2];
+          expect([busy?.statusCode, busy?.json()]).toEqual([409, { error: 'the Kingdom is busy' }]);
+          await vi.advanceTimersByTimeAsync(14_000);
+          const late = await Promise.all(queued.slice(0, 2));
+          expect(late.map((response) => response.json())).toEqual([
+            { error: 'the Kingdom did not answer in time' },
+            { error: 'the Kingdom did not answer in time' },
+          ]);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('answers held and queued image reads when their Kingdom goes, and gives its return two slots', async () => {
+        const node = await started();
+        const reads = [1, 2, 3].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await node.frames.waitFor(() => libraryReads(node).length === 2);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(libraryReads(node).map((frame) => frame.path)).toEqual(['1.png', '2.png']);
+        node.socket.terminate();
+        const settled = await Promise.all(reads);
+        expect(settled.map((response) => response.status)).toEqual([409, 409, 404]);
+        expect(await settled[2]?.json()).toEqual({ error: 'that Kingdom is offline' });
+
+        const again = await started();
+        const more = [4, 5].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await again.frames.waitFor(() => libraryReads(again).length === 2);
+        for (const frame of libraryReads(again))
+          send(again.socket, { kind: 'library-answer', requestId: frame.requestId, ...image(String(frame.path), PNG) });
+        expect((await Promise.all(more)).map((response) => response.status)).toEqual([200, 200]);
+      });
+
+      it('tells a queued image read its Kingdom came back without a Library', async () => {
+        const node = await started();
+        const asked = new Promise<void>((resolve) => {
+          let seen = 0;
+          node.socket.on('message', (data) => {
+            if ((JSON.parse(data.toString()) as { kind?: string }).kind === 'library-read' && ++seen === 2) resolve();
+          });
+        });
+        // The hub's timers and clock: the sockets keep real ones.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        try {
+          const inject = (n: number) =>
+            app.inject({ method: 'GET', url: `/api/nodes/node-a/library/file?path=${n}.png` });
+          const held = [inject(1), inject(2)];
+          await asked;
+          let settled = false;
+          const queued = inject(3);
+          void queued.then(() => (settled = true));
+          for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+
+          // The first link has gone quiet, so a new one takes the name: a Kingdom with no Library. The first link's
+          // reads are left to time out, and the queued one takes a slot then.
+          vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+          const back = await connectNode('node-a');
+          for (let tries = 0; tries < 200; tries++) {
+            const listed = (await app.inject({ method: 'GET', url: '/api/engines' })).json<
+              { node: string; library?: unknown }[]
+            >();
+            if (listed.some((row) => row.node === 'node-a' && !row.library)) break;
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+          await vi.advanceTimersByTimeAsync(15_000);
+          expect((await Promise.all(held)).map((response) => response.json())).toEqual([
+            { error: 'the Kingdom did not answer in time' },
+            { error: 'the Kingdom did not answer in time' },
+          ]);
+          for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+          expect(settled).toBe(true);
+          const response = await queued;
+          expect([response.statusCode, response.json()]).toEqual([409, { error: NO_LIBRARY }]);
+          expect(libraryReads(back)).toEqual([]);
+        } finally {
+          await vi.advanceTimersByTimeAsync(15_000);
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    describe('HTML Tomes', () => {
+      const PAGE_CSP =
+        "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; frame-ancestors 'self'";
+      const FRAMED = { 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'same-origin' };
+      const HTML = '<!doctype html><script>document.title = "curve"</script>';
+      const page = (path: string) => ({
+        ok: true,
+        tome: { path, kind: 'html', encoding: 'utf8', content: HTML, truncated: false, version: VERSION },
+      });
+
+      /** A GET with the raw response headers, so a header sent twice shows twice. */
+      function rawGet(url: string, headers: Record<string, string> = {}) {
+        return new Promise<{ status: number; headers: string[]; body: string }>((resolve, reject) => {
+          const request = http.get(`${baseUrl}${url}`, { headers }, (response) => {
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk: Buffer) => chunks.push(chunk));
+            response.on('end', () =>
+              resolve({
+                status: response.statusCode ?? 0,
+                headers: response.rawHeaders,
+                body: Buffer.concat(chunks).toString('utf8'),
+              }),
+            );
+          });
+          request.on('error', reject);
+        });
+      }
+      /** Every value of one header, by its raw lines. */
+      const valuesOf = (raw: string[], name: string) =>
+        raw.flatMap((value, index) => (index % 2 === 1 && raw[index - 1]?.toLowerCase() === name ? [value] : []));
+
+      it("serves an HTML Tome only into the app's frame", async () => {
+        const node = await started();
+        const framed = rawGet('/api/nodes/node-a/library/page?path=sketches/retry-curve.html', FRAMED);
+        const asked = await answers(node, 'library-read', page('sketches/retry-curve.html'));
+        expect(asked).toEqual({
+          kind: 'library-read',
+          requestId: expect.any(String),
+          path: 'sketches/retry-curve.html',
+        });
+        const response = await framed;
+        expect(response.status).toBe(200);
+        expect(response.body).toBe(HTML);
+        expect(valuesOf(response.headers, 'content-type')).toEqual(['text/html; charset=utf-8']);
+        expect(valuesOf(response.headers, 'content-security-policy')).toEqual([PAGE_CSP]);
+        expect(valuesOf(response.headers, 'x-content-type-options')).toEqual(['nosniff']);
+        expect(valuesOf(response.headers, 'cross-origin-resource-policy')).toEqual(['same-origin']);
+        expect(valuesOf(response.headers, 'cache-control')).toEqual(['no-store']);
+        expect(valuesOf(response.headers, 'content-disposition')).toEqual([]);
+      });
+
+      it('answers anything else as a download', async () => {
+        const node = await started();
+        for (const headers of [
+          {} as Record<string, string>,
+          { 'sec-fetch-dest': 'iframe' },
+          { 'sec-fetch-site': 'same-origin' },
+          { 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'cross-site' },
+          { 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'same-site' },
+          { 'sec-fetch-dest': 'document', 'sec-fetch-site': 'same-origin' },
+        ]) {
+          node.frames.frames = [];
+          const download = rawGet('/api/nodes/node-a/library/page?path=sketches/retry%20curve%22%3B.htm', headers);
+          await answers(node, 'library-read', page('sketches/retry curve";.htm'));
+          const response = await download;
+          const label = JSON.stringify(headers);
+          expect(response.status, label).toBe(200);
+          expect(response.body, label).toBe(HTML);
+          expect(valuesOf(response.headers, 'content-type'), label).toEqual(['application/octet-stream']);
+          expect(valuesOf(response.headers, 'content-disposition'), label).toEqual([
+            'attachment; filename="retry_curve__.htm"',
+          ]);
+          expect(valuesOf(response.headers, 'content-security-policy'), label).toEqual(["sandbox; default-src 'none'"]);
+          expect(valuesOf(response.headers, 'x-content-type-options'), label).toEqual(['nosniff']);
+        }
+      });
+
+      it('refuses anything but .html and .htm here (404), and passes on the Kingdom’s refusals', async () => {
+        const node = await started();
+        const refused = await Promise.all(
+          ['a.md', 'a.png', 'a.svg', 'a', 'a.html.md'].map((file) =>
+            rawGet(`/api/nodes/node-a/library/page?path=${file}`, FRAMED),
+          ),
+        );
+        expect(refused.map((response) => response.status)).toEqual([404, 404, 404, 404, 404]);
+        for (const response of refused)
+          expect(valuesOf(response.headers, 'content-security-policy')).toEqual(["sandbox; default-src 'none'"]);
+        expect((await rawGet('/api/nodes/node-a/library/page', FRAMED)).status).toBe(400);
+        expect(node.frames.frames.filter((frame) => frame.kind === 'library-read')).toEqual([]);
+
+        const gone = rawGet('/api/nodes/node-a/library/page?path=a.HTML', FRAMED);
+        await answers(node, 'library-read', { ok: false, reason: 'gone' });
+        const response = await gone;
+        expect([response.status, JSON.parse(response.body)]).toEqual([404, { error: 'gone' }]);
+        expect(valuesOf(response.headers, 'content-security-policy')).toEqual(["sandbox; default-src 'none'"]);
+      });
+
+      it('takes another page CSP only from the test-only option', async () => {
+        await app.close();
+        app = await buildServer({ store, libraryPageCsp: "frame-ancestors 'none'" });
+        await app.listen({ port: 0, host: '127.0.0.1' });
+        const { port } = app.server.address() as AddressInfo;
+        baseUrl = `http://127.0.0.1:${port}`;
+        wsUrl = `ws://127.0.0.1:${port}`;
+        const node = await started();
+        const framed = rawGet('/api/nodes/node-a/library/page?path=a.html', FRAMED);
+        await answers(node, 'library-read', page('a.html'));
+        expect(valuesOf((await framed).headers, 'content-security-policy')).toEqual(["frame-ancestors 'none'"]);
+      });
+    });
+
+    it('/api/engines passes library: { dir } on', async () => {
+      await connectNode('node-a', LIBRARY);
+      await connectNode('node-b');
+      const start = Date.now();
+      let body: { node: string; library?: unknown }[] = [];
+      while (body.length < 2 && Date.now() - start < 2000)
+        body = (await (await fetch(`${baseUrl}/api/engines`)).json()) as typeof body;
+      expect(body.find((row) => row.node === 'node-a')?.library).toEqual({ dir: '/w/library' });
+      expect(body.find((row) => row.node === 'node-b')).not.toHaveProperty('library');
+    });
+
+    describe('keeping watch', () => {
+      const changed = (frame: Record<string, unknown>) => frame.kind === 'library-changed';
+      const pong = (frame: Record<string, unknown>) => frame.kind === 'pong';
+      /** A ping comes back after everything the tab sent before it was handled. */
+      async function settled(client: { socket: WebSocket; frames: FrameRecorder }) {
+        const before = client.frames.frames.filter(pong).length;
+        send(client.socket, { kind: 'ping' });
+        const start = Date.now();
+        while (client.frames.frames.filter(pong).length === before) {
+          if (Date.now() - start > 2000) throw new Error('no pong');
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+
+      it('sends library-changed only to tabs watching that Kingdom', async () => {
+        const node = await connectNode('node-a', LIBRARY);
+        const a = await connectClient();
+        const b = await connectClient();
+        const c = await connectClient();
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        send(c.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        await settled(a);
+        await settled(b);
+        await settled(c);
+
+        send(node.socket, { kind: 'library-changed', paths: ['a.md'] });
+        expect(await a.frames.waitFor(changed)).toEqual({ kind: 'library-changed', node: 'node-a', paths: ['a.md'] });
+        await c.frames.waitFor(changed);
+
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: false });
+        await settled(a);
+        c.socket.close();
+        await new Promise((resolve) => c.socket.once('close', resolve));
+        const d = await connectClient();
+        send(d.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        await settled(d);
+        send(node.socket, { kind: 'library-changed', all: true });
+        expect(await d.frames.waitFor(changed)).toEqual({ kind: 'library-changed', node: 'node-a', all: true });
+        await settled(a);
+        await settled(b);
+
+        expect(a.frames.frames.filter(changed)).toHaveLength(1);
+        expect(b.frames.frames.filter(changed)).toHaveLength(0);
+      });
+
+      it('tells the watching tabs to reread everything when their Kingdom comes back', async () => {
+        const first = await connectNode('node-a', LIBRARY);
+        const a = await connectClient();
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        await settled(a);
+        first.socket.terminate();
+        await new Promise((resolve) => first.socket.once('close', resolve));
+        await connectNode('node-a', LIBRARY);
+        expect(await a.frames.waitFor(changed)).toEqual({ kind: 'library-changed', node: 'node-a', all: true });
+        // Back without a Library: nothing to reread.
+        await connectNode('node-b');
+        send(a.socket, { kind: 'library-watch', node: 'node-b', open: true });
+        await settled(a);
+        expect(a.frames.frames.filter(changed)).toHaveLength(1);
+      });
+
+      it('keeps a watch on a Kingdom that is offline, and ignores nonsense', async () => {
+        const a = await connectClient();
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        send(a.socket, { kind: 'library-watch', node: 'x'.repeat(500), open: true });
+        send(a.socket, { kind: 'library-watch', node: 'nobody', open: false });
+        await settled(a);
+        const node = await connectNode('node-a', LIBRARY);
+        send(node.socket, { kind: 'library-changed', paths: ['b.md'] });
+        expect(await a.frames.waitFor((frame) => changed(frame) && 'paths' in frame)).toMatchObject({
+          node: 'node-a',
+          paths: ['b.md'],
+        });
+      });
+    });
   });
 
   describe('a Kingdom that goes quiet', () => {
@@ -4228,6 +4940,19 @@ describe('airship server and other sites', () => {
     expect((await post({ origin: 'https://evil.example' })).statusCode).toBe(403);
   });
 
+  it('refuses a Library write from another site', async () => {
+    const write = (headers: Record<string, string>) =>
+      app.inject({
+        method: 'PUT',
+        url: '/api/nodes/a/library/tome',
+        headers: { ...me, ...headers },
+        payload: { path: 'a.md', content: 'x', base: null },
+      });
+    expect((await write({ 'sec-fetch-site': 'cross-site' })).statusCode).toBe(403);
+    expect((await write({ origin: 'https://evil.example' })).statusCode).toBe(403);
+    expect((await write({})).statusCode).toBe(404);
+  });
+
   it('lets a page from the hub itself in, whatever a proxy did to Host', async () => {
     expect(await dial({ origin: 'https://hub.example', 'sec-fetch-site': 'same-origin' })).toBe('open');
     const host = new URL(base).host;
@@ -4339,6 +5064,23 @@ describe('airship server with token login', () => {
       canLogIn: true,
       setup: false,
     });
+  });
+
+  it('needs a login under token auth, even with publicApp, for the Library', async () => {
+    expect(auth.publicApp).toBe(true);
+    for (const [method, url] of [
+      ['GET', '/api/nodes/node-a/library'],
+      ['GET', '/api/nodes/node-a/library/tome?path=a.md'],
+      ['PUT', '/api/nodes/node-a/library/tome'],
+      ['GET', '/api/nodes/node-a/library/backlinks?path=a.md'],
+    ] as const) {
+      const response = await app.inject({
+        method,
+        url,
+        ...(method === 'PUT' ? { payload: { path: 'a.md', content: 'x', base: null } } : {}),
+      });
+      expect([url, response.statusCode]).toEqual([url, 403]);
+    }
   });
 
   it('refuses a bad token and sets no cookie', async () => {

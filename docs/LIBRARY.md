@@ -26,7 +26,7 @@ Game line: _"You open the Library of laptop."_
 | **Library routes** | HTTP routes under `/api/` the browser reads and writes through          | the hub, which keeps nothing |
 | **Reader**         | renders a Tome: Markdown, Mermaid, maths, code, images and wiki links   | the web app                  |
 | **Editor**         | a plain Markdown editor with a live preview                             | the web app                  |
-| **HTML frame**     | shows an HTML Tome in a sandbox that can make no requests               | the web app and the hub      |
+| **HTML frame**     | shows an HTML Tome in a sandbox kept apart from the app                 | the web app and the hub      |
 
 Reader, editor and HTML frame are plain terms, not theme words.
 
@@ -137,11 +137,15 @@ apart from the app:
   `Sec-Fetch-Site: same-origin` gets the file as a download. So an HTML Tome can't pose as a page of the hub at the
   hub's own address.
 
-**What a page can still do.** The CSP stops every request a page makes in the background: no fetches, no scripts,
-styles or fonts from other sites. It can't stop a page from navigating its own frame, or you from following a link in
+**What a page can still do.** The page can't make HTTP requests in the background: no fetches, and no scripts, styles,
+fonts or images from other sites. It can't read the app's storage, cookies or login, and it can't open popups. But
+opening it can still contact another host without a click: through WebRTC in every browser tested, and through
+preconnect links in Safari and other WebKit browsers. So a page can tell another site that you opened it, and from which
+IP address, and send it what the page itself contains. It can also navigate its own frame, or you can follow a link in
 it, and either can carry what the page shows to another site in the address. So treat an HTML Tome like a web page you
-chose to open. The frame's badge says _"Sandboxed page: no requests"_. A page that needs a library from a content
-delivery network (CDN) shows blank or broken, so the badge also says a page has to inline what it needs.
+chose to open. The frame's badge says _"Sandboxed page: can't read the app, but can contact other sites"_. A page that
+needs a library from a content delivery network (CDN) shows blank or broken, so the badge also says a page has to inline
+what it needs.
 
 HTML Tomes are read-only in the app. A Quest or your own editor changes them.
 
@@ -214,7 +218,9 @@ Crystal watches the Library folder and skips the folders the listing leaves out:
 Changes are batched for half a second and sent as one `library-changed` frame with the changed paths (at most 200;
 beyond that, it says the whole listing changed). The hub passes it to the browsers that have that Kingdom's Library
 open, and they update the listing and any open Tome. A watcher error is logged and reported as the whole listing
-changed, so the browsers load it again; the Library keeps serving, and it never stops Crystal.
+changed, so the browsers load it again; the Library keeps serving, and it never stops Crystal. Changes made while a
+Kingdom was offline go unreported, so when one with a Library connects again, the hub tells those browsers the whole
+listing changed.
 
 ## Mind the wards: trust and confinement
 
@@ -231,7 +237,8 @@ without a login (`publicApp`) asks for one before any Library content.
 
 - Markdown renders without raw HTML, Mermaid runs in its own sandboxed frame, and KaTeX trusts no commands. A Tome
   can't run a script in the app.
-- An HTML Tome runs scripts only in its sandbox, as the section above says, including what it can still do.
+- An HTML Tome runs scripts only in its sandbox. It can't reach the app, but it can still contact other sites, as
+  the section above says.
 - Every Library answer from the hub carries a `sandbox` CSP, `X-Content-Type-Options: nosniff` and
   `Cross-Origin-Resource-Policy: same-origin`, with the content type set by the hub from the extension, never taken
   from the Kingdom. So an SVG opened directly runs no script on the hub's origin, a Kingdom can't pass HTML off as an
@@ -267,10 +274,18 @@ The build starts with the risky parts, each with a failing test:
    symlink planted at the temporary name.
 2. **The watcher** on Linux, macOS and Windows: a repository with `node_modules` and `.git`, a folder renamed while
    watched, and a symlinked folder that loops.
-3. **The sandboxes**, in a real browser: an HTML Tome that tries to fetch, to load a script, style or font from another
-   site, to prefetch a DNS name, to open a WebRTC connection, to read the app's storage and to open a popup; the same
-   page opened directly at its address; a hub answer that keeps `frame-ancestors 'none'` by mistake; and a Mermaid
-   diagram whose `%%{init}%%` sets `themeCSS` and `fontFamily`.
+3. **The sandboxes**, in a real browser (Chromium and WebKit): an HTML Tome that tries to fetch, to load a script,
+   style or font from another site, to prefetch a DNS name, to open a WebRTC connection, to read the app's storage
+   and to open a popup, framed as the app frames it and again with no `sandbox` attribute (the CSP alone); a second
+   that tries a form, a WebSocket, a beacon, a Worker from another site and a nested frame; one page each that
+   navigates its own frame by `location.href`, by a scripted link click and by a meta refresh; the same page opened
+   directly at its address; a hub answer that keeps `frame-ancestors 'none'` by mistake; and a Mermaid diagram whose
+   `%%{init}%%` sets `themeCSS` and `fontFamily`, and a frame drawing a small, a tall and a small diagram again. The
+   test proves the pages make no HTTP request or connection, read no storage or cookie and open no popup, with or
+   without the `sandbox` attribute; that the page opened directly downloads; that the mistaken answer leaves the frame
+   blank; that the diagram draws with no request at all; and that the frame shrinks back. It records the known gaps
+   rather than failing on them: WebRTC's STUN requests in both browsers, WebKit's connection for a preconnect link,
+   and the three navigations, which reach the other site in both. The section on HTML Tomes says what they mean.
 
 If any of these doesn't hold, the design comes back here before the rest is built.
 
