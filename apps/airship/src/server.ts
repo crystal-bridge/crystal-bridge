@@ -87,6 +87,7 @@ import {
   MAX_IMAGE_BYTES,
   MAX_TOME_BYTES,
   NodeLibraryAnswer,
+  NodeLibraryChanged,
   TomeVersion,
 } from '@crystal-bridge/protocol';
 import { type Authenticator, cookieHeader } from './auth.js';
@@ -233,6 +234,9 @@ const TomeWrite = z.object({
   content: HubLibraryWrite.shape.content,
   base: TomeVersion.nullable(),
 });
+
+/** The longest Kingdom name a tab may ask to watch. */
+const MAX_NODE_ID = 200;
 
 /**
  * The headers on every Library answer, refusals included, replacing the hub's usual CSP: a Tome is the Kingdom's text,
@@ -605,6 +609,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const kingdomAsks = new Map<string, { node: string; finish: (answer: KingdomAnswer) => void }>();
   // Every connected client, for errors that aren't about one session.
   const clients = new Set<WebSocket>();
+  /** The tabs with a Kingdom's Library open, by Kingdom; kept while it is offline, so a tab hears when it returns. */
+  const libraryWatchers = new Map<string, Set<WebSocket>>();
   // Each client's tailnet login, so a user's appearance change reaches only their own other tabs.
   const clientLogins = new Map<WebSocket, string>();
   // File viewer requests in flight: who asked, and which node may answer. An answer from anyone else goes nowhere.
@@ -2060,6 +2066,19 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           return;
         }
 
+        const libraryChanged = NodeLibraryChanged.safeParse(parsed);
+        if (libraryChanged.success) {
+          const { paths, all } = libraryChanged.data;
+          const frame: HubToClient = {
+            kind: 'library-changed',
+            node: helloNode,
+            ...(paths ? { paths } : {}),
+            ...(all ? { all } : {}),
+          };
+          for (const watcher of libraryWatchers.get(helloNode) ?? []) sendToClient(watcher, frame);
+          return;
+        }
+
         const libraryAnswer = NodeLibraryAnswer.safeParse(parsed);
         if (libraryAnswer.success) {
           const waiting = kingdomAsks.get(libraryAnswer.data.requestId);
@@ -2297,6 +2316,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           handleSubscribe(socket, message.data.session, message.data.fromSeq);
         } else if (message.data.kind === 'command') {
           handleCommand(socket, message.data.command);
+        } else if (message.data.kind === 'library-watch') {
+          const { node, open } = message.data;
+          if (node.length === 0 || node.length > MAX_NODE_ID) return;
+          if (open) {
+            let watching = libraryWatchers.get(node);
+            if (!watching) libraryWatchers.set(node, (watching = new Set()));
+            watching.add(socket);
+          } else {
+            const watching = libraryWatchers.get(node);
+            watching?.delete(socket);
+            if (watching?.size === 0) libraryWatchers.delete(node);
+          }
         }
       }),
     );
@@ -2304,6 +2335,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     socket.on('close', () => {
       clients.delete(socket);
       clientLogins.delete(socket);
+      for (const [node, watching] of libraryWatchers) {
+        watching.delete(socket);
+        if (watching.size === 0) libraryWatchers.delete(node);
+      }
       for (const [requestId, pending] of fileRequests) {
         if (pending.client !== socket) continue;
         clearTimeout(pending.timer);

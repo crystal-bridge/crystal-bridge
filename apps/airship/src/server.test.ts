@@ -2002,6 +2002,63 @@ describe('airship server', () => {
       expect(body.find((row) => row.node === 'node-a')?.library).toEqual({ dir: '/w/library' });
       expect(body.find((row) => row.node === 'node-b')).not.toHaveProperty('library');
     });
+
+    describe('keeping watch', () => {
+      const changed = (frame: Record<string, unknown>) => frame.kind === 'library-changed';
+      const pong = (frame: Record<string, unknown>) => frame.kind === 'pong';
+      /** A ping comes back after everything the tab sent before it was handled. */
+      async function settled(client: { socket: WebSocket; frames: FrameRecorder }) {
+        const before = client.frames.frames.filter(pong).length;
+        send(client.socket, { kind: 'ping' });
+        const start = Date.now();
+        while (client.frames.frames.filter(pong).length === before) {
+          if (Date.now() - start > 2000) throw new Error('no pong');
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+
+      it('sends library-changed only to tabs watching that Kingdom', async () => {
+        const node = await connectNode('node-a', LIBRARY);
+        const a = await connectClient();
+        const b = await connectClient();
+        const c = await connectClient();
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        send(c.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        await settled(a);
+        await settled(b);
+        await settled(c);
+
+        send(node.socket, { kind: 'library-changed', paths: ['a.md'] });
+        expect(await a.frames.waitFor(changed)).toEqual({ kind: 'library-changed', node: 'node-a', paths: ['a.md'] });
+        await c.frames.waitFor(changed);
+
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: false });
+        await settled(a);
+        c.socket.close();
+        await new Promise((resolve) => c.socket.once('close', resolve));
+        const d = await connectClient();
+        send(d.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        await settled(d);
+        send(node.socket, { kind: 'library-changed', all: true });
+        expect(await d.frames.waitFor(changed)).toEqual({ kind: 'library-changed', node: 'node-a', all: true });
+        await settled(a);
+        await settled(b);
+
+        expect(a.frames.frames.filter(changed)).toHaveLength(1);
+        expect(b.frames.frames.filter(changed)).toHaveLength(0);
+      });
+
+      it('keeps a watch on a Kingdom that is offline, and ignores nonsense', async () => {
+        const a = await connectClient();
+        send(a.socket, { kind: 'library-watch', node: 'node-a', open: true });
+        send(a.socket, { kind: 'library-watch', node: 'x'.repeat(500), open: true });
+        send(a.socket, { kind: 'library-watch', node: 'nobody', open: false });
+        await settled(a);
+        const node = await connectNode('node-a', LIBRARY);
+        send(node.socket, { kind: 'library-changed', paths: ['b.md'] });
+        expect(await a.frames.waitFor(changed)).toMatchObject({ node: 'node-a', paths: ['b.md'] });
+      });
+    });
   });
 
   describe('a Kingdom that goes quiet', () => {
