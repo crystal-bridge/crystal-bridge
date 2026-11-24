@@ -1645,6 +1645,206 @@ describe('airship server', () => {
       }
     });
 
+    describe('images', () => {
+      const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+      const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+      const image = (path: string, bytes: Buffer, extra: Record<string, unknown> = {}) => ({
+        ok: true,
+        tome: {
+          path,
+          kind: 'image',
+          encoding: 'base64',
+          content: bytes.toString('base64'),
+          truncated: false,
+          version: VERSION,
+          ...extra,
+        },
+      });
+      const libraryReads = (node: Kingdom) => node.frames.frames.filter((frame) => frame.kind === 'library-read');
+
+      it('serves an image with the type from its extension', async () => {
+        const node = await started();
+        const png = call('GET', '/api/nodes/node-a/library/file?path=img/flow.png');
+        const asked = await answers(node, 'library-read', image('img/flow.png', PNG));
+        expect(asked).toEqual({
+          kind: 'library-read',
+          requestId: expect.any(String),
+          path: 'img/flow.png',
+          as: 'image',
+        });
+        const pngResponse = await png;
+        expect(pngResponse.status).toBe(200);
+        expect(pngResponse.headers.get('content-type')).toBe('image/png');
+        expect(Buffer.from(await pngResponse.arrayBuffer())).toEqual(PNG);
+        expect(pngResponse.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+        expect(pngResponse.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(pngResponse.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+        expect(pngResponse.headers.get('cache-control')).toBe('no-store');
+
+        node.frames.frames = [];
+        const svg = call('GET', '/api/nodes/node-a/library/file?path=img/flow.svg');
+        await answers(node, 'library-read', image('img/flow.svg', Buffer.from(SVG)));
+        const svgResponse = await svg;
+        expect(svgResponse.status).toBe(200);
+        expect(svgResponse.headers.get('content-type')).toBe('image/svg+xml');
+        expect(svgResponse.headers.get('content-security-policy')).toBe(
+          "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        );
+        expect(await svgResponse.text()).toBe(SVG);
+
+        for (const [file, type] of [
+          ['a.jpg', 'image/jpeg'],
+          ['a.JPEG', 'image/jpeg'],
+          ['a.gif', 'image/gif'],
+          ['a.webp', 'image/webp'],
+          ['a.avif', 'image/avif'],
+        ] as const) {
+          node.frames.frames = [];
+          const one = call('GET', `/api/nodes/node-a/library/file?path=${file}`);
+          await answers(node, 'library-read', image(file, PNG));
+          expect((await one).headers.get('content-type'), file).toBe(type);
+        }
+      });
+
+      it('ignores any type the Kingdom suggests', async () => {
+        const node = await started();
+        const html = Buffer.from('<script>alert(1)</script>');
+        const read = call('GET', '/api/nodes/node-a/library/file?path=img/flow.png');
+        await answers(node, 'library-read', image('evil.html', html, { contentType: 'text/html', type: 'text/html' }));
+        const response = await read;
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toBe('image/png');
+        expect(response.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+      });
+
+      it('refuses .md and .html here (404)', async () => {
+        const node = await started();
+        const refused = await Promise.all(
+          ['a.md', 'a.html', 'a.htm', 'a', 'a.png.html', 'a.svgz', 'a.exe'].map((file) =>
+            call('GET', `/api/nodes/node-a/library/file?path=${file}`),
+          ),
+        );
+        expect(refused.map((response) => response.status)).toEqual([404, 404, 404, 404, 404, 404, 404]);
+        for (const response of refused)
+          expect(response.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'");
+        expect((await call('GET', '/api/nodes/node-a/library/file')).status).toBe(400);
+        expect(libraryReads(node)).toEqual([]);
+      });
+
+      it('refuses an image over 5 MB (413)', async () => {
+        const node = await started();
+        const read = call('GET', '/api/nodes/node-a/library/file?path=big.png');
+        await answers(node, 'library-read', image('big.png', Buffer.alloc(5 * 1024 * 1024 + 1)));
+        const response = await read;
+        expect(response.status).toBe(413);
+        expect(response.headers.get('content-type')).toMatch(/^application\/json/);
+
+        node.frames.frames = [];
+        const most = call('GET', '/api/nodes/node-a/library/file?path=big.png');
+        await answers(node, 'library-read', image('big.png', Buffer.alloc(5 * 1024 * 1024)));
+        expect((await most).status).toBe(200);
+      });
+
+      it('passes on the Kingdom’s refusals', async () => {
+        const node = await started();
+        const gone = call('GET', '/api/nodes/node-a/library/file?path=a.png');
+        await answers(node, 'library-read', { ok: false, reason: 'gone' });
+        expect(await json(await gone)).toEqual({ status: 404, body: { error: 'gone' } });
+        node.frames.frames = [];
+        const notImage = call('GET', '/api/nodes/node-a/library/file?path=a.png');
+        await answers(node, 'library-read', { ok: false, reason: 'not an image' });
+        expect(await json(await notImage)).toEqual({ status: 409, body: { error: 'not an image' } });
+        node.frames.frames = [];
+        const text = call('GET', '/api/nodes/node-a/library/file?path=a.png');
+        await answers(node, 'library-read', { ok: true, tome: { ...TOME, path: 'a.png' } });
+        expect((await text).status).toBe(409);
+      });
+
+      it('sends at most two image reads at a time per Kingdom', async () => {
+        const node = await started();
+        const other = await connectNode('node-b', LIBRARY);
+        const reads = [1, 2, 3, 4, 5].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await node.frames.waitFor(() => libraryReads(node).length === 2);
+        // Another Kingdom has its own two.
+        const elsewhere = call('GET', '/api/nodes/node-b/library/file?path=b.png');
+        await answers(other, 'library-read', image('b.png', PNG));
+        expect((await elsewhere).status).toBe(200);
+        // A text read isn't held behind them.
+        const tome = call('GET', '/api/nodes/node-a/library/tome?path=a.md');
+        const text = await node.frames.waitFor((frame) => frame.kind === 'library-read' && frame.as === undefined);
+        send(node.socket, { kind: 'library-answer', requestId: text.requestId, ok: true, tome: TOME });
+        expect((await tome).status).toBe(200);
+        expect(libraryReads(node).filter((frame) => frame.as === 'image')).toHaveLength(2);
+
+        const answered = new Set<unknown>();
+        for (let n = 0; n < 5; n++) {
+          const next = await node.frames.waitFor(
+            (frame) => frame.kind === 'library-read' && frame.as === 'image' && !answered.has(frame.requestId),
+          );
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          expect(libraryReads(node).filter((frame) => frame.as === 'image').length).toBe(Math.min(n + 2, 5));
+          answered.add(next.requestId);
+          send(node.socket, { kind: 'library-answer', requestId: next.requestId, ...image(String(next.path), PNG) });
+        }
+        expect((await Promise.all(reads)).map((response) => response.status)).toEqual([200, 200, 200, 200, 200]);
+        // In the order they came.
+        expect(
+          libraryReads(node)
+            .filter((frame) => frame.as === 'image')
+            .map((frame) => frame.path),
+        ).toEqual(['1.png', '2.png', '3.png', '4.png', '5.png']);
+      });
+
+      it('frees a slot when a read is refused or its Kingdom goes, and says busy after 15 s in the queue', async () => {
+        const node = await started();
+        const first = [1, 2].map((n) => call('GET', `/api/nodes/node-a/library/file?path=${n}.png`));
+        await node.frames.waitFor(() => libraryReads(node).length === 2);
+        const [one] = libraryReads(node);
+        send(node.socket, { kind: 'library-answer', requestId: one?.requestId, ok: false, reason: 'gone' });
+        expect((await first[0])?.status).toBe(404);
+        const third = call('GET', '/api/nodes/node-a/library/file?path=3.png');
+        await node.frames.waitFor(() => libraryReads(node).length === 3);
+        node.socket.terminate();
+        const settled = await Promise.all([first[1], third]);
+        expect(settled.map((response) => response?.status)).toEqual([409, 409]);
+
+        const again = await started();
+        const asked = new Promise<void>((resolve) => {
+          let seen = 0;
+          again.socket.on('message', (data) => {
+            if ((JSON.parse(data.toString()) as { kind?: string }).kind === 'library-read' && ++seen === 2) resolve();
+          });
+        });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+          const inject = (n: number) =>
+            app.inject({ method: 'GET', url: `/api/nodes/node-a/library/file?path=${n}.png` });
+          const held = [inject(1), inject(2)];
+          await asked;
+          await vi.advanceTimersByTimeAsync(1000);
+          const queued = [inject(3), inject(4), inject(5)];
+          for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+          // The two sent at 0 s time out at 15 s; 3 and 4 go out then, and 5 has waited 15 s at 16 s.
+          await vi.advanceTimersByTimeAsync(14_000);
+          expect((await Promise.all(held)).map((response) => response.json())).toEqual([
+            { error: 'the Kingdom did not answer in time' },
+            { error: 'the Kingdom did not answer in time' },
+          ]);
+          await vi.advanceTimersByTimeAsync(1000);
+          const busy = await queued[2];
+          expect([busy?.statusCode, busy?.json()]).toEqual([409, { error: 'the Kingdom is busy' }]);
+          await vi.advanceTimersByTimeAsync(14_000);
+          const late = await Promise.all(queued.slice(0, 2));
+          expect(late.map((response) => response.json())).toEqual([
+            { error: 'the Kingdom did not answer in time' },
+            { error: 'the Kingdom did not answer in time' },
+          ]);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
     it('/api/engines passes library: { dir } on', async () => {
       await connectNode('node-a', LIBRARY);
       await connectNode('node-b');

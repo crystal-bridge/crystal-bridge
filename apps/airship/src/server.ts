@@ -83,6 +83,7 @@ import {
   HubLibraryWrite,
   type LibraryInfo,
   LibraryPath,
+  MAX_IMAGE_BYTES,
   MAX_TOME_BYTES,
   NodeLibraryAnswer,
   TomeVersion,
@@ -237,6 +238,31 @@ function libraryHeaders(reply: FastifyReply, csp = "sandbox; default-src 'none'"
     .header('content-security-policy', csp)
     .header('x-content-type-options', 'nosniff')
     .header('cross-origin-resource-policy', 'same-origin');
+}
+
+/** How many image reads may be in flight to one Kingdom, so a page of pictures can't hold up approvals on its link. */
+const LIBRARY_IMAGE_SLOTS = 2;
+/**
+ * The content type of each image a Library serves, by extension. The hub sets it from this table alone, never from
+ * the Kingdom's answer, so a Kingdom can't pass HTML off as an image.
+ */
+const LIBRARY_IMAGE_TYPES: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  svg: 'image/svg+xml',
+};
+/** An SVG may style itself but runs no script and loads nothing, even opened directly at the hub's address. */
+const LIBRARY_SVG_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+
+/** A Library path's extension, lower-cased, or '' when it has none. */
+function libraryExtension(file: string): string {
+  const name = file.slice(file.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
 /** The HTTP status for a Kingdom's refused Library request: a stale write or a taken path is a conflict, a missing file is not found. */
@@ -536,6 +562,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const deedsNodes = new Set<string>();
   /** Kingdoms that keep a Library, and where (docs/LIBRARY.md). */
   const libraryNodes = new Map<string, LibraryInfo>();
+  /** Each Kingdom's image reads: how many are in flight, and who waits for a slot, first come first served. */
+  const libraryImageSlots = new Map<string, { busy: number; waiting: ((got: boolean) => void)[] }>();
   /** Kingdoms that run Patrols, and those of them that take Patrols from the app (docs/PATROLS.md). */
   const patrolNodes = new Set<string>();
   const patrolEditNodes = new Set<string>();
@@ -1564,18 +1592,63 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     return answer.session ? { session: answer.session } : {};
   });
   // The Library: the hub carries each request to the Kingdom and its answer back, and keeps nothing (docs/LIBRARY.md).
-  /** Asks a Kingdom with a Library, and sends its answer, or why there is none, with the Library's headers. */
+  /**
+   * Waits for one of a Kingdom's image slots: true once it holds one, false if none came free within the Library's wait.
+   * The holder hands it back with `freeImageSlot`.
+   */
+  function takeImageSlot(node: string): Promise<boolean> {
+    let slots = libraryImageSlots.get(node);
+    if (!slots) libraryImageSlots.set(node, (slots = { busy: 0, waiting: [] }));
+    if (slots.busy < LIBRARY_IMAGE_SLOTS) {
+      slots.busy += 1;
+      return Promise.resolve(true);
+    }
+    const queue = slots.waiting;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        queue.splice(queue.indexOf(given), 1);
+        resolve(false);
+      }, LIBRARY_WAIT_MS);
+      const given = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      queue.push(given);
+    });
+  }
+  /** Hands a slot to the longest waiter, or frees it. */
+  function freeImageSlot(node: string): void {
+    const slots = libraryImageSlots.get(node);
+    if (!slots) return;
+    const next = slots.waiting.shift();
+    if (next) return next(true);
+    slots.busy -= 1;
+    if (slots.busy === 0) libraryImageSlots.delete(node);
+  }
+  /**
+   * Asks a Kingdom with a Library, and sends its answer, or why there is none, with the Library's headers. `answered`
+   * sends a successful answer (by default the answer's fields as JSON); `image` takes one of the Kingdom's image slots.
+   */
   async function askLibrary(
     node: string,
     reply: FastifyReply,
     frame: HubLibraryList | HubLibraryRead | HubLibraryWrite | HubLibraryBacklinks,
+    { image = false, answered }: { image?: boolean; answered?: (library: NodeLibraryAnswer) => unknown } = {},
   ) {
     libraryHeaders(reply);
-    const socket = nodes.get(node);
-    if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+    if (!nodes.has(node)) return reply.code(404).send({ error: 'that Kingdom is offline' });
     if (!libraryNodes.has(node))
       return reply.code(409).send({ error: 'update this Kingdom first: it is too old for this' });
-    const answer = await askKingdom(socket, node, frame, LIBRARY_WAIT_MS);
+    if (image && !(await takeImageSlot(node))) return reply.code(409).send({ error: 'the Kingdom is busy' });
+    let answer: KingdomAnswer;
+    try {
+      // Looked up again: the Kingdom may have gone, or come back on another socket, while this waited for a slot.
+      const socket = nodes.get(node);
+      if (!socket) return reply.code(404).send({ error: 'that Kingdom is offline' });
+      answer = await askKingdom(socket, node, frame, LIBRARY_WAIT_MS);
+    } finally {
+      if (image) freeImageSlot(node);
+    }
     const library = answer.library;
     if (!library?.ok) {
       const reason = library?.reason ?? answer.reason ?? 'the Kingdom could not do this';
@@ -1583,6 +1656,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         .code(library ? libraryRefusalStatus(library.reason) : 409)
         .send({ error: reason, ...(library?.version ? { version: library.version } : {}) });
     }
+    if (answered) return answered(library);
     const { kind: _kind, requestId: _requestId, ok: _ok, reason: _reason, ...result } = library;
     return result;
   }
@@ -1597,6 +1671,26 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     const wanted = libraryPathOf(request);
     if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
     return askLibrary(node, reply, { kind: 'library-read', requestId: randomUUID(), path: wanted.data });
+  });
+  // An image's bytes, for the reader's <img>: typed by the hub from the extension, at most two in flight per Kingdom.
+  app.get('/api/nodes/:node/library/file', async (request, reply) => {
+    const { node } = request.params as { node: string };
+    const wanted = libraryPathOf(request);
+    if (!wanted.success) return libraryHeaders(reply).code(400).send({ error: 'expected ?path= inside the Library' });
+    const extension = libraryExtension(wanted.data);
+    const type = Object.hasOwn(LIBRARY_IMAGE_TYPES, extension) ? LIBRARY_IMAGE_TYPES[extension] : undefined;
+    if (!type) return libraryHeaders(reply).code(404).send({ error: 'not an image the Library shows' });
+    const frame: HubLibraryRead = { kind: 'library-read', requestId: randomUUID(), path: wanted.data, as: 'image' };
+    return askLibrary(node, reply, frame, {
+      image: true,
+      answered: ({ tome }) => {
+        if (tome?.kind !== 'image') return reply.code(409).send({ error: 'not an image' });
+        const bytes = Buffer.from(tome.content, tome.encoding === 'base64' ? 'base64' : 'utf8');
+        if (bytes.length > MAX_IMAGE_BYTES) return reply.code(413).send({ error: 'too large' });
+        if (type === 'image/svg+xml') libraryHeaders(reply, LIBRARY_SVG_CSP);
+        return reply.header('cache-control', 'no-store').type(type).send(bytes);
+      },
+    });
   });
   app.put('/api/nodes/:node/library/tome', { bodyLimit: LIBRARY_BODY_LIMIT }, async (request, reply) => {
     const { node } = request.params as { node: string };
