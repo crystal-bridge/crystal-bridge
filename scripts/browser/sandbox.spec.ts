@@ -1,8 +1,10 @@
 /**
  * The Library's sandboxes in a real browser (docs/LIBRARY.md, "Prove it first", item 3): an HTML Tome in the app's
- * frame reaches no other site and none of the app's storage, the same page opened directly downloads, a page answer
- * that keeps `frame-ancestors 'none'` leaves the frame blank, and a Mermaid diagram's `%%{init}%%` can't load styles or
- * fonts. The hubs, the fake Kingdom and the recording "elsewhere" server are in sandbox-hub.ts.
+ * frame, or in one with no `sandbox` attribute, reaches no other site (no request, no connection outside the known
+ * gaps) and none of the app's storage; a page that navigates its own frame is recorded as a known gap; the same page
+ * opened directly downloads; a page answer that keeps `frame-ancestors 'none'` leaves the frame blank; and a Mermaid
+ * diagram's `%%{init}%%` can't load styles or fonts, and its frame shrinks after a taller diagram. The hubs, the fake
+ * Kingdom and the recording "elsewhere" server are in sandbox-hub.ts.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { NODE, type SandboxWorld, type Seen } from './sandbox-hub.js';
@@ -24,25 +26,32 @@ test.beforeEach(async () => {
 });
 
 /**
- * Opens the hub's app, then frames `src` as the app will: `sandbox="allow-scripts"` and nothing else. Messages the frame
- * posts to its parent collect in `window.fromFrame`.
+ * Opens the hub's app, then frames `src` as the app will: `sandbox="allow-scripts"` and nothing else, or with no
+ * `sandbox` attribute at all when `sandboxed` is false. Messages the frame posts to its parent collect in
+ * `window.fromFrame`.
  */
-async function frameOnHub(page: Page, hub: string, src: string): Promise<void> {
+async function frameOnHub(page: Page, hub: string, src: string, sandboxed = true): Promise<void> {
   await page.goto(hub);
-  await page.evaluate((frameSrc) => {
-    const frame = document.createElement('iframe');
-    frame.id = 'under-test';
-    frame.setAttribute('sandbox', 'allow-scripts');
-    frame.style.cssText = 'position:fixed;inset:0;width:800px;height:600px;z-index:9999;background:white';
-    const messages: unknown[] = [];
-    (window as unknown as { fromFrame: unknown[] }).fromFrame = messages;
-    window.addEventListener('message', (event) => {
-      if (event.source === frame.contentWindow) messages.push(event.data);
-    });
-    frame.src = frameSrc;
-    document.body.append(frame);
-  }, src);
+  await page.evaluate(
+    ({ frameSrc, sandboxed }) => {
+      const frame = document.createElement('iframe');
+      frame.id = 'under-test';
+      if (sandboxed) frame.setAttribute('sandbox', 'allow-scripts');
+      frame.style.cssText = 'position:fixed;inset:0;width:800px;height:600px;z-index:9999;background:white';
+      const messages: unknown[] = [];
+      (window as unknown as { fromFrame: unknown[] }).fromFrame = messages;
+      window.addEventListener('message', (event) => {
+        if (event.source === frame.contentWindow) messages.push(event.data);
+      });
+      frame.src = frameSrc;
+      document.body.append(frame);
+    },
+    { frameSrc: src, sandboxed },
+  );
 }
+
+/** Chromium opens no connection for a preconnect link; WebKit does, a known gap (docs/LIBRARY.md). */
+const preconnects = () => test.info().project.name === 'webkit';
 
 /** The first message from the frame of this type, once it comes. */
 async function fromFrame<T>(page: Page, type: string, timeout = 15_000): Promise<T> {
@@ -86,12 +95,8 @@ test('the recorder sees what an unconfined page sends: HTTP, TCP and STUN', asyn
   expect(state.datagrams, `ICE candidates: ${candidates.join(',') || 'none'}`).toBeGreaterThan(0);
 });
 
-test("an HTML Tome in the app's frame makes no HTTP request and reaches no storage or popup", async ({ page }) => {
-  await frameOnHub(page, world.openHub, pageRoute('reaching-out.html'));
-  const { report } = await fromFrame<{ report: Record<string, unknown> }>(page, 'report');
-  const state = await settled();
-
-  expect(framedFrom(state, 'open')).toEqual([{ dest: 'iframe', site: 'same-origin' }]);
+/** What every frame of reaching-out.html must show, sandbox attribute or not. */
+function expectConfined(report: Record<string, unknown>, state: Seen, page: Page): void {
   expect(state.requests).toEqual([]);
   expect(report.origin).toBe('null');
   expect(report.localStorage).toMatchObject({ threw: true, error: 'SecurityError' });
@@ -100,14 +105,64 @@ test("an HTML Tome in the app's frame makes no HTTP request and reaches no stora
   expect(report.fetch).toMatch(/^failed/);
   expect(report.xhr).toBe('failed');
   expect(page.context().pages()).toHaveLength(1);
+  if (!preconnects()) expect(state.connections).toBe(0);
   // Known gaps, recorded rather than failed: docs/LIBRARY.md, "Open the sealed pages", says what a page can still reach.
-  test
-    .info()
-    .annotations.push(
-      { type: 'known-gap', description: `WebRTC STUN datagrams: ${state.datagrams} (${String(report.rtc)})` },
-      { type: 'known-gap', description: `TCP connections without a request (preconnect): ${state.connections}` },
-    );
+  test.info().annotations.push(
+    { type: 'known-gap', description: `WebRTC STUN datagrams: ${state.datagrams} (${String(report.rtc)})` },
+    {
+      type: preconnects() ? 'known-gap' : 'checked',
+      description: `TCP connections without a request (preconnect): ${state.connections}`,
+    },
+  );
+}
+
+test("an HTML Tome in the app's frame makes no HTTP request and reaches no storage or popup", async ({ page }) => {
+  await frameOnHub(page, world.openHub, pageRoute('reaching-out.html'));
+  const { report } = await fromFrame<{ report: Record<string, unknown> }>(page, 'report');
+  const state = await settled();
+
+  expect(framedFrom(state, 'open')).toEqual([{ dest: 'iframe', site: 'same-origin' }]);
+  expectConfined(report, state, page);
 });
+
+test('the CSP alone confines an HTML Tome, in a frame with no sandbox attribute', async ({ page }) => {
+  await frameOnHub(page, world.openHub, pageRoute('reaching-out.html'), false);
+  const { report } = await fromFrame<{ report: Record<string, unknown> }>(page, 'report');
+  const state = await settled();
+
+  expect(framedFrom(state, 'open')).toEqual([{ dest: 'iframe', site: 'same-origin' }]);
+  expectConfined(report, state, page);
+});
+
+test('an HTML Tome reaches no other site by form, WebSocket, beacon, Worker or nested frame', async ({ page }) => {
+  await frameOnHub(page, world.openHub, pageRoute('reaching-further.html'));
+  const { report } = await fromFrame<{ report: Record<string, unknown> }>(page, 'report');
+  const state = await settled();
+
+  expect(framedFrom(state, 'open')).toEqual([{ dest: 'iframe', site: 'same-origin' }]);
+  expect(state.requests).toEqual([]);
+  expect(state.connections).toBe(0);
+  expect(state.datagrams).toBe(0);
+  expect(report.socket).not.toBe('opened');
+  test.info().annotations.push({ type: 'attempts', description: JSON.stringify(report) });
+});
+
+for (const how of ['location', 'link', 'meta']) {
+  test(`an HTML Tome that navigates its own frame (${how}) is recorded, not failed`, async ({ page }) => {
+    await frameOnHub(page, world.openHub, pageRoute(`navigate-${how}.html`));
+    const state = await settled();
+
+    expect(framedFrom(state, 'open')).toEqual([{ dest: 'iframe', site: 'same-origin' }]);
+    // Only this page's own way out, if any: nothing else in it reaches anywhere.
+    expect(state.requests.filter((request) => !request.startsWith(`GET /navigate/${how}?`))).toEqual([]);
+    // A known gap (docs/LIBRARY.md, "Open the sealed pages"): a page may navigate its own frame, and so reach the site
+    // it goes to, carrying what it puts in the address.
+    test.info().annotations.push({
+      type: 'known-gap',
+      description: `navigation by ${how}: ${state.requests.length} request(s) reached the other site (${state.requests.join(', ') || 'none'})`,
+    });
+  });
+}
 
 test('the same page opened directly at its address downloads instead of rendering', async ({ page }) => {
   const download = page.waitForEvent('download');

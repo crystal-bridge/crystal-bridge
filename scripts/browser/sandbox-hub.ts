@@ -47,7 +47,7 @@ export interface SandboxWorld {
 
 /** What the control server reports. */
 export interface Seen {
-  /** HTTP requests elsewhere got, as `METHOD /path`. */
+  /** HTTP requests elsewhere got, as `METHOD /path` (`UPGRADE /path` for a WebSocket). */
   requests: string[];
   /** TCP connections elsewhere accepted, with or without a request (a preconnect makes one). */
   connections: number;
@@ -116,6 +116,11 @@ async function main(): Promise<void> {
   const elsewhere = createServer((request, response) => {
     seen.requests.push(`${request.method} ${request.url}`);
     response.writeHead(200, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' }).end('elsewhere');
+  });
+  // A WebSocket's opening request comes as an upgrade, not a request: recorded the same way, then refused.
+  elsewhere.on('upgrade', (request, socket) => {
+    seen.requests.push(`UPGRADE ${request.url}`);
+    socket.destroy();
   });
   elsewhere.on('connection', () => (seen.connections += 1));
   const elsewherePort = await listening(elsewhere, '::');

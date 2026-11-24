@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- An HTML Tome that sends its own frame to another site by clicking a link from script. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Navigate by link</title>
+  </head>
+  <body>
+    <a id="link" href="__ELSEWHERE__/navigate/link?leak=x">elsewhere</a>
+    <script>
+      document.getElementById('link').click();
+    </script>
+  </body>
+</html>

@@ -276,12 +276,16 @@ The build starts with the risky parts, each with a failing test:
    watched, and a symlinked folder that loops.
 3. **The sandboxes**, in a real browser (Chromium and WebKit): an HTML Tome that tries to fetch, to load a script,
    style or font from another site, to prefetch a DNS name, to open a WebRTC connection, to read the app's storage
-   and to open a popup; the same page opened directly at its address; a hub answer that keeps
-   `frame-ancestors 'none'` by mistake; and a Mermaid diagram whose `%%{init}%%` sets `themeCSS` and `fontFamily`. The
-   test proves the page makes no HTTP request, reads no storage or cookie and opens no popup; that the page opened
-   directly downloads; that the mistaken answer leaves the frame blank; and that the diagram draws with no request at
-   all. It records two known gaps rather than failing on them: WebRTC's STUN requests in both browsers, and WebKit's
-   connection for a preconnect link. The section on HTML Tomes says what they mean.
+   and to open a popup, framed as the app frames it and again with no `sandbox` attribute (the CSP alone); a second
+   that tries a form, a WebSocket, a beacon, a Worker from another site and a nested frame; one page each that
+   navigates its own frame by `location.href`, by a scripted link click and by a meta refresh; the same page opened
+   directly at its address; a hub answer that keeps `frame-ancestors 'none'` by mistake; and a Mermaid diagram whose
+   `%%{init}%%` sets `themeCSS` and `fontFamily`, and a frame drawing a small, a tall and a small diagram again. The
+   test proves the pages make no HTTP request or connection, read no storage or cookie and open no popup, with or
+   without the `sandbox` attribute; that the page opened directly downloads; that the mistaken answer leaves the frame
+   blank; that the diagram draws with no request at all; and that the frame shrinks back. It records the known gaps
+   rather than failing on them: WebRTC's STUN requests in both browsers, WebKit's connection for a preconnect link,
+   and the three navigations, which reach the other site in both. The section on HTML Tomes says what they mean.
 
 If any of these doesn't hold, the design comes back here before the rest is built.
 
