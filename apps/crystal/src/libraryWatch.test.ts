@@ -44,8 +44,8 @@ describe('the Library watcher (#290)', () => {
 
   /**
    * Starts a watcher, then settles until quiet: macOS FSEvents can deliver events for the writes the setup made just
-   * before the watch began, late on a busy runner. Waits until nothing has been delivered for 500 ms (up to 5 s), then
-   * drops what arrived from the record.
+   * before the watch began, late on a busy runner (the setup's `.gitignore` among them, which logs a reload). Waits until
+   * nothing has been delivered for 500 ms (up to 5 s), then drops what arrived, and what it logged, from the record.
    */
   async function start(opts: { batchMs?: number; maxFolders?: number; onIgnoreChanged?: () => void } = {}) {
     lastEvent = Date.now();
@@ -68,6 +68,7 @@ describe('the Library watcher (#290)', () => {
     const ceiling = Date.now() + 5000;
     while (Date.now() - lastEvent < 500 && Date.now() < ceiling) await wait(20);
     changes.length = 0;
+    logs.length = 0;
     return watcher;
   }
 
