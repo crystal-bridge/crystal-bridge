@@ -33,11 +33,11 @@ importers:
   apps/airship:
     dependencies:
       '@fastify/rate-limit':
-        specifier: ^11.2.2
-        version: 11.2.2
+        specifier: ^11.3.0
+        version: 11.3.0
       '@fastify/static':
-        specifier: ^10.1.11
-        version: 10.1.11
+        specifier: ^10.1.12
+        version: 10.1.12
       '@fastify/websocket':
         specifier: ^11.3.7
         version: 11.3.7
@@ -173,8 +173,8 @@ importers:
         specifier: 5.3.0
         version: 5.3.0
       katex:
-        specifier: ^0.16.47
-        version: 0.16.47
+        specifier: ^0.19.1
+        version: 0.19.1
       mermaid:
         specifier: ^12.3.0
         version: 12.3.0
@@ -553,14 +553,14 @@ packages:
   '@fastify/proxy-addr@5.1.2':
     resolution: {integrity: sha512-uqB4QsgVoro0XDC+DIftIMGXHdBPn+lK6Ek3xXAIxPMCJfqxnbtyEoMCm2KPUVOuIosd7Cyw9HawEqMFM/UA+g==}
 
-  '@fastify/rate-limit@11.2.2':
-    resolution: {integrity: sha512-Ynxk9BU82Y5Ux7NOk9NqyZpTMdFes8EY8quXrN6ePDsbtG4G9Afb3l9mD8Vw2nv0hXg0iFjV+gkdABReFPlShw==}
+  '@fastify/rate-limit@11.3.0':
+    resolution: {integrity: sha512-n+gmOdTRReRA+UGI/cPAvG4bW4FCDLofInXNkTX42/rkMPy/8ii8LsLWHUU1KC+jJRdBtOD9Zs+Js8168eS/4A==}
 
   '@fastify/send@4.2.0':
     resolution: {integrity: sha512-B5Hr+IFsPbqJJQu6FHE2MFpnHfbPlCOVQUPTdm6PxCcilYGrEQsulbO0z9blgbjndIyLJwa2NWFIIjXpPhbwUg==}
 
-  '@fastify/static@10.1.11':
-    resolution: {integrity: sha512-WjEpDqkzOziIipghh4ki3ZNfLCmI1kRWlYKar3+9FiuY2LzoeogKiDqxIH68r6vYUSxvUzyEiV1BOP0yfW+glQ==}
+  '@fastify/static@10.1.12':
+    resolution: {integrity: sha512-D0pmf8OgurIsKiIjxC8ZJP/bCYnUSAiU6PS/se/6Me63UoliAu8FqrzDRX8FdgJMqFMXy45ISlfUZ1Gi6AJnqA==}
 
   '@fastify/websocket@11.3.7':
     resolution: {integrity: sha512-fkkS87CkAOY/MzvJrB94S729RxvIbLHXv2LNGkPifli4/q4IdeicpcFoxgJ3oVmIRVNSi4W6FZai5AmRhzhhTw==}
@@ -2035,6 +2035,10 @@ packages:
     resolution: {integrity: sha512-/B6p9eY9DX7aHBfpkHdpirDTZ5QH9xTwL9y837PWuzuv41O5jFdqNQwVQEQsimY0/iVNkwBY4+4hMfhQ7d4Dbw==}
     hasBin: true
 
+  katex@0.19.1:
+    resolution: {integrity: sha512-jG8uKntjSEcm2EpQOh0XturpPuuC9r3Sq5HLHdsFdWZT27E672SF19QEi+of0/YeOy15lDgRhKvr5614uRrEfA==}
+    hasBin: true
+
   khroma@2.1.0:
     resolution: {integrity: sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw==}
 
@@ -3199,7 +3203,7 @@ snapshots:
       '@fastify/forwarded': 3.1.2
       ipaddr.js: 2.5.0
 
-  '@fastify/rate-limit@11.2.2':
+  '@fastify/rate-limit@11.3.0':
     dependencies:
       '@lukeed/ms': 2.0.2
       fastify-plugin: 6.0.1
@@ -3214,7 +3218,7 @@ snapshots:
       http-errors: 2.0.1
       mime: 3.0.0
 
-  '@fastify/static@10.1.11':
+  '@fastify/static@10.1.12':
     dependencies:
       '@fastify/accept-negotiator': 2.1.2
       '@fastify/error': 4.2.1
@@ -4697,6 +4701,10 @@ snapshots:
       commander: 8.3.0
 
   katex@0.18.10:
+    dependencies:
+      commander: 15.1.0
+
+  katex@0.19.1:
     dependencies:
       commander: 15.1.0
 
