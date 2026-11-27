@@ -32,8 +32,8 @@
     "backup": "tsx src/backup-cli.ts"
   },
   "dependencies": {
-    "@fastify/rate-limit": "^11.2.2",
-    "@fastify/static": "^10.1.11",
+    "@fastify/rate-limit": "^11.3.0",
+    "@fastify/static": "^10.1.12",
     "@fastify/websocket": "^11.3.7",
     "@sigstore/bundle": "^5.0.1",
     "@sigstore/tuf": "^5.0.1",
